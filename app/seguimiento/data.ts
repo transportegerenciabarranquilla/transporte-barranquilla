@@ -1,5 +1,12 @@
 import type { Vehiculo } from "./types";
 
+const baseExtraFields = {
+  cajasGestionadas: 0,
+  cajasReportadas: 0,
+  createdAt: new Date().toISOString(),
+  date: "2026-06-11",
+};
+
 export const initialVehicles: Vehiculo[] = [
   {
     mes: "Junio",
@@ -36,7 +43,10 @@ export const initialVehicles: Vehiculo[] = [
     causalDesviado: "-",
     clasificacionOnTime: "On time",
     recargue: "No",
+
+    ...baseExtraFields,
   },
+
   {
     mes: "Junio",
     cd: "BAQ",
@@ -72,7 +82,10 @@ export const initialVehicles: Vehiculo[] = [
     causalDesviado: "-",
     clasificacionOnTime: "En observacion",
     recargue: "No",
+
+    ...baseExtraFields,
   },
+
   {
     mes: "Junio",
     cd: "BAQ",
@@ -108,7 +121,10 @@ export const initialVehicles: Vehiculo[] = [
     causalDesviado: "Sin asistencia",
     clasificacionOnTime: "Riesgo",
     recargue: "No",
+
+    ...baseExtraFields,
   },
+
   {
     mes: "Junio",
     cd: "BAQ",
@@ -144,5 +160,7 @@ export const initialVehicles: Vehiculo[] = [
     causalDesviado: "-",
     clasificacionOnTime: "On time",
     recargue: "Si",
+
+    ...baseExtraFields,
   },
 ];
