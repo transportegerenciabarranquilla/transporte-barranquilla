@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileDown, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -27,6 +27,7 @@ export default function SeguimientoPage() {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>(() => loadSeguimientoVehiculos());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
+  const [fechaDtFilter, setFechaDtFilter] = useState("");
   const [dateScope, setDateScope] = useState<DateScope>("today");
   const [importMessage, setImportMessage] = useState("");
   const [modulaciones] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
@@ -39,10 +40,11 @@ export default function SeguimientoPage() {
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === "Todos" || status === statusFilter;
       const matchesDate = dateScope === "all" || item.fechaDespacho === getLocalDateKey();
+      const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter;
 
-      return matchesSearch && matchesStatus && matchesDate;
+      return matchesSearch && matchesStatus && matchesDate && matchesFechaDt;
     });
-  }, [dateScope, search, statusFilter, vehiculos]);
+  }, [dateScope, fechaDtFilter, search, statusFilter, vehiculos]);
 
   const resumen = useMemo(() => {
     const clientes = filteredVehicles.reduce((total, item) => total + item.clientes, 0);
@@ -180,15 +182,23 @@ export default function SeguimientoPage() {
             />
           </label>
 
-          <div className="flex items-center rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
             <button
-              className="mr-2 inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
               onClick={() => router.push("/seguimiento/graficas")}
               type="button"
             >
               <BarChart3 size={18} />
               Graficas
             </button>
+            <a
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+              download="plantilla-seguimiento.xlsx"
+              href="/plantilla-seguimiento.xlsx"
+            >
+              <FileDown size={18} />
+              Plantilla
+            </a>
             <button
               className={`h-10 rounded-md px-4 text-sm font-semibold transition ${
                 dateScope === "today" ? "bg-[#10223d] text-white" : "text-slate-600 hover:bg-slate-100"
@@ -211,8 +221,13 @@ export default function SeguimientoPage() {
         </div>
 
         <SeguimientoFilters
+          fechaDtFilter={fechaDtFilter}
           search={search}
           statusFilter={statusFilter}
+          onFechaDtChange={(value) => {
+            setFechaDtFilter(value);
+            if (value) setDateScope("all");
+          }}
           onSearchChange={setSearch}
           onStatusChange={setStatusFilter}
         />

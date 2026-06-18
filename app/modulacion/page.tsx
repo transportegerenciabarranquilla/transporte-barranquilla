@@ -1,19 +1,17 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Clock, ClipboardList, Eye, PackageCheck, PackageX, Percent, Ruler, Truck, UserRound, X } from "lucide-react";
+import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, Truck, X } from "lucide-react";
 import {
-  isTodayDate,
+  getLocalDateKey,
   normalizeDt,
   readModulacionRegistros,
   saveModulacionRegistros,
-  summarizeModulaciones,
   type ModulacionRegistro,
 } from "../lib/modulacionStorage";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
-import { SummaryInfo } from "./components/SummaryInfo";
 import type { Vehiculo } from "../seguimiento/types";
 
 export default function ModulacionPage() {
@@ -21,19 +19,28 @@ export default function ModulacionPage() {
   const [registros, setRegistros] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
   const [vehiculosSeguimiento] = useState(() => getVehiculosSeguimiento());
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
-  const registrosHoy = useMemo(() => registros.filter((registro) => isTodayDate(registro.createdAt)), [registros]);
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
+  const [search, setSearch] = useState("");
 
-  const totalCajasVehiculos = useMemo(
-    () => vehiculosSeguimiento.reduce((total, vehiculo) => total + Number(vehiculo.cajas || 0), 0),
-    [vehiculosSeguimiento],
-  );
-  const resumen = useMemo(() => summarizeModulaciones(registrosHoy, totalCajasVehiculos), [registrosHoy, totalCajasVehiculos]);
-  const registrosRecientes = useMemo(() => registrosHoy.slice(0, 8), [registrosHoy]);
-  const moduladoresHoy = useMemo(() => summarizeModuladores(registrosHoy), [registrosHoy]);
+  const registrosFiltrados = useMemo(() => {
+    return registros
+      .filter((registro) => !selectedDate || getLocalDateKey(new Date(registro.createdAt)) === selectedDate)
+      .filter((registro) => {
+        const term = search.trim().toLowerCase();
+        if (!term) return true;
+
+        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.persona} ${registro.causal} ${registro.comentario}`
+          .toLowerCase()
+          .includes(term);
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [registros, search, selectedDate]);
+
   const registroSeleccionado = useMemo(
-    () => registrosHoy.find((registro) => registro.id === selectedRegistroId) ?? null,
-    [registrosHoy, selectedRegistroId],
+    () => registros.find((registro) => registro.id === selectedRegistroId) ?? null,
+    [registros, selectedRegistroId],
   );
+
   const vehiculoSeleccionado = useMemo(() => {
     if (!registroSeleccionado) return null;
     return vehiculosSeguimiento.find((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(registroSeleccionado.dt)) ?? null;
@@ -52,316 +59,274 @@ export default function ModulacionPage() {
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <ModulacionHeader onBack={() => router.push("/")} />
 
-      <section className="mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:py-10">
-        <div className="mb-6">
-          <p className="text-sm font-medium text-slate-500">Modulo interno</p>
-          <h1 className="mt-1 text-3xl font-semibold text-[#10223d]">Resumen de modulacion</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Consulta los registros enviados desde el link publico de modulacion antes del inicio de sesion.
-          </p>
+      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-500">Modulo interno</p>
+            <h1 className="mt-1 text-3xl font-semibold text-[#10223d]">Modulaciones por dia</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Consulta, filtra y actualiza las modulaciones registradas desde el formulario publico.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">Registros visibles</p>
+            <p className="mt-1 text-2xl font-semibold text-[#10223d]">{registrosFiltrados.length}</p>
+          </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <MetricCard
-            icon={<PackageX size={20} />}
-            label="Cajas rechazadas"
-            value={resumen.cajasRechazadas.toLocaleString("es-CO")}
-          />
-          <MetricCard
-            icon={<PackageCheck size={20} />}
-            label="Cajas reubicadas"
-            value={resumen.cajasReubicadas.toLocaleString("es-CO")}
-          />
-          <MetricCard
-            icon={<Ruler size={20} />}
-            label="Tope maximo"
-            value={resumen.topeMaximoCajas.toLocaleString("es-CO")}
-          />
-          <MetricCard icon={<Percent size={20} />} label="Refusal neto" value={`${resumen.refusal.toLocaleString("es-CO")}%`} />
-          <MetricCard icon={<ClipboardList size={20} />} label="Clientes que rechazan" value={resumen.clientesRechazan} />
+        <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto] lg:items-center">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar por DT, cliente, persona, causal o comentario"
+                value={search}
+              />
+            </div>
+
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#f5bd19]"
+                onChange={(event) => setSelectedDate(event.target.value)}
+                type="date"
+                value={selectedDate}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                className="h-11 rounded-md bg-[#10223d] px-4 text-sm font-semibold text-white transition hover:bg-[#1b355b]"
+                onClick={() => setSelectedDate(getLocalDateKey())}
+                type="button"
+              >
+                Hoy
+              </button>
+              <button
+                className="h-11 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+                onClick={() => setSelectedDate("")}
+                type="button"
+              >
+                Todas
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <CajasChart
-            cajasPendientes={resumen.cajasPendientes}
-            cajasRechazadas={resumen.cajasRechazadas}
-            cajasReubicadas={resumen.cajasReubicadas}
-            topeMaximoCajas={resumen.topeMaximoCajas}
-          />
-          <RefusalPanel
-            cajasPendientes={resumen.cajasPendientes}
-            refusal={resumen.refusal}
-            topeMaximoCajas={resumen.topeMaximoCajas}
-            totalCajasVehiculos={totalCajasVehiculos}
-          />
-        </div>
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardList size={19} className="text-[#10223d]" />
+              <div>
+                <h2 className="text-lg font-semibold text-[#10223d]">Tabla de modulaciones</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selectedDate ? `Mostrando registros del ${selectedDate}` : "Mostrando todos los dias"}
+                </p>
+              </div>
+            </div>
+            <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
+              {registrosFiltrados.length} modulacion{registrosFiltrados.length === 1 ? "" : "es"}
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1120px]">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  <th className="px-5 py-4 text-left">Fecha / hora</th>
+                  <th className="px-5 py-4 text-left">DT</th>
+                  <th className="px-5 py-4 text-left">Cliente</th>
+                  <th className="px-5 py-4 text-left">Persona</th>
+                  <th className="px-5 py-4 text-left">Causal</th>
+                  <th className="px-5 py-4 text-center">Rechazadas</th>
+                  <th className="px-5 py-4 text-center">Reubicadas</th>
+                  <th className="px-5 py-4 text-left">Comentario</th>
+                  <th className="px-5 py-4 text-right">Detalle</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {registrosFiltrados.length ? (
+                  registrosFiltrados.map((registro) => (
+                    <tr className="transition hover:bg-slate-50" key={registro.id}>
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
+                        <p className="text-sm text-slate-500">{formatTime(registro.createdAt)}</p>
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-[#10223d]">DT {registro.dt}</td>
+                      <td className="px-5 py-4">
+                        <p className="font-medium text-slate-700">{registro.codigoCliente}</p>
+                        <p className="max-w-44 truncate text-sm text-slate-500">{registro.nombreCliente || "-"}</p>
+                      </td>
+                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{registro.persona}</td>
+                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{registro.causal}</td>
+                      <td className="px-5 py-4 text-center">
+                        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{registro.totalCajas}</span>
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        <input
+                          className="h-9 w-20 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                          inputMode="numeric"
+                          onChange={(event) => updateCajasReubicadas(registro.id, event.target.value)}
+                          type="text"
+                          value={registro.cajasReubicadas || "0"}
+                        />
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="max-w-72 truncate text-sm text-slate-600">{registro.comentario || "-"}</p>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-100 px-2.0 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+                          onClick={() => setSelectedRegistroId(registro.id)}
+                          type="button"
+                        >
+                          <Eye size={4} />
+                          Modulador
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={9}>
+                      No hay modulaciones para los filtros seleccionados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {registroSeleccionado ? (
-          <ModuladorRejectPanel
+          <ModulacionDetailModal
             onChangeReubicadas={updateCajasReubicadas}
             onClose={() => setSelectedRegistroId(null)}
             registro={registroSeleccionado}
             selectedVehicle={vehiculoSeleccionado}
           />
         ) : null}
-
-        <ModuladoresPanel moduladores={moduladoresHoy} />
-
-        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-[#10223d]">Registros recientes</h2>
-              <p className="mt-1 text-sm text-slate-500">Solo se muestran registros y DT del dia de hoy.</p>
-            </div>
-          </div>
-
-          {registrosRecientes.length ? (
-            <div className="grid gap-3">
-              {registrosRecientes.map((registro) => {
-                const isSelected = registro.id === selectedRegistroId;
-
-                return (
-                <article
-                  className={`rounded-md border p-4 transition ${
-                    isSelected ? "border-[#f5bd19] bg-[#fff8e6]" : "border-slate-200 bg-white"
-                  }`}
-                  key={registro.id}
-                >
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <SummaryInfo label="DT" value={registro.dt} />
-                    <SummaryInfo label="Cliente" value={registro.codigoCliente} />
-                    <SummaryInfo label="Nombre cliente" value={registro.nombreCliente || "-"} />
-                    <SummaryInfo label="Rechazadas" value={registro.totalCajas} />
-                    <EditableSummaryNumber
-                      label="Reubicadas"
-                      onChange={(value) => updateCajasReubicadas(registro.id, value)}
-                      value={registro.cajasReubicadas || "0"}
-                    />
-                    <SummaryInfo label="Persona" value={registro.persona} />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-slate-600">
-                      <strong className="text-[#10223d]">{registro.causal}:</strong> {registro.comentario}
-                    </p>
-                    <button
-                      className={`inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold transition ${
-                        isSelected
-                          ? "bg-[#10223d] text-white"
-                          : "border border-slate-200 bg-white text-[#10223d] hover:border-[#f5bd19]"
-                      }`}
-                      onClick={() => setSelectedRegistroId(isSelected ? null : registro.id)}
-                      type="button"
-                    >
-                      <Eye size={17} />
-                      {isSelected ? "Ocultar modulador" : "Ver modulador"}
-                    </button>
-                  </div>
-                </article>
-              );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-              Aun no hay registros de modulacion guardados en este navegador.
-            </div>
-          )}
-        </div>
       </section>
     </main>
   );
 }
 
-function ModuladorRejectPanel({
+function ModulacionDetailModal({
   onClose,
   registro,
   selectedVehicle,
   onChangeReubicadas,
 }: {
   onClose: () => void;
-  registro: ModulacionRegistro | null;
+  registro: ModulacionRegistro;
   selectedVehicle: Vehiculo | null;
   onChangeReubicadas: (id: string, value: string) => void;
 }) {
-  if (!registro) return null;
-
-  const rows = [
+  const details = [
     ["Codigo cliente", registro.codigoCliente],
     ["Nombre cliente", registro.nombreCliente || "-"],
     ["Placa de vehiculo", selectedVehicle?.vehiculo || "-"],
-    ["Causal", registro.causal],
-    ["Cajas rechazadas", registro.totalCajas],
     ["Transportista", selectedVehicle?.transportista || "-"],
     ["Responsable", selectedVehicle?.responsable || registro.persona],
-    ["Fecha", formatDate(registro.createdAt)],
+    ["Territorio", selectedVehicle?.territorio || "-"],
+    ["Causal", registro.causal],
+    ["Comentario", registro.comentario || "-"],
   ];
 
   return (
-    <section className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="relative bg-[#10223d] px-5 py-4 text-center text-white">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Modulador CD Galapa</p>
-        <h2 className="mt-1 text-2xl font-semibold">Alerta de rechazo</h2>
-        <button
-          aria-label="Cerrar modulador"
-          className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-md text-white transition hover:bg-white/10"
-          onClick={onClose}
-          type="button"
-        >
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="grid border-b border-slate-200 bg-[#e9f3ff] text-center text-[#10223d] sm:grid-cols-3">
-        <div className="border-b border-slate-200 px-4 py-3 font-semibold sm:border-b-0 sm:border-r">
-          {selectedVehicle?.centro || "Punto Corona"}
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
+      <section className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+        <div className="relative border-b border-slate-200 bg-white px-5 py-4">
+          <div className="flex items-start gap-3 pr-12">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
+              <PackageCheck size={20} />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Detalle de modulacion</p>
+              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">DT {registro.dt}</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {formatDate(registro.createdAt)} · {formatTime(registro.createdAt)}
+              </p>
+            </div>
+          </div>
+          <button
+            aria-label="Cerrar detalle"
+            className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-[#10223d]"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div className="border-b border-slate-200 px-4 py-3 font-semibold sm:border-b-0 sm:border-r">
-          DT {registro.dt}
-        </div>
-        <div className="px-4 py-3 font-semibold">{registro.persona}</div>
-      </div>
 
-      <div className="grid gap-0 lg:grid-cols-[1fr_280px]">
-        <div className="divide-y divide-slate-200">
-          {rows.map(([label, value]) => (
-            <div className="grid min-h-12 sm:grid-cols-[220px_1fr]" key={label}>
-              <div className="flex items-center bg-slate-50 px-4 py-3 text-sm font-semibold uppercase text-[#10223d]">
-                {label}
+        <div className="max-h-[calc(92vh-84px)] overflow-y-auto p-5">
+          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+            <ModalMetric label="Rechazadas" value={registro.totalCajas} tone="red" />
+            <ModalMetric label="Reubicadas" value={registro.cajasReubicadas || "0"} tone="green" />
+            <ModalMetric label="Persona" value={registro.persona} tone="blue" />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-[1fr_240px]">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {details.map(([label, value]) => (
+                <DetailTile key={label} label={label} value={value} />
+              ))}
+            </div>
+
+            <aside className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
+                <Truck size={16} />
+                Gestion
               </div>
-              <div
-                className={`flex items-center px-4 py-3 text-sm font-semibold ${
-                  label === "Placa de vehiculo" || label === "Cajas rechazadas"
-                    ? "bg-[#f5bd19] text-[#10223d]"
-                    : "text-slate-700"
-                }`}
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Cajas reubicadas</span>
+                <input
+                  className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                  inputMode="numeric"
+                  onChange={(event) => onChangeReubicadas(registro.id, event.target.value)}
+                  type="text"
+                  value={registro.cajasReubicadas || "0"}
+                />
+              </label>
+              <button
+                className="mt-4 h-10 w-full rounded-md bg-[#10223d] text-sm font-semibold text-white transition hover:bg-[#1b355b]"
+                onClick={onClose}
+                type="button"
               >
-                {value}
-              </div>
-            </div>
-          ))}
+                Cerrar
+              </button>
+            </aside>
+          </div>
         </div>
-
-        <aside className="border-t border-slate-200 bg-slate-50 p-5 lg:border-l lg:border-t-0">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-md bg-[#fff8e6] px-3 py-2 text-sm font-semibold text-[#10223d]">
-            <AlertTriangle size={18} />
-            Gestion de rechazo
-          </div>
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">Cajas reubicadas</span>
-            <input
-              className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-              inputMode="numeric"
-              onChange={(event) => onChangeReubicadas(registro.id, event.target.value)}
-              type="text"
-              value={registro.cajasReubicadas || "0"}
-            />
-          </label>
-
-          <div className="mt-5 rounded-md bg-white p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
-              <Truck size={16} />
-              Vehiculo asociado
-            </div>
-            <p className="text-sm text-slate-600">{selectedVehicle?.vehiculo || "Sin placa asociada"}</p>
-            <p className="mt-1 text-xs text-slate-500">{selectedVehicle?.territorio || "Territorio pendiente"}</p>
-          </div>
-        </aside>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
-type ModuladorResumen = {
-  persona: string;
-  cantidad: number;
-  cajasRechazadas: number;
-  cajasReubicadas: number;
-  ultimoRegistro: ModulacionRegistro;
-};
+function ModalMetric({ label, value, tone }: { label: string; value: string | number; tone: "red" | "green" | "blue" }) {
+  const colors = {
+    red: "bg-red-50 text-red-700",
+    green: "bg-emerald-50 text-emerald-700",
+    blue: "bg-[#e9f3ff] text-[#10223d]",
+  };
 
-function summarizeModuladores(registros: ModulacionRegistro[]) {
-  const grouped = new Map<string, ModuladorResumen>();
-
-  registros.forEach((registro) => {
-    const persona = registro.persona.trim() || "Sin nombre";
-    const key = persona.toLowerCase();
-    const current = grouped.get(key);
-
-    if (!current) {
-      grouped.set(key, {
-        persona,
-        cantidad: 1,
-        cajasRechazadas: Number(registro.totalCajas || 0),
-        cajasReubicadas: Number(registro.cajasReubicadas || 0),
-        ultimoRegistro: registro,
-      });
-      return;
-    }
-
-    current.cantidad += 1;
-    current.cajasRechazadas += Number(registro.totalCajas || 0);
-    current.cajasReubicadas += Number(registro.cajasReubicadas || 0);
-
-    if (new Date(registro.createdAt).getTime() > new Date(current.ultimoRegistro.createdAt).getTime()) {
-      current.ultimoRegistro = registro;
-    }
-  });
-
-  return Array.from(grouped.values()).sort(
-    (a, b) => new Date(b.ultimoRegistro.createdAt).getTime() - new Date(a.ultimoRegistro.createdAt).getTime(),
-  );
-}
-
-function ModuladoresPanel({ moduladores }: { moduladores: ModuladorResumen[] }) {
   return (
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[#10223d]">Moduladores de hoy</h2>
-          <p className="mt-1 text-sm text-slate-500">Personas que han registrado modulaciones durante el dia.</p>
-        </div>
-        <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
-          {moduladores.length} activos
-        </span>
-      </div>
+    <div className={`rounded-lg p-4 ${colors[tone]}`}>
+      <p className="text-xs font-medium uppercase tracking-[0.12em] opacity-75">{label}</p>
+      <p className="mt-2 truncate text-2xl font-semibold">{value}</p>
+    </div>
+  );
+}
 
-      {moduladores.length ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {moduladores.map((modulador) => (
-            <article className="rounded-md border border-slate-200 p-4" key={modulador.persona}>
-              <div className="flex items-start gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
-                  <UserRound size={18} />
-                </span>
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold text-[#10223d]">{modulador.persona}</h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {modulador.cantidad} modulacion{modulador.cantidad === 1 ? "" : "es"} registradas
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <SummaryInfo label="Rechazadas" value={modulador.cajasRechazadas.toLocaleString("es-CO")} />
-                <SummaryInfo label="Reubicadas" value={modulador.cajasReubicadas.toLocaleString("es-CO")} />
-              </div>
-
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <span>Ultimo DT {modulador.ultimoRegistro.dt}</span>
-                <span className="inline-flex items-center gap-1">
-                  <Clock size={14} />
-                  {formatTime(modulador.ultimoRegistro.createdAt)}
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-          Aun no hay moduladores registrados hoy.
-        </div>
-      )}
-    </section>
+function DetailTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-[#10223d]">{value}</p>
+    </div>
   );
 }
 
@@ -377,143 +342,4 @@ function formatDate(value: string) {
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("es-CO");
-}
-
-function MetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">{icon}</div>
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-[#10223d]">{value}</p>
-    </div>
-  );
-}
-
-function CajasChart({
-  cajasPendientes,
-  cajasRechazadas,
-  cajasReubicadas,
-  topeMaximoCajas,
-}: {
-  cajasPendientes: number;
-  cajasRechazadas: number;
-  cajasReubicadas: number;
-  topeMaximoCajas: number;
-}) {
-  const maxValue = Math.max(cajasRechazadas, cajasReubicadas, cajasPendientes, 1);
-  const reubicadasWidth = cajasRechazadas ? (cajasReubicadas / cajasRechazadas) * 100 : 0;
-  const pendientesWidth = cajasRechazadas ? (cajasPendientes / cajasRechazadas) * 100 : 0;
-  const bars = [
-    { label: "Rechazadas", value: cajasRechazadas, color: "bg-[#d9480f]" },
-    { label: "Reubicadas", value: cajasReubicadas, color: "bg-[#0f7c58]" },
-    { label: "Pendientes", value: cajasPendientes, color: "bg-[#f5bd19]" },
-    { label: "Tope maximo", value: topeMaximoCajas, color: "bg-[#10223d]" },
-  ];
-
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-[#10223d]">Cajas rechazadas vs reubicadas</h2>
-        <p className="mt-1 text-sm text-slate-500">Las pendientes son rechazadas menos reubicadas.</p>
-      </div>
-
-      <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-          <span className="font-medium text-slate-600">Distribucion de cajas rechazadas</span>
-          <span className="font-semibold text-[#10223d]">{cajasRechazadas.toLocaleString("es-CO")}</span>
-        </div>
-        <div className="flex h-5 overflow-hidden rounded-md bg-slate-200">
-          <div className="bg-[#0f7c58]" style={{ width: `${Math.min(reubicadasWidth, 100)}%` }} />
-          <div className="bg-[#f5bd19]" style={{ width: `${Math.min(pendientesWidth, 100)}%` }} />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
-          <span>Reubicadas: {cajasReubicadas.toLocaleString("es-CO")}</span>
-          <span>Pendientes: {cajasPendientes.toLocaleString("es-CO")}</span>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {bars.map((bar) => (
-          <div key={bar.label}>
-            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-slate-600">{bar.label}</span>
-              <span className="font-semibold text-[#10223d]">{bar.value.toLocaleString("es-CO")}</span>
-            </div>
-            <div className="h-4 overflow-hidden rounded-md bg-slate-100">
-              <div className={`h-full rounded-md ${bar.color}`} style={{ width: `${(bar.value / maxValue) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function EditableSummaryNumber({
-  label,
-  onChange,
-  value,
-}: {
-  label: string;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <input
-        className="mt-1 h-9 w-28 rounded-md border border-slate-200 px-2 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-        inputMode="numeric"
-        onChange={(event) => onChange(event.target.value)}
-        type="text"
-        value={value}
-      />
-    </div>
-  );
-}
-
-function RefusalPanel({
-  cajasPendientes,
-  refusal,
-  topeMaximoCajas,
-  totalCajasVehiculos,
-}: {
-  cajasPendientes: number;
-  refusal: number;
-  topeMaximoCajas: number;
-  totalCajasVehiculos: number;
-}) {
-  const refusalWidth = Math.min(refusal, 100);
-  const topeUsado = topeMaximoCajas ? Math.min((cajasPendientes / topeMaximoCajas) * 100, 100) : 0;
-
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-[#10223d]">Refusal y tope</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Tope: 1 caja por cada 100 cajas salidas. {totalCajasVehiculos.toLocaleString("es-CO")} cajas generan{" "}
-          {topeMaximoCajas.toLocaleString("es-CO")} de tope.
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        <Gauge label="Refusal neto" value={`${refusal.toLocaleString("es-CO")}%`} width={refusalWidth} />
-        <Gauge label="Uso del tope" value={`${Math.round(topeUsado).toLocaleString("es-CO")}%`} width={topeUsado} />
-      </div>
-    </section>
-  );
-}
-
-function Gauge({ label, value, width }: { label: string; value: string; width: number }) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <span className="font-medium text-slate-600">{label}</span>
-        <span className="font-semibold text-[#10223d]">{value}</span>
-      </div>
-      <div className="h-3 overflow-hidden rounded-md bg-slate-100">
-        <div className="h-full rounded-md bg-[#10223d]" style={{ width: `${width}%` }} />
-      </div>
-    </div>
-  );
 }
