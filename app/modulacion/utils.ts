@@ -5,6 +5,20 @@ import { initialVehicles } from "../seguimiento/data";
 import type { Vehiculo } from "../seguimiento/types";
 import type { FormErrors, FormState } from "./types";
 
+/**
+ * Tipo seguro para vehículos creados desde asistencia
+ * (evita romper el tipo global Vehiculo)
+ */
+type VehiculoFromAsistencia = Omit<
+  Vehiculo,
+  "createdAt" | "date" | "cajasGestionadas" | "cajasReportadas"
+> & {
+  createdAt: string;
+  date: string;
+  cajasGestionadas: number;
+  cajasReportadas: number;
+};
+
 export function onlyNumbers(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -47,9 +61,17 @@ export function getVehiculosSeguimiento() {
 
   try {
     const registros = JSON.parse(current) as AsistenciaRegistro[];
-    const puntoCorona = registros.filter((registro) => registro.contratista === "Punto Corona");
 
-    return filterTodayVehicles([...initialVehicles, ...puntoCorona.map(mapAttendanceToVehicle)]);
+    const puntoCorona = registros.filter(
+      (registro) => registro.contratista === "Punto Corona"
+    );
+
+    const vehiculosFromAsistencia = puntoCorona.map(mapAttendanceToVehicle);
+
+    return filterTodayVehicles([
+      ...initialVehicles,
+      ...vehiculosFromAsistencia,
+    ]);
   } catch {
     return filterTodayVehicles(initialVehicles);
   }
@@ -57,10 +79,16 @@ export function getVehiculosSeguimiento() {
 
 function filterTodayVehicles(vehiculos: Vehiculo[]) {
   const today = getLocalDateKey();
-  return vehiculos.filter((vehiculo) => (vehiculo.fechaDespacho || vehiculo.fechaDt) === today);
+
+  return vehiculos.filter(
+    (vehiculo) =>
+      (vehiculo.fechaDespacho || vehiculo.fechaDt) === today
+  );
 }
 
-function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
+function mapAttendanceToVehicle(
+  registro: AsistenciaRegistro
+): VehiculoFromAsistencia {
   const createdAt = new Date(registro.createdAt);
   const fecha = getLocalDateKey(createdAt);
 
@@ -76,6 +104,7 @@ function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
     fechaDespacho: fecha,
     vehiculo: `DT-${registro.dt}`,
     responsable: `RR ${registro.cedulaResponsable}`,
+
     territorio: "Pendiente",
     viaje: "Pendiente",
     bloque: "Pendiente",
@@ -102,5 +131,11 @@ function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
     cedulaResponsable: registro.cedulaResponsable,
     cedulaAuxiliar1: registro.cedulaAuxiliar1,
     cedulaAuxiliar2: registro.cedulaAuxiliar2,
+
+    // ✅ CAMPOS CORRECTOS Y SEGUROS
+    createdAt: createdAt.toISOString(),
+    date: fecha,
+    cajasGestionadas: 0,
+    cajasReportadas: 0,
   };
 }
