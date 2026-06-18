@@ -1,223 +1,207 @@
 "use client";
 
-import { useMemo, useState, type ReactNode,  } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, TrendingUp, Users, AlertTriangle, X, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock3, PackageCheck, Route, Truck, Users, X } from "lucide-react";
+import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 import { getStatus, getVehicleRecordKey } from "../utils";
 
+const DELAY_THRESHOLD = 25;
+
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
-
   const [vehicles] = useState<Vehiculo[]>(() => {
     const stored = readSeguimientoVehiculos();
     return stored.length ? stored : initialVehicles;
   });
+  const [closedAlerts, setClosedAlerts] = useState<string[]>([]);
 
-  const [alertasCerradas, setAlertasCerradas] = useState<string[]>([]);
-
-  const todayVehicles = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
-    return vehicles.filter((vehicle) => {
-      const vehicleDate = vehicle.fechaDt || vehicle.date || vehicle.createdAt;
-      if (!vehicleDate) return true;
-      const vDate = new Date(vehicleDate).toISOString().split("T")[0];
-      return vDate === today;
-    });
-  }, [vehicles]);
+  const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
 
   const resumen = useMemo(() => {
-    const totalClientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
-    const totalVisitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
-    const totalCajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
-    const totalHL = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
-    
-    const porcentajeAvance = totalClientes > 0 ? Math.round((totalVisitados / totalClientes) * 100) : 0;
-
-    const totalSegundos = todayVehicles.reduce((acc, v) => {
-      const tiempoStr = v.tiempoRuta || "00:00:00";
-      const parts = tiempoStr.split(':').map(Number);
-      const h = parts[0] || 0;
-      const m = parts[1] || 0;
-      const s = parts[2] || 0;
-      return acc + (h * 3600 + m * 60 + s);
-    }, 0);
-    const promedioSegundos = todayVehicles.length > 0 ? totalSegundos / todayVehicles.length : 0;
-
-    const ocupacionTotal = todayVehicles.length > 0 ? (totalCajas / (todayVehicles.length * 500)) * 100 : 0;
+    const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
+    const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
+    const cajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
+    const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
+    const peso = todayVehicles.reduce((total, item) => total + (item.peso || 0), 0);
+    const capacidad = todayVehicles.reduce((total, item) => total + (item.capacidad || 0), 0);
+    const avance = clientes ? Math.round((visitados / clientes) * 100) : 0;
 
     return {
       vehiculos: todayVehicles.length,
-      cajas: totalCajas,
-      hl: totalHL.toFixed(1),
-      avance: Math.min(100, porcentajeAvance),
-      clientes: totalClientes,
-      visitados: totalVisitados,
-      tiempoPromedio: formatearSegundos(promedioSegundos),
-      capacityOccupation: Math.min(100, ocupacionTotal).toFixed(2),
+      cajas,
+      hl: hl.toFixed(1),
+      clientes,
+      visitados,
+      avance,
+      ocupacion: capacidad ? Math.min(100, Math.round((peso / capacidad) * 100)) : 0,
+      tiempoPromedio: formatSeconds(getAverageRouteSeconds(todayVehicles)),
     };
   }, [todayVehicles]);
 
-  const UMBRAL_RETRASO = 25;
-
   const alertasCriticas = useMemo(() => {
-    if (todayVehicles.length === 0) return [];
-    
-    const promedioAvance = resumen.avance;
     return todayVehicles
-      .map(v => {
-        const p = v.clientes ? Math.round((v.visitados / v.clientes) * 100) : 0;
-        return { ...v, currentProgress: p };
-      })
-      .filter(v => {
-        const key = getVehicleRecordKey(v);
-        return (promedioAvance - v.currentProgress > UMBRAL_RETRASO) && !alertasCerradas.includes(key);
-      });
-  }, [todayVehicles, resumen.avance, alertasCerradas]);
-
-  const cerrarAlerta = (key: string) => {
-    setAlertasCerradas(prev => [...prev, key]);
-  };
+      .map((vehicle) => ({
+        ...vehicle,
+        currentProgress: vehicle.clientes ? Math.round((vehicle.visitados / vehicle.clientes) * 100) : 0,
+      }))
+      .filter((vehicle) => resumen.avance - vehicle.currentProgress > DELAY_THRESHOLD)
+      .filter((vehicle) => !closedAlerts.includes(getVehicleRecordKey(vehicle)));
+  }, [closedAlerts, resumen.avance, todayVehicles]);
 
   return (
-    <main className="min-h-screen bg-[#f8fafc] text-slate-900">
-      <div className="fixed top-20 right-5 z-50 space-y-3 max-w-sm w-full pointer-events-none">
-        {alertasCriticas.map((vh) => (
-          <div 
-            key={getVehicleRecordKey(vh)} 
-            className="bg-white border-l-4 border-red-500 shadow-2xl rounded-lg p-4 pointer-events-auto animate-in slide-in-from-right duration-500"
-          >
+    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
+      <div className="fixed right-5 top-20 z-50 w-full max-w-sm space-y-3">
+        {alertasCriticas.map((vehicle) => (
+          <div className="rounded-lg border border-red-100 bg-white p-4 shadow-xl" key={getVehicleRecordKey(vehicle)}>
             <div className="flex items-start gap-3">
-              <div className="bg-red-100 p-2 rounded-full text-red-600">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-red-50 text-red-600">
                 <AlertTriangle size={18} />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Alerta de Retraso Operativo</h4>
-                <p className="text-[10px] text-slate-500 font-bold mt-0.5 leading-relaxed">
-                  Vehículo <span className="text-red-600 font-black">{vh.transporte}</span> presenta un retraso crítico de <span className="text-red-600 font-black">{resumen.avance - vh.currentProgress}%</span> frente al promedio.
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-red-600">Retraso operativo</p>
+                <p className="mt-1 text-sm leading-5 text-slate-600">
+                  DT <span className="font-semibold text-[#10223d]">{vehicle.transporte}</span> está{" "}
+                  <span className="font-semibold text-red-600">{resumen.avance - vehicle.currentProgress}%</span> por debajo
+                  del promedio.
                 </p>
-                <button 
-                  onClick={() => cerrarAlerta(getVehicleRecordKey(vh))}
-                  className="mt-2.5 bg-slate-900 text-white text-[9px] font-black px-3 py-1.5 rounded uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
+                <button
+                  className="mt-3 rounded-md bg-[#10223d] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1b355b]"
+                  onClick={() => setClosedAlerts((current) => [...current, getVehicleRecordKey(vehicle)])}
+                  type="button"
                 >
-                  Confirmar Seguimiento
+                  Confirmar seguimiento
                 </button>
               </div>
-              <button onClick={() => cerrarAlerta(getVehicleRecordKey(vh))} className="text-slate-300 hover:text-slate-500">
-                <X size={14} />
+              <button
+                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setClosedAlerts((current) => [...current, getVehicleRecordKey(vehicle)])}
+                type="button"
+                aria-label="Cerrar alerta"
+              >
+                <X size={16} />
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-10 shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 sm:px-6">
-          <div className="flex gap-2">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
             <button
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+              className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
               onClick={() => router.push("/seguimiento")}
+              type="button"
+              aria-label="Volver a seguimiento"
             >
-              <ArrowLeft size={14} />
-              REGRESAR
+              <ArrowLeft size={19} />
             </button>
-            <button
-              className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100 transition-colors border border-red-100"
-              onClick={() => router.push("/seguimiento/refusal")}
-            >
-              <ShieldAlert size={14} />
-              REFUSAL
-            </button>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Analítica diaria</p>
+              <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento operativo</h1>
+            </div>
           </div>
-          <div className="flex items-center gap-2 bg-[#10223d] px-4 py-1.5 rounded-full text-[10px] font-black text-white tracking-widest uppercase">
-            <BarChart3 size={12} className="text-yellow-400" />
-            Operaciones Tiempo Real
-          </div>
+          <AnalyticsViewToggle active="seguimiento" />
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-3 space-y-4">
-            <MetricBox label="Tiempo Promedio" value={resumen.tiempoPromedio} color="text-[#10223d]" />
-            <MetricBox label="Ocupación" value={`${resumen.capacityOccupation}%`} color="text-[#10223d]" />
-            <div className="grid grid-cols-2 gap-3">
-              <SmallBox label="Cajas" value={resumen.cajas} />
-              <SmallBox label="Viajes" value={resumen.vehiculos} />
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Estatus de Flota</p>
-              <div className="space-y-3">
-                <StatusItem label="Termino" count={todayVehicles.filter(v => (v.visitados >= v.clientes && v.clientes > 0)).length} color="bg-emerald-500" />
-                <StatusItem label="En Ruta" count={todayVehicles.length} color="bg-blue-500" />
-                <StatusItem label="cargando" count={alertasCriticas.length} color="bg-blue-500" />
-                <StatusItem label="pernoctado" count={alertasCriticas.length} color="bg-indigo-500" />
-                <StatusItem label="Alertas" count={alertasCriticas.length} color="bg-red-500" />
+      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard icon={<Truck size={21} />} label="Vehículos" value={resumen.vehiculos} detail="Rutas del día" />
+          <SummaryCard icon={<Users size={21} />} label="Clientes" value={`${resumen.visitados}/${resumen.clientes}`} detail={`${resumen.avance}% visitados`} />
+          <SummaryCard icon={<PackageCheck size={21} />} label="Cajas" value={resumen.cajas} detail={`${resumen.hl} HL`} />
+          <SummaryCard icon={<Clock3 size={21} />} label="Tiempo prom." value={resumen.tiempoPromedio} detail={`${resumen.ocupacion}% ocupación`} />
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
+          <Panel title="Avance global" icon={<Route size={18} />}>
+            <div className="flex flex-col items-center gap-5 md:flex-row md:justify-center">
+              <Gauge value={resumen.avance} />
+              <div className="w-full max-w-xs space-y-4">
+                <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
+                <ProgressLine label="Ocupación" value={resumen.ocupacion} color="bg-[#f5bd19]" />
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-[#10223d]">{alertasCriticas.length} alertas activas</p>
+                  <p className="mt-1 text-sm text-slate-500">Umbral de retraso: {DELAY_THRESHOLD}% contra el promedio.</p>
+                </div>
               </div>
             </div>
+          </Panel>
+
+          <Panel title="Estado de flota" icon={<Truck size={18} />}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <StatusTile label="Finalizados" count={todayVehicles.filter((v) => v.clientes > 0 && v.visitados >= v.clientes).length} tone="green" />
+              <StatusTile label="En ruta" count={todayVehicles.filter((v) => v.visitados > 0 && v.visitados < v.clientes).length} tone="blue" />
+              <StatusTile label="Cargando" count={todayVehicles.filter((v) => !v.visitados).length} tone="slate" />
+              <StatusTile label="Con alerta" count={alertasCriticas.length} tone="red" />
+            </div>
+          </Panel>
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-[#10223d]">Detalle por vehículo</h2>
+              <p className="mt-1 text-sm text-slate-500">Comparación de avance contra el promedio del día.</p>
+            </div>
+            <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
+              {new Date().toLocaleDateString("es-CO")}
+            </span>
           </div>
 
-          <div className="lg:col-span-9 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <ChartCard title="Avance Global de Ruta" icon={<TrendingUp size={16}/>}>
-                <ModernGauge percentage={resumen.avance} />
-              </ChartCard>
-              <ChartCard title="Cumplimiento de Visitas" icon={<Users size={16}/>}>
-                <ModernProgress visitados={resumen.visitados} total={resumen.clientes} />
-              </ChartCard>
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="bg-slate-900 px-5 py-3.5 flex justify-between items-center">
-                <h3 className="text-white text-xs font-black uppercase tracking-widest">Detalle Operativo Inteligente</h3>
-                <span className="bg-yellow-400 text-[#10223d] text-[9px] font-black px-2 py-0.5 rounded">THRESHOLD 25%</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-black uppercase tracking-tighter">Vehículo / Transporte</th>
-                      <th className="px-5 py-3 text-center font-black uppercase tracking-tighter">Visitas</th>
-                      <th className="px-5 py-3 text-center font-black uppercase tracking-tighter">Avance %</th>
-                      <th className="px-5 py-3 text-right font-black uppercase tracking-tighter">Estado</th>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px]">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  <th className="px-5 py-4 text-left">Vehículo / DT</th>
+                  <th className="px-5 py-4 text-left">Responsable</th>
+                  <th className="px-5 py-4 text-center">Visitas</th>
+                  <th className="px-5 py-4 text-center">Avance</th>
+                  <th className="px-5 py-4 text-right">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {todayVehicles.map((vehicle) => {
+                  const percentage = vehicle.clientes ? Math.min(100, Math.round((vehicle.visitados / vehicle.clientes) * 100)) : 0;
+                  const delayed = resumen.avance - percentage > DELAY_THRESHOLD;
+
+                  return (
+                    <tr className={delayed ? "bg-red-50/50" : "transition hover:bg-slate-50"} key={getVehicleRecordKey(vehicle)}>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`grid h-10 w-10 place-items-center rounded-md ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
+                            {delayed ? <AlertTriangle size={18} /> : <Truck size={18} />}
+                          </span>
+                          <div>
+                            <p className="font-semibold text-[#10223d]">{vehicle.vehiculo}</p>
+                            <p className="text-sm text-slate-500">{vehicle.transporte}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{vehicle.responsable}</td>
+                      <td className="px-5 py-4 text-center font-semibold text-[#10223d]">
+                        {vehicle.visitados} / {vehicle.clientes}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="mx-auto flex max-w-44 items-center gap-3">
+                          <div className="h-2 flex-1 rounded-full bg-slate-200">
+                            <div className={`h-2 rounded-full ${delayed ? "bg-red-500" : "bg-[#0f7c58]"}`} style={{ width: `${percentage}%` }} />
+                          </div>
+                          <span className={`w-10 text-sm font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <StatusPill status={delayed ? "Retraso" : getStatus(percentage)} />
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {todayVehicles.map((vehicle) => {
-                      const clientes = vehicle.clientes || 0;
-                      const visitados = vehicle.visitados || 0;
-                      const percentage = clientes > 0 ? Math.min(100, Math.round((visitados / clientes) * 100)) : 0;
-                      const status = getStatus(percentage / 100);
-                      const isAtrasado = resumen.avance - percentage > UMBRAL_RETRASO;
-                      return (
-                        <tr key={getVehicleRecordKey(vehicle)} className={`${isAtrasado ? 'bg-red-50/40' : ''} hover:bg-slate-50/50 transition-colors`}>
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2">
-                              {isAtrasado && <AlertTriangle size={12} className="text-red-500 animate-pulse" />}
-                              <div>
-                                <p className="font-black text-[#10223d]">{vehicle.transporte}</p>
-                                <p className="text-[10px] text-slate-400 font-bold">{vehicle.vehiculo}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3.5 text-center font-black text-[#10223d]">{visitados} <span className="text-slate-300 mx-1">/</span> {clientes}</td>
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-3 justify-center">
-                              <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                                <div className={`h-full transition-all duration-700 ${isAtrasado ? 'bg-red-500' : (percentage === 100 ? 'bg-emerald-500' : 'bg-blue-500')}`} style={{ width: `${percentage}%` }} />
-                              </div>
-                              <span className={`font-black w-8 ${isAtrasado ? 'text-red-600' : 'text-[#10223d]'}`}>{percentage}%</span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3.5 text-right"><StatusPill status={status} isAtrasado={isAtrasado} /></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -225,102 +209,132 @@ export default function SeguimientoGraficasPage() {
   );
 }
 
-function MetricBox({ label, value, color }: { label: string; value: string; color: string }) {
+function SummaryCard({ icon, label, value, detail }: { icon: ReactNode; label: string; value: ReactNode; detail: string }) {
   return (
-    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-      <p className={`text-3xl font-black ${color} tracking-tighter`}>{value}</p>
-    </div>
-  );
-}
-
-function SmallBox({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-      <p className="text-[9px] font-bold text-slate-400 uppercase">{label}</p>
-      <p className="text-xl font-black text-[#10223d]">{value}</p>
-    </div>
-  );
-}
-
-function StatusItem({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2.5">
-        <div className={`w-2 h-2 ${color} rounded-full`}></div>
-        <span className="font-bold text-slate-600 text-[11px]">{label}</span>
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <span className="grid h-11 w-11 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">{icon}</span>
+        <span className="h-2 w-2 rounded-full bg-[#0f7c58]" />
       </div>
-      <span className="font-black text-[#10223d] bg-slate-100 px-2 py-0.5 rounded-lg text-[10px]">{count}</span>
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-3xl font-semibold text-[#10223d]">{value}</p>
+      <p className="mt-2 text-sm text-slate-500">{detail}</p>
     </div>
   );
 }
 
-function ChartCard({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+function Panel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-5 py-3.5 border-b border-slate-50 flex items-center gap-2">
-        <span className="text-blue-500">{icon}</span>
-        <h3 className="text-[10px] font-black text-[#10223d] uppercase tracking-widest">{title}</h3>
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-5 flex items-center gap-2 text-[#10223d]">
+        {icon}
+        <h2 className="text-lg font-semibold">{title}</h2>
       </div>
-      <div className="p-6 flex-1 flex items-center justify-center">{children}</div>
-    </div>
+      {children}
+    </section>
   );
 }
 
-function ModernGauge({ percentage }: { percentage: number }) {
-  const circumference = 2 * Math.PI * 40;
-  const offset = circumference - (percentage / 100) * circumference;
+function Gauge({ value }: { value: number }) {
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (value / 100) * circumference;
+
   return (
-    <div className="relative w-36 h-36 flex items-center justify-center">
-      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-        <circle cx="50" cy="50" r="40" fill="none" stroke="#f1f5f9" strokeWidth="10" />
-        <circle cx="50" cy="50" r="40" fill="none" stroke={percentage === 100 ? "#10b981" : "#3b82f6"} strokeWidth="10" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
+    <div className="relative grid h-48 w-48 place-items-center">
+      <svg className="-rotate-90" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="11" />
+        <circle
+          cx="55"
+          cy="55"
+          r={radius}
+          fill="none"
+          stroke="#0f7c58"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          strokeWidth="11"
+        />
       </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className="text-4xl font-black text-[#10223d] tracking-tighter">{percentage}%</span>
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Global</span>
+      <div className="absolute text-center">
+        <p className="text-4xl font-semibold text-[#10223d]">{value}%</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Global</p>
       </div>
     </div>
   );
 }
 
-function ModernProgress({ visitados, total }: { visitados: number; total: number }) {
-  const percentage = total > 0 ? Math.min(100, (visitados / total) * 100) : 0;
+function ProgressLine({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="w-full max-w-[200px] space-y-4">
-      <div className="flex justify-between items-end">
-        <div>
-          <p className="text-4xl font-black text-[#10223d] leading-none">{visitados}</p>
-          <p className="text-[9px] font-black text-slate-400 uppercase mt-1">Logradas</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xl font-black text-slate-300 leading-none">{total}</p>
-          <p className="text-[9px] font-black text-slate-400 uppercase mt-1">Meta</p>
-        </div>
+    <div>
+      <div className="mb-2 flex justify-between text-sm">
+        <span className="font-medium text-slate-600">{label}</span>
+        <span className="font-semibold text-[#10223d]">{value}%</span>
       </div>
-      <div className="h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-        <div className="h-full bg-yellow-400 transition-all duration-1000" style={{ width: `${percentage}%` }} />
+      <div className="h-2 rounded-full bg-slate-200">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
       </div>
     </div>
   );
 }
 
-function StatusPill({ status, isAtrasado }: { status: string; isAtrasado?: boolean }) {
-  if (isAtrasado) return <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase border bg-red-50 text-red-600 border-red-100 animate-pulse">Retraso Crítico</span>;
-  const styles: Record<string, string> = {
-    "Finalizado": "bg-emerald-50 text-emerald-600 border-emerald-100",
-    "En ruta": "bg-blue-50 text-blue-600 border-blue-100",
-    "Retornando": "bg-indigo-50 text-indigo-600 border-indigo-100",
-    "Cargando": "bg-slate-50 text-slate-500 border-slate-100",
+function StatusTile({ label, count, tone }: { label: string; count: number; tone: "green" | "blue" | "slate" | "red" }) {
+  const colors = {
+    green: "bg-emerald-50 text-emerald-700 border-emerald-100",
+    blue: "bg-blue-50 text-blue-700 border-blue-100",
+    slate: "bg-slate-50 text-slate-700 border-slate-200",
+    red: "bg-red-50 text-red-700 border-red-100",
   };
-  const label = status === "Finalizado" ? "Terminado" : status;
-  return <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase border ${styles[status] || "bg-slate-50 text-slate-400"}`}>{label}</span>;
+
+  return (
+    <div className={`rounded-lg border p-4 ${colors[tone]}`}>
+      <p className="text-sm font-medium">{label}</p>
+      <p className="mt-2 text-3xl font-semibold">{count}</p>
+    </div>
+  );
 }
 
-function formatearSegundos(segundos: number): string {
-  if (segundos <= 0) return "00:00:00";
-  const h = Math.floor(segundos / 3600);
-  const m = Math.floor((segundos % 3600) / 60);
-  const s = Math.floor(segundos % 60);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+function StatusPill({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
+    "En ruta": "bg-blue-50 text-blue-700 border-blue-100",
+    Cargando: "bg-slate-50 text-slate-600 border-slate-200",
+    Retraso: "bg-red-50 text-red-700 border-red-100",
+  };
+
+  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${styles[status] ?? styles.Cargando}`}>{status}</span>;
+}
+
+function isTodayVehicle(vehicle: Vehiculo) {
+  const raw = vehicle.fechaDt || vehicle.date || vehicle.createdAt;
+  const date = parseDate(raw);
+  return !date || date === new Date().toISOString().split("T")[0];
+}
+
+function parseDate(value: string | undefined) {
+  if (!value) return "";
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    return new Date(year, month - 1, day).toISOString().split("T")[0];
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().split("T")[0];
+}
+
+function getAverageRouteSeconds(vehicles: Vehiculo[]) {
+  const total = vehicles.reduce((acc, vehicle) => {
+    const [hours = 0, minutes = 0, seconds = 0] = (vehicle.tiempoRuta || "00:00:00").split(":").map(Number);
+    return acc + hours * 3600 + minutes * 60 + seconds;
+  }, 0);
+
+  return vehicles.length ? total / vehicles.length : 0;
+}
+
+function formatSeconds(seconds: number) {
+  if (seconds <= 0) return "00:00";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }

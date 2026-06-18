@@ -2,25 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Bell, Boxes, CalendarDays, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
-import { initialVehicles } from "./data";
-import type { Vehiculo } from "./types";
-import { getProgress, getStatus, getVehicleRecordKey } from "./utils";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
+import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
 import { SeguimientoHero } from "./components/SeguimientoHero";
 import { VehicleDrawer } from "./components/VehicleDrawer";
 import { VehiclesTable } from "./components/VehiclesTable";
-import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../lib/asistenciaStorage";
 import {
-  getLocalDateKey,
-  getModulacionesByDt,
-  isTodayDate,
-  readModulacionRegistros,
-  summarizeModulaciones,
-  type ModulacionRegistro,
-} from "../lib/modulacionStorage";
-import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
+  loadSeguimientoVehiculos,
+  mergeVehiclesByDt,
+  parseSeguimientoFile,
+  persistVehicles,
+} from "./services/vehicleRecords";
+import type { Vehiculo } from "./types";
+import { getProgress, getStatus, getVehicleRecordKey } from "./utils";
+import { getLocalDateKey, isTodayDate, readModulacionRegistros, type ModulacionRegistro } from "../lib/modulacionStorage";
 
 type DateScope = "today" | "all";
 
@@ -33,16 +30,15 @@ export default function SeguimientoPage() {
   const [dateScope, setDateScope] = useState<DateScope>("today");
   const [importMessage, setImportMessage] = useState("");
   const [modulaciones] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
-  const [showModulacionAlert, setShowModulacionAlert] = useState(false);
+  const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
 
   const filteredVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
       const status = getStatus(getProgress(item));
-      const matchesSearch = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`
-        .toLowerCase()
-        .includes(search.toLowerCase());
+      const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
+      const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === "Todos" || status === statusFilter;
-      const matchesDate = dateScope === "all" || item.fechaDespacho === getTodayKey();
+      const matchesDate = dateScope === "all" || item.fechaDespacho === getLocalDateKey();
 
       return matchesSearch && matchesStatus && matchesDate;
     });
@@ -61,6 +57,7 @@ export default function SeguimientoPage() {
       avance: clientes ? Math.round((visitados / clientes) * 100) : 0,
     };
   }, [filteredVehicles]);
+
   const modulacionesHoy = useMemo(
     () =>
       modulaciones
@@ -68,16 +65,12 @@ export default function SeguimientoPage() {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [modulaciones],
   );
+  const showModulacionAlert = modulacionesHoy.length > 0 && !modulacionAlertDismissed;
 
   useEffect(() => {
-    if (!modulacionesHoy.length) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShowModulacionAlert(false);
-      return;
-    }
+    if (!modulacionesHoy.length) return;
 
-    setShowModulacionAlert(true);
-    const timeout = window.setTimeout(() => setShowModulacionAlert(false), 30000);
+    const timeout = window.setTimeout(() => setModulacionAlertDismissed(true), 30000);
 
     return () => window.clearTimeout(timeout);
   }, [modulacionesHoy]);
@@ -91,9 +84,9 @@ export default function SeguimientoPage() {
                 ...item,
                 visitados: Math.min(Math.max(visitados, 0), item.clientes),
               }
-            : item
-        )
-      )
+            : item,
+        ),
+      ),
     );
   }
 
@@ -102,14 +95,14 @@ export default function SeguimientoPage() {
       persistVehicles(
         current.map((item) =>
           getVehicleRecordKey(item) === recordKey
-          ? {
-              ...item,
-              ...changes,
-              clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
-            }
-          : item
-        )
-      )
+            ? {
+                ...item,
+                ...changes,
+                clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
+              }
+            : item,
+        ),
+      ),
     );
   }
 
@@ -123,12 +116,9 @@ export default function SeguimientoPage() {
         return;
       }
 
-      const modulaciones = readModulacionRegistros();
-      const merged = mergeVehiclesByDt(vehiculos, imported);
-      const enriched = enrichVehiclesWithModulacion(merged, modulaciones);
+      const prepared = persistVehicles(mergeVehiclesByDt(vehiculos, imported));
 
-      saveSeguimientoVehiculos(enriched);
-      setVehiculos(enriched);
+      setVehiculos(prepared);
       setDateScope("today");
       setImportMessage(`${imported.length} registros cargados desde ${file.name}.`);
     } catch (error) {
@@ -240,301 +230,4 @@ export default function SeguimientoPage() {
       </section>
     </main>
   );
-}
-
-function loadSeguimientoVehiculos() {
-  if (typeof window === "undefined") return initialVehicles;
-
-  const stored = readSeguimientoVehiculos();
-  if (stored.length) return enrichVehiclesWithModulacion(stored, readModulacionRegistros());
-
-  const current = localStorage.getItem(ASISTENCIA_STORAGE_KEY);
-  const modulaciones = readModulacionRegistros();
-  if (!current) return enrichVehiclesWithModulacion(initialVehicles, modulaciones);
-
-  try {
-    const registros = JSON.parse(current) as AsistenciaRegistro[];
-    const puntoCorona = registros.filter((registro) => registro.contratista === "Punto Corona");
-
-    return enrichVehiclesWithModulacion([...initialVehicles, ...puntoCorona.map(mapAttendanceToVehicle)], modulaciones);
-  } catch {
-    return enrichVehiclesWithModulacion(initialVehicles, modulaciones);
-  }
-}
-
-function persistVehicles(records: Vehiculo[]) {
-  const enriched = enrichVehiclesWithModulacion(records, readModulacionRegistros());
-  saveSeguimientoVehiculos(enriched);
-  return enriched;
-}
-
-function getTodayKey() {
-  return getLocalDateKey();
-}
-
-function ModulacionNotificationAlert({ modulaciones, visible }: { modulaciones: ModulacionRegistro[]; visible: boolean }) {
-  const ultima = modulaciones[0] ?? null;
-  const visibleModulaciones = modulaciones.slice(0, 3);
-
-  if (!ultima || !visible) return null;
-
-  return (
-    <section className="mb-6 rounded-lg border border-amber-200 bg-[#fff8e6] p-5 shadow-sm sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#f5bd19] text-[#10223d]">
-            <Bell size={20} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Alerta de modulacion</p>
-            <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Se acaba de hacer una modulacion</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {ultima.persona} modulo el DT {ultima.dt} del cliente {ultima.codigoCliente}. Cajas rechazadas:{" "}
-              {ultima.totalCajas}. Reubicadas: {ultima.cajasReubicadas || "0"}.
-            </p>
-          </div>
-        </div>
-        <span className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#10223d] shadow-sm">
-          {formatTime(ultima.createdAt)}
-        </span>
-      </div>
-
-      {visibleModulaciones.length > 1 ? (
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {visibleModulaciones.slice(1).map((registro) => (
-            <div className="rounded-md border border-amber-200/70 bg-white/75 px-3 py-2 text-sm" key={registro.id}>
-              <p className="font-semibold text-[#10223d]">DT {registro.dt}</p>
-              <p className="mt-1 text-xs text-slate-600">
-                {registro.persona} - Cliente {registro.codigoCliente} - {formatTime(registro.createdAt)}
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--:--";
-
-  return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
-}
-
-async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {
-  const XLSX = await import("xlsx");
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const firstSheet = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[firstSheet];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-  const capacityByPlate = createCapacityByPlate([...initialVehicles, ...currentVehicles]);
-
-  return rows.map((row) => mapExcelRowToVehicle(row, capacityByPlate)).filter(Boolean) as Vehiculo[];
-}
-
-function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
-  const records = new Map(current.map((vehicle) => [getVehicleRecordKey(vehicle), vehicle]));
-  const capacityByPlate = createCapacityByPlate(current);
-
-  imported.forEach((vehicle) => {
-    const currentRecord = records.get(getVehicleRecordKey(vehicle));
-    const fixedCapacity = getFixedCapacity(vehicle.vehiculo, capacityByPlate, vehicle.capacidad);
-
-    records.set(getVehicleRecordKey(vehicle), {
-      ...currentRecord,
-      ...vehicle,
-      capacidad: fixedCapacity,
-    });
-  });
-
-  return Array.from(records.values());
-}
-
-function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map<string, number>) {
-  const value = createRowReader(row);
-  const transporte = stringValue(value(["dt", "transporte", "documento transporte", "nro dt", "numero dt"]));
-  const vehiculo = stringValue(value(["vehiculo", "placa", "carro", "nombre vehiculo", "nombre de la ruta"])) || transporte;
-
-  if (!transporte && !vehiculo) return null;
-
-  const fecha = dateValue(value(["fecha despacho", "fecha", "fecha dt", "dia"])) || getTodayKey();
-  const clientes = numberValue(value(["clientes", "total clientes", "clientes programados"]), 0);
-  const visitados = numberValue(value(["visitados", "clientes visitados"]), 0);
-  const importedCapacity = numberValue(value(["capacidad", "capacidad peso", "capacidad vehiculo"]), 1);
-
-  return {
-    mes: stringValue(value(["mes"])) || new Date(`${fecha}T00:00:00`).toLocaleDateString("es-CO", { month: "long" }),
-    cd: stringValue(value(["cd", "centro distribucion"])) || "BAQ",
-    transportista: stringValue(value(["transportista", "contratista"])) || "Pendiente",
-    llave: stringValue(value(["llave"])) || `${transporte || vehiculo}-${fecha}`,
-    transporte: transporte || vehiculo,
-    centro: stringValue(value(["centro", "sede"])) || "Punto Corona",
-    codTransportista: stringValue(value(["cod transportista", "codigo transportista"])) || "-",
-    fechaDt: dateValue(value(["fecha dt"])) || fecha,
-    fechaDespacho: fecha,
-    vehiculo,
-    responsable: stringValue(value(["responsable", "rr", "conductor", "nombre"])) || "Sin responsable",
-    territorio: stringValue(value(["territorio", "zona", "ruta"])) || "Pendiente",
-    viaje: stringValue(value(["viaje"])) || "Pendiente",
-    bloque: stringValue(value(["bloque"])) || "Pendiente",
-    cajas: numberValue(value(["cajas", "total cajas", "cajas programadas", "cajas salida"]), 0),
-    hl: numberValue(value(["hl", "hectolitros"]), 0),
-    clientes,
-    visitados: Math.min(visitados, clientes || visitados),
-    horaSalida: stringValue(value(["hora salida", "salida"])) || "Pendiente",
-    peso: numberValue(value(["peso", "peso dt"]), 0),
-    capacidad: getFixedCapacity(vehiculo, capacityByPlate, importedCapacity),
-    validadorPeso: stringValue(value(["validador peso", "validador"])) || "Pendiente",
-    avanceRuta: stringValue(value(["avance ruta", "avance"])) || "0%",
-    status: stringValue(value(["status", "estado"])) || "Cargando",
-    horaLlegada: stringValue(value(["hora llegada", "llegada"])) || "Pendiente",
-    tiempoRuta: stringValue(value(["tiempo ruta", "tiempo en ruta"])) || "Pendiente",
-    metaRelevo: stringValue(value(["meta relevo"])) || "Pendiente",
-    horaInicioRelevo: stringValue(value(["hora inicio relevo"])) || "Pendiente",
-    clasificacionRelevo: stringValue(value(["clasificacion relevo"])) || "Pendiente",
-    alertaSifPotencial: stringValue(value(["alerta sif potencial", "alerta sif"])) || "Pendiente",
-    relevador: stringValue(value(["relevador"])) || "-",
-    causalDesviado: stringValue(value(["causal desviado"])) || "-",
-    clasificacionOnTime: stringValue(value(["clasificacion on time", "on time"])) || "Pendiente",
-    recargue: stringValue(value(["recargue"])) || "Pendiente",
-    cedulaResponsable: stringValue(value(["cedula responsable", "cedula rr"])),
-    cedulaAuxiliar1: stringValue(value(["cedula auxiliar 1", "cedula conductor"])),
-    cedulaAuxiliar2: stringValue(value(["cedula auxiliar 2"])),
-  };
-}
-
-function createCapacityByPlate(vehicles: Vehiculo[]) {
-  const capacities = new Map<string, number>();
-
-  vehicles.forEach((vehicle) => {
-    const plate = normalizePlate(vehicle.vehiculo);
-    if (!plate || capacities.has(plate) || !vehicle.capacidad) return;
-    capacities.set(plate, vehicle.capacidad);
-  });
-
-  return capacities;
-}
-
-function getFixedCapacity(plate: string, capacityByPlate: Map<string, number>, fallback: number) {
-  return capacityByPlate.get(normalizePlate(plate)) ?? fallback;
-}
-
-function normalizePlate(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function createRowReader(row: Record<string, unknown>) {
-  const normalized = new Map(Object.entries(row).map(([key, value]) => [normalizeHeader(key), value]));
-
-  return (aliases: string[]) => {
-    for (const alias of aliases) {
-      const found = normalized.get(normalizeHeader(alias));
-      if (found !== undefined && found !== "") return found;
-    }
-
-    return "";
-  };
-}
-
-function normalizeHeader(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function stringValue(value: unknown) {
-  if (value instanceof Date) return getLocalDateKey(value);
-  return String(value ?? "").trim();
-}
-
-function numberValue(value: unknown, fallback: number) {
-  const parsed = Number(String(value ?? "").replace(",", ".").replace(/[^\d.-]/g, ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function dateValue(value: unknown) {
-  if (value instanceof Date) return getLocalDateKey(value);
-
-  const text = stringValue(value);
-  if (!text) return "";
-
-  const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) return getLocalDateKey(parsed);
-
-  const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (!match) return "";
-
-  const [, day, month, year] = match;
-  const fullYear = year.length === 2 ? `20${year}` : year;
-  return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-
-function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
-  const createdAt = new Date(registro.createdAt);
-  const fecha = getLocalDateKey(createdAt);
-
-  return {
-    mes: createdAt.toLocaleDateString("es-CO", { month: "long" }),
-    cd: "Punto Corona",
-    transportista: registro.contratista,
-    llave: registro.llave,
-    transporte: registro.dt,
-    centro: "Punto Corona",
-    codTransportista: "-",
-    fechaDt: fecha,
-    fechaDespacho: fecha,
-    vehiculo: `DT-${registro.dt}`,
-    responsable: `RR ${registro.cedulaResponsable}`,
-    territorio: "Pendiente",
-    viaje: "Pendiente",
-    bloque: "Pendiente",
-    cajas: 0,
-    hl: 0,
-    clientes: 1,
-    visitados: 0,
-    horaSalida: "Pendiente",
-    peso: 0,
-    capacidad: 1,
-    validadorPeso: "Pendiente",
-    avanceRuta: "0%",
-    status: "Cargando",
-    horaLlegada: "Pendiente",
-    tiempoRuta: "Pendiente",
-    metaRelevo: "Pendiente",
-    horaInicioRelevo: "Pendiente",
-    clasificacionRelevo: "Pendiente",
-    alertaSifPotencial: "Pendiente",
-    relevador: "-",
-    causalDesviado: "-",
-    clasificacionOnTime: "Pendiente",
-    recargue: "Pendiente",
-    cedulaResponsable: registro.cedulaResponsable,
-    cedulaAuxiliar1: registro.cedulaAuxiliar1,
-    cedulaAuxiliar2: registro.cedulaAuxiliar2,
-  };
-}
-
-function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones: ReturnType<typeof readModulacionRegistros>) {
-  return vehiculos.map((vehiculo) => {
-    const registrosDt = getModulacionesByDt(modulaciones, vehiculo.transporte);
-    const resumen = summarizeModulaciones(registrosDt, vehiculo.cajas);
-
-    return {
-      ...vehiculo,
-      cajasRechazadas: resumen.cajasRechazadas,
-      cajasReubicadas: resumen.cajasReubicadas,
-      clientesRechazan: resumen.clientesRechazan,
-      topeMaximoCajas: resumen.topeMaximoCajas,
-      refusal: resumen.refusal,
-      moduladores: resumen.moduladores,
-      causalesModulacion: resumen.causales,
-    };
-  });
 }

@@ -1,172 +1,68 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  BarChart3,
-  ShieldAlert,
-  Map,
-  UserCheck,
-  ClipboardList,
-  TrendingDown,
-  Package,
   CheckCircle2,
-  XCircle,
+  ClipboardList,
+  Map,
+  Package,
+  TrendingDown,
+  UserCheck,
   Users,
-  AlertTriangle,
+  XCircle,
 } from "lucide-react";
-
+import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
-import {
-  readModulacionRegistros,
-  normalizeDt,
-  summarizeModulaciones,
-  type ModulacionRegistro,
-} from "../../lib/modulacionStorage";
-
+import { normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 
-/* ================= PALETA UNIFICADA ================= */
-// Verde  → seguro / gestionado
-// Ámbar  → advertencia
-// Rojo   → crítico / rechazado
-// Azul marino → neutro / total
-
 const PALETTE = {
-  safe: "#22c55e",   // verde
-  warn: "#f59e0b",   // ámbar
-  danger: "#ef4444", // rojo
-  navy: "#10223d",   // azul marino
-  track: "#e2e8f0",  // gris claro (fondo arco)
+  safe: "#0f7c58",
+  warn: "#f5bd19",
+  danger: "#dc2626",
+  navy: "#10223d",
+  track: "#e2e8f0",
 };
-
-/* ================= TIPOS UI ================= */
-
-type MetricCardProps = {
-  label: string;
-  value: number | string;
-  color?: string;
-  icon?: React.ReactNode;
-  accent?: string;
-};
-
-type TerritorioRowProps = {
-  label: string;
-  value: number;
-  max: number;
-  index: number;
-};
-
-type RefusalGaugeProps = {
-  value: number;
-  max: number;
-};
-
-/* ================= HELPERS FECHAS EXCEL ================= */
-
-function parseExcelDate(value: string | undefined) {
-  if (!value) return null;
-
-  if (typeof value === "string" && value.includes("/")) {
-    const [d, m, y] = value.split("/").map(Number);
-    const date = new Date(y, m - 1, d);
-    return isNaN(date.getTime()) ? null : date;
-  }
-
-  const date = new Date(value);
-  return isNaN(date.getTime()) ? null : date;
-}
-
-function toKey(date: Date | null) {
-  if (!date) return null;
-  return date.toISOString().split("T")[0];
-}
-
-/* ================= PAGE ================= */
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
-
   const [vehicles] = useState<Vehiculo[]>(() => {
-    try {
-      const stored = readSeguimientoVehiculos();
-      return stored?.length ? stored : initialVehicles;
-    } catch {
-      return initialVehicles;
-    }
+    const stored = readSeguimientoVehiculos();
+    return stored.length ? stored : initialVehicles;
   });
 
-  /* ================= SOLO MODULACIONES HOY ================= */
-
   const modulaciones = useMemo<ModulacionRegistro[]>(() => {
-    const registros = readModulacionRegistros();
-    const todayKey = new Date().toISOString().split("T")[0];
-
-    return registros.filter((r) => {
-      const date = parseExcelDate(r.createdAt as unknown as string);
-      return toKey(date) === todayKey;
-    });
+    return readModulacionRegistros().filter((registro) => toDateKey(registro.createdAt) === todayKey());
   }, []);
 
-  /* ================= SOLO VEHÍCULOS HOY ================= */
-
-  const todayVehicles = useMemo(() => {
-    const todayKey = new Date().toISOString().split("T")[0];
-
-    return vehicles.filter((vehicle) => {
-      const raw = vehicle.fechaDt || vehicle.date || vehicle.createdAt;
-
-      const date =
-        typeof raw === "string" && raw.includes("/")
-          ? parseExcelDate(raw)
-          : new Date(raw);
-
-      return toKey(date) === todayKey;
-    });
-  }, [vehicles]);
-
-  /* ================= DATA ================= */
+  const todayVehicles = useMemo(() => vehicles.filter((vehicle) => toDateKey(vehicle.fechaDt || vehicle.date || vehicle.createdAt) === todayKey()), [vehicles]);
 
   const refusalData = useMemo(() => {
-    const totalCajasSeguimiento = todayVehicles.reduce(
-      (acc, v) => acc + (v.cajas || 0),
-      0
-    );
-
-    const resumenMod = summarizeModulaciones(
-      modulaciones,
-      totalCajasSeguimiento
-    );
+    const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
+    const resumen = summarizeModulaciones(modulaciones, totalCajasSeguimiento);
 
     return {
       totalCajasSeguimiento,
-      rechazadas: resumenMod.cajasRechazadas,
-      gestionadas: resumenMod.cajasReubicadas,
-      pendientes: resumenMod.cajasPendientes,
-      clientesRechazan: resumenMod.clientesRechazan,
-      topeMaximo:
-        resumenMod.topeMaximoCajas ||
-        Math.floor(totalCajasSeguimiento / 100) ||
-        1,
-      porcentaje: resumenMod.refusal.toFixed(2),
-      moduladores: resumenMod.moduladores,
+      rechazadas: resumen.cajasRechazadas,
+      gestionadas: resumen.cajasReubicadas,
+      pendientes: resumen.cajasPendientes,
+      clientesRechazan: resumen.clientesRechazan,
+      topeMaximo: resumen.topeMaximoCajas || Math.floor(totalCajasSeguimiento / 100) || 1,
+      porcentaje: resumen.refusal,
+      moduladores: resumen.moduladores,
     };
-  }, [todayVehicles, modulaciones]);
-
-  /* ================= TERRITORIO ================= */
+  }, [modulaciones, todayVehicles]);
 
   const territorioData = useMemo(() => {
     const map: Record<string, number> = {};
 
-    modulaciones.forEach((m) => {
-      const vh = todayVehicles.find(
-        (v) => normalizeDt(v.transporte) === normalizeDt(m.dt)
-      );
-
-      const t = vh?.territorio || "SIN ASIGNAR";
-      map[t] = (map[t] || 0) + Number(m.totalCajas || 0);
+    modulaciones.forEach((modulacion) => {
+      const vehicle = todayVehicles.find((item) => normalizeDt(item.transporte) === normalizeDt(modulacion.dt));
+      const territorio = vehicle?.territorio || "Sin asignar";
+      map[territorio] = (map[territorio] || 0) + Number(modulacion.totalCajas || 0);
     });
 
     return Object.entries(map)
@@ -174,396 +70,269 @@ export default function SeguimientoRefusalPage() {
       .sort((a, b) => b.value - a.value);
   }, [modulaciones, todayVehicles]);
 
-  const maxTerritorio = Math.max(...territorioData.map((t) => t.value), 1);
-
-  const refusalPct = parseFloat(refusalData.porcentaje);
-  const refusalColor =
-    refusalPct < 30
-      ? "text-emerald-500"
-      : refusalPct < 70
-      ? "text-amber-500"
-      : "text-red-500";
-
-  /* ================= UI ================= */
+  const maxTerritorio = Math.max(...territorioData.map((item) => item.value), 1);
+  const refusalTone = getRefusalTone(refusalData.porcentaje);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
-      {/* ── HEADER ── */}
-      <header className="border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-10 shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex gap-2">
+    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
             <button
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-              onClick={() => router.push("/seguimiento/graficas")}
+              className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
+              onClick={() => router.push("/seguimiento")}
+              type="button"
+              aria-label="Volver a seguimiento"
             >
-              <ArrowLeft size={14} /> VOLVER
+              <ArrowLeft size={19} />
             </button>
-
-            <button className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 shadow-sm">
-              <ShieldAlert size={14} /> REFUSAL
-            </button>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analítica diaria</p>
+              <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
+            </div>
           </div>
-
-          <div className="flex items-center gap-2 bg-[#10223d] px-4 py-1.5 rounded-full text-[10px] font-black text-white tracking-widest uppercase shadow">
-            <BarChart3 size={12} className="text-yellow-400" />
-            Operación Galapa &nbsp;·&nbsp; {new Date().toLocaleDateString()}
-          </div>
+          <AnalyticsViewToggle active="refusal" />
         </div>
       </header>
 
-      {/* ── BODY ── */}
-      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        {todayVehicles.length === 0 ? (
-          <div className="bg-white p-20 rounded-3xl border-2 border-dashed border-slate-200 text-center shadow-inner">
-            <ShieldAlert size={48} className="mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-500 font-black uppercase tracking-widest">
-              No hay vehículos disponibles en el sistema
-            </p>
+      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <RefusalMetric icon={<Package size={21} />} label="Cajas seguimiento" value={refusalData.totalCajasSeguimiento} />
+          <RefusalMetric icon={<XCircle size={21} />} label="Rechazadas" value={refusalData.rechazadas} tone="red" />
+          <RefusalMetric icon={<CheckCircle2 size={21} />} label="Gestionadas" value={refusalData.gestionadas} tone="green" />
+          <RefusalMetric icon={<Users size={21} />} label="Clientes" value={refusalData.clientesRechazan} tone="amber" />
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-[#10223d]">
+                <TrendingDown size={19} />
+                <h2 className="text-lg font-semibold">Resumen de refusal</h2>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${refusalTone.badge}`}>
+                {refusalTone.label}
+              </span>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
+              <RefusalGauge value={refusalData.rechazadas} max={refusalData.topeMaximo} percentage={refusalData.porcentaje} />
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span className="font-medium text-slate-600">Pendientes</span>
+                    <span className="font-semibold text-[#10223d]">{refusalData.pendientes} cajas</span>
+                  </div>
+                  <Progress value={Math.min(100, refusalData.topeMaximo ? (refusalData.pendientes / refusalData.topeMaximo) * 100 : 0)} color="bg-[#dc2626]" />
+                </div>
+                <div>
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span className="font-medium text-slate-600">Gestionadas</span>
+                    <span className="font-semibold text-[#10223d]">{refusalData.gestionadas} cajas</span>
+                  </div>
+                  <Progress value={Math.min(100, refusalData.rechazadas ? (refusalData.gestionadas / refusalData.rechazadas) * 100 : 0)} color="bg-[#0f7c58]" />
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-[#10223d]">Tope máximo: {refusalData.topeMaximo} cajas</p>
+                  <p className="mt-1 text-sm text-slate-500">El porcentaje se calcula con las cajas pendientes frente al tope permitido.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-5 flex items-center gap-2 text-[#10223d]">
+              <UserCheck size={19} />
+              <h2 className="text-lg font-semibold">Personal y territorio</h2>
+            </div>
+
+            <div className="mb-5">
+              <p className="mb-3 text-sm font-medium text-slate-500">Personal en operación</p>
+              <div className="flex flex-wrap gap-2">
+                {refusalData.moduladores.length ? (
+                  refusalData.moduladores.map((name) => (
+                    <span className="rounded-md bg-[#10223d] px-3 py-2 text-sm font-semibold text-white" key={name}>
+                      {name}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-medium text-slate-500">Sin registros hoy</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-slate-600">
+                <Map size={17} />
+                <p className="text-sm font-medium">Impacto por territorio</p>
+              </div>
+              <div className="space-y-3">
+                {territorioData.length ? (
+                  territorioData.map((item) => (
+                    <TerritoryRow key={item.label} label={item.label} value={item.value} max={maxTerritorio} />
+                  ))
+                ) : (
+                  <p className="rounded-lg bg-slate-50 p-4 text-center text-sm font-medium text-slate-500">Sin rechazos registrados hoy</p>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardList size={19} className="text-[#10223d]" />
+              <div>
+                <h2 className="text-lg font-semibold text-[#10223d]">Detalle de modulaciones</h2>
+                <p className="mt-1 text-sm text-slate-500">Registros del día asociados a rechazo y reubicación.</p>
+              </div>
+            </div>
+            <span className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+              {modulaciones.length} registros
+            </span>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-            {/* ── COLUMNA IZQUIERDA ── */}
-            <div className="lg:col-span-8 space-y-5">
-
-              {/* Métricas principales */}
-              <div className="grid grid-cols-3 gap-4">
-                <MetricCard
-                  label="Cajas Seguimiento"
-                  value={refusalData.totalCajasSeguimiento}
-                  icon={<Package size={18} className="text-[#10223d]" />}
-                  accent="border-t-[#10223d]"
-                />
-                <MetricCard
-                  label="Cajas Gestionadas"
-                  value={refusalData.gestionadas}
-                  color="text-emerald-600"
-                  icon={<CheckCircle2 size={18} className="text-emerald-500" />}
-                  accent="border-t-emerald-500"
-                />
-                <MetricCard
-                  label="Cajas Rechazadas"
-                  value={refusalData.rechazadas}
-                  color="text-red-600"
-                  icon={<XCircle size={18} className="text-red-500" />}
-                  accent="border-t-red-500"
-                />
-              </div>
-
-              {/* Clientes impactados + Tope */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-lg bg-amber-50">
-                      <Users size={16} className="text-amber-500" />
-                    </span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase leading-tight">
-                      Clientes<br />
-                    </span>
-                  </div>
-                  <span className="text-3xl font-black text-[#10223d]">
-                    {refusalData.clientesRechazan}
-                  </span>
-                </div>
-
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-lg bg-red-50">
-                      <AlertTriangle size={16} className="text-red-500" />
-                    </span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase leading-tight">
-                      Tope Permitido<br />
-                    </span>
-                  </div>
-                  <span className="text-3xl font-black text-red-600">
-                    {refusalData.topeMaximo}
-                  </span>
-                </div>
-              </div>
-
-              {/* % Refusal */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-50/60 to-transparent pointer-events-none" />
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <TrendingDown size={14} className="text-slate-400" />
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    % Refusal Real (Pendiente)
-                  </p>
-                </div>
-                <p className={`text-6xl font-black tracking-tighter ${refusalColor}`}>
-                  {refusalData.porcentaje}%
-                </p>
-              </div>
-
-              {/* Personal en operación */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="bg-yellow-400 px-5 py-2.5 flex items-center gap-2">
-                  <UserCheck size={16} className="text-[#10223d]" />
-                  <h3 className="text-[#10223d] text-[10px] font-black uppercase tracking-widest">
-                    Personal en Operación
-                  </h3>
-                </div>
-
-                <div className="p-4 flex flex-wrap gap-2">
-                  {refusalData.moduladores.length > 0 ? (
-                    refusalData.moduladores.map((m) => (
-                      <span
-                        key={m}
-                        className="bg-[#10223d] text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wide shadow-sm"
-                      >
-                        {m}
-                      </span>
-                    ))
-                  ) : (
-                    <p className="text-[10px] text-slate-400 font-bold">
-                      No hay registros de personal hoy
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ── COLUMNA DERECHA ── */}
-            <div className="lg:col-span-4 space-y-5">
-
-              {/* Gauge */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center">
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">
-                  Capacidad de Rechazo
-                </h3>
-                <RefusalGauge
-                  value={refusalData.rechazadas}
-                  max={refusalData.topeMaximo}
-                />
-                {/* Leyenda del gauge */}
-                <div className="mt-4 flex gap-3 text-[9px] font-black uppercase">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: PALETTE.safe }} />
-                    Seguro
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: PALETTE.warn }} />
-                    Alerta
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: PALETTE.danger }} />
-                    Crítico
-                  </span>
-                </div>
-              </div>
-
-              {/* Territorio */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="bg-yellow-400 px-5 py-2.5 flex items-center gap-2">
-                  <Map size={16} className="text-[#10223d]" />
-                  <h3 className="text-[#10223d] text-[10px] font-black uppercase tracking-widest">
-                    Impacto por Territorio
-                  </h3>
-                </div>
-
-                <div className="p-4 space-y-3">
-                  {territorioData.length > 0 ? (
-                    territorioData.map((t, i) => (
-                      <TerritorioRow
-                        key={t.label}
-                        label={t.label}
-                        value={t.value}
-                        max={maxTerritorio}
-                        index={i}
-                      />
-                    ))
-                  ) : (
-                    <p className="text-[10px] text-slate-400 font-bold text-center py-4">
-                      Sin rechazos hoy
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ── TABLA DETALLE ── */}
-            <div className="lg:col-span-12 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="bg-yellow-400 px-5 py-2.5 flex items-center gap-2">
-                <ClipboardList size={16} className="text-[#10223d]" />
-                <h3 className="text-[#10223d] text-[10px] font-black uppercase tracking-widest">
-                  Detalle de Modulaciones Hoy
-                </h3>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="bg-[#10223d] text-white">
-                      <th className="px-5 py-3 text-left font-black uppercase tracking-wide">
-                        DT / Cliente
-                      </th>
-                      <th className="px-5 py-3 text-center font-black uppercase tracking-wide">
-                        Cajas Rechazo
-                      </th>
-                      <th className="px-5 py-3 text-center font-black uppercase tracking-wide">
-                        Reubicadas
-                      </th>
-                      <th className="px-5 py-3 text-right font-black uppercase tracking-wide">
-                        Causal
-                      </th>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px]">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  <th className="px-5 py-4 text-left">DT / Cliente</th>
+                  <th className="px-5 py-4 text-left">Persona</th>
+                  <th className="px-5 py-4 text-center">Rechazo</th>
+                  <th className="px-5 py-4 text-center">Reubicadas</th>
+                  <th className="px-5 py-4 text-right">Causal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {modulaciones.length ? (
+                  modulaciones.map((item) => (
+                    <tr className="transition hover:bg-slate-50" key={item.id}>
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-[#10223d]">DT {item.dt}</p>
+                        <p className="text-sm text-slate-500">Cliente {item.codigoCliente}</p>
+                      </td>
+                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{item.persona}</td>
+                      <td className="px-5 py-4 text-center">
+                        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{item.totalCajas}</span>
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">{item.cajasReubicadas || 0}</span>
+                      </td>
+                      <td className="px-5 py-4 text-right text-sm font-medium text-slate-600">{item.causal}</td>
                     </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-100">
-                    {modulaciones.length > 0 ? (
-                      modulaciones.map((m, i) => (
-                        <tr
-                          key={m.id}
-                          className={`transition-colors hover:bg-slate-50 ${
-                            i % 2 === 0 ? "bg-white" : "bg-slate-50/50"
-                          }`}
-                        >
-                          <td className="px-5 py-3.5 font-black text-[#10223d]">
-                            {m.dt}
-                            <span className="text-[10px] text-slate-400 font-bold ml-2">
-                              ({m.codigoCliente})
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-center">
-                            <span className="inline-flex items-center justify-center font-black text-red-600 bg-red-50 rounded-full px-2.5 py-0.5 text-[11px]">
-                              {m.totalCajas}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-center">
-                            <span className="inline-flex items-center justify-center font-bold text-emerald-700 bg-emerald-50 rounded-full px-2.5 py-0.5 text-[11px]">
-                              {m.cajasReubicadas || 0}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-right font-bold text-slate-500 uppercase">
-                            {m.causal}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td
-                          colSpan={4}
-                          className="px-5 py-12 text-center text-slate-400 font-bold"
-                        >
-                          No se han registrado modulaciones el día de hoy
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                      No se han registrado modulaciones hoy.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </section>
       </section>
     </main>
   );
 }
 
-/* ================= COMPONENTS ================= */
+function RefusalMetric({ icon, label, value, tone = "navy" }: { icon: ReactNode; label: string; value: ReactNode; tone?: "navy" | "red" | "green" | "amber" }) {
+  const colors = {
+    navy: "bg-[#e9f3ff] text-[#10223d]",
+    red: "bg-red-50 text-red-700",
+    green: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-700",
+  };
 
-function MetricCard({
-  label,
-  value,
-  color = "text-[#10223d]",
-  icon,
-  accent = "border-t-[#10223d]",
-}: MetricCardProps) {
   return (
-    <div
-      className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center border-t-4 ${accent} transition-shadow hover:shadow-md`}
-    >
-      {icon && (
-        <div className="flex justify-center mb-2">{icon}</div>
-      )}
-      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1">
-        {label}
-      </p>
-      <p className={`text-3xl font-black ${color}`}>{value}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <span className={`mb-4 grid h-11 w-11 place-items-center rounded-md ${colors[tone]}`}>{icon}</span>
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-3xl font-semibold text-[#10223d]">{value}</p>
     </div>
   );
 }
 
-// Colores de barra de territorio — misma paleta semáforo que el gauge
-function getBarColor(index: number, pct: number): string {
-  if (pct >= 70) return PALETTE.danger;
-  if (pct >= 40) return PALETTE.warn;
-  return PALETTE.safe;
-}
-
-function TerritorioRow({ label, value, max, index }: TerritorioRowProps) {
-  const pct = Math.min(100, (value / max) * 100);
-  const barColor = getBarColor(index, pct);
-
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-[10px] font-bold">
-        <span className="text-slate-600 uppercase">{label}</span>
-        <span className="font-black" style={{ color: barColor }}>
-          {value}
-        </span>
-      </div>
-      {/* Barra de progreso con el mismo color semáforo que el gauge */}
-      <div className="h-1.5 w-full rounded-full" style={{ background: PALETTE.track }}>
-        <div
-          className="h-1.5 rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, background: barColor }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function RefusalGauge({ value, max }: RefusalGaugeProps) {
-  const percentage = Math.min(100, (value / max) * 100);
-  const radius = 40;
+function RefusalGauge({ value, max, percentage }: { value: number; max: number; percentage: number }) {
+  const progress = Math.min(100, (value / max) * 100);
+  const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percentage / 100) * circumference;
-
-  // Misma lógica de color que las barras de territorio
-  const arcColor =
-    percentage < 30 ? PALETTE.safe : percentage < 70 ? PALETTE.warn : PALETTE.danger;
+  const offset = circumference - (progress / 100) * circumference;
+  const tone = getRefusalTone(percentage);
 
   return (
-    <div className="relative w-36 h-36 flex items-center justify-center">
-      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-        {/* Pista de fondo */}
+    <div className="relative mx-auto grid h-52 w-52 place-items-center">
+      <svg className="h-full w-full -rotate-90" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r={radius} fill="none" stroke={PALETTE.track} strokeWidth="11" />
         <circle
-          cx="50"
-          cy="50"
+          cx="55"
+          cy="55"
           r={radius}
           fill="none"
-          stroke={PALETTE.track}
-          strokeWidth="10"
-        />
-        {/* Arco de progreso */}
-        <circle
-          cx="50"
-          cy="50"
-          r={radius}
-          fill="none"
-          stroke={arcColor}
-          strokeWidth="10"
+          stroke={tone.color}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.6s ease, stroke 0.4s ease" }}
+          strokeWidth="11"
         />
       </svg>
-
-      {/* Texto central */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span
-          className="text-2xl font-black leading-none"
-          style={{ color: arcColor }}
-        >
-          {value}
-        </span>
-        <span className="text-[9px] font-black text-slate-400 uppercase mt-0.5">
-          / {max}
-        </span>
+      <div className="absolute text-center">
+        <p className="text-4xl font-semibold" style={{ color: tone.color }}>
+          {percentage.toFixed(2)}%
+        </p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+          {value} / {max} cajas
+        </p>
       </div>
     </div>
   );
+}
+
+function Progress({ value, color }: { value: number; color: string }) {
+  return (
+    <div className="h-2 rounded-full bg-slate-200">
+      <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
+    </div>
+  );
+}
+
+function TerritoryRow({ label, value, max }: { label: string; value: number; max: number }) {
+  const percentage = Math.min(100, (value / max) * 100);
+  const color = percentage > 70 ? "bg-red-500" : percentage > 40 ? "bg-[#f5bd19]" : "bg-[#0f7c58]";
+
+  return (
+    <div>
+      <div className="mb-2 flex justify-between text-sm">
+        <span className="font-medium text-slate-600">{label}</span>
+        <span className="font-semibold text-[#10223d]">{value}</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-200">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${percentage}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function getRefusalTone(value: number) {
+  if (value < 30) return { color: PALETTE.safe, label: "Controlado", badge: "border-emerald-100 bg-emerald-50 text-emerald-700" };
+  if (value < 70) return { color: PALETTE.warn, label: "En alerta", badge: "border-amber-100 bg-amber-50 text-amber-700" };
+  return { color: PALETTE.danger, label: "Crítico", badge: "border-red-100 bg-red-50 text-red-700" };
+}
+
+function todayKey() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    return new Date(year, month - 1, day).toISOString().split("T")[0];
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().split("T")[0];
 }
