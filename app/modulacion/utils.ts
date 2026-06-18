@@ -56,17 +56,13 @@ export function getVehiculosSeguimiento() {
 }
 
 function filterTodayVehicles(vehiculos: Vehiculo[]) {
-  const today = getTodayKey();
+  const today = getLocalDateKey();
   return vehiculos.filter((vehiculo) => (vehiculo.fechaDespacho || vehiculo.fechaDt) === today);
-}
-
-function getTodayKey() {
-  return getLocalDateKey();
 }
 
 function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
   const createdAt = new Date(registro.createdAt);
-  const fecha = createdAt.toISOString().slice(0, 10);
+  const fecha = getLocalDateKey(createdAt);
 
   return {
     mes: createdAt.toLocaleDateString("es-CO", { month: "long" }),

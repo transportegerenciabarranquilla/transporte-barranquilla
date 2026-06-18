@@ -1,4 +1,8 @@
 export type Vehiculo = {
+  cajasGestionadas: number;
+  cajasReportadas: number;
+  createdAt: string;
+  date: string;
   mes: string;
   cd: string;
   transportista: string;

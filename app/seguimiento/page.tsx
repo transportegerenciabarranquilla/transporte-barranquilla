@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Boxes, CalendarDays, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Bell, Boxes, CalendarDays, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
 import { initialVehicles } from "./data";
 import type { Vehiculo } from "./types";
 import { getProgress, getStatus, getVehicleRecordKey } from "./utils";
@@ -12,7 +12,14 @@ import { SeguimientoHero } from "./components/SeguimientoHero";
 import { VehicleDrawer } from "./components/VehicleDrawer";
 import { VehiclesTable } from "./components/VehiclesTable";
 import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../lib/asistenciaStorage";
-import { getModulacionesByDt, readModulacionRegistros, summarizeModulaciones } from "../lib/modulacionStorage";
+import {
+  getLocalDateKey,
+  getModulacionesByDt,
+  isTodayDate,
+  readModulacionRegistros,
+  summarizeModulaciones,
+  type ModulacionRegistro,
+} from "../lib/modulacionStorage";
 import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 
 type DateScope = "today" | "all";
@@ -25,6 +32,8 @@ export default function SeguimientoPage() {
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [dateScope, setDateScope] = useState<DateScope>("today");
   const [importMessage, setImportMessage] = useState("");
+  const [modulaciones] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
+  const [showModulacionAlert, setShowModulacionAlert] = useState(false);
 
   const filteredVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
@@ -52,6 +61,26 @@ export default function SeguimientoPage() {
       avance: clientes ? Math.round((visitados / clientes) * 100) : 0,
     };
   }, [filteredVehicles]);
+  const modulacionesHoy = useMemo(
+    () =>
+      modulaciones
+        .filter((registro) => isTodayDate(registro.createdAt))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [modulaciones],
+  );
+
+  useEffect(() => {
+    if (!modulacionesHoy.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowModulacionAlert(false);
+      return;
+    }
+
+    setShowModulacionAlert(true);
+    const timeout = window.setTimeout(() => setShowModulacionAlert(false), 30000);
+
+    return () => window.clearTimeout(timeout);
+  }, [modulacionesHoy]);
 
   function actualizarVisitados(recordKey: string, visitados: number) {
     setVehiculos((current) =>
@@ -141,7 +170,7 @@ export default function SeguimientoPage() {
           <MetricCard icon={<Users size={22} />} label="Visitados" value={resumen.visitados} detail="Clientes atendidos" />
         </div>
 
-        <SeguimientoCharts vehicles={filteredVehicles} />
+        <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
 
         <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_auto]">
           <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-4 shadow-sm transition hover:border-[#f5bd19] hover:bg-[#fff8e6]">
@@ -162,6 +191,14 @@ export default function SeguimientoPage() {
           </label>
 
           <div className="flex items-center rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+            <button
+              className="mr-2 inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
+              onClick={() => router.push("/seguimiento/graficas")}
+              type="button"
+            >
+              <BarChart3 size={18} />
+              Graficas
+            </button>
             <button
               className={`h-10 rounded-md px-4 text-sm font-semibold transition ${
                 dateScope === "today" ? "bg-[#10223d] text-white" : "text-slate-600 hover:bg-slate-100"
@@ -232,7 +269,57 @@ function persistVehicles(records: Vehiculo[]) {
 }
 
 function getTodayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateKey();
+}
+
+function ModulacionNotificationAlert({ modulaciones, visible }: { modulaciones: ModulacionRegistro[]; visible: boolean }) {
+  const ultima = modulaciones[0] ?? null;
+  const visibleModulaciones = modulaciones.slice(0, 3);
+
+  if (!ultima || !visible) return null;
+
+  return (
+    <section className="mb-6 rounded-lg border border-amber-200 bg-[#fff8e6] p-5 shadow-sm sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#f5bd19] text-[#10223d]">
+            <Bell size={20} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Alerta de modulacion</p>
+            <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Se acaba de hacer una modulacion</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {ultima.persona} modulo el DT {ultima.dt} del cliente {ultima.codigoCliente}. Cajas rechazadas:{" "}
+              {ultima.totalCajas}. Reubicadas: {ultima.cajasReubicadas || "0"}.
+            </p>
+          </div>
+        </div>
+        <span className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#10223d] shadow-sm">
+          {formatTime(ultima.createdAt)}
+        </span>
+      </div>
+
+      {visibleModulaciones.length > 1 ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {visibleModulaciones.slice(1).map((registro) => (
+            <div className="rounded-md border border-amber-200/70 bg-white/75 px-3 py-2 text-sm" key={registro.id}>
+              <p className="font-semibold text-[#10223d]">DT {registro.dt}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                {registro.persona} - Cliente {registro.codigoCliente} - {formatTime(registro.createdAt)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--";
+
+  return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 }
 
 async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {
@@ -363,70 +450,8 @@ function normalizeHeader(value: string) {
 }
 
 function stringValue(value: unknown) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return getLocalDateKey(value);
   return String(value ?? "").trim();
-}
-
-function SeguimientoCharts({ vehicles }: { vehicles: Vehiculo[] }) {
-  const maxCajas = Math.max(...vehicles.map((vehicle) => vehicle.cajas), 1);
-  const statusItems = ["Cargando", "En ruta", "Finalizado"].map((status) => ({
-    status,
-    count: vehicles.filter((vehicle) => getStatus(getProgress(vehicle)) === status).length,
-  }));
-  const maxStatus = Math.max(...statusItems.map((item) => item.count), 1);
-  const topVehicles = [...vehicles].sort((a, b) => b.cajas - a.cajas).slice(0, 6);
-
-  return (
-    <div className="mb-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-5">
-          <h2 className="text-lg font-semibold text-[#10223d]">Cajas por DT</h2>
-          <p className="mt-1 text-sm text-slate-500">Calculado con el filtro actual de fecha y estado.</p>
-        </div>
-        {topVehicles.length ? (
-          <div className="space-y-4">
-            {topVehicles.map((vehicle) => (
-              <div key={getVehicleRecordKey(vehicle)}>
-                <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                  <span className="font-medium text-slate-600">
-                    {vehicle.transporte} · {vehicle.vehiculo}
-                  </span>
-                  <span className="font-semibold text-[#10223d]">{vehicle.cajas.toLocaleString("es-CO")}</span>
-                </div>
-                <div className="h-4 overflow-hidden rounded-md bg-slate-100">
-                  <div className="h-full rounded-md bg-[#0f7c58]" style={{ width: `${(vehicle.cajas / maxCajas) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">
-            No hay vehiculos para el filtro seleccionado.
-          </p>
-        )}
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-5">
-          <h2 className="text-lg font-semibold text-[#10223d]">Estado de rutas</h2>
-          <p className="mt-1 text-sm text-slate-500">No mezcla placas repetidas porque separa por DT y fecha.</p>
-        </div>
-        <div className="space-y-4">
-          {statusItems.map((item) => (
-            <div key={item.status}>
-              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-slate-600">{item.status}</span>
-                <span className="font-semibold text-[#10223d]">{item.count}</span>
-              </div>
-              <div className="h-4 overflow-hidden rounded-md bg-slate-100">
-                <div className="h-full rounded-md bg-[#f5bd19]" style={{ width: `${(item.count / maxStatus) * 100}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
 }
 
 function numberValue(value: unknown, fallback: number) {
@@ -435,13 +460,13 @@ function numberValue(value: unknown, fallback: number) {
 }
 
 function dateValue(value: unknown) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return getLocalDateKey(value);
 
   const text = stringValue(value);
   if (!text) return "";
 
   const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  if (!Number.isNaN(parsed.getTime())) return getLocalDateKey(parsed);
 
   const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (!match) return "";
@@ -453,7 +478,7 @@ function dateValue(value: unknown) {
 
 function mapAttendanceToVehicle(registro: AsistenciaRegistro): Vehiculo {
   const createdAt = new Date(registro.createdAt);
-  const fecha = createdAt.toISOString().slice(0, 10);
+  const fecha = getLocalDateKey(createdAt);
 
   return {
     mes: createdAt.toLocaleDateString("es-CO", { month: "long" }),

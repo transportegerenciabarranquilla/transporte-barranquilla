@@ -29,10 +29,10 @@ export function VehiclesTable({
               <th className="px-5 py-4 text-left">DT</th>
               <th className="px-5 py-4 text-left">Responsable</th>
               <th className="px-5 py-4 text-left">Territorio</th>
-              <th className="px-5 py-4 text-left">Fecha</th>
-              <th className="px-5 py-4 text-left">Salida</th>
+              <th className="px-5 py-4 text-left">Fecha DT</th>
+              <th className="px-5 py-4 text-left">Fecha Despacho</th>
               <th className="px-5 py-4 text-left">Cajas</th>
-              <th className="px-5 py-4 text-left">Clientes</th>
+              <th className="px-5 py-4 text-left">Clientes</th> 
               <th className="px-5 py-4 text-left">Visitados</th>
               <th className="px-5 py-4 text-left">Avance</th>
               <th className="px-5 py-4 text-left">Estado</th>
