@@ -22,7 +22,7 @@ export function NumericField({
         <Icon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         <input
           className={`h-12 w-full rounded-md border bg-white pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 ${
-            error ? "border-red-400" : "border-slate-200 focus:border-[#f5bd19]"
+            error ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
           }`}
           inputMode="numeric"
           onChange={(event) => onChange(event.target.value)}

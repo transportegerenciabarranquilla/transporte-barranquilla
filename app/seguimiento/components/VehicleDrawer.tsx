@@ -1,12 +1,29 @@
 import type { ReactNode } from "react";
 import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { getProgress, getStatus } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleRecordKey } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
-export function VehicleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose: () => void }) {
+export function VehicleDrawer({
+  vehicle,
+  now,
+  onClose,
+  onUpdateVehicle,
+}: {
+  vehicle: Vehiculo;
+  now: Date;
+  onClose: () => void;
+  onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
+}) {
   const progress = getProgress(vehicle);
-  const capacity = Math.round((vehicle.peso / vehicle.capacidad) * 100);
+  const capacity = vehicle.capacidad ? Math.round((vehicle.peso / vehicle.capacidad) * 100) : 0;
+  const routeTime = calculateRouteTime(vehicle, now);
+  const status = getStatus(progress, vehicle);
+  const recordKey = getVehicleRecordKey(vehicle);
+
+  function updateVehicle(changes: Partial<Vehiculo>) {
+    onUpdateVehicle(recordKey, changes);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
@@ -33,52 +50,103 @@ export function VehicleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose
             <p className="text-sm text-white/65">Avance de ruta</p>
             <div className="mt-3 flex items-end justify-between">
               <span className="text-4xl font-semibold text-[#f5bd19]">{progress}%</span>
-              <StatusBadge status={getStatus(progress)} />
+              <StatusBadge status={status} />
             </div>
             <div className="mt-4 h-2 rounded-full bg-white/15">
               <div className="h-2 rounded-full bg-[#f5bd19]" style={{ width: `${progress}%` }} />
             </div>
           </div>
 
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-center gap-2 text-[#10223d]">
+              <Clock3 size={18} />
+              <p className="text-sm font-semibold">Seguimiento de ruta</p>
+            </div>
+
+            <div className="grid gap-3">
+              <label className="grid gap-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Estado</span>
+                <select
+                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-[#f5bd19]"
+                  onChange={(event) => updateVehicle({ status: event.target.value })}
+                  value={status}
+                >
+                  {ROUTE_STATUSES.map((routeStatus) => (
+                    <option key={routeStatus} value={routeStatus}>
+                      {routeStatus}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <EditableTime
+                  label="Hora salida"
+                  value={vehicle.horaSalida}
+                  onChange={(value) =>
+                    updateVehicle({
+                      horaSalida: value || "Pendiente",
+                      status: value ? "En ruta" : "Pendiente por salir",
+                    })
+                  }
+                />
+                <EditableTime
+                  label="Hora llegada"
+                  value={vehicle.horaLlegada}
+                  onChange={(value) =>
+                    updateVehicle({
+                      horaLlegada: value || "Pendiente",
+                      status: value ? "Finalizado" : "En ruta",
+                    })
+                  }
+                />
+              </div>
+
+              <div className="rounded-md bg-slate-100 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Tiempo en ruta</p>
+                <p className="mt-1 text-2xl font-semibold text-[#10223d]">{routeTime}</p>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
-            <Info icon={<CalendarDays size={18} />} label="Mes" value={vehicle.mes} />
-            <Info icon={<MapPin size={18} />} label="CD" value={vehicle.cd} />
-            <Info icon={<Route size={18} />} label="Llave" value={vehicle.llave} />
-            <Info icon={<Truck size={18} />} label="Transporte" value={vehicle.transporte} />
-            <Info icon={<MapPin size={18} />} label="Centro" value={vehicle.centro} />
-            <Info icon={<Truck size={18} />} label="Cod transportista" value={vehicle.codTransportista} />
-            <Info icon={<CalendarDays size={18} />} label="Fecha de DT" value={vehicle.fechaDt} />
-            <Info icon={<CalendarDays size={18} />} label="Fecha despacho" value={vehicle.fechaDespacho} />
-            <Info icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} />
-            <Info icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} />
-            <Info icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || "-"} />
-            <Info icon={<Users size={18} />} label="Cedula conductor / auxiliar 1" value={vehicle.cedulaAuxiliar1 || "-"} />
-            <Info icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || "-"} />
-            <Info icon={<MapPin size={18} />} label="Territorio" value={vehicle.territorio} />
-            <Info icon={<Route size={18} />} label="Viaje" value={vehicle.viaje} />
-            <Info icon={<Route size={18} />} label="Bloque" value={vehicle.bloque} />
-            <Info icon={<Clock3 size={18} />} label="Hora salida" value={vehicle.horaSalida} />
-            <Info icon={<Route size={18} />} label="Clientes" value={`${vehicle.visitados}/${vehicle.clientes}`} />
-            <Info icon={<PackageCheck size={18} />} label="HL" value={vehicle.hl} />
-            <Info icon={<Boxes size={18} />} label="Cajas" value={vehicle.cajas} />
+            <EditableInfo icon={<CalendarDays size={18} />} label="Mes" value={vehicle.mes} onChange={(value) => updateVehicle({ mes: String(value) })} />
+            <EditableInfo icon={<MapPin size={18} />} label="CD" value={vehicle.cd} onChange={(value) => updateVehicle({ cd: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Llave" value={vehicle.llave} onChange={(value) => updateVehicle({ llave: String(value) })} />
+            <EditableInfo icon={<Truck size={18} />} label="Vehiculo" value={vehicle.vehiculo} onChange={(value) => updateVehicle({ vehiculo: String(value) })} />
+            <EditableInfo icon={<Truck size={18} />} label="Transporte" value={vehicle.transporte} onChange={(value) => updateVehicle({ transporte: String(value) })} />
+            <EditableInfo icon={<MapPin size={18} />} label="Centro" value={vehicle.centro} onChange={(value) => updateVehicle({ centro: String(value) })} />
+            <EditableInfo icon={<Truck size={18} />} label="Cod transportista" value={vehicle.codTransportista} onChange={(value) => updateVehicle({ codTransportista: String(value) })} />
+            <EditableInfo icon={<CalendarDays size={18} />} label="Fecha de DT" type="date" value={vehicle.fechaDt} onChange={(value) => updateVehicle({ fechaDt: String(value) })} />
+            <EditableInfo icon={<CalendarDays size={18} />} label="Fecha despacho" type="date" value={vehicle.fechaDespacho} onChange={(value) => updateVehicle({ fechaDespacho: String(value) })} />
+            <EditableInfo icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} onChange={(value) => updateVehicle({ transportista: String(value) })} />
+            <EditableInfo icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} onChange={(value) => updateVehicle({ responsable: String(value) })} />
+            <EditableInfo icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || ""} onChange={(value) => updateVehicle({ cedulaResponsable: String(value) })} />
+            <EditableInfo icon={<Users size={18} />} label="Cedula conductor / auxiliar 1" value={vehicle.cedulaAuxiliar1 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar1: String(value) })} />
+            <EditableInfo icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar2: String(value) })} />
+            <EditableInfo icon={<MapPin size={18} />} label="Territorio" value={vehicle.territorio} onChange={(value) => updateVehicle({ territorio: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Viaje" value={vehicle.viaje} onChange={(value) => updateVehicle({ viaje: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Bloque" value={vehicle.bloque} onChange={(value) => updateVehicle({ bloque: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Clientes" type="number" value={vehicle.clientes} onChange={(value) => updateVehicle({ clientes: Number(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Visitados" type="number" value={vehicle.visitados} onChange={(value) => updateVehicle({ visitados: Number(value) })} />
+            <EditableInfo icon={<PackageCheck size={18} />} label="HL" type="number" value={vehicle.hl} onChange={(value) => updateVehicle({ hl: Number(value) })} />
+            <EditableInfo icon={<Boxes size={18} />} label="Cajas" type="number" value={vehicle.cajas} onChange={(value) => updateVehicle({ cajas: Number(value) })} />
             <Info icon={<Boxes size={18} />} label="Cajas rechazadas" value={vehicle.cajasRechazadas || 0} />
             <Info icon={<PackageCheck size={18} />} label="Cajas reubicadas" value={vehicle.cajasReubicadas || 0} />
             <Info icon={<Boxes size={18} />} label="Tope maximo" value={vehicle.topeMaximoCajas || 0} />
             <Info icon={<PackageCheck size={18} />} label="Refusal neto" value={`${vehicle.refusal || 0}%`} />
-            <Info icon={<Boxes size={18} />} label="Peso DT" value={`${vehicle.peso.toLocaleString("es-CO")} kg`} />
-            <Info icon={<Boxes size={18} />} label="Capacidad peso vehiculo" value={`${vehicle.capacidad.toLocaleString("es-CO")} kg`} />
-            <Info icon={<PackageCheck size={18} />} label="Validador de peso" value={vehicle.validadorPeso} />
+            <EditableInfo icon={<Boxes size={18} />} label="Peso DT" type="number" value={vehicle.peso} onChange={(value) => updateVehicle({ peso: Number(value) })} />
+            <EditableInfo icon={<Boxes size={18} />} label="Capacidad peso vehiculo" type="number" value={vehicle.capacidad} onChange={(value) => updateVehicle({ capacidad: Number(value) })} />
+            <EditableInfo icon={<PackageCheck size={18} />} label="Validador de peso" value={vehicle.validadorPeso} onChange={(value) => updateVehicle({ validadorPeso: String(value) })} />
             <Info icon={<Route size={18} />} label="Avance en ruta" value={`${progress}%`} />
-            <Info icon={<Clock3 size={18} />} label="Hora llegada" value={vehicle.horaLlegada} />
-            <Info icon={<Clock3 size={18} />} label="Tiempo en ruta" value={vehicle.tiempoRuta} />
-            <Info icon={<Route size={18} />} label="Meta relevo" value={vehicle.metaRelevo} />
-            <Info icon={<Clock3 size={18} />} label="Hora inicio relevo" value={vehicle.horaInicioRelevo} />
-            <Info icon={<Route size={18} />} label="Clasificacion relevo" value={vehicle.clasificacionRelevo} />
-            <Info icon={<PackageCheck size={18} />} label="Alerta SIF potencial" value={vehicle.alertaSifPotencial} />
-            <Info icon={<Users size={18} />} label="Relevador" value={vehicle.relevador} />
-            <Info icon={<Route size={18} />} label="Causal desviado" value={vehicle.causalDesviado} />
-            <Info icon={<Clock3 size={18} />} label="Clasificacion on time" value={vehicle.clasificacionOnTime} />
-            <Info icon={<PackageCheck size={18} />} label="Recargue" value={vehicle.recargue} />
+            <EditableInfo icon={<Route size={18} />} label="Meta relevo" value={vehicle.metaRelevo} onChange={(value) => updateVehicle({ metaRelevo: String(value) })} />
+            <EditableInfo icon={<Clock3 size={18} />} label="Hora inicio relevo" value={vehicle.horaInicioRelevo} onChange={(value) => updateVehicle({ horaInicioRelevo: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Clasificacion relevo" value={vehicle.clasificacionRelevo} onChange={(value) => updateVehicle({ clasificacionRelevo: String(value) })} />
+            <EditableInfo icon={<PackageCheck size={18} />} label="Alerta SIF potencial" value={vehicle.alertaSifPotencial} onChange={(value) => updateVehicle({ alertaSifPotencial: String(value) })} />
+            <EditableInfo icon={<Users size={18} />} label="Relevador" value={vehicle.relevador} onChange={(value) => updateVehicle({ relevador: String(value) })} />
+            <EditableInfo icon={<Route size={18} />} label="Causal desviado" value={vehicle.causalDesviado} onChange={(value) => updateVehicle({ causalDesviado: String(value) })} />
+            <EditableInfo icon={<Clock3 size={18} />} label="Clasificacion on time" value={vehicle.clasificacionOnTime} onChange={(value) => updateVehicle({ clasificacionOnTime: String(value) })} />
+            <EditableInfo icon={<PackageCheck size={18} />} label="Recargue" value={vehicle.recargue} onChange={(value) => updateVehicle({ recargue: String(value) })} />
           </div>
 
           <div className="rounded-lg border border-slate-200 p-4">
@@ -96,6 +164,52 @@ export function VehicleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose
         </div>
       </aside>
     </div>
+  );
+}
+
+function EditableTime({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <input
+        className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-[#f5bd19]"
+        onChange={(event) => onChange(event.target.value)}
+        type="time"
+        value={value === "Pendiente" || value === "-" ? "" : value}
+      />
+    </label>
+  );
+}
+
+function EditableInfo({
+  icon,
+  label,
+  onChange,
+  type = "text",
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  onChange: (value: string | number) => void;
+  type?: "date" | "number" | "text";
+  value: string | number;
+}) {
+  const inputValue = type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? "" : value;
+
+  return (
+    <label className="rounded-lg border border-slate-200 bg-white p-4">
+      <span className="mb-3 flex items-center gap-2 text-[#10223d]">
+        {icon}
+        <span className="text-sm font-medium text-slate-500">{label}</span>
+      </span>
+      <input
+        className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#f5bd19] focus:bg-white"
+        min={type === "number" ? 0 : undefined}
+        onChange={(event) => onChange(type === "number" ? Number(event.target.value) : event.target.value)}
+        type={type}
+        value={inputValue}
+      />
+    </label>
   );
 }
 

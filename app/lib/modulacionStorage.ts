@@ -19,6 +19,9 @@ export type ModulacionResumen = {
   cajasRechazadas: number;
   cajasReubicadas: number;
   cajasPendientes: number;
+  cajasPendientesModulacion: number;
+  cajasCheckin?: number;
+  tieneCheckin: boolean;
   clientesRechazan: number;
   topeMaximoCajas: number;
   refusal: number;
@@ -78,10 +81,12 @@ export function getModulacionesByDt(records: ModulacionRegistro[], dt: string | 
   return records.filter((record) => normalizeDt(record.dt) === targetDt);
 }
 
-export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasSalida = 0) {
+export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: number) {
   const cajasRechazadas = records.reduce((total, record) => total + Number(record.totalCajas || 0), 0);
   const cajasReubicadas = records.reduce((total, record) => total + Number(record.cajasReubicadas || 0), 0);
-  const cajasPendientes = Math.max(cajasRechazadas - cajasReubicadas, 0);
+  const cajasPendientesModulacion = Math.max(cajasRechazadas - cajasReubicadas, 0);
+  const tieneCheckin = typeof cajasCheckin === "number" && Number.isFinite(cajasCheckin);
+  const cajasPendientes = tieneCheckin ? Math.max(cajasCheckin, 0) : cajasPendientesModulacion;
   const moduladores = Array.from(new Set(records.map((record) => record.persona?.trim()).filter(Boolean))) as string[];
   const causales = Array.from(new Set(records.map((record) => record.causal).filter(Boolean)));
 
@@ -89,6 +94,9 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
     cajasRechazadas,
     cajasReubicadas,
     cajasPendientes,
+    cajasPendientesModulacion,
+    cajasCheckin: tieneCheckin ? Math.max(cajasCheckin, 0) : undefined,
+    tieneCheckin,
     clientesRechazan: records.length,
     topeMaximoCajas: calculateCajaTope(totalCajasSalida),
     refusal: totalCajasSalida ? Number(((cajasPendientes / totalCajasSalida) * 100).toFixed(2)) : 0,

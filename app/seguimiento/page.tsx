@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileDown, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -16,31 +16,46 @@ import {
   persistVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { getProgress, getStatus, getVehicleRecordKey } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleRecordKey } from "./utils";
+import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
+import { removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, isTodayDate, readModulacionRegistros, type ModulacionRegistro } from "../lib/modulacionStorage";
+import { initialVehicles } from "./data";
 
 type DateScope = "today" | "all";
 
 export default function SeguimientoPage() {
   const router = useRouter();
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
-  const [vehiculos, setVehiculos] = useState<Vehiculo[]>(() => loadSeguimientoVehiculos());
+  const [vehiculos, setVehiculos] = useState<Vehiculo[]>(initialVehicles);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [fechaDtFilter, setFechaDtFilter] = useState("");
   const [dateScope, setDateScope] = useState<DateScope>("today");
   const [importMessage, setImportMessage] = useState("");
-  const [modulaciones] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
+  const [modulaciones, setModulaciones] = useState<ModulacionRegistro[]>([]);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [dateLabel, setDateLabel] = useState("");
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setVehiculos(loadSeguimientoVehiculos());
+      setModulaciones(readModulacionRegistros());
+      setDateLabel(new Date().toLocaleDateString("es-CO"));
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const filteredVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
-      const status = getStatus(getProgress(item));
+      const status = getStatus(getProgress(item), item);
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === "Todos" || status === statusFilter;
       const matchesDate = dateScope === "all" || item.fechaDespacho === getLocalDateKey();
-      const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter;
+      const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter || item.fechaDespacho === fechaDtFilter;
 
       return matchesSearch && matchesStatus && matchesDate && matchesFechaDt;
     });
@@ -68,6 +83,18 @@ export default function SeguimientoPage() {
     [modulaciones],
   );
   const showModulacionAlert = modulacionesHoy.length > 0 && !modulacionAlertDismissed;
+  const selectedVehicle = useMemo(() => {
+    if (!vehiculoSeleccionado) return null;
+
+    const selectedKey = getVehicleRecordKey(vehiculoSeleccionado);
+    return vehiculos.find((item) => getVehicleRecordKey(item) === selectedKey) ?? vehiculoSeleccionado;
+  }, [vehiculoSeleccionado, vehiculos]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!modulacionesHoy.length) return;
@@ -93,19 +120,59 @@ export default function SeguimientoPage() {
   }
 
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
+    const shouldResetAttendance =
+      changes.fechaDespacho !== undefined || changes.status === "Pernoctado" || changes.status === "Cambio de fecha";
+
+    setVehiculoSeleccionado((current) =>
+      current && getVehicleRecordKey(current) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
+    );
+
     setVehiculos((current) =>
       persistVehicles(
-        current.map((item) =>
-          getVehicleRecordKey(item) === recordKey
-            ? {
-                ...item,
-                ...changes,
-                clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
-              }
-            : item,
-        ),
+        current.map((item) => {
+          if (getVehicleRecordKey(item) !== recordKey) return item;
+
+          removeStaleRouteData(item, shouldResetAttendance);
+          return applyVehicleChanges(item, changes, shouldResetAttendance);
+        }),
       ),
     );
+  }
+
+  function applyVehicleChanges(item: Vehiculo, changes: Partial<Vehiculo>, shouldResetAttendance: boolean) {
+    const updated = {
+      ...item,
+      ...changes,
+      clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
+      visitados: changes.visitados === undefined ? item.visitados : Math.max(changes.visitados, 0),
+      cajas: changes.cajas === undefined ? item.cajas : Math.max(changes.cajas, 0),
+      hl: changes.hl === undefined ? item.hl : Math.max(changes.hl, 0),
+      peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
+      capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
+    };
+
+    updated.visitados = Math.min(updated.visitados, updated.clientes);
+
+    if (shouldResetAttendance) {
+      updated.cedulaResponsable = undefined;
+      updated.cedulaAuxiliar1 = undefined;
+      updated.cedulaAuxiliar2 = undefined;
+      updated.responsable = item.responsable.startsWith("RR ") ? "Sin responsable" : updated.responsable;
+      updated.visitados = 0;
+    }
+
+    if (changes.horaSalida !== undefined || changes.horaLlegada !== undefined) {
+      updated.tiempoRuta = calculateRouteTime(updated, now);
+    }
+
+    return updated;
+  }
+
+  function removeStaleRouteData(item: Vehiculo, shouldResetAttendance: boolean) {
+    if (!shouldResetAttendance) return;
+
+    removeAsistenciaByDt(item.transporte);
+    removeCheckinByDt(item.transporte);
   }
 
   async function handleImport(file: File | undefined) {
@@ -130,7 +197,7 @@ export default function SeguimientoPage() {
 
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button
             className="flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#10223d] transition hover:bg-slate-100"
@@ -147,7 +214,7 @@ export default function SeguimientoPage() {
 
           <div className="flex items-center gap-3 rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">
             <CalendarDays size={18} />
-            {new Date().toLocaleDateString("es-CO")}
+            {dateLabel}
           </div>
         </div>
       </header>
@@ -190,6 +257,14 @@ export default function SeguimientoPage() {
             >
               <BarChart3 size={18} />
               Graficas
+            </button>
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#f5bd19] px-4 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+              onClick={() => router.push("/seguimiento/checkin")}
+              type="button"
+            >
+              <ClipboardCheck size={18} />
+              Cajas checkin
             </button>
             <a
               className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
@@ -239,8 +314,13 @@ export default function SeguimientoPage() {
           onUpdateVisited={actualizarVisitados}
         />
 
-        {vehiculoSeleccionado ? (
-          <VehicleDrawer vehicle={vehiculoSeleccionado} onClose={() => setVehiculoSeleccionado(null)} />
+        {selectedVehicle ? (
+          <VehicleDrawer
+            vehicle={selectedVehicle}
+            now={now}
+            onClose={() => setVehiculoSeleccionado(null)}
+            onUpdateVehicle={actualizarVehiculo}
+          />
         ) : null}
       </section>
     </main>

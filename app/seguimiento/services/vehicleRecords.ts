@@ -1,4 +1,5 @@
 import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../../lib/asistenciaStorage";
+import { getCheckinByDt, readCheckinCajasRegistros } from "../../lib/checkinStorage";
 import {
   getLocalDateKey,
   getModulacionesByDt,
@@ -56,14 +57,19 @@ export function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
 }
 
 export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones: ReturnType<typeof readModulacionRegistros>) {
+  const checkins = readCheckinCajasRegistros();
+
   return vehiculos.map((vehiculo) => {
     const registrosDt = getModulacionesByDt(modulaciones, vehiculo.transporte);
-    const resumen = summarizeModulaciones(registrosDt, vehiculo.cajas);
+    const checkin = getCheckinByDt(checkins, vehiculo.transporte);
+    const resumen = summarizeModulaciones(registrosDt, vehiculo.cajas, checkin?.totalCajas);
 
     return {
       ...vehiculo,
       cajasRechazadas: resumen.cajasRechazadas,
       cajasReubicadas: resumen.cajasReubicadas,
+      cajasCheckin: resumen.cajasCheckin,
+      cajasRefusalFinal: resumen.cajasPendientes,
       clientesRechazan: resumen.clientesRechazan,
       topeMaximoCajas: resumen.topeMaximoCajas,
       refusal: resumen.refusal,

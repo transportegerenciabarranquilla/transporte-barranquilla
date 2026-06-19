@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   normalizeDt,
@@ -23,8 +23,17 @@ export default function RegistroModulacionPage() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState(false);
-  const [registros, setRegistros] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
-  const [vehiculosSeguimiento] = useState<Vehiculo[]>(() => getVehiculosSeguimiento());
+  const [registros, setRegistros] = useState<ModulacionRegistro[]>([]);
+  const [vehiculosSeguimiento, setVehiculosSeguimiento] = useState<Vehiculo[]>([]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setRegistros(readModulacionRegistros());
+      setVehiculosSeguimiento(getVehiculosSeguimiento());
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const registrosHoy = useMemo(() => registros.filter((registro) => isTodayDate(registro.createdAt)), [registros]);
   const personas = useMemo(() => getUniquePersonas(registrosHoy), [registrosHoy]);

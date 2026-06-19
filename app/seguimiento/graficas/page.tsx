@@ -1,23 +1,39 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Clock3, PackageCheck, Route, Truck, Users, X } from "lucide-react";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
-import { getStatus, getVehicleRecordKey } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue } from "../utils";
 
 const DELAY_THRESHOLD = 25;
 
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
-  const [vehicles] = useState<Vehiculo[]>(() => {
-    const stored = readSeguimientoVehiculos();
-    return stored.length ? stored : initialVehicles;
-  });
+  const [vehicles, setVehicles] = useState<Vehiculo[]>(initialVehicles);
   const [closedAlerts, setClosedAlerts] = useState<string[]>([]);
+  const [dateLabel, setDateLabel] = useState("");
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const stored = readSeguimientoVehiculos();
+      setVehicles(stored.length ? stored : initialVehicles);
+      setDateLabel(new Date().toLocaleDateString("es-CO"));
+      setNow(new Date());
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 60000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
 
@@ -26,8 +42,6 @@ export default function SeguimientoGraficasPage() {
     const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
     const cajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
     const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
-    const peso = todayVehicles.reduce((total, item) => total + (item.peso || 0), 0);
-    const capacidad = todayVehicles.reduce((total, item) => total + (item.capacidad || 0), 0);
     const avance = clientes ? Math.round((visitados / clientes) * 100) : 0;
 
     return {
@@ -37,10 +51,9 @@ export default function SeguimientoGraficasPage() {
       clientes,
       visitados,
       avance,
-      ocupacion: capacidad ? Math.min(100, Math.round((peso / capacidad) * 100)) : 0,
-      tiempoPromedio: formatSeconds(getAverageRouteSeconds(todayVehicles)),
+      tiempoPromedio: formatSeconds(getAverageRouteSeconds(todayVehicles, now)),
     };
-  }, [todayVehicles]);
+  }, [now, todayVehicles]);
 
   const alertasCriticas = useMemo(() => {
     return todayVehicles
@@ -51,6 +64,12 @@ export default function SeguimientoGraficasPage() {
       .filter((vehicle) => resumen.avance - vehicle.currentProgress > DELAY_THRESHOLD)
       .filter((vehicle) => !closedAlerts.includes(getVehicleRecordKey(vehicle)));
   }, [closedAlerts, resumen.avance, todayVehicles]);
+  const statusCounts = useMemo(() => {
+    return ROUTE_STATUSES.map((status) => ({
+      status,
+      count: todayVehicles.filter((vehicle) => getVehicleStatus(vehicle) === status).length,
+    }));
+  }, [todayVehicles]);
 
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
@@ -114,7 +133,7 @@ export default function SeguimientoGraficasPage() {
           <SummaryCard icon={<Truck size={21} />} label="Vehículos" value={resumen.vehiculos} detail="Rutas del día" />
           <SummaryCard icon={<Users size={21} />} label="Clientes" value={`${resumen.visitados}/${resumen.clientes}`} detail={`${resumen.avance}% visitados`} />
           <SummaryCard icon={<PackageCheck size={21} />} label="Cajas" value={resumen.cajas} detail={`${resumen.hl} HL`} />
-          <SummaryCard icon={<Clock3 size={21} />} label="Tiempo prom." value={resumen.tiempoPromedio} detail={`${resumen.ocupacion}% ocupación`} />
+          <SummaryCard icon={<Clock3 size={21} />} label="Tiempo prom." value={resumen.tiempoPromedio} detail="Promedio de rutas" />
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
@@ -123,7 +142,6 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
-                <ProgressLine label="Ocupación" value={resumen.ocupacion} color="bg-[#f5bd19]" />
                 <div className="rounded-lg bg-slate-50 p-4">
                   <p className="text-sm font-semibold text-[#10223d]">{alertasCriticas.length} alertas activas</p>
                   <p className="mt-1 text-sm text-slate-500">Umbral de retraso: {DELAY_THRESHOLD}% contra el promedio.</p>
@@ -132,11 +150,11 @@ export default function SeguimientoGraficasPage() {
             </div>
           </Panel>
 
-          <Panel title="Estado de flota" icon={<Truck size={18} />}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <StatusTile label="Finalizados" count={todayVehicles.filter((v) => v.clientes > 0 && v.visitados >= v.clientes).length} tone="green" />
-              <StatusTile label="En ruta" count={todayVehicles.filter((v) => v.visitados > 0 && v.visitados < v.clientes).length} tone="blue" />
-              <StatusTile label="Cargando" count={todayVehicles.filter((v) => !v.visitados).length} tone="slate" />
+          <Panel title="Estado de flota" icon={<Truck size={16} />} compact>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {statusCounts.map(({ status, count }) => (
+                <StatusTile key={status} label={status} count={count} tone={getStatusTone(status)} />
+              ))}
               <StatusTile label="Con alerta" count={alertasCriticas.length} tone="red" />
             </div>
           </Panel>
@@ -149,7 +167,7 @@ export default function SeguimientoGraficasPage() {
               <p className="mt-1 text-sm text-slate-500">Comparación de avance contra el promedio del día.</p>
             </div>
             <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
-              {new Date().toLocaleDateString("es-CO")}
+              {dateLabel}
             </span>
           </div>
 
@@ -195,7 +213,7 @@ export default function SeguimientoGraficasPage() {
                         </div>
                       </td>
                       <td className="px-5 py-4 text-right">
-                        <StatusPill status={delayed ? "Retraso" : getStatus(percentage)} />
+                        <StatusPill status={delayed ? "Retraso" : getStatus(percentage, vehicle)} />
                       </td>
                     </tr>
                   );
@@ -223,12 +241,12 @@ function SummaryCard({ icon, label, value, detail }: { icon: ReactNode; label: s
   );
 }
 
-function Panel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+function Panel({ title, icon, children, compact = false }: { title: string; icon: ReactNode; children: ReactNode; compact?: boolean }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-5 flex items-center gap-2 text-[#10223d]">
+    <section className={`rounded-lg border border-slate-200 bg-white shadow-sm ${compact ? "p-3" : "p-5"}`}>
+      <div className={`flex items-center gap-2 text-[#10223d] ${compact ? "mb-3" : "mb-5"}`}>
         {icon}
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className={compact ? "text-base font-semibold" : "text-lg font-semibold"}>{title}</h2>
       </div>
       {children}
     </section>
@@ -278,18 +296,23 @@ function ProgressLine({ label, value, color }: { label: string; value: number; c
   );
 }
 
-function StatusTile({ label, count, tone }: { label: string; count: number; tone: "green" | "blue" | "slate" | "red" }) {
+type StatusTone = "green" | "blue" | "slate" | "red" | "amber" | "violet" | "orange";
+
+function StatusTile({ label, count, tone }: { label: string; count: number; tone: StatusTone }) {
   const colors = {
     green: "bg-emerald-50 text-emerald-700 border-emerald-100",
     blue: "bg-blue-50 text-blue-700 border-blue-100",
     slate: "bg-slate-50 text-slate-700 border-slate-200",
     red: "bg-red-50 text-red-700 border-red-100",
+    amber: "bg-amber-50 text-amber-700 border-amber-100",
+    violet: "bg-violet-50 text-violet-700 border-violet-100",
+    orange: "bg-orange-50 text-orange-700 border-orange-100",
   };
 
   return (
-    <div className={`rounded-lg border p-4 ${colors[tone]}`}>
-      <p className="text-sm font-medium">{label}</p>
-      <p className="mt-2 text-3xl font-semibold">{count}</p>
+    <div className={`rounded-md border px-3 py-2.5 ${colors[tone]}`}>
+      <p className="truncate text-xs font-semibold">{label}</p>
+      <p className="mt-1 text-2xl font-semibold leading-none">{count}</p>
     </div>
   );
 }
@@ -298,38 +321,76 @@ function StatusPill({ status }: { status: string }) {
   const styles: Record<string, string> = {
     Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
     "En ruta": "bg-blue-50 text-blue-700 border-blue-100",
-    Cargando: "bg-slate-50 text-slate-600 border-slate-200",
+    "Pendiente por salir": "bg-slate-50 text-slate-700 border-slate-200",
+    Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
+    Cargando: "bg-amber-50 text-amber-700 border-amber-100",
+    "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
     Retraso: "bg-red-50 text-red-700 border-red-100",
   };
 
   return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${styles[status] ?? styles.Cargando}`}>{status}</span>;
 }
 
+function getVehicleStatus(vehicle: Vehiculo) {
+  const progress = vehicle.clientes ? Math.min(100, Math.round((vehicle.visitados / vehicle.clientes) * 100)) : 0;
+  return getStatus(progress, vehicle);
+}
+
+function getStatusTone(status: string): StatusTone {
+  const tones: Record<string, StatusTone> = {
+    "Pendiente por salir": "slate",
+    "En ruta": "blue",
+    Pernoctado: "violet",
+    Cargando: "amber",
+    "Cambio de fecha": "orange",
+    Finalizado: "green",
+  };
+
+  return tones[status] ?? "slate";
+}
+
 function isTodayVehicle(vehicle: Vehiculo) {
-  const raw = vehicle.fechaDt || vehicle.date || vehicle.createdAt;
-  const date = parseDate(raw);
-  return !date || date === new Date().toISOString().split("T")[0];
+  return parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getTodayKey();
 }
 
 function parseDate(value: string | undefined) {
   if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   if (value.includes("/")) {
     const [day, month, year] = value.split("/").map(Number);
-    return new Date(year, month - 1, day).toISOString().split("T")[0];
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().split("T")[0];
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
-function getAverageRouteSeconds(vehicles: Vehiculo[]) {
-  const total = vehicles.reduce((acc, vehicle) => {
-    const [hours = 0, minutes = 0, seconds = 0] = (vehicle.tiempoRuta || "00:00:00").split(":").map(Number);
-    return acc + hours * 3600 + minutes * 60 + seconds;
-  }, 0);
+function getTodayKey() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
 
-  return vehicles.length ? total / vehicles.length : 0;
+function getAverageRouteSeconds(vehicles: Vehiculo[], now: Date | null) {
+  const routeDurations = vehicles
+    .map((vehicle) => {
+      if (now && hasTimeValue(vehicle.horaSalida)) return durationToSeconds(calculateRouteTime(vehicle, now));
+      return durationToSeconds(vehicle.tiempoRuta);
+    })
+    .filter((seconds) => seconds > 0);
+
+  const total = routeDurations.reduce((acc, seconds) => acc + seconds, 0);
+
+  return routeDurations.length ? total / routeDurations.length : 0;
+}
+
+function durationToSeconds(value: string | undefined) {
+  if (!value || value === "Pendiente") return 0;
+
+  const [hours = 0, minutes = 0, seconds = 0] = value.split(":").map(Number);
+  if (![hours, minutes, seconds].every(Number.isFinite)) return 0;
+
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 function formatSeconds(seconds: number) {
@@ -338,3 +399,4 @@ function formatSeconds(seconds: number) {
   const minutes = Math.floor((seconds % 3600) / 60);
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
+

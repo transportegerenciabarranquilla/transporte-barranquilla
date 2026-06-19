@@ -6,6 +6,7 @@ import { ArrowLeft, BarChart3, ShieldAlert,  Map, UserCheck } from "lucide-react
 import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
+import { getStatus } from "../utils";
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
@@ -178,7 +179,7 @@ export default function SeguimientoRefusalPage() {
                     <td className="px-5 py-3.5 font-black text-[#10223d]">{v.transporte}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-600">{v.responsable || "---"}</td>
                     <td className="px-5 py-3.5 text-center">
-                      <span className="bg-blue-50 text-blue-600 text-[9px] font-black px-2 py-0.5 rounded-full border border-blue-100 uppercase">En ruta</span>
+                      <StatusPill status={getVehicleStatus(v)} />
                     </td>
                     <td className="px-5 py-3.5 text-right font-black text-red-600">{v.cajasRechazadas}</td>
                   </tr>
@@ -190,6 +191,28 @@ export default function SeguimientoRefusalPage() {
       </section>
     </main>
   );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    "Pendiente por salir": "bg-slate-50 text-slate-700 border-slate-200",
+    "En ruta": "bg-blue-50 text-blue-600 border-blue-100",
+    Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
+    Cargando: "bg-amber-50 text-amber-700 border-amber-100",
+    "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
+    Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  };
+
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase ${styles[status] ?? styles.Cargando}`}>
+      {status}
+    </span>
+  );
+}
+
+function getVehicleStatus(vehicle: Vehiculo) {
+  const progress = vehicle.clientes ? Math.min(100, Math.round((vehicle.visitados / vehicle.clientes) * 100)) : 0;
+  return getStatus(progress, vehicle);
 }
 
 function MetricCard({ label, value, color = "text-[#10223d]" }: { label: string; value: number; color?: string }) {

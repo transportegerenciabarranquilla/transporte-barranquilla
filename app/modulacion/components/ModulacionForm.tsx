@@ -36,7 +36,7 @@ export function ModulacionForm({
               <span className="mb-2 block text-sm font-medium text-slate-700">DT de hoy</span>
               <select
                 className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
-                  errors.dt ? "border-red-400" : "border-slate-200 focus:border-[#f5bd19]"
+                  errors.dt ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
                 }`}
                 onChange={(event) => onChange("dt", normalizeDt(event.target.value))}
                 value={form.dt}
@@ -71,7 +71,7 @@ export function ModulacionForm({
             <label className="block lg:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Nombre cliente</span>
               <input
-                className="h-12 w-full rounded-md border border-slate-200 bg-white px-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
+                className="h-12 w-full rounded-md border border-slate-200 bg-white px-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58]"
                 onChange={(event) => onChange("nombreCliente", event.target.value)}
                 placeholder="Nombre del cliente"
                 type="text"
@@ -111,7 +111,7 @@ export function ModulacionForm({
                 <UserRound className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
                   className={`h-12 w-full rounded-md border bg-white pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 ${
-                    errors.persona ? "border-red-400" : "border-slate-200 focus:border-[#f5bd19]"
+                    errors.persona ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
                   }`}
                   onChange={(event) => onChange("persona", event.target.value)}
                   placeholder="Nombre o cedula"
@@ -126,7 +126,7 @@ export function ModulacionForm({
               <span className="mb-2 block text-sm font-medium text-slate-700">Causal</span>
               <select
                 className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
-                  errors.causal ? "border-red-400" : "border-slate-200 focus:border-[#f5bd19]"
+                  errors.causal ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
                 }`}
                 onChange={(event) => onChange("causal", event.target.value)}
                 value={form.causal}
@@ -147,7 +147,7 @@ export function ModulacionForm({
                 <MessageSquareText className="pointer-events-none absolute left-3 top-4 text-slate-400" size={18} />
                 <textarea
                   className={`min-h-32 w-full rounded-md border bg-white py-3 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 ${
-                    errors.comentario ? "border-red-400" : "border-slate-200 focus:border-[#f5bd19]"
+                    errors.comentario ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
                   }`}
                   onChange={(event) => onChange("comentario", event.target.value)}
                   placeholder="Detalle de la novedad"
@@ -160,7 +160,7 @@ export function ModulacionForm({
         </FormSection>
 
         <button
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-5 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
           type="submit"
         >
           <BadgeCheck size={18} />
@@ -198,7 +198,7 @@ function VehicleSummary({
   selectedVehicle: Vehiculo;
 }) {
   return (
-    <div className="grid gap-3 rounded-lg border border-[#f5bd19]/60 bg-[#fff8e6] p-4 sm:grid-cols-2">
+    <div className="grid gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 sm:grid-cols-2">
       <SummaryInfo label="Carro" value={selectedVehicle.vehiculo} />
       <SummaryInfo label="Responsable" value={selectedVehicle.responsable} />
       <SummaryInfo label="Cedula RR" value={selectedVehicle.cedulaResponsable || "-"} />

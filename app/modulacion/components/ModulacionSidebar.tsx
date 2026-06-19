@@ -15,10 +15,10 @@ export function ModulacionSidebar({
   return (
     <aside className="space-y-5">
       <div className="rounded-lg bg-[#10223d] p-6 text-white shadow-[0_22px_70px_rgba(16,34,61,0.2)] sm:p-8">
-        <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-md bg-[#f5bd19] text-[#10223d]">
+        <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-md bg-[#0f7c58] text-white">
           <ClipboardList size={24} />
         </div>
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Punto Corona Galapa</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">Punto Corona Galapa</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight">Modulacion de novedades</h1>
         <p className="mt-4 text-sm leading-6 text-white/72">
           Registra el DT, cliente, cajas, causal y comentario en un formulario mas claro para la operacion diaria.
@@ -63,7 +63,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="mt-8 rounded-md border border-white/15 bg-white/10 p-4">
       <p className="text-sm text-white/65">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-[#f5bd19]">{value}</p>
+      <p className="mt-2 text-3xl font-semibold text-emerald-300">{value}</p>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, Truck, X } from "lucide-react";
+import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, UserRound, UsersRound, X } from "lucide-react";
 import {
   getLocalDateKey,
   normalizeDt,
@@ -16,11 +16,20 @@ import type { Vehiculo } from "../seguimiento/types";
 
 export default function ModulacionPage() {
   const router = useRouter();
-  const [registros, setRegistros] = useState<ModulacionRegistro[]>(() => readModulacionRegistros());
-  const [vehiculosSeguimiento] = useState(() => getVehiculosSeguimiento());
+  const [registros, setRegistros] = useState<ModulacionRegistro[]>([]);
+  const [vehiculosSeguimiento, setVehiculosSeguimiento] = useState<Vehiculo[]>([]);
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setRegistros(readModulacionRegistros());
+      setVehiculosSeguimiento(getVehiculosSeguimiento());
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const registrosFiltrados = useMemo(() => {
     return registros
@@ -59,23 +68,23 @@ export default function ModulacionPage() {
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <ModulacionHeader onBack={() => router.push("/")} />
 
-      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <section className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500">Modulo interno</p>
-            <h1 className="mt-1 text-3xl font-semibold text-[#10223d]">Modulaciones por dia</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            <h1 className="mt-1 text-2xl font-semibold text-[#10223d]">Modulaciones por dia</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-5 text-slate-600">
               Consulta, filtra y actualiza las modulaciones registradas desde el formulario publico.
             </p>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">Registros visibles</p>
-            <p className="mt-1 text-2xl font-semibold text-[#10223d]">{registrosFiltrados.length}</p>
+            <p className="mt-0.5 text-xl font-semibold text-[#10223d]">{registrosFiltrados.length}</p>
           </div>
         </div>
 
-        <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto] lg:items-center">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -117,73 +126,81 @@ export default function ModulacionPage() {
         </div>
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <ClipboardList size={19} className="text-[#10223d]" />
+              <ClipboardList size={17} className="text-[#10223d]" />
               <div>
-                <h2 className="text-lg font-semibold text-[#10223d]">Tabla de modulaciones</h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <h2 className="text-base font-semibold text-[#10223d]">Tabla de modulaciones</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
                   {selectedDate ? `Mostrando registros del ${selectedDate}` : "Mostrando todos los dias"}
                 </p>
               </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
+            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
               {registrosFiltrados.length} modulacion{registrosFiltrados.length === 1 ? "" : "es"}
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px]">
+            <table className="w-full min-w-[1040px]">
               <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
-                  <th className="px-5 py-4 text-left">Fecha / hora</th>
-                  <th className="px-5 py-4 text-left">DT</th>
-                  <th className="px-5 py-4 text-left">Cliente</th>
-                  <th className="px-5 py-4 text-left">Persona</th>
-                  <th className="px-5 py-4 text-left">Causal</th>
-                  <th className="px-5 py-4 text-center">Rechazadas</th>
-                  <th className="px-5 py-4 text-center">Reubicadas</th>
-                  <th className="px-5 py-4 text-left">Comentario</th>
-                  <th className="px-5 py-4 text-right">Detalle</th>
+                  <th className="px-4 py-3 text-left">Fecha / hora</th>
+                  <th className="px-4 py-3 text-left">DT</th>
+                  <th className="px-4 py-3 text-left">Cliente</th>
+                  <th className="px-4 py-3 text-left">Persona</th>
+                  <th className="px-4 py-3 text-left">Causal</th>
+                  <th className="px-4 py-3 text-center">Rechazadas</th>
+                  <th className="px-4 py-3 text-center">Reubicadas</th>
+                  <th className="px-4 py-3 text-left">Comentario</th>
+                  <th className="px-4 py-3 text-right">Detalle</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {registrosFiltrados.length ? (
                   registrosFiltrados.map((registro) => (
                     <tr className="transition hover:bg-slate-50" key={registro.id}>
-                      <td className="px-5 py-4">
-                        <p className="font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
-                        <p className="text-sm text-slate-500">{formatTime(registro.createdAt)}</p>
+                      <td className="px-4 py-2.5">
+                        <p className="text-sm font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
+                        <p className="text-xs text-slate-500">{formatTime(registro.createdAt)}</p>
                       </td>
-                      <td className="px-5 py-4 font-semibold text-[#10223d]">DT {registro.dt}</td>
-                      <td className="px-5 py-4">
-                        <p className="font-medium text-slate-700">{registro.codigoCliente}</p>
-                        <p className="max-w-44 truncate text-sm text-slate-500">{registro.nombreCliente || "-"}</p>
+                      <td className="px-4 py-2.5 text-sm font-semibold text-[#10223d]">DT {registro.dt}</td>
+                      <td className="px-4 py-2.5">
+                        <p className="text-sm font-medium text-slate-700">{registro.codigoCliente}</p>
+                        <p className="max-w-40 truncate text-xs text-slate-500">{registro.nombreCliente || "-"}</p>
                       </td>
-                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{registro.persona}</td>
-                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{registro.causal}</td>
-                      <td className="px-5 py-4 text-center">
-                        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{registro.totalCajas}</span>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e9f3ff] px-2 py-1 text-xs font-semibold text-[#10223d]">
+                          <UserRound size={13} />
+                          {registro.persona}
+                        </span>
                       </td>
-                      <td className="px-5 py-4 text-center">
-                        <input
-                          className="h-9 w-20 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-                          inputMode="numeric"
-                          onChange={(event) => updateCajasReubicadas(registro.id, event.target.value)}
-                          type="text"
-                          value={registro.cajasReubicadas || "0"}
-                        />
+                      <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{registro.causal}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{registro.totalCajas}</span>
                       </td>
-                      <td className="px-5 py-4">
-                        <p className="max-w-72 truncate text-sm text-slate-600">{registro.comentario || "-"}</p>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center justify-center gap-2">
+                          <input
+                            className="h-8 w-16 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                            inputMode="numeric"
+                            onChange={(event) => updateCajasReubicadas(registro.id, event.target.value)}
+                            type="text"
+                            value={registro.cajasReubicadas || "0"}
+                          />
+                          <ReubicacionBadge registro={registro} />
+                        </div>
                       </td>
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-4 py-2.5">
+                        <p className="max-w-64 truncate text-xs text-slate-600">{registro.comentario || "-"}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
                         <button
-                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-100 px-2.0 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-100 px-2 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
                           onClick={() => setSelectedRegistroId(registro.id)}
                           type="button"
                         >
-                          <Eye size={4} />
+                          <Eye size={14} />
                           Modulador
                         </button>
                       </td>
@@ -265,7 +282,16 @@ function ModulacionDetailModal({
         <div className="max-h-[calc(92vh-84px)] overflow-y-auto p-5">
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <ModalMetric label="Rechazadas" value={registro.totalCajas} tone="red" />
-            <ModalMetric label="Reubicadas" value={registro.cajasReubicadas || "0"} tone="green" />
+            <ModalMetric
+              label="Reubicadas"
+              value={
+                <span className="flex items-center gap-2">
+                  {registro.cajasReubicadas || "0"}
+                  <ReubicacionBadge registro={registro} showLabel />
+                </span>
+              }
+              tone="green"
+            />
             <ModalMetric label="Persona" value={registro.persona} tone="blue" />
           </div>
 
@@ -278,7 +304,7 @@ function ModulacionDetailModal({
 
             <aside className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
-                <Truck size={16} />
+                <UsersRound size={16} />
                 Gestion
               </div>
               <label className="block">
@@ -291,6 +317,9 @@ function ModulacionDetailModal({
                   value={registro.cajasReubicadas || "0"}
                 />
               </label>
+              <div className="mt-3">
+                <ReubicacionProgress registro={registro} />
+              </div>
               <button
                 className="mt-4 h-10 w-full rounded-md bg-[#10223d] text-sm font-semibold text-white transition hover:bg-[#1b355b]"
                 onClick={onClose}
@@ -306,7 +335,100 @@ function ModulacionDetailModal({
   );
 }
 
-function ModalMetric({ label, value, tone }: { label: string; value: string | number; tone: "red" | "green" | "blue" }) {
+type ReubicacionStatus = "empty" | "half" | "done";
+
+function getReubicacionStatus(registro: ModulacionRegistro): ReubicacionStatus {
+  const rechazadas = Number(registro.totalCajas) || 0;
+  const reubicadas = Number(registro.cajasReubicadas) || 0;
+
+  if (rechazadas > 0 && reubicadas >= rechazadas) return "done";
+  if (reubicadas > 0) return "half";
+  return "empty";
+}
+
+function ReubicacionBadge({ registro, showLabel = false }: { registro: ModulacionRegistro; showLabel?: boolean }) {
+  const status = getReubicacionStatus(registro);
+  const config = {
+    empty: {
+      label: "Esperando",
+      className: "border-red-200 bg-red-50 text-red-700 shadow-[0_0_18px_rgba(220,38,38,0.14)]",
+      botClassName: "robot-wait",
+    },
+    half: {
+      label: "Reubicando",
+      className: "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_18px_rgba(245,189,25,0.2)]",
+      botClassName: "robot-ready",
+    },
+    done: {
+      label: "Gol",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_18px_rgba(15,124,88,0.2)]",
+      botClassName: "robot-kick",
+    },
+  }[status];
+
+  return (
+    <span
+      className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-2 text-xs font-semibold ${config.className}`}
+      title={config.label}
+    >
+      <MiniRobot status={status} className={config.botClassName} />
+      {showLabel ? config.label : null}
+    </span>
+  );
+}
+
+function MiniRobot({ status, className }: { status: ReubicacionStatus; className: string }) {
+  const colors = {
+    empty: { shell: "#dc2626", eye: "#fee2e2", glow: "#fecaca" },
+    half: { shell: "#d97706", eye: "#fef3c7", glow: "#fde68a" },
+    done: { shell: "#0f7c58", eye: "#dcfce7", glow: "#bbf7d0" },
+  }[status];
+
+  return (
+    <span className={`robot-bot ${className}`} aria-hidden="true">
+      <svg className="h-7 w-9 overflow-visible" viewBox="0 0 48 34" fill="none">
+        <path d="M19 5h10" stroke={colors.shell} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="24" cy="3.5" r="2.5" fill={colors.glow} stroke={colors.shell} strokeWidth="1.4" />
+        <rect x="8" y="8" width="27" height="20" rx="8" fill="#10223d" stroke={colors.shell} strokeWidth="2.3" />
+        <rect x="12" y="12" width="19" height="11" rx="5" fill={colors.shell} opacity="0.18" />
+        <circle cx="17" cy="17.5" r="3.2" fill={colors.eye} />
+        <circle cx="26" cy="17.5" r="3.2" fill={colors.eye} />
+        <circle cx="17" cy="17.5" r="1.1" fill="#10223d" />
+        <circle cx="26" cy="17.5" r="1.1" fill="#10223d" />
+        <path d="M17 24c2.7 2 6.5 2 9.2 0" stroke={colors.eye} strokeWidth="1.8" strokeLinecap="round" />
+        <path className="robot-leg" d="M28 27l4 4" stroke={colors.shell} strokeWidth="2.3" strokeLinecap="round" />
+        <path d="M15 27l-3 4" stroke={colors.shell} strokeWidth="2.3" strokeLinecap="round" />
+        <circle className="robot-ball" cx="40" cy="27" r="4.2" fill="#f8fafc" stroke="#10223d" strokeWidth="1.2" />
+        <path className="robot-ball" d="M37.5 27h5M40 24.6v4.8" stroke="#10223d" strokeWidth="0.8" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+function ReubicacionProgress({ registro }: { registro: ModulacionRegistro }) {
+  const rechazadas = Number(registro.totalCajas) || 0;
+  const reubicadas = Number(registro.cajasReubicadas) || 0;
+  const progress = rechazadas ? Math.min(100, Math.round((reubicadas / rechazadas) * 100)) : 0;
+  const status = getReubicacionStatus(registro);
+  const barColor = status === "done" ? "bg-emerald-500" : status === "half" ? "bg-amber-400" : "bg-red-500";
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Avance</span>
+        <span className="text-sm font-semibold text-[#10223d]">{progress}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-200">
+        <div className={`h-2 rounded-full ${barColor}`} style={{ width: `${progress}%` }} />
+      </div>
+      <p className="mt-2 text-xs font-medium text-slate-500">
+        {reubicadas.toLocaleString("es-CO")} de {rechazadas.toLocaleString("es-CO")} cajas
+      </p>
+    </div>
+  );
+}
+
+function ModalMetric({ label, value, tone }: { label: string; value: ReactNode; tone: "red" | "green" | "blue" }) {
   const colors = {
     red: "bg-red-50 text-red-700",
     green: "bg-emerald-50 text-emerald-700",

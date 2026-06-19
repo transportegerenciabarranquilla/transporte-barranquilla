@@ -21,20 +21,18 @@ export function VehiclesTable({
         <p className="mt-1 text-sm text-slate-500">Selecciona una fila para ver el detalle operativo.</p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px]">
-          <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+      <div className="max-h-[620px] overflow-auto">
+        <table className="w-full min-w-[1080px]">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500 shadow-[0_1px_0_rgba(226,232,240,1)]">
             <tr>
               <th className="px-5 py-4 text-left">Vehiculo</th>
               <th className="px-5 py-4 text-left">DT</th>
               <th className="px-5 py-4 text-left">Responsable</th>
-              <th className="px-5 py-4 text-left">Territorio</th>
               <th className="px-5 py-4 text-left">Fecha DT</th>
-              <th className="px-5 py-4 text-left">Fecha Despacho</th>
+              <th className="px-5 py-4 text-left">Despacho</th>
               <th className="px-5 py-4 text-left">Cajas</th>
-              <th className="px-5 py-4 text-left">Clientes</th> 
-              <th className="px-5 py-4 text-left">Visitados</th>
-              <th className="px-5 py-4 text-left">Avance</th>
+              <th className="px-5 py-4 text-left">Clientes</th>
+              <th className="px-5 py-4 text-left">Ruta</th>
               <th className="px-5 py-4 text-left">Estado</th>
             </tr>
           </thead>
@@ -42,7 +40,7 @@ export function VehiclesTable({
           <tbody className="divide-y divide-slate-100">
             {vehicles.map((item) => {
               const progress = getProgress(item);
-              const status = getStatus(progress);
+              const status = getStatus(progress, item);
               const recordKey = getVehicleRecordKey(item);
 
               return (
@@ -51,54 +49,51 @@ export function VehiclesTable({
                   key={recordKey}
                   onClick={() => onSelectVehicle(item)}
                 >
-                  <td className="px-5 py-4">
+                  <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="grid h-10 w-10 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
                         <Truck size={19} />
                       </span>
-                      <EditableText value={item.vehiculo} onChange={(value) => onUpdateVehicle(recordKey, { vehiculo: value })} />
+                      <EditableText value={item.vehiculo} onChange={(value) => onUpdateVehicle(recordKey, { vehiculo: value })} strong />
                     </div>
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
                     <EditableText value={item.transporte} onChange={(value) => onUpdateVehicle(recordKey, { transporte: value })} />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.responsable} onChange={(value) => onUpdateVehicle(recordKey, { responsable: value })} />
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
+                    <EditableText value={item.responsable} onChange={(value) => onUpdateVehicle(recordKey, { responsable: value })} strong />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.territorio} onChange={(value) => onUpdateVehicle(recordKey, { territorio: value })} />
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
+                    <EditableDate value={item.fechaDt} onChange={(value) => onUpdateVehicle(recordKey, { fechaDt: value })} />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
+                    <EditableDate value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.horaSalida} onChange={(value) => onUpdateVehicle(recordKey, { horaSalida: value })} />
-                  </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
                     <EditableNumber value={item.cajas} onChange={(value) => onUpdateVehicle(recordKey, { cajas: value })} />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
                     <EditableNumber value={item.clientes} onChange={(value) => onUpdateVehicle(recordKey, { clientes: value })} />
                   </td>
-                  <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                    <input
-                      className="h-10 w-20 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#f5bd19]"
-                      max={item.clientes}
-                      min={0}
-                      onChange={(event) => onUpdateVisited(recordKey, Number(event.target.value))}
-                      type="number"
-                      value={item.visitados}
-                    />
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex min-w-36 items-center gap-3">
-                      <div className="h-2 flex-1 rounded-full bg-slate-200">
+                  <td className="px-5 py-3">
+                    <div className="flex min-w-64 items-center gap-3" onClick={(event) => event.stopPropagation()}>
+                      <span className="text-xs font-medium text-slate-500"></span>
+                      <input
+                        className="h-8 w-16 rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-[#0f7c58]"
+                        max={item.clientes}
+                        min={0}
+                        onChange={(event) => onUpdateVisited(recordKey, Number(event.target.value))}
+                        type="number"
+                        value={item.visitados}
+                      />
+                      <span className="text-xs text-slate-400">/ {item.clientes}</span>
+                      <div className="h-2 min-w-24 flex-1 rounded-full bg-slate-200">
                         <div className={`h-2 rounded-full ${progressColor(progress)}`} style={{ width: `${progress}%` }} />
                       </div>
                       <span className="w-10 text-sm font-semibold text-slate-700">{progress}%</span>
                     </div>
                   </td>
-                  <td className="px-5 py-4">
+                  <td className="px-5 py-3">
                     <StatusBadge status={status} />
                   </td>
                 </tr>
@@ -111,13 +106,35 @@ export function VehiclesTable({
   );
 }
 
-function EditableText({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function EditableText({
+  value,
+  onChange,
+  strong = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  strong?: boolean;
+}) {
   return (
     <input
-      className="h-10 w-full min-w-28 rounded-md border border-transparent bg-transparent px-2 text-sm text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#f5bd19] focus:bg-white"
+      className={`h-9 w-full min-w-28 rounded-md border border-transparent bg-transparent px-2 text-sm outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white ${
+        strong ? "font-semibold text-[#10223d]" : "text-slate-700"
+      }`}
       onChange={(event) => onChange(event.target.value)}
+      onClick={(event) => event.stopPropagation()}
       type="text"
       value={value}
+    />
+  );
+}
+
+function EditableDate({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <input
+      className="h-9 w-36 rounded-md border border-transparent bg-transparent px-2 text-sm text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"
+      onChange={(event) => onChange(event.target.value)}
+      type="date"
+      value={/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ""}
     />
   );
 }
@@ -125,7 +142,7 @@ function EditableText({ value, onChange }: { value: string; onChange: (value: st
 function EditableNumber({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   return (
     <input
-      className="h-10 w-24 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#f5bd19] focus:bg-white"
+      className="h-9 w-24 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"
       min={0}
       onChange={(event) => onChange(Number(event.target.value))}
       type="number"

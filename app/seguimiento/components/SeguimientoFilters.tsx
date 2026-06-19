@@ -1,4 +1,5 @@
 import { CalendarDays, Search, X } from "lucide-react";
+import { ROUTE_STATUSES } from "../utils";
 
 export function SeguimientoFilters({
   fechaDtFilter,
@@ -42,7 +43,7 @@ export function SeguimientoFilters({
                 className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                 onClick={() => onFechaDtChange("")}
                 type="button"
-                aria-label="Limpiar fecha DT"
+                aria-label="Limpiar fecha"
               >
                 <X size={15} />
               </button>
@@ -51,7 +52,7 @@ export function SeguimientoFilters({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {["Todos", "Cargando", "En ruta", "Finalizado"].map((status) => (
+          {["Todos", ...ROUTE_STATUSES].map((status) => (
             <button
               className={`rounded-md px-3 py-2 text-sm font-medium transition ${
                 statusFilter === status ? "bg-[#10223d] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
