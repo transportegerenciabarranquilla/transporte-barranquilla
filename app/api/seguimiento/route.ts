@@ -22,6 +22,7 @@ export async function GET() {
   }
 }
 
+
 export async function PUT(request: Request) {
   try {
     const session = await getAuthenticatedSession();
