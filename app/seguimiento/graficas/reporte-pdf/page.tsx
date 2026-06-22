@@ -126,7 +126,7 @@ export default function ReportePdfPage() {
             type="button"
           >
             <Printer size={18} />
-            Imprimir / guardar PDF
+            Guardar PDF
           </button>
         </div>
       </header>
