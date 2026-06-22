@@ -1,4 +1,5 @@
 import { normalizeDt } from "./modulacionStorage";
+import { notifyStorageChange } from "./storageEvents";
 
 export const CHECKIN_STORAGE_KEY = "bavaria.checkin.cajas";
 
@@ -26,7 +27,7 @@ export function readCheckinCajasRegistros() {
 
 export function saveCheckinCajasRegistros(records: CheckinCajasRegistro[]) {
   localStorage.setItem(CHECKIN_STORAGE_KEY, JSON.stringify(records));
-  window.dispatchEvent(new Event("storage"));
+  notifyStorageChange();
 }
 
 export function removeCheckinByDt(dt: string | number | undefined) {

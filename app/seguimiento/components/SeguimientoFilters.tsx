@@ -1,4 +1,4 @@
-import { CalendarDays, Search, X } from "lucide-react";
+import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { ROUTE_STATUSES } from "../utils";
 
 export function SeguimientoFilters({
@@ -19,7 +19,8 @@ export function SeguimientoFilters({
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid w-full gap-3 lg:grid-cols-[minmax(260px,1fr)_220px] xl:max-w-3xl">
+        <div className="grid w-full gap-3 lg:grid-cols-[1fr_220px_180px]">
+          {/* Buscador */}
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -30,6 +31,7 @@ export function SeguimientoFilters({
             />
           </div>
 
+          {/* Calendario (Filtro principal de fecha) */}
           <div className="relative">
             <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -49,21 +51,23 @@ export function SeguimientoFilters({
               </button>
             ) : null}
           </div>
-        </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["Todos", ...ROUTE_STATUSES].map((status) => (
-            <button
-              className={`rounded-md px-3 py-2 text-sm font-medium transition ${
-                statusFilter === status ? "bg-[#10223d] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-              key={status}
-              onClick={() => onStatusChange(status)}
-              type="button"
+          {/* Seleccionador de Estado */}
+          <div className="relative">
+            <select
+              className="h-11 w-full appearance-none rounded-md border border-slate-200 bg-white px-4 pr-10 text-sm font-medium text-slate-700 outline-none transition focus:border-[#f5bd19]"
+              onChange={(event) => onStatusChange(event.target.value)}
+              value={statusFilter}
             >
-              {status}
-            </button>
-          ))}
+              <option value="Todos">Todos los estados</option>
+              {ROUTE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          </div>
         </div>
       </div>
     </div>

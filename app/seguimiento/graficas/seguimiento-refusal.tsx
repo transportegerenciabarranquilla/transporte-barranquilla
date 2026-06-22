@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, ShieldAlert,  Map, UserCheck } from "lucide-react";
-import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
+import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 import { getStatus } from "../utils";
@@ -12,8 +12,8 @@ export default function SeguimientoRefusalPage() {
   const router = useRouter();
 
   const [vehicles] = useState<Vehiculo[]>(() => {
-    const stored = readSeguimientoVehiculos();
-    return stored.length ? stored : initialVehicles;
+    const loaded = loadSeguimientoVehiculos();
+    return loaded.length ? loaded : initialVehicles;
   });
 
   const todayVehicles = useMemo(() => {
@@ -101,26 +101,28 @@ export default function SeguimientoRefusalPage() {
             </div>
 
             {/* Tabla Supervisor */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="bg-yellow-400 px-5 py-2.5 flex items-center gap-2">
-                <UserCheck size={16} className="text-[#10223d]" />
-                <h3 className="text-[#10223d] text-[10px] font-black uppercase tracking-widest">Resumen por Supervisor</h3>
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
+                <UserCheck size={17} className="text-[#10223d]" />
+                <h3 className="text-base font-semibold text-[#10223d]">Resumen por Supervisor</h3>
               </div>
-              <table className="w-full text-[11px]">
-                <thead className="bg-slate-900 text-white">
+              <table className="w-full">
+                <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                   <tr>
-                    <th className="px-5 py-2.5 text-left font-black uppercase">Supervisor</th>
-                    <th className="px-5 py-2.5 text-center font-black uppercase">Reportadas</th>
-                    <th className="px-5 py-2.5 text-center font-black uppercase">Gestionadas</th>
-                    <th className="px-5 py-2.5 text-center font-black uppercase">Rechazadas</th>
+                    <th className="px-4 py-3 text-left">Supervisor</th>
+                    <th className="px-4 py-3 text-center">Reportadas</th>
+                    <th className="px-4 py-3 text-center">Gestionadas</th>
+                    <th className="px-4 py-3 text-center">Rechazadas</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3.5 font-bold text-[#10223d]">Tony G / Cristian C</td>
-                    <td className="px-5 py-3.5 text-center font-black">{refusalData.reportadas}</td>
-                    <td className="px-5 py-3.5 text-center font-black">{refusalData.gestionadas}</td>
-                    <td className="px-5 py-3.5 text-center font-black text-red-600">{refusalData.rechazadas}</td>
+                  <tr className="transition hover:bg-slate-50">
+                    <td className="px-4 py-2.5 text-sm font-semibold text-[#10223d]">Tony G / Cristian C</td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold text-[#10223d]">{refusalData.reportadas}</td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold text-[#10223d]">{refusalData.gestionadas}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{refusalData.rechazadas}</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -156,32 +158,34 @@ export default function SeguimientoRefusalPage() {
         </div>
 
         {/* Detalle Refusal Tabla Inferior */}
-        <div className="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-yellow-400 px-5 py-2.5 flex items-center gap-2">
-            <ShieldAlert size={16} className="text-[#10223d]" />
-            <h3 className="text-[#10223d] text-[10px] font-black uppercase tracking-widest">Detalle Refusal</h3>
+        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
+            <ShieldAlert size={17} className="text-[#10223d]" />
+            <h3 className="text-base font-semibold text-[#10223d]">Detalle Refusal</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead className="bg-slate-900 text-white">
+            <table className="w-full">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
-                  <th className="px-5 py-2.5 text-left font-black uppercase">Bloque</th>
-                  <th className="px-5 py-2.5 text-left font-black uppercase">Vehículo</th>
-                  <th className="px-5 py-2.5 text-left font-black uppercase">Responsable</th>
-                  <th className="px-5 py-2.5 text-center font-black uppercase">Estatus</th>
-                  <th className="px-5 py-2.5 text-right font-black uppercase">Cajas Rechazo</th>
+                  <th className="px-4 py-3 text-left">Bloque</th>
+                  <th className="px-4 py-3 text-left">Vehículo</th>
+                  <th className="px-4 py-3 text-left">Responsable</th>
+                  <th className="px-4 py-3 text-center">Estatus</th>
+                  <th className="px-4 py-3 text-right">Cajas Rechazo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {todayVehicles.filter(v => (v.cajasRechazadas || 0) > 0).map((v) => (
-                  <tr key={v.transporte} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3.5 font-bold text-slate-500">Tony G / Cristian C</td>
-                    <td className="px-5 py-3.5 font-black text-[#10223d]">{v.transporte}</td>
-                    <td className="px-5 py-3.5 font-bold text-slate-600">{v.responsable || "---"}</td>
-                    <td className="px-5 py-3.5 text-center">
+                  <tr key={v.transporte} className="transition hover:bg-slate-50">
+                    <td className="px-4 py-2.5 text-sm font-medium text-slate-600">Tony G / Cristian C</td>
+                    <td className="px-4 py-2.5 text-sm font-semibold text-[#10223d]">{v.transporte}</td>
+                    <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{v.responsable || "---"}</td>
+                    <td className="px-4 py-2.5 text-center">
                       <StatusPill status={getVehicleStatus(v)} />
                     </td>
-                    <td className="px-5 py-3.5 text-right font-black text-red-600">{v.cajasRechazadas}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{v.cajasRechazadas}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

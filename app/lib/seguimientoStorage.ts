@@ -1,4 +1,5 @@
 import type { Vehiculo } from "../seguimiento/types";
+import { notifyStorageChange } from "./storageEvents";
 
 export const SEGUIMIENTO_STORAGE_KEY = "bavaria.seguimiento.vehiculos";
 
@@ -18,5 +19,5 @@ export function readSeguimientoVehiculos() {
 
 export function saveSeguimientoVehiculos(records: Vehiculo[]) {
   localStorage.setItem(SEGUIMIENTO_STORAGE_KEY, JSON.stringify(records));
+  notifyStorageChange();
 }
-

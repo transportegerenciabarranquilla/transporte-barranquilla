@@ -10,6 +10,10 @@ export function getVehicleRecordKey(item: Pick<Vehiculo, "fechaDespacho" | "tran
   return `${dt || placa}-${fecha || "sin-fecha"}`;
 }
 
+export function getVehicleUiKey(item: Pick<Vehiculo, "recordId" | "fechaDespacho" | "transporte" | "vehiculo">) {
+  return item.recordId || getVehicleRecordKey(item);
+}
+
 function normalizeRecordPart(value: string | number | undefined) {
   return String(value ?? "")
     .toLowerCase()

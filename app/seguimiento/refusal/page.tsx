@@ -16,7 +16,8 @@ import {
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
-import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { getLocalDateKey, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 
@@ -107,9 +108,17 @@ export default function SeguimientoRefusalPage() {
   const vehicles = useSyncExternalStore(subscribeToStorage, getVehiclesSnapshot, getVehiclesServerSnapshot);
   const allModulaciones = useSyncExternalStore(subscribeToStorage, getModulacionesSnapshot, getModulacionesServerSnapshot);
   const checkins = useSyncExternalStore(subscribeToStorage, getCheckinsSnapshot, getCheckinsServerSnapshot);
-  const modulaciones = useMemo(() => allModulaciones.filter((registro) => toDateKey(registro.createdAt) === todayKey()), [allModulaciones]);
 
-  const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
+  const activeVehiculos = useMemo(() => {
+    const loaded = loadSeguimientoVehiculos();
+    return loaded.length ? loaded : vehicles;
+  }, [vehicles, allModulaciones, checkins]);
+
+  const todayVehicles = useMemo(() => activeVehiculos.filter(isTodayVehicle), [activeVehiculos]);
+  const modulaciones = useMemo(
+    () => getOperationalModulaciones(allModulaciones, todayVehicles),
+    [allModulaciones, todayVehicles],
+  );
 
   const refusalData = useMemo(() => {
     const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
@@ -120,7 +129,7 @@ export default function SeguimientoRefusalPage() {
       return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
     });
     const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0);
-    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasReubicadas, 0);
+    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0);
     const final = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0);
     const checkinAplicadas = byVehicle.filter((resumen) => resumen.tieneCheckin).length;
 
@@ -167,6 +176,7 @@ export default function SeguimientoRefusalPage() {
             >
               <ArrowLeft size={19} />
             </button>
+            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analítica diaria</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
@@ -180,7 +190,7 @@ export default function SeguimientoRefusalPage() {
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <RefusalMetric icon={<Package size={21} />} label="Cajas seguimiento" value={refusalData.totalCajasSeguimiento} />
           <RefusalMetric icon={<XCircle size={21} />} label="Rechazadas" value={refusalData.rechazadas} tone="red" />
-          <RefusalMetric icon={<CheckCircle2 size={21} />} label="Reubicadas" value={refusalData.gestionadas} tone="green" />
+          <RefusalMetric icon={<CheckCircle2 size={21} />} label="Gestionadas" value={refusalData.gestionadas} tone="green" />
           <RefusalMetric icon={<Users size={21} />} label="Checkins" value={refusalData.checkinAplicadas} tone="amber" />
         </div>
 
@@ -261,15 +271,15 @@ export default function SeguimientoRefusalPage() {
         </div>
 
         <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <ClipboardList size={19} className="text-[#10223d]" />
+              <ClipboardList size={17} className="text-[#10223d]" />
               <div>
-                <h2 className="text-lg font-semibold text-[#10223d]">Detalle de modulaciones</h2>
-                <p className="mt-1 text-sm text-slate-500">Registros del día asociados a rechazo y reubicación.</p>
+                <h2 className="text-base font-semibold text-[#10223d]">Detalle de modulaciones</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Registros del día asociados a rechazo y gestión.</p>
               </div>
             </div>
-            <span className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
               {modulaciones.length} registros
             </span>
           </div>
@@ -278,32 +288,32 @@ export default function SeguimientoRefusalPage() {
             <table className="w-full min-w-[820px]">
               <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
-                  <th className="px-5 py-4 text-left">DT / Cliente</th>
-                  <th className="px-5 py-4 text-left">Persona</th>
-                  <th className="px-5 py-4 text-center">Rechazo</th>
-                  <th className="px-5 py-4 text-center">Reubicadas</th>
-                  <th className="px-5 py-4 text-right">Causal</th>
+                  <th className="px-4 py-3 text-left">DT / Cliente</th>
+                  <th className="px-4 py-3 text-left">Persona</th>
+                  <th className="px-4 py-3 text-center">Rechazo</th>
+                  <th className="px-4 py-3 text-center">Gestionadas</th>
+                  <th className="px-4 py-3 text-right">Causal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {modulaciones.length ? (
                   modulaciones.map((item) => (
                     <tr className="transition hover:bg-slate-50" key={item.id}>
-                      <td className="px-5 py-4">
-                        <p className="font-semibold text-[#10223d]">DT {item.dt}</p>
-                        <p className="text-sm text-slate-500">Cliente {item.codigoCliente}</p>
+                      <td className="px-4 py-2.5">
+                        <p className="text-sm font-semibold text-[#10223d]">DT {item.dt}</p>
+                        <p className="text-xs text-slate-500">Cliente {item.codigoCliente}</p>
                       </td>
-                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{item.persona}</td>
-                      <td className="px-5 py-4 text-center">
-                        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{item.totalCajas}</span>
+                      <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{item.persona}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{item.totalCajas}</span>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-4 py-2.5 text-center">
                         <div className="inline-flex items-center gap-2">
-                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">{item.cajasReubicadas || 0}</span>
-                          <ReubicacionBuddy modulacion={item} />
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{item.cajasGestionadas || 0}</span>
+                          <GestionBuddy modulacion={item} />
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-right text-sm font-medium text-slate-600">{item.causal}</td>
+                      <td className="px-4 py-2.5 text-right text-sm font-medium text-slate-600">{item.causal}</td>
                     </tr>
                   ))
                 ) : (
@@ -339,10 +349,10 @@ function RefusalMetric({ icon, label, value, tone = "navy" }: { icon: ReactNode;
   );
 }
 
-function ReubicacionBuddy({ modulacion }: { modulacion: ModulacionRegistro }) {
+function GestionBuddy({ modulacion }: { modulacion: ModulacionRegistro }) {
   const total = Number(modulacion.totalCajas) || 0;
-  const reubicadas = Number(modulacion.cajasReubicadas) || 0;
-  const status = reubicadas <= 0 ? "empty" : total > 0 && reubicadas >= total ? "done" : "half";
+  const gestionadas = Number(modulacion.cajasGestionadas) || 0;
+  const status = gestionadas <= 0 ? "empty" : total > 0 && gestionadas >= total ? "done" : "half";
   const styles = {
     empty: {
       label: "Robot esperando",
@@ -350,12 +360,12 @@ function ReubicacionBuddy({ modulacion }: { modulacion: ModulacionRegistro }) {
       botClassName: "robot-wait",
     },
     half: {
-      label: "Robot reubicando",
+      label: "Robot gestionando",
       className: "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_18px_rgba(245,189,25,0.2)]",
       botClassName: "robot-ready",
     },
     done: {
-      label: "Gol de reubicacion",
+      label: "Gol de gestion",
       className: "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_18px_rgba(15,124,88,0.2)]",
       botClassName: "robot-kick",
     },

@@ -94,11 +94,11 @@ export function ModulacionForm({
             />
 
             <NumericField
-              error={errors.cajasReubicadas}
+              error={errors.cajasGestionadas}
               icon="boxes"
-              label="Cajas reubicadas"
-              onChange={(value) => onChange("cajasReubicadas", onlyNumbers(value))}
-              value={form.cajasReubicadas}
+              label="Cajas gestionadas"
+              onChange={(value) => onChange("cajasGestionadas", onlyNumbers(value))}
+              value={form.cajasGestionadas}
             />
           </div>
         </FormSection>
@@ -205,7 +205,7 @@ function VehicleSummary({
       <SummaryInfo label="Auxiliar 1" value={selectedVehicle.cedulaAuxiliar1 || "-"} />
       <SummaryInfo label="Auxiliar 2" value={selectedVehicle.cedulaAuxiliar2 || "-"} />
       <SummaryInfo label="Cajas rechazadas DT" value={resumenDt.cajasRechazadas.toLocaleString("es-CO")} />
-      <SummaryInfo label="Cajas reubicadas DT" value={resumenDt.cajasReubicadas.toLocaleString("es-CO")} />
+      <SummaryInfo label="Cajas gestionadas DT" value={resumenDt.cajasGestionadas.toLocaleString("es-CO")} />
       <SummaryInfo label="Refusal DT" value={`${resumenDt.refusal.toLocaleString("es-CO")}%`} />
       <SummaryInfo label="Clientes que rechazan" value={resumenDt.clientesRechazan} />
     </div>

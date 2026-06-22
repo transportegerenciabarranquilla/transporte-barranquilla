@@ -19,13 +19,12 @@ export function ModulacionSidebar({
           <ClipboardList size={24} />
         </div>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">Punto Corona Galapa</p>
-        <h1 className="mt-3 text-3xl font-semibold leading-tight">Modulacion de novedades</h1>
+        <h1 className="mt-3 text-3xl font-semibold leading-tight">Registro de Modulaciones</h1>
         <p className="mt-4 text-sm leading-6 text-white/72">
           Registra el DT, cliente, cajas, causal y comentario en un formulario mas claro para la operacion diaria.
         </p>
 
         <Metric label="Cajas rechazadas" value={resumenGeneral.cajasRechazadas.toLocaleString("es-CO")} />
-        <Metric label="Cajas reubicadas" value={resumenGeneral.cajasReubicadas.toLocaleString("es-CO")} />
 
         <Metric label="Tope maximo de cajas" value={topeMaximoCajas} />
         <p className="mt-1 text-xs text-white/60">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -16,37 +16,60 @@ import {
   persistVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleRecordKey } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey } from "./utils";
 import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { removeCheckinByDt } from "../lib/checkinStorage";
-import { getLocalDateKey, isTodayDate, readModulacionRegistros, type ModulacionRegistro } from "../lib/modulacionStorage";
+import { getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, isTodayDate, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
+import { SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { useStorageSnapshot } from "../lib/storageEvents";
 import { initialVehicles } from "./data";
-
-type DateScope = "today" | "all";
 
 export default function SeguimientoPage() {
   const router = useRouter();
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
+  const [vehiculoSeleccionadoKey, setVehiculoSeleccionadoKey] = useState<string | null>(null);
+  const storedVehiculos = useStorageSnapshot<Vehiculo[]>(
+    [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY],
+    loadSeguimientoVehiculos,
+    initialVehicles,
+  );
+  const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>(initialVehicles);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("Todos");
-  const [fechaDtFilter, setFechaDtFilter] = useState("");
-  const [dateScope, setDateScope] = useState<DateScope>("today");
+  
+  // Initialize states from localStorage if available
+  const [search, setSearch] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_search") || "" : ""));
+  const [statusFilter, setStatusFilter] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_status") || "Todos" : "Todos"));
+  const [fechaDtFilter, setFechaDtFilter] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_fecha") || "" : ""));
+  
   const [importMessage, setImportMessage] = useState("");
-  const [modulaciones, setModulaciones] = useState<ModulacionRegistro[]>([]);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
 
+  // Persist filters to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("seguimiento_search", search);
+  }, [search]);
+
+  useEffect(() => {
+    localStorage.setItem("seguimiento_status", statusFilter);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    localStorage.setItem("seguimiento_fecha", fechaDtFilter);
+  }, [fechaDtFilter]);
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setVehiculos(loadSeguimientoVehiculos());
-      setModulaciones(readModulacionRegistros());
       setDateLabel(new Date().toLocaleDateString("es-CO"));
     }, 0);
 
     return () => window.clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    setVehiculos(storedVehiculos);
+  }, [storedVehiculos]);
 
   const filteredVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
@@ -54,12 +77,13 @@ export default function SeguimientoPage() {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === "Todos" || status === statusFilter;
-      const matchesDate = dateScope === "all" || item.fechaDespacho === getLocalDateKey();
+      
+      // Filter by date if selected, otherwise show all
       const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter || item.fechaDespacho === fechaDtFilter;
 
-      return matchesSearch && matchesStatus && matchesDate && matchesFechaDt;
+      return matchesSearch && matchesStatus && matchesFechaDt;
     });
-  }, [dateScope, fechaDtFilter, search, statusFilter, vehiculos]);
+  }, [fechaDtFilter, search, statusFilter, vehiculos]);
 
   const resumen = useMemo(() => {
     const clientes = filteredVehicles.reduce((total, item) => total + item.clientes, 0);
@@ -75,20 +99,26 @@ export default function SeguimientoPage() {
     };
   }, [filteredVehicles]);
 
-  const modulacionesHoy = useMemo(
-    () =>
-      modulaciones
-        .filter((registro) => isTodayDate(registro.createdAt))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [modulaciones],
-  );
+  const modulacionesHoy = useMemo(() => {
+    const operational = getOperationalModulaciones(modulaciones, filteredVehicles);
+    const byId = new Map<string, ModulacionRegistro>();
+
+    modulaciones.forEach((registro) => {
+      if (isTodayDate(registro.createdAt)) byId.set(registro.id, registro);
+    });
+
+    operational.forEach((registro) => byId.set(registro.id, registro));
+
+    return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [filteredVehicles, modulaciones]);
   const showModulacionAlert = modulacionesHoy.length > 0 && !modulacionAlertDismissed;
+  const latestModulacionId = modulacionesHoy[0]?.id || "";
   const selectedVehicle = useMemo(() => {
     if (!vehiculoSeleccionado) return null;
 
-    const selectedKey = getVehicleRecordKey(vehiculoSeleccionado);
-    return vehiculos.find((item) => getVehicleRecordKey(item) === selectedKey) ?? vehiculoSeleccionado;
-  }, [vehiculoSeleccionado, vehiculos]);
+    const selectedKey = vehiculoSeleccionadoKey || getVehicleUiKey(vehiculoSeleccionado);
+    return vehiculos.find((item) => getVehicleUiKey(item) === selectedKey) ?? vehiculoSeleccionado;
+  }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
@@ -97,18 +127,15 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
-    if (!modulacionesHoy.length) return;
-
-    const timeout = window.setTimeout(() => setModulacionAlertDismissed(true), 30000);
-
-    return () => window.clearTimeout(timeout);
-  }, [modulacionesHoy]);
+    if (!latestModulacionId) return;
+    setModulacionAlertDismissed(false);
+  }, [latestModulacionId]);
 
   function actualizarVisitados(recordKey: string, visitados: number) {
     setVehiculos((current) =>
       persistVehicles(
         current.map((item) =>
-          getVehicleRecordKey(item) === recordKey
+          getVehicleUiKey(item) === recordKey
             ? {
                 ...item,
                 visitados: Math.min(Math.max(visitados, 0), item.clientes),
@@ -124,13 +151,13 @@ export default function SeguimientoPage() {
       changes.fechaDespacho !== undefined || changes.status === "Pernoctado" || changes.status === "Cambio de fecha";
 
     setVehiculoSeleccionado((current) =>
-      current && getVehicleRecordKey(current) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
+      current && (vehiculoSeleccionadoKey || getVehicleUiKey(current)) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
     );
 
     setVehiculos((current) =>
       persistVehicles(
         current.map((item) => {
-          if (getVehicleRecordKey(item) !== recordKey) return item;
+          if (getVehicleUiKey(item) !== recordKey) return item;
 
           removeStaleRouteData(item, shouldResetAttendance);
           return applyVehicleChanges(item, changes, shouldResetAttendance);
@@ -175,6 +202,27 @@ export default function SeguimientoPage() {
     removeCheckinByDt(item.transporte);
   }
 
+  function seleccionarVehiculo(vehicle: Vehiculo) {
+    setVehiculoSeleccionado(vehicle);
+    setVehiculoSeleccionadoKey(getVehicleUiKey(vehicle));
+  }
+
+  function borrarVehiculo(recordKey: string) {
+    const vehicle = vehiculos.find((item) => getVehicleUiKey(item) === recordKey);
+    const label = vehicle?.transporte || vehicle?.vehiculo || "este DT";
+
+    if (!window.confirm(`Quieres borrar ${label} del seguimiento?`)) return;
+
+    if (vehicle) removeStaleRouteData(vehicle, true);
+
+    setVehiculos((current) => persistVehicles(current.filter((item) => getVehicleUiKey(item) !== recordKey)));
+
+    if (vehiculoSeleccionadoKey === recordKey) {
+      setVehiculoSeleccionado(null);
+      setVehiculoSeleccionadoKey(null);
+    }
+  }
+
   async function handleImport(file: File | undefined) {
     if (!file) return;
 
@@ -188,7 +236,6 @@ export default function SeguimientoPage() {
       const prepared = persistVehicles(mergeVehiclesByDt(vehiculos, imported));
 
       setVehiculos(prepared);
-      setDateScope("today");
       setImportMessage(`${imported.length} registros cargados desde ${file.name}.`);
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "No se pudo leer el archivo.");
@@ -274,24 +321,6 @@ export default function SeguimientoPage() {
               <FileDown size={18} />
               Plantilla
             </a>
-            <button
-              className={`h-10 rounded-md px-4 text-sm font-semibold transition ${
-                dateScope === "today" ? "bg-[#10223d] text-white" : "text-slate-600 hover:bg-slate-100"
-              }`}
-              onClick={() => setDateScope("today")}
-              type="button"
-            >
-              Hoy
-            </button>
-            <button
-              className={`h-10 rounded-md px-4 text-sm font-semibold transition ${
-                dateScope === "all" ? "bg-[#10223d] text-white" : "text-slate-600 hover:bg-slate-100"
-              }`}
-              onClick={() => setDateScope("all")}
-              type="button"
-            >
-              Todo
-            </button>
           </div>
         </div>
 
@@ -299,17 +328,15 @@ export default function SeguimientoPage() {
           fechaDtFilter={fechaDtFilter}
           search={search}
           statusFilter={statusFilter}
-          onFechaDtChange={(value) => {
-            setFechaDtFilter(value);
-            if (value) setDateScope("all");
-          }}
+          onFechaDtChange={setFechaDtFilter}
           onSearchChange={setSearch}
           onStatusChange={setStatusFilter}
         />
 
         <VehiclesTable
           vehicles={filteredVehicles}
-          onSelectVehicle={setVehiculoSeleccionado}
+          onSelectVehicle={seleccionarVehiculo}
+          onDeleteVehicle={borrarVehiculo}
           onUpdateVehicle={actualizarVehiculo}
           onUpdateVisited={actualizarVisitados}
         />
@@ -318,8 +345,13 @@ export default function SeguimientoPage() {
           <VehicleDrawer
             vehicle={selectedVehicle}
             now={now}
-            onClose={() => setVehiculoSeleccionado(null)}
+            onClose={() => {
+              setVehiculoSeleccionado(null);
+              setVehiculoSeleccionadoKey(null);
+            }}
+            onDeleteVehicle={borrarVehiculo}
             onUpdateVehicle={actualizarVehiculo}
+            recordKey={vehiculoSeleccionadoKey || getVehicleUiKey(selectedVehicle)}
           />
         ) : null}
       </section>

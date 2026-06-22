@@ -21,7 +21,7 @@ export const initialForm: FormState = {
   codigoCliente: "",
   nombreCliente: "",
   totalCajas: "",
-  cajasReubicadas: "",
+  cajasGestionadas: "",
   persona: "",
   causal: "",
   comentario: "",

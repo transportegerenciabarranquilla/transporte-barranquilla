@@ -9,5 +9,5 @@ export function StatusBadge({ status }: { status: string }) {
   };
   const className = styles[status] ?? styles.Cargando;
 
-  return <span className={`rounded-md px-3 py-1.5 text-xs font-semibold ring-1 ${className}`}>{status}</span>;
+  return <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${className}`}>{status}</span>;
 }

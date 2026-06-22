@@ -67,7 +67,7 @@ export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones
     return {
       ...vehiculo,
       cajasRechazadas: resumen.cajasRechazadas,
-      cajasReubicadas: resumen.cajasReubicadas,
+      cajasGestionadas: resumen.cajasGestionadas,
       cajasCheckin: resumen.cajasCheckin,
       cajasRefusalFinal: resumen.cajasPendientes,
       clientesRechazan: resumen.clientesRechazan,
@@ -80,8 +80,36 @@ export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones
 }
 
 function prepareVehicles(records: Vehiculo[]) {
-  const withAttendance = applyAttendanceToVehicles(records);
+  const withIds = ensureVehicleRecordIds(records);
+  const withAttendance = applyAttendanceToVehicles(withIds);
   return enrichVehiclesWithModulacion(withAttendance, readModulacionRegistros());
+}
+
+function ensureVehicleRecordIds(records: Vehiculo[]) {
+  const usedIds = new Set<string>();
+
+  return records.map((vehicle, index) => {
+    const baseId = vehicle.recordId || `vehiculo-${getVehicleRecordKey(vehicle)}-${index}`;
+    const recordId = getUniqueRecordId(baseId, usedIds);
+
+    return {
+      ...vehicle,
+      recordId,
+    };
+  });
+}
+
+function getUniqueRecordId(baseId: string, usedIds: Set<string>) {
+  let recordId = baseId;
+  let suffix = 2;
+
+  while (usedIds.has(recordId)) {
+    recordId = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  usedIds.add(recordId);
+  return recordId;
 }
 
 function applyAttendanceToVehicles(records: Vehiculo[]) {

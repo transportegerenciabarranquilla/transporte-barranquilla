@@ -1,25 +1,28 @@
 import type { ReactNode } from "react";
-import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Truck, Users, X } from "lucide-react";
+import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleRecordKey } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehicleDrawer({
   vehicle,
   now,
   onClose,
+  onDeleteVehicle,
   onUpdateVehicle,
+  recordKey,
 }: {
   vehicle: Vehiculo;
   now: Date;
   onClose: () => void;
+  onDeleteVehicle: (recordKey: string) => void;
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
+  recordKey: string;
 }) {
   const progress = getProgress(vehicle);
   const capacity = vehicle.capacidad ? Math.round((vehicle.peso / vehicle.capacidad) * 100) : 0;
   const routeTime = calculateRouteTime(vehicle, now);
   const status = getStatus(progress, vehicle);
-  const recordKey = getVehicleRecordKey(vehicle);
 
   function updateVehicle(changes: Partial<Vehiculo>) {
     onUpdateVehicle(recordKey, changes);
@@ -43,6 +46,14 @@ export function VehicleDrawer({
               <X size={20} />
             </button>
           </div>
+          <button
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md border border-red-200 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            onClick={() => onDeleteVehicle(recordKey)}
+            type="button"
+          >
+            <Trash2 size={17} />
+            Borrar DT
+          </button>
         </div>
 
         <div className="space-y-5 p-5">
@@ -132,7 +143,7 @@ export function VehicleDrawer({
             <EditableInfo icon={<PackageCheck size={18} />} label="HL" type="number" value={vehicle.hl} onChange={(value) => updateVehicle({ hl: Number(value) })} />
             <EditableInfo icon={<Boxes size={18} />} label="Cajas" type="number" value={vehicle.cajas} onChange={(value) => updateVehicle({ cajas: Number(value) })} />
             <Info icon={<Boxes size={18} />} label="Cajas rechazadas" value={vehicle.cajasRechazadas || 0} />
-            <Info icon={<PackageCheck size={18} />} label="Cajas reubicadas" value={vehicle.cajasReubicadas || 0} />
+            <Info icon={<PackageCheck size={18} />} label="Cajas gestionadas" value={vehicle.cajasGestionadas || 0} />
             <Info icon={<Boxes size={18} />} label="Tope maximo" value={vehicle.topeMaximoCajas || 0} />
             <Info icon={<PackageCheck size={18} />} label="Refusal neto" value={`${vehicle.refusal || 0}%`} />
             <EditableInfo icon={<Boxes size={18} />} label="Peso DT" type="number" value={vehicle.peso} onChange={(value) => updateVehicle({ peso: Number(value) })} />

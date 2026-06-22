@@ -4,51 +4,60 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BadgeCheck, Boxes, ClipboardCheck, RotateCcw, Truck, XCircle } from "lucide-react";
 import {
+  CHECKIN_STORAGE_KEY,
   getCheckinByDt,
   readCheckinCajasRegistros,
   saveCheckinCajasRegistros,
   upsertCheckinCajas,
   type CheckinCajasRegistro,
 } from "../../lib/checkinStorage";
-import { getLocalDateKey, getModulacionesByDt, normalizeDt, readModulacionRegistros, summarizeModulaciones } from "../../lib/modulacionStorage";
-import { readSeguimientoVehiculos } from "../../lib/seguimientoStorage";
+import { getLocalDateKey, getModulacionesByDt, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones } from "../../lib/modulacionStorage";
+import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
+import { useStorageSnapshot } from "../../lib/storageEvents";
 import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 
 export default function CajasCheckinPage() {
   const router = useRouter();
-  const [vehicles, setVehicles] = useState<Vehiculo[]>(initialVehicles);
-  const [modulaciones, setModulaciones] = useState(() => readModulacionRegistros());
-  const [checkins, setCheckins] = useState<CheckinCajasRegistro[]>([]);
+  const vehicles = useStorageSnapshot<Vehiculo[]>(
+    [SEGUIMIENTO_STORAGE_KEY],
+    () => {
+      const storedVehicles = readSeguimientoVehiculos();
+      return storedVehicles.length ? storedVehicles : initialVehicles;
+    },
+    initialVehicles,
+  );
+  const modulaciones = useStorageSnapshot([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
+  const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [savedDt, setSavedDt] = useState("");
   const [dateLabel, setDateLabel] = useState("");
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const storedVehicles = readSeguimientoVehiculos();
-      const storedCheckins = readCheckinCajasRegistros();
-
-      setVehicles(storedVehicles.length ? storedVehicles : initialVehicles);
-      setModulaciones(readModulacionRegistros());
-      setCheckins(storedCheckins);
-      setInputs(Object.fromEntries(storedCheckins.map((record) => [normalizeDt(record.dt), String(record.totalCajas)])));
-      setDateLabel(new Date().toLocaleDateString("es-CO"));
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
+    setDateLabel(new Date().toLocaleDateString("es-CO"));
   }, []);
+
+  useEffect(() => {
+    setInputs((current) => ({
+      ...Object.fromEntries(checkins.map((record) => [normalizeDt(record.dt), String(record.totalCajas)])),
+      ...current,
+    }));
+  }, [checkins]);
 
   const vehiclesToday = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
   const departedVehicles = useMemo(() => {
     const departed = vehiclesToday.filter(hasDeparture);
     return departed.length ? departed : vehiclesToday;
   }, [vehiclesToday]);
+  const operationalModulaciones = useMemo(
+    () => getOperationalModulaciones(modulaciones, departedVehicles),
+    [departedVehicles, modulaciones],
+  );
 
   const rows = useMemo(
     () =>
       departedVehicles.map((vehicle) => {
-        const registrosDt = getModulacionesByDt(modulaciones, vehicle.transporte).filter((registro) => isTodayKey(registro.createdAt));
+        const registrosDt = getModulacionesByDt(operationalModulaciones, vehicle.transporte);
         const checkin = getCheckinByDt(checkins, vehicle.transporte);
         const resumen = summarizeModulaciones(registrosDt, vehicle.cajas, checkin?.totalCajas);
 
@@ -59,7 +68,7 @@ export default function CajasCheckinPage() {
           key: normalizeDt(vehicle.transporte),
         };
       }),
-    [checkins, departedVehicles, modulaciones],
+    [checkins, departedVehicles, operationalModulaciones],
   );
 
   const totals = useMemo(
@@ -68,11 +77,11 @@ export default function CajasCheckinPage() {
         (acc, row) => ({
           vehiculos: acc.vehiculos + 1,
           moduladas: acc.moduladas + row.resumen.cajasRechazadas,
-          reubicadas: acc.reubicadas + row.resumen.cajasReubicadas,
+          gestionadas: acc.gestionadas + row.resumen.cajasGestionadas,
           checkin: acc.checkin + (row.checkin?.totalCajas ?? 0),
           final: acc.final + row.resumen.cajasPendientes,
         }),
-        { vehiculos: 0, moduladas: 0, reubicadas: 0, checkin: 0, final: 0 },
+        { vehiculos: 0, moduladas: 0, gestionadas: 0, checkin: 0, final: 0 },
       ),
     [rows],
   );
@@ -80,10 +89,14 @@ export default function CajasCheckinPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>, dt: string) {
     event.preventDefault();
 
-    const nextRecords = upsertCheckinCajas(checkins, dt, Number(inputs[normalizeDt(dt)] || 0));
+    const key = normalizeDt(dt);
+    const inputValue = inputs[key]?.trim() ?? "";
+    const nextRecords = inputValue
+      ? upsertCheckinCajas(checkins, dt, Number(inputValue))
+      : checkins.filter((record) => normalizeDt(record.dt) !== key);
+
     saveCheckinCajasRegistros(nextRecords);
-    setCheckins(nextRecords);
-    setSavedDt(normalizeDt(dt));
+    setSavedDt(key);
   }
 
   function updateInput(dt: string, value: string) {
@@ -105,6 +118,7 @@ export default function CajasCheckinPage() {
             >
               <ArrowLeft size={19} />
             </button>
+            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Checkin diario</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Cajas checkin</h1>
@@ -125,19 +139,22 @@ export default function CajasCheckinPage() {
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<Truck size={21} />} label="Carros del dia" value={totals.vehiculos} />
           <Metric icon={<XCircle size={21} />} label="Cajas moduladas" value={totals.moduladas} tone="red" />
-          <Metric icon={<RotateCcw size={21} />} label="Reubicadas" value={totals.reubicadas} tone="green" />
+          <Metric icon={<RotateCcw size={21} />} label="Gestionadas" value={totals.gestionadas} tone="green" />
           <Metric icon={<Boxes size={21} />} label="Refusal final" value={totals.final} tone="amber" />
         </div>
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-[#10223d]">Carros salidos hoy</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                El checkin reemplaza el pendiente modulado como dato final de refusal para cada DT.
-              </p>
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardCheck size={17} className="text-[#10223d]" />
+              <div>
+                <h2 className="text-base font-semibold text-[#10223d]">Carros salidos hoy</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  El checkin reemplaza el pendiente modulado como dato final de refusal para cada DT.
+                </p>
+              </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d]">
+            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
               {dateLabel}
             </span>
           </div>
@@ -146,36 +163,36 @@ export default function CajasCheckinPage() {
             <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
-                  <th className="px-5 py-4 text-left">Vehiculo / DT</th>
-                  <th className="px-5 py-4 text-left">Responsable</th>
-                  <th className="px-5 py-4 text-center">Salida</th>
-                  <th className="px-5 py-4 text-center">Moduladas</th>
-                  <th className="px-5 py-4 text-center">Reubicadas</th>
-                  <th className="px-5 py-4 text-center">Checkin</th>
-                  <th className="px-5 py-4 text-right">Refusal final</th>
+                  <th className="px-3 py-2 text-left">Vehiculo / DT</th>
+                  <th className="px-3 py-2 text-left">Responsable</th>
+                  <th className="px-3 py-2 text-center">Salida</th>
+                  <th className="px-3 py-2 text-center">Moduladas</th>
+                  <th className="px-3 py-2 text-center">Gestionadas</th>
+                  <th className="px-3 py-2 text-center">Checkin</th>
+                  <th className="px-3 py-2 text-right">Refusal final</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.length ? (
                   rows.map(({ checkin, key, resumen, vehicle }) => (
                     <tr className="transition hover:bg-slate-50" key={`${vehicle.vehiculo}-${vehicle.transporte}`}>
-                      <td className="px-5 py-4">
-                        <p className="font-semibold text-[#10223d]">{vehicle.vehiculo}</p>
-                        <p className="text-sm text-slate-500">{vehicle.transporte}</p>
+                      <td className="px-3 py-1.5">
+                        <p className="text-xs font-semibold text-[#10223d]">{vehicle.vehiculo}</p>
+                        <p className="text-[10px] text-slate-500">{vehicle.transporte}</p>
                       </td>
-                      <td className="px-5 py-4 text-sm font-medium text-slate-600">{vehicle.responsable}</td>
-                      <td className="px-5 py-4 text-center text-sm font-semibold text-[#10223d]">{vehicle.horaSalida || "Pendiente"}</td>
-                      <td className="px-5 py-4 text-center">
-                        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{resumen.cajasRechazadas}</span>
+                      <td className="px-3 py-1.5 text-xs font-medium text-slate-600">{vehicle.responsable}</td>
+                      <td className="px-3 py-1.5 text-center text-xs font-semibold text-[#10223d]">{vehicle.horaSalida || "Pendiente"}</td>
+                      <td className="px-3 py-1.5 text-center">
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">{resumen.cajasRechazadas}</span>
                       </td>
-                      <td className="px-5 py-4 text-center">
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">{resumen.cajasReubicadas}</span>
+                      <td className="px-3 py-1.5 text-center">
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{resumen.cajasGestionadas}</span>
                       </td>
-                      <td className="px-5 py-4">
-                        <form className="flex items-center justify-center gap-2" onSubmit={(event) => handleSubmit(event, vehicle.transporte)}>
+                      <td className="px-3 py-1.5">
+                        <form className="flex items-center justify-center gap-1.5" onSubmit={(event) => handleSubmit(event, vehicle.transporte)}>
                           <input
                             aria-label={`Cajas checkin DT ${vehicle.transporte}`}
-                            className="h-10 w-28 rounded-md border border-slate-200 px-3 text-center text-sm font-semibold outline-none transition focus:border-[#f5bd19]"
+                            className="h-7 w-16 rounded-md border border-slate-200 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                             inputMode="numeric"
                             onChange={(event) => updateInput(vehicle.transporte, event.target.value)}
                             placeholder={String(resumen.cajasPendientesModulacion)}
@@ -183,19 +200,19 @@ export default function CajasCheckinPage() {
                           />
                           <button
                             aria-label={`Guardar checkin DT ${vehicle.transporte}`}
-                            className="grid h-10 w-10 place-items-center rounded-md bg-[#10223d] text-white transition hover:bg-[#1b355b]"
+                            className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white transition hover:bg-[#1b355b]"
                             type="submit"
                           >
-                            <BadgeCheck size={18} />
+                            <BadgeCheck size={16} />
                           </button>
                         </form>
-                        {savedDt === key ? <p className="mt-2 text-center text-xs font-semibold text-emerald-700">Guardado</p> : null}
+                        {savedDt === key ? <p className="mt-1 text-center text-[10px] font-semibold text-emerald-700">Guardado</p> : null}
                       </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="text-lg font-semibold text-[#10223d]">{resumen.cajasPendientes}</span>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${checkin ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                            {checkin ? "Checkin aplicado" : "Pendiente actual"}
+                      <td className="px-3 py-1.5 text-right">
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-semibold text-[#10223d]">{resumen.cajasPendientes}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${checkin ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                            {checkin ? "Checkin" : "Pendiente"}
                           </span>
                         </div>
                       </td>
@@ -241,10 +258,6 @@ function hasDeparture(vehicle: Vehiculo) {
 
 function isTodayVehicle(vehicle: Vehiculo) {
   return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getLocalDateKey();
-}
-
-function isTodayKey(value: string | undefined) {
-  return toDateKey(value) === getLocalDateKey();
 }
 
 function toDateKey(value: string | undefined) {

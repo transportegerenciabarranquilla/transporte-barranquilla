@@ -55,10 +55,17 @@ export default function ModulacionPage() {
     return vehiculosSeguimiento.find((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(registroSeleccionado.dt)) ?? null;
   }, [registroSeleccionado, vehiculosSeguimiento]);
 
-  function updateCajasReubicadas(id: string, value: string) {
+  function updateCajasGestionadas(id: string, value: string) {
     const nextRecords = registros.map((registro) =>
-      registro.id === id ? { ...registro, cajasReubicadas: value.replace(/\D/g, "") } : registro,
+      registro.id === id ? { ...registro, cajasGestionadas: value.replace(/\D/g, "") } : registro,
     );
+
+    saveModulacionRegistros(nextRecords);
+    setRegistros(nextRecords);
+  }
+
+  function updateComentario(id: string, value: string) {
+    const nextRecords = registros.map((registro) => (registro.id === id ? { ...registro, comentario: value } : registro));
 
     saveModulacionRegistros(nextRecords);
     setRegistros(nextRecords);
@@ -151,7 +158,7 @@ export default function ModulacionPage() {
                   <th className="px-4 py-3 text-left">Persona</th>
                   <th className="px-4 py-3 text-left">Causal</th>
                   <th className="px-4 py-3 text-center">Rechazadas</th>
-                  <th className="px-4 py-3 text-center">Reubicadas</th>
+                  <th className="px-4 py-3 text-center">Gestionadas</th>
                   <th className="px-4 py-3 text-left">Comentario</th>
                   <th className="px-4 py-3 text-right">Detalle</th>
                 </tr>
@@ -184,11 +191,11 @@ export default function ModulacionPage() {
                           <input
                             className="h-8 w-16 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                             inputMode="numeric"
-                            onChange={(event) => updateCajasReubicadas(registro.id, event.target.value)}
+                            onChange={(event) => updateCajasGestionadas(registro.id, event.target.value)}
                             type="text"
-                            value={registro.cajasReubicadas || "0"}
+                            value={registro.cajasGestionadas || "0"}
                           />
-                          <ReubicacionBadge registro={registro} />
+                          <GestionBadge registro={registro} />
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
@@ -220,7 +227,8 @@ export default function ModulacionPage() {
 
         {registroSeleccionado ? (
           <ModulacionDetailModal
-            onChangeReubicadas={updateCajasReubicadas}
+            onChangeGestionadas={updateCajasGestionadas}
+            onChangeComentario={updateComentario}
             onClose={() => setSelectedRegistroId(null)}
             registro={registroSeleccionado}
             selectedVehicle={vehiculoSeleccionado}
@@ -235,12 +243,14 @@ function ModulacionDetailModal({
   onClose,
   registro,
   selectedVehicle,
-  onChangeReubicadas,
+  onChangeGestionadas,
+  onChangeComentario,
 }: {
   onClose: () => void;
   registro: ModulacionRegistro;
   selectedVehicle: Vehiculo | null;
-  onChangeReubicadas: (id: string, value: string) => void;
+  onChangeGestionadas: (id: string, value: string) => void;
+  onChangeComentario: (id: string, value: string) => void;
 }) {
   const details = [
     ["Codigo cliente", registro.codigoCliente],
@@ -283,11 +293,11 @@ function ModulacionDetailModal({
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <ModalMetric label="Rechazadas" value={registro.totalCajas} tone="red" />
             <ModalMetric
-              label="Reubicadas"
+              label="Gestionadas"
               value={
                 <span className="flex items-center gap-2">
-                  {registro.cajasReubicadas || "0"}
-                  <ReubicacionBadge registro={registro} showLabel />
+                  {registro.cajasGestionadas || "0"}
+                  <GestionBadge registro={registro} showLabel />
                 </span>
               }
               tone="green"
@@ -307,18 +317,26 @@ function ModulacionDetailModal({
                 <UsersRound size={16} />
                 Gestion
               </div>
+              <label className="mb-4 block">
+                <span className="text-sm font-medium text-slate-700">Comentario</span>
+                <textarea
+                  className="mt-2 min-h-24 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                  onChange={(event) => onChangeComentario(registro.id, event.target.value)}
+                  value={registro.comentario}
+                />
+              </label>
               <label className="block">
-                <span className="text-sm font-medium text-slate-700">Cajas reubicadas</span>
+                <span className="text-sm font-medium text-slate-700">Cajas gestionadas</span>
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   inputMode="numeric"
-                  onChange={(event) => onChangeReubicadas(registro.id, event.target.value)}
+                  onChange={(event) => onChangeGestionadas(registro.id, event.target.value)}
                   type="text"
-                  value={registro.cajasReubicadas || "0"}
+                  value={registro.cajasGestionadas || "0"}
                 />
               </label>
               <div className="mt-3">
-                <ReubicacionProgress registro={registro} />
+                <GestionProgress registro={registro} />
               </div>
               <button
                 className="mt-4 h-10 w-full rounded-md bg-[#10223d] text-sm font-semibold text-white transition hover:bg-[#1b355b]"
@@ -335,19 +353,19 @@ function ModulacionDetailModal({
   );
 }
 
-type ReubicacionStatus = "empty" | "half" | "done";
+type GestionStatus = "empty" | "half" | "done";
 
-function getReubicacionStatus(registro: ModulacionRegistro): ReubicacionStatus {
+function getGestionStatus(registro: ModulacionRegistro): GestionStatus {
   const rechazadas = Number(registro.totalCajas) || 0;
-  const reubicadas = Number(registro.cajasReubicadas) || 0;
+  const gestionadas = Number(registro.cajasGestionadas) || 0;
 
-  if (rechazadas > 0 && reubicadas >= rechazadas) return "done";
-  if (reubicadas > 0) return "half";
+  if (rechazadas > 0 && gestionadas >= rechazadas) return "done";
+  if (gestionadas > 0) return "half";
   return "empty";
 }
 
-function ReubicacionBadge({ registro, showLabel = false }: { registro: ModulacionRegistro; showLabel?: boolean }) {
-  const status = getReubicacionStatus(registro);
+function GestionBadge({ registro, showLabel = false }: { registro: ModulacionRegistro; showLabel?: boolean }) {
+  const status = getGestionStatus(registro);
   const config = {
     empty: {
       label: "Esperando",
@@ -355,7 +373,7 @@ function ReubicacionBadge({ registro, showLabel = false }: { registro: Modulacio
       botClassName: "robot-wait",
     },
     half: {
-      label: "Reubicando",
+      label: "Gestionando",
       className: "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_18px_rgba(245,189,25,0.2)]",
       botClassName: "robot-ready",
     },
@@ -377,7 +395,7 @@ function ReubicacionBadge({ registro, showLabel = false }: { registro: Modulacio
   );
 }
 
-function MiniRobot({ status, className }: { status: ReubicacionStatus; className: string }) {
+function MiniRobot({ status, className }: { status: GestionStatus; className: string }) {
   const colors = {
     empty: { shell: "#dc2626", eye: "#fee2e2", glow: "#fecaca" },
     half: { shell: "#d97706", eye: "#fef3c7", glow: "#fde68a" },
@@ -405,11 +423,11 @@ function MiniRobot({ status, className }: { status: ReubicacionStatus; className
   );
 }
 
-function ReubicacionProgress({ registro }: { registro: ModulacionRegistro }) {
+function GestionProgress({ registro }: { registro: ModulacionRegistro }) {
   const rechazadas = Number(registro.totalCajas) || 0;
-  const reubicadas = Number(registro.cajasReubicadas) || 0;
-  const progress = rechazadas ? Math.min(100, Math.round((reubicadas / rechazadas) * 100)) : 0;
-  const status = getReubicacionStatus(registro);
+  const gestionadas = Number(registro.cajasGestionadas) || 0;
+  const progress = rechazadas ? Math.min(100, Math.round((gestionadas / rechazadas) * 100)) : 0;
+  const status = getGestionStatus(registro);
   const barColor = status === "done" ? "bg-emerald-500" : status === "half" ? "bg-amber-400" : "bg-red-500";
 
   return (
@@ -422,7 +440,7 @@ function ReubicacionProgress({ registro }: { registro: ModulacionRegistro }) {
         <div className={`h-2 rounded-full ${barColor}`} style={{ width: `${progress}%` }} />
       </div>
       <p className="mt-2 text-xs font-medium text-slate-500">
-        {reubicadas.toLocaleString("es-CO")} de {rechazadas.toLocaleString("es-CO")} cajas
+        {gestionadas.toLocaleString("es-CO")} de {rechazadas.toLocaleString("es-CO")} cajas
       </p>
     </div>
   );

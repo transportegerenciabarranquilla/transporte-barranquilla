@@ -1,9 +1,9 @@
 "use client";
 
-import { BarChart3, ShieldAlert } from "lucide-react";
+import { BarChart3, FileDown, ShieldAlert, Table2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type AnalyticsView = "seguimiento" | "refusal";
+type AnalyticsView = "seguimiento" | "refusal" | "refusal-com";
 
 export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
   const router = useRouter();
@@ -29,6 +29,25 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
       >
         <ShieldAlert size={17} />
         Refusal
+      </button>
+      <button
+        className={`inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold transition ${
+          active === "refusal-com" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+        }`}
+        onClick={() => router.push("/seguimiento/graficas/refusal-com")}
+        type="button"
+      >
+        <Table2 size={17} />
+        refusal-com
+      </button>
+      <button
+        aria-label="Descargar reporte PDF"
+        className="inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+        onClick={() => router.push("/seguimiento/graficas/reporte-pdf")}
+        type="button"
+      >
+        <FileDown size={17} />
+        PDF
       </button>
     </div>
   );

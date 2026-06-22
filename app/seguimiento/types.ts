@@ -1,4 +1,5 @@
 export type Vehiculo = {
+  recordId?: string;
   cajasGestionadas: number;
   cajasReportadas: number;
   createdAt: string;
@@ -41,7 +42,6 @@ export type Vehiculo = {
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
   cajasRechazadas?: number;
-  cajasReubicadas?: number;
   cajasCheckin?: number;
   cajasRefusalFinal?: number;
   clientesRechazan?: number;

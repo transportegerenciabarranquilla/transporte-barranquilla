@@ -3,7 +3,7 @@ export type FormState = {
   codigoCliente: string;
   nombreCliente: string;
   totalCajas: string;
-  cajasReubicadas: string;
+  cajasGestionadas: string;
   persona: string;
   causal: string;
   comentario: string;

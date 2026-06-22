@@ -25,7 +25,7 @@ export function ModulacionNotificationAlert({
             <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Se acaba de hacer una modulacion</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               {ultima.persona} modulo el DT {ultima.dt} del cliente {ultima.codigoCliente}. Cajas rechazadas:{" "}
-              {ultima.totalCajas}. Reubicadas: {ultima.cajasReubicadas || "0"}.
+              {ultima.totalCajas}. Gestionadas: {ultima.cajasGestionadas || "0"}.
             </p>
           </div>
         </div>
