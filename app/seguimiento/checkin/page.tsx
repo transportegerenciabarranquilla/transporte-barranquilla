@@ -14,18 +14,14 @@ import {
 import { getLocalDateKey, getModulacionesByDt, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
-import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 
 export default function CajasCheckinPage() {
   const router = useRouter();
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY],
-    () => {
-      const storedVehicles = readSeguimientoVehiculos();
-      return storedVehicles.length ? storedVehicles : initialVehicles;
-    },
-    initialVehicles,
+    readSeguimientoVehiculos,
+    [],
   );
   const modulaciones = useStorageSnapshot([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -14,12 +14,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
-import { CHECKIN_STORAGE_KEY, getCheckinByDt, type CheckinCajasRegistro } from "../../lib/checkinStorage";
+import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { getLocalDateKey, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
-import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
+import { useStorageSnapshot } from "../../lib/storageEvents";
 
 const PALETTE = {
   safe: "#0f7c58",
@@ -30,84 +30,13 @@ const PALETTE = {
 };
 
 const EMPTY_MODULACIONES: ModulacionRegistro[] = [];
-let cachedVehiclesRaw = "";
-let cachedVehicles: Vehiculo[] = initialVehicles;
-let cachedModulacionesRaw = "";
-let cachedModulaciones: ModulacionRegistro[] = EMPTY_MODULACIONES;
 const EMPTY_CHECKINS: CheckinCajasRegistro[] = [];
-let cachedCheckinsRaw = "";
-let cachedCheckins: CheckinCajasRegistro[] = EMPTY_CHECKINS;
-
-function subscribeToStorage(onStoreChange: () => void) {
-  window.addEventListener("storage", onStoreChange);
-  return () => window.removeEventListener("storage", onStoreChange);
-}
-
-function getVehiclesServerSnapshot() {
-  return initialVehicles;
-}
-
-function getVehiclesSnapshot() {
-  const raw = localStorage.getItem(SEGUIMIENTO_STORAGE_KEY) || "";
-  if (!raw) return initialVehicles;
-  if (raw === cachedVehiclesRaw) return cachedVehicles;
-
-  cachedVehiclesRaw = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    cachedVehicles = Array.isArray(parsed) && parsed.length ? (parsed as Vehiculo[]) : initialVehicles;
-  } catch {
-    cachedVehicles = initialVehicles;
-  }
-
-  return cachedVehicles;
-}
-
-function getModulacionesServerSnapshot() {
-  return EMPTY_MODULACIONES;
-}
-
-function getModulacionesSnapshot() {
-  const raw = localStorage.getItem(MODULACION_STORAGE_KEY) || "";
-  if (!raw) return EMPTY_MODULACIONES;
-  if (raw === cachedModulacionesRaw) return cachedModulaciones;
-
-  cachedModulacionesRaw = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    cachedModulaciones = Array.isArray(parsed) ? (parsed as ModulacionRegistro[]) : EMPTY_MODULACIONES;
-  } catch {
-    cachedModulaciones = EMPTY_MODULACIONES;
-  }
-
-  return cachedModulaciones;
-}
-
-function getCheckinsServerSnapshot() {
-  return EMPTY_CHECKINS;
-}
-
-function getCheckinsSnapshot() {
-  const raw = localStorage.getItem(CHECKIN_STORAGE_KEY) || "";
-  if (!raw) return EMPTY_CHECKINS;
-  if (raw === cachedCheckinsRaw) return cachedCheckins;
-
-  cachedCheckinsRaw = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    cachedCheckins = Array.isArray(parsed) ? (parsed as CheckinCajasRegistro[]) : EMPTY_CHECKINS;
-  } catch {
-    cachedCheckins = EMPTY_CHECKINS;
-  }
-
-  return cachedCheckins;
-}
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
-  const vehicles = useSyncExternalStore(subscribeToStorage, getVehiclesSnapshot, getVehiclesServerSnapshot);
-  const allModulaciones = useSyncExternalStore(subscribeToStorage, getModulacionesSnapshot, getModulacionesServerSnapshot);
-  const checkins = useSyncExternalStore(subscribeToStorage, getCheckinsSnapshot, getCheckinsServerSnapshot);
+  const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
+  const allModulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, EMPTY_MODULACIONES);
+  const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, EMPTY_CHECKINS);
 
   const activeVehiculos = useMemo(() => {
     const loaded = loadSeguimientoVehiculos();

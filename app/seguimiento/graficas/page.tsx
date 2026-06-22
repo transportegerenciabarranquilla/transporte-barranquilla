@@ -8,7 +8,6 @@ import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
 import { MODULACION_STORAGE_KEY } from "../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
-import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
@@ -19,11 +18,8 @@ export default function SeguimientoGraficasPage() {
   const router = useRouter();
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
-    () => {
-      const stored = loadSeguimientoVehiculos();
-      return stored.length ? stored : initialVehicles;
-    },
-    initialVehicles,
+    loadSeguimientoVehiculos,
+    [],
   );
   const [closedAlerts, setClosedAlerts] = useState<string[]>([]);
   const [dateLabel, setDateLabel] = useState("");

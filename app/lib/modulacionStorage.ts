@@ -1,4 +1,4 @@
-import { notifyStorageChange } from "./storageEvents";
+import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 
 export const MODULACION_STORAGE_KEY = "bavaria.modulacion.registros";
 
@@ -99,20 +99,11 @@ export function getOperationalModulaciones(records: ModulacionRegistro[], target
 export function readModulacionRegistros() {
   if (typeof window === "undefined") return [];
 
-  const current = localStorage.getItem(MODULACION_STORAGE_KEY);
-  if (!current) return [];
-
-  try {
-    const parsed = JSON.parse(current);
-    return Array.isArray(parsed) ? parsed.map(normalizeModulacionRecord) : [];
-  } catch {
-    return [];
-  }
+  return readRemoteRecords<ModulacionRegistro>("/api/modulaciones").map(normalizeModulacionRecord);
 }
 
 export function saveModulacionRegistros(records: ModulacionRegistro[]) {
-  localStorage.setItem(MODULACION_STORAGE_KEY, JSON.stringify(records));
-  notifyStorageChange();
+  return saveRemoteRecords("/api/modulaciones", records);
 }
 
 export function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined) {

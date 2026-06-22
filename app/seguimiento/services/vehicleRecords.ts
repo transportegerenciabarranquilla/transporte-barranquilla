@@ -1,4 +1,4 @@
-import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../../lib/asistenciaStorage";
+import { readAsistenciaRegistros, type AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { getCheckinByDt, readCheckinCajasRegistros } from "../../lib/checkinStorage";
 import {
   getLocalDateKey,
@@ -7,22 +7,19 @@ import {
   summarizeModulaciones,
 } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../../lib/seguimientoStorage";
-import { initialVehicles } from "../data";
 import type { Vehiculo } from "../types";
 import { getVehicleRecordKey } from "../utils";
 
 export function loadSeguimientoVehiculos() {
-  if (typeof window === "undefined") return initialVehicles;
+  if (typeof window === "undefined") return [];
 
   const stored = readSeguimientoVehiculos();
-  const baseVehicles = stored.length ? stored : initialVehicles;
-
-  return prepareVehicles(baseVehicles);
+  return prepareVehicles(stored);
 }
 
 export function persistVehicles(records: Vehiculo[]) {
   const prepared = prepareVehicles(records);
-  saveSeguimientoVehiculos(prepared);
+  void saveSeguimientoVehiculos(prepared).catch(() => undefined);
   return prepared;
 }
 
@@ -33,7 +30,7 @@ export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo
   const firstSheet = workbook.SheetNames[0];
   const sheet = workbook.Sheets[firstSheet];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-  const capacityByPlate = createCapacityByPlate([...initialVehicles, ...currentVehicles]);
+  const capacityByPlate = createCapacityByPlate(currentVehicles);
 
   return rows.map((row) => mapExcelRowToVehicle(row, capacityByPlate)).filter(Boolean) as Vehiculo[];
 }
@@ -125,7 +122,12 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
       cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
       cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
       cedulaAuxiliar2: attendance.cedulaAuxiliar2 || vehicle.cedulaAuxiliar2,
-      responsable: shouldFillResponsible(vehicle.responsable) ? `RR ${attendance.cedulaResponsable}` : vehicle.responsable,
+      nombreResponsable: attendance.nombreResponsable || vehicle.nombreResponsable,
+      nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
+      nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
+      responsable: shouldFillResponsible(vehicle.responsable)
+        ? attendance.nombreResponsable || vehicle.responsable
+        : vehicle.responsable,
     };
   });
 }
@@ -134,14 +136,10 @@ function readAttendanceByDt() {
   const records = new Map<string, AsistenciaRegistro>();
   if (typeof window === "undefined") return records;
 
-  const current = localStorage.getItem(ASISTENCIA_STORAGE_KEY);
-  if (!current) return records;
-
   try {
-    const parsed = JSON.parse(current) as AsistenciaRegistro[];
-    parsed.forEach((registro) => {
+    readAsistenciaRegistros().forEach((registro) => {
       const dt = normalizeDt(registro.dt);
-      if (!dt || registro.contratista !== "Punto Corona") return;
+      if (!dt) return;
 
       const existing = records.get(dt);
       if (!existing || new Date(registro.createdAt).getTime() > new Date(existing.createdAt).getTime()) {

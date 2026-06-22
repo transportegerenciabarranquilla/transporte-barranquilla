@@ -7,7 +7,6 @@ import { AnalyticsViewToggle } from "../../components/AnalyticsViewToggle";
 import { getOperationalModulaciones, MODULACION_STORAGE_KEY, readModulacionRegistros, type ModulacionRegistro } from "../../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
-import { initialVehicles } from "../../data";
 import type { Vehiculo } from "../../types";
 
 type RefusalRow = {
@@ -25,11 +24,8 @@ export default function RefusalComPage() {
   const router = useRouter();
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY],
-    () => {
-      const storedVehicles = readSeguimientoVehiculos();
-      return storedVehicles.length ? storedVehicles : initialVehicles;
-    },
-    initialVehicles,
+    readSeguimientoVehiculos,
+    [],
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const [dateLabel, setDateLabel] = useState("");

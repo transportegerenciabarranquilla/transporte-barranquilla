@@ -41,6 +41,9 @@ export type Vehiculo = {
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
+  nombreResponsable?: string;
+  nombreAuxiliar1?: string;
+  nombreAuxiliar2?: string;
   cajasRechazadas?: number;
   cajasCheckin?: number;
   cajasRefusalFinal?: number;

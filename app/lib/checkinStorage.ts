@@ -1,5 +1,5 @@
 import { normalizeDt } from "./modulacionStorage";
-import { notifyStorageChange } from "./storageEvents";
+import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 
 export const CHECKIN_STORAGE_KEY = "bavaria.checkin.cajas";
 
@@ -14,20 +14,11 @@ export type CheckinCajasRegistro = {
 export function readCheckinCajasRegistros() {
   if (typeof window === "undefined") return [];
 
-  const current = localStorage.getItem(CHECKIN_STORAGE_KEY);
-  if (!current) return [];
-
-  try {
-    const parsed = JSON.parse(current);
-    return Array.isArray(parsed) ? (parsed as CheckinCajasRegistro[]) : [];
-  } catch {
-    return [];
-  }
+  return readRemoteRecords<CheckinCajasRegistro>("/api/checkins");
 }
 
 export function saveCheckinCajasRegistros(records: CheckinCajasRegistro[]) {
-  localStorage.setItem(CHECKIN_STORAGE_KEY, JSON.stringify(records));
-  notifyStorageChange();
+  return saveRemoteRecords("/api/checkins", records);
 }
 
 export function removeCheckinByDt(dt: string | number | undefined) {
@@ -36,7 +27,7 @@ export function removeCheckinByDt(dt: string | number | undefined) {
 
   const records = readCheckinCajasRegistros();
   const nextRecords = records.filter((record) => normalizeDt(record.dt) !== targetDt);
-  saveCheckinCajasRegistros(nextRecords);
+  void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
 }
 
 export function getCheckinByDt(records: CheckinCajasRegistro[], dt: string | number | undefined) {

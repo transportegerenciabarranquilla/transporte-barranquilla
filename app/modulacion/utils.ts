@@ -1,7 +1,6 @@
-import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../lib/asistenciaStorage";
+import { readAsistenciaRegistros, type AsistenciaRegistro } from "../lib/asistenciaStorage";
 import { getLocalDateKey, type ModulacionRegistro } from "../lib/modulacionStorage";
 import { readSeguimientoVehiculos } from "../lib/seguimientoStorage";
-import { initialVehicles } from "../seguimiento/data";
 import type { Vehiculo } from "../seguimiento/types";
 import type { FormErrors, FormState } from "./types";
 
@@ -51,16 +50,14 @@ export function getUniquePersonas(registros: ModulacionRegistro[]) {
 }
 
 export function getVehiculosSeguimiento() {
-  if (typeof window === "undefined") return initialVehicles;
+  if (typeof window === "undefined") return [];
 
   const seguimientoGuardado = readSeguimientoVehiculos();
   if (seguimientoGuardado.length) return filterTodayVehicles(seguimientoGuardado);
 
-  const current = localStorage.getItem(ASISTENCIA_STORAGE_KEY);
-  if (!current) return filterTodayVehicles(initialVehicles);
-
   try {
-    const registros = JSON.parse(current) as AsistenciaRegistro[];
+    const registros = readAsistenciaRegistros();
+    if (!registros.length) return [];
 
     const puntoCorona = registros.filter(
       (registro) => registro.contratista === "Punto Corona"
@@ -69,11 +66,10 @@ export function getVehiculosSeguimiento() {
     const vehiculosFromAsistencia = puntoCorona.map(mapAttendanceToVehicle);
 
     return filterTodayVehicles([
-      ...initialVehicles,
       ...vehiculosFromAsistencia,
     ]);
   } catch {
-    return filterTodayVehicles(initialVehicles);
+    return [];
   }
 }
 

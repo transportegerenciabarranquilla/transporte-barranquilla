@@ -3,25 +3,35 @@
 import { useEffect, useState } from "react";
 import { LoginScreen } from "./components/LoginScreen";
 import { PortalDashboard } from "./components/PortalDashboard";
+import { clearRemoteCache } from "./lib/remoteStore";
+
+type LoginForm = { email: string; password: string; remember: boolean };
 
 export default function Home() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      setIsLoggedIn(sessionStorage.getItem("bavaria.demo.session") === "active");
-      setIsCheckingSession(false);
-    });
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => setIsLoggedIn(response.ok))
+      .finally(() => setIsCheckingSession(false));
   }, []);
 
-  function handleLogin() {
-    sessionStorage.setItem("bavaria.demo.session", "active");
+  async function handleLogin(form: LoginForm) {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "No se pudo iniciar sesión.");
+    clearRemoteCache();
     setIsLoggedIn(true);
   }
 
-  function handleLogout() {
-    sessionStorage.removeItem("bavaria.demo.session");
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    clearRemoteCache();
     setIsLoggedIn(false);
   }
 

@@ -1,12 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
 import {
-  ASISTENCIA_STORAGE_KEY,
   createAttendanceKey,
+  saveAsistenciaRegistros,
   type AsistenciaRegistro,
 } from "../lib/asistenciaStorage";
 
@@ -19,6 +19,8 @@ type FormState = {
 };
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
+type PersonField = "cedulaResponsable" | "cedulaAuxiliar1" | "cedulaAuxiliar2";
+type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string };
 
 const initialForm: FormState = {
   contratista: "",
@@ -51,6 +53,31 @@ export default function AsistenciaPage() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState<FormState | null>(null);
+  const [personas, setPersonas] = useState<Partial<Record<PersonField, Persona | null>>>({});
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const fields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
+    const timers = fields.map((field) => {
+      const cc = form[field];
+      if (!cc || !form.contratista) {
+        setPersonas((current) => ({ ...current, [field]: undefined }));
+        return undefined;
+      }
+      return window.setTimeout(async () => {
+        try {
+          const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}&contratista=${encodeURIComponent(form.contratista)}`, { cache: "no-store" });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.error || "No se pudo buscar la cedula.");
+          setPersonas((current) => ({ ...current, [field]: body.persona }));
+        } catch {
+          setPersonas((current) => ({ ...current, [field]: null }));
+        }
+      }, 350);
+    });
+    return () => timers.forEach((timer) => timer && window.clearTimeout(timer));
+  }, [form.cedulaAuxiliar1, form.cedulaAuxiliar2, form.cedulaResponsable, form.contratista]);
 
   const llave = useMemo(() => {
     if (!form.contratista || !form.dt) return "";
@@ -63,12 +90,22 @@ export default function AsistenciaPage() {
     setSubmitted(null);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validate(form);
+    const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
+    personFields.forEach((field) => {
+      const persona = personas[field];
+      if (form[field] && !persona) nextErrors[field] = "Cédula no encontrada en Transporte Barranquilla.";
+      if (persona && persona.CONTRATISTA.trim().toLowerCase() !== form.contratista.trim().toLowerCase()) {
+        nextErrors[field] = `La persona pertenece a ${persona.CONTRATISTA}.`;
+      }
+    });
     setErrors(nextErrors);
 
     if (Object.keys(nextErrors).length === 0) {
+      setSaving(true);
+      setSaveError("");
       const nextRecord: AsistenciaRegistro = {
         id: crypto.randomUUID(),
         contratista: form.contratista,
@@ -76,19 +113,21 @@ export default function AsistenciaPage() {
         cedulaResponsable: form.cedulaResponsable,
         cedulaAuxiliar1: form.cedulaAuxiliar1,
         cedulaAuxiliar2: form.cedulaAuxiliar2,
+        nombreResponsable: personas.cedulaResponsable?.NOMBRE,
+        nombreAuxiliar1: personas.cedulaAuxiliar1?.NOMBRE,
+        nombreAuxiliar2: personas.cedulaAuxiliar2?.NOMBRE,
         llave: createAttendanceKey(form.contratista, form.dt),
         createdAt: new Date().toISOString(),
       };
 
-      if (form.contratista === "Punto Corona") {
-        const current = localStorage.getItem(ASISTENCIA_STORAGE_KEY);
-        const records = current ? (JSON.parse(current) as AsistenciaRegistro[]) : [];
-        const withoutDuplicate = records.filter((record) => record.llave !== nextRecord.llave);
-
-        localStorage.setItem(ASISTENCIA_STORAGE_KEY, JSON.stringify([...withoutDuplicate, nextRecord]));
+      try {
+        await saveAsistenciaRegistros([nextRecord]);
+        setSubmitted(form);
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "No se pudo guardar la asistencia.");
+      } finally {
+        setSaving(false);
       }
-
-      setSubmitted(form);
     }
   }
 
@@ -167,6 +206,7 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaResponsable", value)}
               value={form.cedulaResponsable}
             />
+            <PersonMatch persona={personas.cedulaResponsable} value={form.cedulaResponsable} />
             <NumericField
               error={errors.cedulaAuxiliar1}
               icon={<Truck size={18} />}
@@ -174,6 +214,7 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaAuxiliar1", value)}
               value={form.cedulaAuxiliar1}
             />
+            <PersonMatch persona={personas.cedulaAuxiliar1} value={form.cedulaAuxiliar1} />
             <NumericField
               error={errors.cedulaAuxiliar2}
               icon={<Users size={18} />}
@@ -181,26 +222,27 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaAuxiliar2", value)}
               value={form.cedulaAuxiliar2}
             />
+            <PersonMatch persona={personas.cedulaAuxiliar2} value={form.cedulaAuxiliar2} />
 
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+              disabled={saving}
               type="submit"
             >
               <BadgeCheck size={18} />
-              Guardar asistencia
+              {saving ? "Guardando..." : "Guardar asistencia"}
             </button>
+            {saveError ? <p className="text-sm font-medium text-red-600">{saveError}</p> : null}
           </form>
 
           {submitted ? (
             <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-            <p className="font-semibold">Asistencia registrada en modo demo.</p>
+            <p className="font-semibold">Asistencia guardada en Supabase.</p>
             <p className="mt-1">
                 Llave: <strong>{createAttendanceKey(submitted.contratista, submitted.dt)}</strong>
             </p>
               <p className="mt-1">
-                {submitted.contratista === "Punto Corona"
-                  ? "Este registro ya queda disponible en Seguimiento en este navegador."
-                  : "Por ahora solo Punto Corona alimenta Seguimiento en modo demo."}
+                Los nombres identificados ya quedan disponibles en Seguimiento.
               </p>
             </div>
           ) : null}
@@ -208,6 +250,13 @@ export default function AsistenciaPage() {
       </section>
     </main>
   );
+}
+
+function PersonMatch({ persona, value }: { persona?: Persona | null; value: string }) {
+  if (!value) return null;
+  if (persona === undefined) return <p className="-mt-3 text-xs text-slate-400">Buscando persona...</p>;
+  if (persona === null) return <p className="-mt-3 text-xs font-medium text-amber-700">Cedula no encontrada en Transporte barranquilla.</p>;
+  return <p className="-mt-3 text-sm font-semibold text-emerald-700">{persona.NOMBRE} · {persona.CARGO}</p>;
 }
 
 function NumericField({

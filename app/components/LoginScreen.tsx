@@ -35,10 +35,12 @@ function validate(form: LoginForm) {
   return errors;
 }
 
-export function LoginScreen({ onLogin }: { onLogin: () => void }) {
+export function LoginScreen({ onLogin }: { onLogin: (form: LoginForm) => Promise<void> }) {
   const [form, setForm] = useState<LoginForm>(initialForm);
   const [errors, setErrors] = useState<LoginErrors>({});
   const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const canSubmit = useMemo(() => form.email.trim() && form.password.trim(), [form]);
 
@@ -47,13 +49,21 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
     setErrors((current) => ({ ...current, [key]: undefined }));
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validate(form);
     setErrors(nextErrors);
 
     if (Object.keys(nextErrors).length === 0) {
-      onLogin();
+      setSubmitting(true);
+      setLoginError("");
+      try {
+        await onLogin(form);
+      } catch (error) {
+        setLoginError(error instanceof Error ? error.message : "No se pudo iniciar sesión.");
+      } finally {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -122,19 +132,19 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Entra con tus datos corporativos.
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 grid grid-cols-2 gap-2">
                   <a
-                    className="inline-flex items-center gap-2 rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d] transition hover:bg-[#dbeeff]"
+                    className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-[#e9f3ff] px-2.5 py-2 text-center text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
                     href="/asistencia"
                   >
-                    Link de asistencia RR
+                    Asistencia RR
                     <Icon name="arrow" />
                   </a>
                   <a
-                    className="inline-flex items-center gap-2 rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-semibold text-[#10223d] transition hover:bg-[#dbeeff]"
+                    className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-[#e9f3ff] px-2.5 py-2 text-center text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
                     href="/registro-modulacion"
                   >
-                    link de modulacion
+                    Registrar modulación
                     <Icon name="arrow" />
                   </a>
                 </div>
@@ -205,12 +215,13 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
                 <button
                   className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] shadow-lg shadow-yellow-500/20 transition hover:bg-[#e6a400] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
-                  disabled={!canSubmit}
+                  disabled={!canSubmit || submitting}
                   type="submit"
                 >
-                  Entrar al portal
+                  {submitting ? "Ingresando..." : "Entrar al portal"}
                   <Icon name="arrow" />
                 </button>
+                {loginError ? <p className="text-sm text-red-600">{loginError}</p> : null}
               </form>
             </div>
 

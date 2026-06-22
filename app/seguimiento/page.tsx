@@ -20,44 +20,31 @@ import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey } from "./u
 import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { removeCheckinByDt } from "../lib/checkinStorage";
 import { getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, isTodayDate, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
-import { SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
-import { initialVehicles } from "./data";
+import { useContractorBrand } from "../lib/contractorBranding";
 
 export default function SeguimientoPage() {
   const router = useRouter();
+  const brand = useContractorBrand();
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
   const [vehiculoSeleccionadoKey, setVehiculoSeleccionadoKey] = useState<string | null>(null);
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY],
     loadSeguimientoVehiculos,
-    initialVehicles,
+    [],
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
-  const [vehiculos, setVehiculos] = useState<Vehiculo[]>(initialVehicles);
+  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   
-  // Initialize states from localStorage if available
-  const [search, setSearch] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_search") || "" : ""));
-  const [statusFilter, setStatusFilter] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_status") || "Todos" : "Todos"));
-  const [fechaDtFilter, setFechaDtFilter] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("seguimiento_fecha") || "" : ""));
+  const [search, setSearch] = useState("");
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [fechaDtFilter, setFechaDtFilter] = useState("");
   
   const [importMessage, setImportMessage] = useState("");
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
-
-  // Persist filters to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem("seguimiento_search", search);
-  }, [search]);
-
-  useEffect(() => {
-    localStorage.setItem("seguimiento_status", statusFilter);
-  }, [statusFilter]);
-
-  useEffect(() => {
-    localStorage.setItem("seguimiento_fecha", fechaDtFilter);
-  }, [fechaDtFilter]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -71,19 +58,20 @@ export default function SeguimientoPage() {
     setVehiculos(storedVehiculos);
   }, [storedVehiculos]);
 
-  const filteredVehicles = useMemo(() => {
+  const matchingVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
-      const status = getStatus(getProgress(item), item);
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = statusFilter === "Todos" || status === statusFilter;
-      
-      // Filter by date if selected, otherwise show all
       const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter || item.fechaDespacho === fechaDtFilter;
 
-      return matchesSearch && matchesStatus && matchesFechaDt;
+      return matchesSearch && matchesFechaDt;
     });
-  }, [fechaDtFilter, search, statusFilter, vehiculos]);
+  }, [fechaDtFilter, search, vehiculos]);
+
+  const filteredVehicles = useMemo(
+    () => matchingVehicles.filter((item) => statusFilters.length === 0 || statusFilters.includes(getStatus(getProgress(item), item))),
+    [matchingVehicles, statusFilters],
+  );
 
   const resumen = useMemo(() => {
     const clientes = filteredVehicles.reduce((total, item) => total + item.clientes, 0);
@@ -91,13 +79,13 @@ export default function SeguimientoPage() {
 
     return {
       vehiculos: filteredVehicles.length,
-      cajas: filteredVehicles.reduce((total, item) => total + item.cajas, 0),
-      hl: filteredVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
+      cajas: matchingVehicles.reduce((total, item) => total + item.cajas, 0),
+      hl: matchingVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
       visitados,
       clientes,
       avance: clientes ? Math.round((visitados / clientes) * 100) : 0,
     };
-  }, [filteredVehicles]);
+  }, [filteredVehicles, matchingVehicles]);
 
   const modulacionesHoy = useMemo(() => {
     const operational = getOperationalModulaciones(modulaciones, filteredVehicles);
@@ -184,6 +172,9 @@ export default function SeguimientoPage() {
       updated.cedulaResponsable = undefined;
       updated.cedulaAuxiliar1 = undefined;
       updated.cedulaAuxiliar2 = undefined;
+      updated.nombreResponsable = undefined;
+      updated.nombreAuxiliar1 = undefined;
+      updated.nombreAuxiliar2 = undefined;
       updated.responsable = item.responsable.startsWith("RR ") ? "Sin responsable" : updated.responsable;
       updated.visitados = 0;
     }
@@ -234,9 +225,10 @@ export default function SeguimientoPage() {
       }
 
       const prepared = persistVehicles(mergeVehiclesByDt(vehiculos, imported));
+      await saveSeguimientoVehiculos(prepared);
 
       setVehiculos(prepared);
-      setImportMessage(`${imported.length} registros cargados desde ${file.name}.`);
+      setImportMessage(`${imported.length} registros guardados en Supabase desde ${file.name}.`);
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "No se pudo leer el archivo.");
     }
@@ -247,10 +239,8 @@ export default function SeguimientoPage() {
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button
-            className="flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#10223d] transition hover:bg-slate-100"
+            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-[#10223d] transition hover:bg-slate-100"
             onClick={() => {
-              sessionStorage.setItem("bavaria.demo.session", "active");
-              sessionStorage.setItem("bavaria.demo.welcomeSeen", "true");
               router.push("/");
             }}
             type="button"
@@ -267,7 +257,7 @@ export default function SeguimientoPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
-        <SeguimientoHero resumen={resumen} />
+        <SeguimientoHero resumen={resumen} brand={brand} />
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard icon={<Truck size={22} />} label="Vehiculos activos" value={resumen.vehiculos} detail="Rutas en monitoreo" />
@@ -298,7 +288,7 @@ export default function SeguimientoPage() {
 
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
             <button
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white transition hover:bg-[#0b684a]"
               onClick={() => router.push("/seguimiento/graficas")}
               type="button"
             >
@@ -306,7 +296,7 @@ export default function SeguimientoPage() {
               Graficas
             </button>
             <button
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#f5bd19] px-4 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#f5bd19] px-3 text-xs font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
               onClick={() => router.push("/seguimiento/checkin")}
               type="button"
             >
@@ -314,7 +304,7 @@ export default function SeguimientoPage() {
               Cajas checkin
             </button>
             <a
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
               download="plantilla-seguimiento.xlsx"
               href="/plantilla-seguimiento.xlsx"
             >
@@ -327,14 +317,15 @@ export default function SeguimientoPage() {
         <SeguimientoFilters
           fechaDtFilter={fechaDtFilter}
           search={search}
-          statusFilter={statusFilter}
+          statusFilters={statusFilters}
           onFechaDtChange={setFechaDtFilter}
           onSearchChange={setSearch}
-          onStatusChange={setStatusFilter}
+          onStatusChange={setStatusFilters}
         />
 
         <VehiclesTable
           vehicles={filteredVehicles}
+          now={now}
           onSelectVehicle={seleccionarVehiculo}
           onDeleteVehicle={borrarVehiculo}
           onUpdateVehicle={actualizarVehiculo}

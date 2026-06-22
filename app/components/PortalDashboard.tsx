@@ -6,21 +6,16 @@ import { AssistantWidget } from "./AssistantWidget";
 import { Icon } from "./Icon";
 import { WelcomeCharacter } from "./WelcomeCharacter";
 
-const modules = Array.from({ length: 8 }, (_, index) => ({
-  id: index + 1,
-  title: index === 0 ? "Seguimiento" : index === 1 ? "Modulacion" : "",
-  href: index === 0 ? "/seguimiento" : index === 1 ? "/modulacion" : "",
-}));
+const modules = [
+  { id: 1, title: "Seguimiento", href: "/seguimiento" },
+  { id: 2, title: "Modulación", href: "/modulacion" },
+];
 
 export function PortalDashboard({ onLogout }: { onLogout: () => void }) {
-  const [showWelcome, setShowWelcome] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return sessionStorage.getItem("bavaria.demo.welcomeSeen") !== "true";
-  });
+  const [showWelcome, setShowWelcome] = useState(true);
   const router = useRouter();
 
   function closeWelcome() {
-    sessionStorage.setItem("bavaria.demo.welcomeSeen", "true");
     setShowWelcome(false);
   }
 
@@ -41,7 +36,6 @@ export function PortalDashboard({ onLogout }: { onLogout: () => void }) {
           <button
             className="grid h-10 w-10 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-[#10223d]"
             onClick={() => {
-              sessionStorage.removeItem("bavaria.demo.welcomeSeen");
               onLogout();
             }}
             type="button"
@@ -58,7 +52,7 @@ export function PortalDashboard({ onLogout }: { onLogout: () => void }) {
             <p className="text-sm font-medium text-slate-500">Panel principal</p>
             <h2 className="text-2xl font-semibold text-[#10223d]">Modulos disponibles</h2>
           </div>
-          <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">8 modulos</span>
+          <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">{modules.length} módulos</span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

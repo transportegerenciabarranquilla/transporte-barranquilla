@@ -1,20 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, ShieldAlert,  Map, UserCheck } from "lucide-react";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
-import { initialVehicles } from "../data";
+import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
+import { useStorageSnapshot } from "../../lib/storageEvents";
 import type { Vehiculo } from "../types";
 import { getStatus } from "../utils";
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
 
-  const [vehicles] = useState<Vehiculo[]>(() => {
-    const loaded = loadSeguimientoVehiculos();
-    return loaded.length ? loaded : initialVehicles;
-  });
+  const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
 
   const todayVehicles = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];

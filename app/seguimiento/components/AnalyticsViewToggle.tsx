@@ -11,7 +11,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
   return (
     <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 shadow-sm">
       <button
-        className={`inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold transition ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
           active === "seguimiento" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`}
         onClick={() => router.push("/seguimiento/graficas")}
@@ -21,7 +21,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
         Seguimiento
       </button>
       <button
-        className={`inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold transition ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
           active === "refusal" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`}
         onClick={() => router.push("/seguimiento/refusal")}
@@ -31,7 +31,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
         Refusal
       </button>
       <button
-        className={`inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold transition ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
           active === "refusal-com" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`}
         onClick={() => router.push("/seguimiento/graficas/refusal-com")}
@@ -42,7 +42,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
       </button>
       <button
         aria-label="Descargar reporte PDF"
-        className="inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+        className="inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
         onClick={() => router.push("/seguimiento/graficas/reporte-pdf")}
         type="button"
       >
