@@ -25,10 +25,11 @@ export function onlyNumbers(value: string) {
 export function validateModulacion(form: FormState) {
   const errors: FormErrors = {};
 
+  if (!form.contratista) errors.contratista = "Selecciona el contratista.";
   if (!form.dt) errors.dt = "Ingresa el DT.";
   if (!form.codigoCliente) errors.codigoCliente = "Ingresa el codigo de cliente.";
   if (!form.totalCajas) errors.totalCajas = "Ingresa las cajas rechazadas.";
-  if (!form.persona.trim()) errors.persona = "Ingresa la persona que modula.";
+  if (!form.persona.trim()) errors.persona = "Ingresa la cédula del modulador.";
   if (!form.causal) errors.causal = "Selecciona la causal.";
   if (!form.comentario.trim()) errors.comentario = "Ingresa el comentario.";
 

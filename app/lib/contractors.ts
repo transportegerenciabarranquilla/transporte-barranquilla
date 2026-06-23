@@ -4,7 +4,15 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
   "surticervezas@bavaria-seguimiento.com": "Surti Cervezas",
 };
 
+export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
+export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas"] as const;
+
+export function isAdminEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === ADMIN_EMAIL;
+}
+
 export function contractorForEmail(email: string | null | undefined) {
+  if (isAdminEmail(email)) return "Admin";
   return CONTRACTOR_BY_EMAIL[email?.trim().toLowerCase() || ""] || null;
 }
 

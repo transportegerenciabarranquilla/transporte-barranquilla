@@ -18,9 +18,13 @@ export function loadSeguimientoVehiculos() {
 }
 
 export function persistVehicles(records: Vehiculo[]) {
-  const prepared = prepareVehicles(records);
+  const prepared = prepareSeguimientoVehicles(records);
   void saveSeguimientoVehiculos(prepared).catch(() => undefined);
   return prepared;
+}
+
+export function prepareSeguimientoVehicles(records: Vehiculo[]) {
+  return prepareVehicles(records);
 }
 
 export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {

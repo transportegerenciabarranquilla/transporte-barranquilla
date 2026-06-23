@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
@@ -13,7 +13,7 @@ import {
   loadSeguimientoVehiculos,
   mergeVehiclesByDt,
   parseSeguimientoFile,
-  persistVehicles,
+  prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
 import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey } from "./utils";
@@ -45,6 +45,8 @@ export default function SeguimientoPage() {
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
+  const pendingLocalSaveRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -55,8 +57,15 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
+    if (pendingLocalSaveRef.current) return;
     setVehiculos(storedVehiculos);
   }, [storedVehiculos]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   const matchingVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
@@ -120,8 +129,8 @@ export default function SeguimientoPage() {
   }, [latestModulacionId]);
 
   function actualizarVisitados(recordKey: string, visitados: number) {
-    setVehiculos((current) =>
-      persistVehicles(
+    setVehiculos((current) => {
+      const prepared = prepareSeguimientoVehicles(
         current.map((item) =>
           getVehicleUiKey(item) === recordKey
             ? {
@@ -130,8 +139,11 @@ export default function SeguimientoPage() {
               }
             : item,
         ),
-      ),
-    );
+      );
+
+      scheduleSeguimientoSave(prepared);
+      return prepared;
+    });
   }
 
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
@@ -142,16 +154,35 @@ export default function SeguimientoPage() {
       current && (vehiculoSeleccionadoKey || getVehicleUiKey(current)) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
     );
 
-    setVehiculos((current) =>
-      persistVehicles(
+    setVehiculos((current) => {
+      const prepared = prepareSeguimientoVehicles(
         current.map((item) => {
           if (getVehicleUiKey(item) !== recordKey) return item;
 
           removeStaleRouteData(item, shouldResetAttendance);
           return applyVehicleChanges(item, changes, shouldResetAttendance);
         }),
-      ),
-    );
+      );
+
+      scheduleSeguimientoSave(prepared);
+      return prepared;
+    });
+  }
+
+  function scheduleSeguimientoSave(records: Vehiculo[]) {
+    pendingLocalSaveRef.current = true;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = window.setTimeout(async () => {
+      try {
+        await saveSeguimientoVehiculos(records);
+      } catch (error) {
+        setImportMessage(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
+      } finally {
+        pendingLocalSaveRef.current = false;
+        saveTimerRef.current = null;
+      }
+    }, 900);
   }
 
   function applyVehicleChanges(item: Vehiculo, changes: Partial<Vehiculo>, shouldResetAttendance: boolean) {
@@ -206,7 +237,11 @@ export default function SeguimientoPage() {
 
     if (vehicle) removeStaleRouteData(vehicle, true);
 
-    setVehiculos((current) => persistVehicles(current.filter((item) => getVehicleUiKey(item) !== recordKey)));
+    setVehiculos((current) => {
+      const prepared = prepareSeguimientoVehicles(current.filter((item) => getVehicleUiKey(item) !== recordKey));
+      scheduleSeguimientoSave(prepared);
+      return prepared;
+    });
 
     if (vehiculoSeleccionadoKey === recordKey) {
       setVehiculoSeleccionado(null);
@@ -224,10 +259,12 @@ export default function SeguimientoPage() {
         return;
       }
 
-      const prepared = persistVehicles(mergeVehiclesByDt(vehiculos, imported));
-      await saveSeguimientoVehiculos(prepared);
+      setImportMessage("Guardando seguimiento en Supabase...");
 
-      setVehiculos(prepared);
+      const prepared = prepareSeguimientoVehicles(mergeVehiclesByDt(vehiculos, imported));
+      const savedRecords = await saveSeguimientoVehiculos(prepared);
+
+      setVehiculos(savedRecords);
       setImportMessage(`${imported.length} registros guardados en Supabase desde ${file.name}.`);
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "No se pudo leer el archivo.");

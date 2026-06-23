@@ -17,12 +17,17 @@ export const causales = [
 ];
 
 export const initialForm: FormState = {
+  contratista: "",
   dt: "",
   codigoCliente: "",
   nombreCliente: "",
+  com: "",
+  jefeComercial: "",
+  preventista: "",
   totalCajas: "",
   cajasGestionadas: "",
   persona: "",
+  personaNombre: "",
   causal: "",
   comentario: "",
   imagenNombre: "",

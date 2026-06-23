@@ -4,16 +4,21 @@ import { getAuthenticatedSession } from "../../lib/authServer";
 import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "checkins_cajas";
+type CheckinWithContractor = CheckinCajasRegistro & { contratista?: string };
 
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
-    const params = new URLSearchParams({ select: "data", "data->>contratista": `eq.${session.contractor}`, order: "updated_at.desc" });
+    const params = new URLSearchParams(
+      session.isAdmin
+        ? { select: "contractor,data", order: "updated_at.desc" }
+        : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
+    );
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const rows = (await response.json()) as { data: CheckinCajasRegistro }[];
-    return NextResponse.json({ records: rows.map((row) => row.data) });
+    const rows = (await response.json()) as { contractor?: string; data: CheckinWithContractor }[];
+    return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando check-in." }, { status: 500 });
   }
@@ -23,10 +28,12 @@ export async function PUT(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
     const { records } = (await request.json()) as { records: CheckinCajasRegistro[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
     const rows = records.map((record) => ({
       checkin_id: record.id,
+      contractor: session.contractor,
       data: { ...record, contratista: session.contractor },
       updated_at: new Date().toISOString(),
     }));

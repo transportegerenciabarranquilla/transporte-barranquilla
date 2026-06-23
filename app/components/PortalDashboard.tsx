@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AssistantWidget } from "./AssistantWidget";
 import { Icon } from "./Icon";
@@ -11,11 +11,19 @@ const modules = [
   { id: 2, title: "Modulación", href: "/modulacion" },
 ];
 
-export function PortalDashboard({ onLogout }: { onLogout: () => void }) {
+const WELCOME_DISMISSED_KEY = "bavaria.portal.welcomeDismissed";
+
+export function PortalDashboard({ onLogout, isAdmin = false }: { onLogout: () => void; isAdmin?: boolean }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const router = useRouter();
+  const visibleModules = isAdmin ? [{ ...modules[0], href: "/admin" }, modules[1]] : modules;
+
+  useEffect(() => {
+    setShowWelcome(sessionStorage.getItem(WELCOME_DISMISSED_KEY) !== "true");
+  }, []);
 
   function closeWelcome() {
+    sessionStorage.setItem(WELCOME_DISMISSED_KEY, "true");
     setShowWelcome(false);
   }
 
@@ -52,11 +60,11 @@ export function PortalDashboard({ onLogout }: { onLogout: () => void }) {
             <p className="text-sm font-medium text-slate-500">Panel principal</p>
             <h2 className="text-2xl font-semibold text-[#10223d]">Modulos disponibles</h2>
           </div>
-          <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">{modules.length} módulos</span>
+          <span className="rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">{visibleModules.length} módulos</span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {modules.map((module) => (
+          {visibleModules.map((module) => (
             <button
               key={module.id}
               type="button"

@@ -4,14 +4,19 @@ export const MODULACION_STORAGE_KEY = "bavaria.modulacion.registros";
 
 export type ModulacionRegistro = {
   id: string;
+  contratista?: string;
   dt: string;
   fechaDespacho?: string;
   fechaDt?: string;
   codigoCliente: string;
   nombreCliente?: string;
+  com?: string;
+  jefeComercial?: string;
+  preventista?: string;
   totalCajas: string;
   cajasGestionadas?: string;
   persona: string;
+  personaNombre?: string;
   causal: string;
   comentario: string;
   imagenNombre: string;
@@ -119,7 +124,7 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
   const cajasPendientesModulacion = Math.max(cajasRechazadas - cajasGestionadas, 0);
   const tieneCheckin = typeof cajasCheckin === "number" && Number.isFinite(cajasCheckin);
   const cajasPendientes = tieneCheckin ? Math.max(cajasCheckin, 0) : cajasPendientesModulacion;
-  const moduladores = Array.from(new Set(records.map((record) => record.persona?.trim()).filter(Boolean))) as string[];
+  const moduladores = Array.from(new Set(records.map((record) => (record.personaNombre || record.persona)?.trim()).filter(Boolean))) as string[];
   const causales = Array.from(new Set(records.map((record) => record.causal).filter(Boolean)));
 
   return {

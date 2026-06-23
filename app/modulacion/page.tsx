@@ -38,7 +38,7 @@ export default function ModulacionPage() {
         const term = search.trim().toLowerCase();
         if (!term) return true;
 
-        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.persona} ${registro.causal} ${registro.comentario}`
+        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.com} ${registro.preventista} ${registro.persona} ${registro.personaNombre} ${registro.causal} ${registro.comentario}`
           .toLowerCase()
           .includes(term);
       })
@@ -179,7 +179,7 @@ export default function ModulacionPage() {
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e9f3ff] px-2 py-1 text-xs font-semibold text-[#10223d]">
                           <UserRound size={13} />
-                          {registro.persona}
+                          {registro.personaNombre || registro.persona}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{registro.causal}</td>
@@ -255,9 +255,11 @@ function ModulacionDetailModal({
   const details = [
     ["Codigo cliente", registro.codigoCliente],
     ["Nombre cliente", registro.nombreCliente || "-"],
+    ["COM", registro.com || "-"],
+    ["Preventista", registro.preventista || "-"],
     ["Placa de vehiculo", selectedVehicle?.vehiculo || "-"],
     ["Transportista", selectedVehicle?.transportista || "-"],
-    ["Responsable", selectedVehicle?.responsable || registro.persona],
+    ["Responsable", selectedVehicle?.responsable || registro.personaNombre || registro.persona],
     ["Territorio", selectedVehicle?.territorio || "-"],
     ["Causal", registro.causal],
     ["Comentario", registro.comentario || "-"],
@@ -265,15 +267,15 @@ function ModulacionDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
-      <section className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-        <div className="relative border-b border-slate-200 bg-white px-5 py-4">
+      <section className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+        <div className="relative border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-start gap-3 pr-12">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
               <PackageCheck size={20} />
             </span>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Detalle de modulacion</p>
-              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">DT {registro.dt}</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[#10223d]">DT {registro.dt} · Cliente {registro.codigoCliente}</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {formatDate(registro.createdAt)} · {formatTime(registro.createdAt)}
               </p>
@@ -289,8 +291,8 @@ function ModulacionDetailModal({
           </button>
         </div>
 
-        <div className="max-h-[calc(92vh-84px)] overflow-y-auto p-5">
-          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        <div className="max-h-[calc(92vh-76px)] overflow-y-auto p-4">
+          <div className="mb-4 grid gap-2 sm:grid-cols-3">
             <ModalMetric label="Rechazadas" value={registro.totalCajas} tone="red" />
             <ModalMetric
               label="Gestionadas"
@@ -302,17 +304,17 @@ function ModulacionDetailModal({
               }
               tone="green"
             />
-            <ModalMetric label="Persona" value={registro.persona} tone="blue" />
+            <ModalMetric label="Modulador" value={registro.personaNombre || registro.persona} tone="blue" />
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-[1fr_240px]">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+            <div className="grid gap-2 sm:grid-cols-2">
               {details.map(([label, value]) => (
                 <DetailTile key={label} label={label} value={value} />
               ))}
             </div>
 
-            <aside className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
                 <UsersRound size={16} />
                 Gestion
@@ -454,18 +456,18 @@ function ModalMetric({ label, value, tone }: { label: string; value: ReactNode; 
   };
 
   return (
-    <div className={`rounded-lg p-4 ${colors[tone]}`}>
+    <div className={`rounded-lg p-3 ${colors[tone]}`}>
       <p className="text-xs font-medium uppercase tracking-[0.12em] opacity-75">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold">{value}</p>
+      <p className="mt-1 truncate text-xl font-semibold">{value}</p>
     </div>
   );
 }
 
 function DetailTile({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
       <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-sm font-semibold text-[#10223d]">{value}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-[#10223d]">{value}</p>
     </div>
   );
 }

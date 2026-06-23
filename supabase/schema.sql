@@ -72,6 +72,19 @@ drop policy if exists "personal lectura" on public.transporte_barranquilla;
 drop policy if exists "checkins acceso" on public.checkins_cajas;
 drop policy if exists "modulaciones acceso" on public.modulaciones_ruta;
 
+create or replace function public.normalize_contractor_label(value text)
+returns text
+language sql
+immutable
+as $$
+  select case regexp_replace(lower(coalesce(value, '')), '[^a-z0-9]', '', 'g')
+    when 'logisticos' then 'Logisticos'
+    when 'puntocorona' then 'Punto Corona'
+    when 'surticervezas' then 'Surti Cervezas'
+    else null
+  end
+$$;
+
 create or replace function public.current_contractor()
 returns text
 language sql
@@ -87,18 +100,30 @@ as $$
   end
 $$;
 
+create or replace function public.current_is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select lower(auth.jwt()->>'email') = 'admin@bavaria-seguimiento.com'
+$$;
+
+grant execute on function public.current_is_admin() to authenticated;
+
 create policy "seguimiento lectura" on public.seguimiento_vehiculos
-for select to authenticated using (data->>'transportista' = public.current_contractor());
+for select to authenticated using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "seguimiento escritura" on public.seguimiento_vehiculos
 for all to authenticated
-using (data->>'transportista' = public.current_contractor())
-with check (data->>'transportista' = public.current_contractor());
+using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
+with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "asistencias lectura" on public.asistencias_ruta
-for select to authenticated using (data->>'contratista' = public.current_contractor());
+for select to authenticated using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "asistencias escritura" on public.asistencias_ruta
 for all to authenticated
-using (data->>'contratista' = public.current_contractor())
-with check (data->>'contratista' = public.current_contractor());
+using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
+with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "asistencias captura publica" on public.asistencias_ruta
 for insert to anon
 with check (regexp_replace(lower(data->>'contratista'), '[^a-z0-9]', '', 'g') in ('logisticos', 'puntocorona', 'surticervezas'));
@@ -110,14 +135,15 @@ create policy "personal lectura" on public.transporte_barranquilla
 for select to anon, authenticated using (true);
 create policy "checkins acceso" on public.checkins_cajas
 for all to authenticated
-using (data->>'contratista' = public.current_contractor())
-with check (data->>'contratista' = public.current_contractor());
+using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
+with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "modulaciones acceso" on public.modulaciones_ruta
 for all to authenticated
-using (data->>'contratista' = public.current_contractor())
-with check (data->>'contratista' = public.current_contractor());
+using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
+with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 
 grant usage on schema public to anon, authenticated;
+grant execute on function public.normalize_contractor_label(text) to anon, authenticated;
 grant select, insert, update, delete on public.seguimiento_vehiculos to authenticated;
 revoke all on public.seguimiento_vehiculos, public.asistencias_ruta, public.checkins_cajas, public.modulaciones_ruta from anon;
 revoke all on public.transporte_barranquilla from anon;

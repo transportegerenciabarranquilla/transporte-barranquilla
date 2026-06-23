@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "../../../lib/authServer";
-import { contractorForEmail } from "../../../lib/contractors";
+import { contractorForEmail, isAdminEmail } from "../../../lib/contractors";
 import { SUPABASE_KEY, SUPABASE_URL } from "../../../lib/supabaseServer";
 
 type LoginResponse = { access_token?: string; refresh_token?: string; expires_in?: number; user?: { email?: string }; error_description?: string; msg?: string };
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: body.error_description || body.msg || "Correo o contraseña incorrectos." }, { status: 401 });
   }
 
-  const response = NextResponse.json({ email: normalizedEmail, contractor });
+  const response = NextResponse.json({ email: normalizedEmail, contractor, isAdmin: isAdminEmail(normalizedEmail) });
   const maxAge = remember ? body.expires_in || 3600 : undefined;
   response.cookies.set(ACCESS_COOKIE, body.access_token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge });
   if (body.refresh_token) response.cookies.set(REFRESH_COOKIE, body.refresh_token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: remember ? 60 * 60 * 24 * 30 : undefined });

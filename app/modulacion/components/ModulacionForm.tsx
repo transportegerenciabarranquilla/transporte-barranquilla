@@ -1,30 +1,43 @@
 import type { FormEvent, ReactNode } from "react";
-import { BadgeCheck, Boxes, ClipboardList, MessageSquareText, Truck, UserRound } from "lucide-react";
+import { BadgeCheck, Boxes, ClipboardList, MessageSquareText, Truck } from "lucide-react";
 import { causales } from "../constants";
 import type { FormErrors, FormState } from "../types";
 import { onlyNumbers } from "../utils";
-import { normalizeDt, type ModulacionResumen } from "../../lib/modulacionStorage";
+import { normalizeDt } from "../../lib/modulacionStorage";
 import type { Vehiculo } from "../../seguimiento/types";
 import { NumericField } from "./NumericField";
-import { SummaryInfo } from "./SummaryInfo";
+
+const contractors = ["Punto Corona", "Logisticos", "Surti Cervezas"];
 
 export function ModulacionForm({
+  clienteError,
   errors,
   form,
+  loadingCliente,
+  loadingModulador,
+  loadingVehicles,
+  moduladorError,
   onChange,
   onSubmit,
-  resumenDt,
-  selectedVehicle,
+  saveError,
+  saving,
   submitted,
+  vehiclesError,
   vehiculosSeguimiento,
 }: {
+  clienteError?: string;
   errors: FormErrors;
   form: FormState;
+  loadingCliente?: boolean;
+  loadingModulador?: boolean;
+  loadingVehicles?: boolean;
+  moduladorError?: string;
   onChange: <Key extends keyof FormState>(key: Key, value: FormState[Key]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  resumenDt: ModulacionResumen;
-  selectedVehicle: Vehiculo | null;
+  saveError?: string;
+  saving?: boolean;
   submitted: boolean;
+  vehiclesError?: string;
   vehiculosSeguimiento: Vehiculo[];
 }) {
   return (
@@ -33,15 +46,37 @@ export function ModulacionForm({
         <FormSection icon={<Truck size={18} />} title="DT y cliente">
           <div className="grid gap-4 lg:grid-cols-2">
             <label className="block lg:col-span-2">
-              <span className="mb-2 block text-sm font-medium text-slate-700">DT de hoy</span>
+              <span className="mb-2 block text-sm font-medium text-slate-700">Contratista</span>
+              <select
+                className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
+                  errors.contratista ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
+                }`}
+                onChange={(event) => onChange("contratista", event.target.value)}
+                value={form.contratista}
+              >
+                <option value="">Selecciona el contratista</option>
+                {contractors.map((contractor) => (
+                  <option key={contractor} value={contractor}>
+                    {contractor}
+                  </option>
+                ))}
+              </select>
+              {errors.contratista ? <p className="mt-2 text-sm text-red-600">{errors.contratista}</p> : null}
+            </label>
+
+            <label className="block lg:col-span-2">
+              <span className="mb-2 block text-sm font-medium text-slate-700">DT cargado</span>
               <select
                 className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
                   errors.dt ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
                 }`}
+                disabled={!form.contratista || loadingVehicles}
                 onChange={(event) => onChange("dt", normalizeDt(event.target.value))}
                 value={form.dt}
               >
-                <option value="">Selecciona el DT del carro</option>
+                <option value="">
+                  {!form.contratista ? "Primero selecciona el contratista" : loadingVehicles ? "Cargando DT..." : "Selecciona el DT del carro"}
+                </option>
                 {vehiculosSeguimiento.map((vehiculo) => (
                   <option key={`${vehiculo.vehiculo}-${vehiculo.transporte}`} value={normalizeDt(vehiculo.transporte)}>
                     {vehiculo.transporte} - {vehiculo.vehiculo} - {vehiculo.responsable}
@@ -49,8 +84,9 @@ export function ModulacionForm({
                 ))}
               </select>
               {errors.dt ? <p className="mt-2 text-sm text-red-600">{errors.dt}</p> : null}
-              {!vehiculosSeguimiento.length ? (
-                <p className="mt-2 text-sm text-amber-700">No hay DT cargados para el dia de hoy.</p>
+              {vehiclesError ? <p className="mt-2 text-sm text-red-600">{vehiclesError}</p> : null}
+              {form.contratista && !loadingVehicles && !vehiclesError && !vehiculosSeguimiento.length ? (
+                <p className="mt-2 text-sm text-amber-700">No hay DT cargados para este contratista.</p>
               ) : null}
             </label>
 
@@ -71,56 +107,46 @@ export function ModulacionForm({
             <label className="block lg:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Nombre cliente</span>
               <input
-                className="h-12 w-full rounded-md border border-slate-200 bg-white px-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58]"
+                className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition placeholder:text-slate-400"
                 onChange={(event) => onChange("nombreCliente", event.target.value)}
-                placeholder="Nombre del cliente"
+                placeholder={loadingCliente ? "Buscando cliente..." : "Nombre del cliente"}
+                readOnly
                 type="text"
                 value={form.nombreCliente}
               />
+              {clienteError ? <p className="mt-2 text-sm text-amber-700">{clienteError}</p> : null}
             </label>
+
+            <InfoField label="COM" value={form.com || "-"} />
+            <InfoField label="Preventista" value={form.preventista || "-"} />
           </div>
         </FormSection>
 
-        {selectedVehicle ? <VehicleSummary selectedVehicle={selectedVehicle} resumenDt={resumenDt} /> : null}
-
         <FormSection icon={<Boxes size={18} />} title="Cajas">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <NumericField
-              error={errors.totalCajas}
-              icon="boxes"
-              label="Cajas rechazadas"
-              onChange={(value) => onChange("totalCajas", onlyNumbers(value))}
-              value={form.totalCajas}
-            />
-
-            <NumericField
-              error={errors.cajasGestionadas}
-              icon="boxes"
-              label="Cajas gestionadas"
-              onChange={(value) => onChange("cajasGestionadas", onlyNumbers(value))}
-              value={form.cajasGestionadas}
-            />
-          </div>
+          <NumericField
+            error={errors.totalCajas}
+            icon="boxes"
+            label="Cajas rechazadas"
+            onChange={(value) => onChange("totalCajas", onlyNumbers(value))}
+            value={form.totalCajas}
+          />
         </FormSection>
 
         <FormSection icon={<ClipboardList size={18} />} title="Detalle de la novedad">
           <div className="grid gap-4 lg:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Persona que modula</span>
-              <span className="relative block">
-                <UserRound className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  className={`h-12 w-full rounded-md border bg-white pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 ${
-                    errors.persona ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
-                  }`}
-                  onChange={(event) => onChange("persona", event.target.value)}
-                  placeholder="Nombre o cedula"
-                  type="text"
-                  value={form.persona}
-                />
-              </span>
-              {errors.persona ? <p className="mt-2 text-sm text-red-600">{errors.persona}</p> : null}
-            </label>
+            <div className="space-y-3">
+              <NumericField
+                error={errors.persona}
+                label="Cédula del modulador"
+                onChange={(value) => onChange("persona", onlyNumbers(value))}
+                value={form.persona}
+              />
+              <InfoField
+                label="Modulador"
+                value={loadingModulador ? "Buscando..." : form.personaNombre || "-"}
+              />
+              {moduladorError ? <p className="-mt-1 text-sm text-amber-700">{moduladorError}</p> : null}
+            </div>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">Causal</span>
@@ -161,19 +187,31 @@ export function ModulacionForm({
 
         <button
           className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-5 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
+          disabled={saving}
           type="submit"
         >
           <BadgeCheck size={18} />
-          Enviar modulacion
+          {saving ? "Guardando..." : "Enviar modulacion"}
         </button>
       </form>
 
+      {saveError ? <p className="mt-4 text-sm font-medium text-red-600">{saveError}</p> : null}
+
       {submitted ? (
         <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          <p className="font-semibold">Modulacion registrada en modo demo.</p>
-          <p className="mt-1">El registro queda disponible en esta pagina desde este navegador.</p>
+          <p className="font-semibold">Modulacion registrada en Supabase.</p>
+          <p className="mt-1">El registro queda disponible para seguimiento.</p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function InfoField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-1 min-h-5 text-sm font-semibold text-[#10223d]">{value}</p>
     </div>
   );
 }
@@ -187,27 +225,5 @@ function FormSection({ children, icon, title }: { children: ReactNode; icon: Rea
       </div>
       {children}
     </section>
-  );
-}
-
-function VehicleSummary({
-  resumenDt,
-  selectedVehicle,
-}: {
-  resumenDt: ModulacionResumen;
-  selectedVehicle: Vehiculo;
-}) {
-  return (
-    <div className="grid gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 sm:grid-cols-2">
-      <SummaryInfo label="Carro" value={selectedVehicle.vehiculo} />
-      <SummaryInfo label="Responsable" value={selectedVehicle.responsable} />
-      <SummaryInfo label="Cedula RR" value={selectedVehicle.cedulaResponsable || "-"} />
-      <SummaryInfo label="Auxiliar 1" value={selectedVehicle.cedulaAuxiliar1 || "-"} />
-      <SummaryInfo label="Auxiliar 2" value={selectedVehicle.cedulaAuxiliar2 || "-"} />
-      <SummaryInfo label="Cajas rechazadas DT" value={resumenDt.cajasRechazadas.toLocaleString("es-CO")} />
-      <SummaryInfo label="Cajas gestionadas DT" value={resumenDt.cajasGestionadas.toLocaleString("es-CO")} />
-      <SummaryInfo label="Refusal DT" value={`${resumenDt.refusal.toLocaleString("es-CO")}%`} />
-      <SummaryInfo label="Clientes que rechazan" value={resumenDt.clientesRechazan} />
-    </div>
   );
 }

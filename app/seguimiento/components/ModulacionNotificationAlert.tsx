@@ -24,7 +24,7 @@ export function ModulacionNotificationAlert({
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Alerta de modulacion</p>
             <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Se acaba de hacer una modulacion</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {ultima.persona} modulo el DT {ultima.dt} del cliente {ultima.codigoCliente}. Cajas rechazadas:{" "}
+              {ultima.personaNombre || ultima.persona} modulo el DT {ultima.dt} del cliente {ultima.codigoCliente}. Cajas rechazadas:{" "}
               {ultima.totalCajas}. Gestionadas: {ultima.cajasGestionadas || "0"}.
             </p>
           </div>
@@ -40,7 +40,7 @@ export function ModulacionNotificationAlert({
             <div className="rounded-md border border-amber-200/70 bg-white/75 px-3 py-2 text-sm" key={registro.id}>
               <p className="font-semibold text-[#10223d]">DT {registro.dt}</p>
               <p className="mt-1 text-xs text-slate-600">
-                {registro.persona} - Cliente {registro.codigoCliente} - {formatTime(registro.createdAt)}
+                {registro.personaNombre || registro.persona} - Cliente {registro.codigoCliente} - {formatTime(registro.createdAt)}
               </p>
             </div>
           ))}
