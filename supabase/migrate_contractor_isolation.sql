@@ -183,6 +183,7 @@ grant execute on function public.current_is_admin() to authenticated;
 drop policy if exists "seguimiento lectura" on public.seguimiento_vehiculos;
 drop policy if exists "seguimiento escritura" on public.seguimiento_vehiculos;
 drop policy if exists "seguimiento lectura publica" on public.seguimiento_vehiculos;
+drop policy if exists "asistencias lectura publica" on public.asistencias_ruta;
 drop policy if exists "asistencias lectura" on public.asistencias_ruta;
 drop policy if exists "asistencias escritura" on public.asistencias_ruta;
 drop policy if exists "checkins acceso" on public.checkins_cajas;
@@ -191,6 +192,8 @@ drop policy if exists "modulaciones acceso" on public.modulaciones_ruta;
 create policy "seguimiento lectura" on public.seguimiento_vehiculos
 for select to authenticated using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "seguimiento lectura publica" on public.seguimiento_vehiculos
+for select to anon using (public.normalize_contractor_label(contractor) is not null);
+create policy "asistencias lectura publica" on public.asistencias_ruta
 for select to anon using (public.normalize_contractor_label(contractor) is not null);
 create policy "seguimiento escritura" on public.seguimiento_vehiculos
 for all to authenticated
@@ -211,7 +214,7 @@ for all to authenticated
 using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
 with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 
-grant select on public.seguimiento_vehiculos to anon;
+grant select on public.seguimiento_vehiculos, public.asistencias_ruta to anon;
 grant select, insert, update, delete on public.seguimiento_vehiculos, public.asistencias_ruta, public.checkins_cajas, public.modulaciones_ruta to authenticated;
 
 notify pgrst, 'reload schema';

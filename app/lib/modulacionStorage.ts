@@ -10,8 +10,10 @@ export type ModulacionRegistro = {
   fechaDt?: string;
   codigoCliente: string;
   nombreCliente?: string;
+  telefonoCliente?: string;
   com?: string;
   jefeComercial?: string;
+  telefonoJefeComercial?: string;
   preventista?: string;
   totalCajas: string;
   cajasGestionadas?: string;
@@ -19,6 +21,7 @@ export type ModulacionRegistro = {
   personaNombre?: string;
   causal: string;
   comentario: string;
+  comentarioModulador?: string;
   imagenNombre: string;
   imagenVista: string;
   createdAt: string;

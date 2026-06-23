@@ -36,6 +36,8 @@ export type Vehiculo = {
   alertaSifPotencial: string;
   relevador: string;
   causalDesviado: string;
+  investigacionDesvio?: string;
+  comentarioDesvio?: string;
   clasificacionOnTime: string;
   recargue: string;
   cedulaResponsable?: string;

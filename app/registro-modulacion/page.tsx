@@ -7,6 +7,7 @@ import {
   saveModulacionRegistros,
   type ModulacionRegistro,
 } from "../lib/modulacionStorage";
+import type { AsistenciaRegistro } from "../lib/asistenciaStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { initialForm } from "../modulacion/constants";
 import type { FormErrors, FormState } from "../modulacion/types";
@@ -30,44 +31,89 @@ export default function RegistroModulacionPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!form.contratista) {
-      setVehiculosSeguimiento([]);
-      setVehiclesError("");
-      return;
+    const contratista = form.contratista;
+    const dt = normalizeDt(form.dt);
+
+    if (!contratista || !dt) {
+      const timeout = window.setTimeout(() => {
+        setVehiculosSeguimiento([]);
+        setVehiclesError("");
+        setLoadingVehicles(false);
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
 
     const controller = new AbortController();
-    setLoadingVehicles(true);
-    setVehiclesError("");
+    const timeout = window.setTimeout(() => {
+      setLoadingVehicles(true);
+      setVehiclesError("");
 
-    fetch(`/api/seguimiento?contratista=${encodeURIComponent(form.contratista)}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "No se pudieron cargar los DT.");
-        setVehiculosSeguimiento(Array.isArray(body.records) ? body.records : []);
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setVehiculosSeguimiento([]);
-        setVehiclesError(error instanceof Error ? error.message : "No se pudieron cargar los DT.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoadingVehicles(false);
-      });
+      Promise.all([
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        }),
+        fetch(`/api/asistencias/buscar?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        }),
+      ])
+        .then(async ([seguimientoResponse, asistenciaResponse]) => {
+          const seguimientoBody = await seguimientoResponse.json().catch(() => ({}));
+          const asistenciaBody = await asistenciaResponse.json().catch(() => ({}));
 
-    return () => controller.abort();
-  }, [form.contratista]);
+          if (!seguimientoResponse.ok) throw new Error(seguimientoBody.error || "No se pudo validar el DT.");
+
+          const matchedVehicles = Array.isArray(seguimientoBody.records)
+            ? seguimientoBody.records.filter((vehicle: Vehiculo) => isTodayVehicle(vehicle) && normalizeDt(vehicle.transporte) === dt)
+            : [];
+          const matchedAttendance = asistenciaResponse.ok && Array.isArray(asistenciaBody.records)
+            ? (asistenciaBody.records as AsistenciaRegistro[]).find((record) => normalizeDt(record.dt) === dt)
+            : null;
+          const asistenciaError = !asistenciaResponse.ok ? asistenciaBody.error || "No se pudo leer la asistencia para autocompletar el RR." : "";
+          const responsibleId = matchedAttendance?.cedulaResponsable || matchedVehicles[0]?.cedulaResponsable || "";
+          const responsibleName = matchedAttendance?.nombreResponsable || matchedVehicles[0]?.nombreResponsable || "";
+          const visibleVehicles = matchedVehicles.map((vehicle: Vehiculo) => ({
+            ...vehicle,
+            cedulaResponsable: responsibleId || vehicle.cedulaResponsable,
+            nombreResponsable: responsibleName || vehicle.nombreResponsable,
+            responsable: responsibleName || (responsibleId ? `RR ${responsibleId}` : vehicle.responsable),
+          }));
+
+          setVehiculosSeguimiento(visibleVehicles);
+          if (asistenciaError) setVehiclesError(asistenciaError);
+          if (responsibleId) {
+            setForm((current) => {
+              if (current.contratista !== contratista || normalizeDt(current.dt) !== dt) return current;
+              return { ...current, persona: responsibleId, personaNombre: responsibleName || current.personaNombre };
+            });
+          }
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setVehiculosSeguimiento([]);
+          setVehiclesError(error instanceof Error ? error.message : "No se pudo validar el DT.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoadingVehicles(false);
+        });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [form.contratista, form.dt]);
 
   useEffect(() => {
     const codigo = form.codigoCliente.trim();
     if (!codigo) {
-      setClienteError("");
-      setLoadingCliente(false);
-      setForm((current) => ({ ...current, nombreCliente: "", com: "", jefeComercial: "", preventista: "" }));
-      return;
+      const timeout = window.setTimeout(() => {
+        setClienteError("");
+        setLoadingCliente(false);
+        setForm((current) => ({ ...current, nombreCliente: "", telefonoCliente: "", com: "", jefeComercial: "", telefonoJefeComercial: "", preventista: "" }));
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
 
     const controller = new AbortController();
@@ -86,15 +132,17 @@ export default function RegistroModulacionPage() {
           const cliente = body.cliente;
           if (!cliente) {
             setClienteError("Cliente no encontrado.");
-            setForm((current) => ({ ...current, nombreCliente: "", com: "", jefeComercial: "", preventista: "" }));
+            setForm((current) => ({ ...current, nombreCliente: "", telefonoCliente: "", com: "", jefeComercial: "", telefonoJefeComercial: "", preventista: "" }));
             return;
           }
 
           setForm((current) => ({
             ...current,
             nombreCliente: cliente.nombre || "",
+            telefonoCliente: cliente.telefono || "",
             com: cliente.com || "",
             jefeComercial: cliente.jefeComercial || "",
+            telefonoJefeComercial: cliente.telefonoJefeComercial || "",
             preventista: cliente.preventista || "",
           }));
         })
@@ -116,10 +164,12 @@ export default function RegistroModulacionPage() {
   useEffect(() => {
     const cedula = form.persona.replace(/\D/g, "").trim();
     if (!cedula) {
-      setModuladorError("");
-      setLoadingModulador(false);
-      setForm((current) => ({ ...current, personaNombre: "" }));
-      return;
+      const timeout = window.setTimeout(() => {
+        setModuladorError("");
+        setLoadingModulador(false);
+        setForm((current) => ({ ...current, personaNombre: "" }));
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
     if (!form.contratista) return;
 
@@ -169,7 +219,8 @@ export default function RegistroModulacionPage() {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "contratista" ? { dt: "", personaNombre: "" } : {}),
+      ...(key === "contratista" ? { dt: "", persona: "", personaNombre: "" } : {}),
+      ...(key === "dt" ? { persona: "", personaNombre: "" } : {}),
       ...(key === "persona" ? { personaNombre: "" } : {}),
     }));
     setErrors((current) => ({ ...current, [key]: undefined }));
@@ -237,4 +288,28 @@ export default function RegistroModulacionPage() {
       </section>
     </main>
   );
+}
+
+function isTodayVehicle(vehicle: Vehiculo) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getTodayKey();
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function getTodayKey() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }

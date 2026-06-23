@@ -64,32 +64,6 @@ export function ModulacionForm({
               {errors.contratista ? <p className="mt-2 text-sm text-red-600">{errors.contratista}</p> : null}
             </label>
 
-            <label className="block lg:col-span-2">
-              <span className="mb-2 block text-sm font-medium text-slate-700">DT cargado</span>
-              <select
-                className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
-                  errors.dt ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
-                }`}
-                disabled={!form.contratista || loadingVehicles}
-                onChange={(event) => onChange("dt", normalizeDt(event.target.value))}
-                value={form.dt}
-              >
-                <option value="">
-                  {!form.contratista ? "Primero selecciona el contratista" : loadingVehicles ? "Cargando DT..." : "Selecciona el DT del carro"}
-                </option>
-                {vehiculosSeguimiento.map((vehiculo) => (
-                  <option key={`${vehiculo.vehiculo}-${vehiculo.transporte}`} value={normalizeDt(vehiculo.transporte)}>
-                    {vehiculo.transporte} - {vehiculo.vehiculo} - {vehiculo.responsable}
-                  </option>
-                ))}
-              </select>
-              {errors.dt ? <p className="mt-2 text-sm text-red-600">{errors.dt}</p> : null}
-              {vehiclesError ? <p className="mt-2 text-sm text-red-600">{vehiclesError}</p> : null}
-              {form.contratista && !loadingVehicles && !vehiclesError && !vehiculosSeguimiento.length ? (
-                <p className="mt-2 text-sm text-amber-700">No hay DT cargados para este contratista.</p>
-              ) : null}
-            </label>
-
             <NumericField
               error={errors.dt}
               label="Escribe tu DT manual"
@@ -105,6 +79,37 @@ export function ModulacionForm({
             />
 
             <label className="block lg:col-span-2">
+              <span className="mb-2 block text-sm font-medium text-slate-700">DT validado</span>
+              <select
+                className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
+                  errors.dt ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
+                }`}
+                disabled
+                value={vehiculosSeguimiento.length ? form.dt : ""}
+              >
+                <option value="">
+                  {!form.contratista
+                    ? "Primero selecciona el contratista"
+                    : !form.dt
+                      ? "Escribe el DT manual para validar"
+                      : loadingVehicles
+                        ? "Validando DT..."
+                        : "Sin DT cargado para ese numero"}
+                </option>
+                {vehiculosSeguimiento.map((vehiculo) => (
+                  <option key={`${vehiculo.vehiculo}-${vehiculo.transporte}`} value={normalizeDt(vehiculo.transporte)}>
+                    {vehiculo.transporte} - {vehiculo.vehiculo} - {vehiculo.responsable}
+                  </option>
+                ))}
+              </select>
+              {errors.dt ? <p className="mt-2 text-sm text-red-600">{errors.dt}</p> : null}
+              {vehiclesError ? <p className="mt-2 text-sm text-red-600">{vehiclesError}</p> : null}
+              {form.contratista && form.dt && !loadingVehicles && !vehiclesError && !vehiculosSeguimiento.length ? (
+                <p className="mt-2 text-sm text-amber-700">No hay DT cargado para ese numero.</p>
+              ) : null}
+            </label>
+
+            <label className="block lg:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Nombre cliente</span>
               <input
                 className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition placeholder:text-slate-400"
@@ -117,8 +122,10 @@ export function ModulacionForm({
               {clienteError ? <p className="mt-2 text-sm text-amber-700">{clienteError}</p> : null}
             </label>
 
-            <InfoField label="COM" value={form.com || "-"} />
+            <InfoField label="Jefe de ventas" value={form.jefeComercial || "-"} />
+            <InfoField label="Telefono jefe comercial" value={form.telefonoJefeComercial || "-"} />
             <InfoField label="Preventista" value={form.preventista || "-"} />
+            <InfoField label="Telefono cliente" value={form.telefonoCliente || "-"} />
           </div>
         </FormSection>
 

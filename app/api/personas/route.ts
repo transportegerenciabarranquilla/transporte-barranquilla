@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
 
 export async function GET(request: Request) {
   try {
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const response = await fetch(
       supabaseRest("transporte_barranquilla", `?${params.toString()}`),
       {
-        headers: supabaseHeaders(),
+        headers: supabaseAdminHeaders() ?? supabaseHeaders(),
         cache: "no-store",
       }
     );

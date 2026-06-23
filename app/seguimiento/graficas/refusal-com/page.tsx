@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Package, ShieldAlert, Table2 } from "lucide-react";
 import { AnalyticsViewToggle } from "../../components/AnalyticsViewToggle";
-import { getOperationalModulaciones, MODULACION_STORAGE_KEY, readModulacionRegistros, type ModulacionRegistro } from "../../../lib/modulacionStorage";
-import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
+import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
+import { MODULACION_STORAGE_KEY, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
+import { SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
+import { loadSeguimientoVehiculos } from "../../services/vehicleRecords";
 import type { Vehiculo } from "../../types";
 
 type RefusalRow = {
@@ -15,6 +17,7 @@ type RefusalRow = {
   establecimiento: string;
   jefeVentas: string;
   placa: string;
+  preventista: string;
   rechazadas: number;
   registro: ModulacionRegistro;
   rr: string;
@@ -22,32 +25,42 @@ type RefusalRow = {
 
 export default function RefusalComPage() {
   const router = useRouter();
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const vehicles = useStorageSnapshot<Vehiculo[]>(
-    [SEGUIMIENTO_STORAGE_KEY],
-    readSeguimientoVehiculos,
+    [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
+    loadSeguimientoVehiculos,
     [],
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
+  const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
   const [dateLabel, setDateLabel] = useState("");
 
   useEffect(() => {
+    const fecha = new URLSearchParams(window.location.search).get("fecha") || toDateKey(new Date());
+    setSelectedDate(fecha);
+  }, []);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setDateLabel(new Date().toLocaleDateString("es-CO"));
+      setDateLabel(formatDateLabel(selectedDate));
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [selectedDate]);
 
-  const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
-  const operationalModulaciones = useMemo(
-    () => getOperationalModulaciones(modulaciones, todayVehicles),
-    [modulaciones, todayVehicles],
-  );
+  const activeVehiculos = useMemo(() => {
+    const loaded = loadSeguimientoVehiculos();
+    return loaded.length ? loaded : vehicles;
+  }, [vehicles]);
+  const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
+  const visibleModulaciones = useMemo(() => {
+    return modulaciones.filter((registro) => isRecordCreatedForDate(registro, selectedDate));
+  }, [modulaciones, selectedDate]);
 
   const rows = useMemo(() => {
     const vehicleByDt = new Map(todayVehicles.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
 
-    return operationalModulaciones
+    return visibleModulaciones
       .map((registro) => {
         const vehicle = vehicleByDt.get(normalizeDt(registro.dt));
 
@@ -55,21 +68,34 @@ export default function RefusalComPage() {
           causal: registro.causal || "Sin causal",
           com: getCom(registro, vehicle),
           establecimiento: registro.nombreCliente || `Cliente ${registro.codigoCliente}`,
-          jefeVentas: getJefeVentas(vehicle),
+          jefeVentas: getJefeVentas(registro, vehicle),
           placa: vehicle?.vehiculo || `DT-${registro.dt}`,
+          preventista: registro.preventista || "Sin asignacion",
           rechazadas: Number(registro.totalCajas || 0),
           registro,
           rr: registro.persona || vehicle?.responsable || "Sin asistencia",
         };
       })
       .sort((a, b) => b.rechazadas - a.rechazadas);
-  }, [operationalModulaciones, todayVehicles]);
+  }, [todayVehicles, visibleModulaciones]);
 
   const totals = useMemo(() => {
     const cajasRechazadas = rows.reduce((total, row) => total + row.rechazadas, 0);
-    const cajasGestionadas = operationalModulaciones.reduce((total, registro) => total + Number(registro.cajasGestionadas || 0), 0);
-    const cajasReportadas = todayVehicles.reduce((total, vehicle) => total + Number(vehicle.cajas || 0), 0);
-    const refusal = cajasReportadas ? Number(((cajasRechazadas / cajasReportadas) * 100).toFixed(2)) : 0;
+    const cajasGestionadas = visibleModulaciones.reduce((total, registro) => total + Number(registro.cajasGestionadas || 0), 0);
+    const cajasReportadas = visibleModulaciones.reduce((total, registro) => total + Number(registro.totalCajas || 0), 0);
+    const totalCajasSeguimiento = todayVehicles.reduce((total, vehicle) => total + Number(vehicle.cajas || 0), 0);
+    const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
+    const byVehicle = todayVehicles.map((vehicle) => {
+      const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
+      const checkin = getCheckinByDt(checkins, vehicle.transporte);
+
+      return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
+    });
+    const modulacionesSinSeguimiento = visibleModulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
+    const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
+    const refusalFinal =
+      byVehicle.reduce((total, resumen) => total + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
+    const refusal = totalCajasSeguimiento ? Number(((refusalFinal / totalCajasSeguimiento) * 100).toFixed(2)) : 0;
 
     return {
       cajasGestionadas,
@@ -77,7 +103,7 @@ export default function RefusalComPage() {
       cajasReportadas,
       refusal,
     };
-  }, [operationalModulaciones, rows, todayVehicles]);
+  }, [checkins, rows, todayVehicles, visibleModulaciones]);
 
   const byJefe = useMemo(() => groupRows(rows, (row) => row.jefeVentas).slice(0, 6), [rows]);
   const byCausal = useMemo(() => groupRows(rows, (row) => row.causal).slice(0, 8), [rows]);
@@ -91,7 +117,7 @@ export default function RefusalComPage() {
             <button
               aria-label="Volver a graficas"
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push("/seguimiento/graficas")}
+              onClick={() => router.push(`/seguimiento/graficas?fecha=${encodeURIComponent(selectedDate)}`)}
               type="button"
             >
               <ArrowLeft size={19} />
@@ -115,7 +141,7 @@ export default function RefusalComPage() {
               </span>
               <div>
                 <h2 className="text-base font-semibold text-[#10223d]">Detalle refusal por COM</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Resumen del dia cruzado con modulaciones y seguimiento.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Resumen del dia cruzado con modulaciones y seguimiento. Modulaciones cargadas: {modulaciones.length}.</p>
               </div>
             </div>
             <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">{dateLabel || "Hoy"}</span>
@@ -152,13 +178,14 @@ export default function RefusalComPage() {
             <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600">{rows.length} registros</span>
           </div>
           <div className="max-h-[520px] overflow-auto">
-            <table className="w-full min-w-[1040px]">
+            <table className="w-full min-w-[1160px]">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">Establecimiento</th>
                   <th className="px-3 py-2 text-left">Causal</th>
                   <th className="px-3 py-2 text-left">RR</th>
                   <th className="px-3 py-2 text-left">Placa</th>
+                  <th className="px-3 py-2 text-left">Preventista</th>
                   <th className="px-3 py-2 text-left">Jefe de ventas</th>
                   <th className="px-3 py-2 text-left">COM</th>
                   <th className="px-3 py-2 text-right">Cajas rechazadas</th>
@@ -172,6 +199,7 @@ export default function RefusalComPage() {
                       <td className="px-3 py-1.5 text-xs font-semibold text-slate-700">{row.causal}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.rr}</td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-[#10223d]">{row.placa}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-700">{row.preventista}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.jefeVentas}</td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-[#10223d]">{row.com}</td>
                       <td className="px-3 py-1.5 text-right text-xs font-black text-red-700">{row.rechazadas}</td>
@@ -179,7 +207,7 @@ export default function RefusalComPage() {
                   ))
                 ) : (
                   <tr>
-                    <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={7}>
+                    <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={8}>
                       No hay registros de refusal para hoy.
                     </td>
                   </tr>
@@ -216,6 +244,7 @@ function ChartPanel({ children, icon, title }: { children: ReactNode; icon: Reac
 
 function HorizontalBars({ data, color }: { data: Array<{ label: string; value: number }>; color: string }) {
   const max = Math.max(...data.map((item) => item.value), 1);
+  if (!data.length) return <EmptyChart />;
 
   return (
     <div className="space-y-2">
@@ -234,6 +263,7 @@ function HorizontalBars({ data, color }: { data: Array<{ label: string; value: n
 
 function VerticalBars({ data, total }: { data: Array<{ label: string; value: number }>; total: number }) {
   const max = Math.max(...data.map((item) => item.value), 1);
+  if (!data.length) return <EmptyChart />;
 
   return (
     <div className="flex min-h-40 items-end gap-3 overflow-x-auto pb-1">
@@ -253,6 +283,7 @@ function VerticalBars({ data, total }: { data: Array<{ label: string; value: num
 
 function ComBars({ data }: { data: Array<{ label: string; value: number }> }) {
   const max = Math.max(...data.map((item) => item.value), 1);
+  if (!data.length) return <EmptyChart />;
 
   return (
     <div className="flex min-h-32 items-end gap-2 overflow-x-auto pb-1">
@@ -263,6 +294,14 @@ function ComBars({ data }: { data: Array<{ label: string; value: number }> }) {
           <span className="max-w-16 truncate text-[10px] font-black text-slate-700">{item.label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function EmptyChart() {
+  return (
+    <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm font-medium text-slate-500">
+      Sin modulaciones para mostrar en esta fecha.
     </div>
   );
 }
@@ -281,6 +320,8 @@ function groupRows(rows: RefusalRow[], getLabel: (row: RefusalRow) => string) {
 }
 
 function getCom(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (registro.com?.trim()) return registro.com.trim();
+
   const candidates = [vehicle?.bloque, vehicle?.viaje, vehicle?.territorio].filter(Boolean) as string[];
   const found = candidates.find((value) => /^COM/i.test(value.trim()));
   if (found) return found.trim().toUpperCase();
@@ -289,26 +330,37 @@ function getCom(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
   return code ? `COM${code.slice(-3).padStart(3, "0")}` : "Sin asignacion";
 }
 
-function getJefeVentas(vehicle: Vehiculo | undefined) {
+function getJefeVentas(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (registro.jefeComercial?.trim()) return registro.jefeComercial.trim();
+
   return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
 }
 
-function isTodayVehicle(vehicle: Vehiculo) {
-  return isToday(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
+function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
+  return toDateKeyValue(vehicle.fechaDespacho) === dateKey;
 }
 
-function isToday(value: string | undefined) {
-  if (!value) return false;
+function isRecordCreatedForDate(record: ModulacionRegistro, dateKey: string) {
+  return toDateKeyValue(record.createdAt) === dateKey;
+}
 
-  const today = new Date();
+function toDateKeyValue(value: string | undefined) {
+  if (!value) return "";
+
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value.slice(0, 10) === toDateKey(today);
+  if (Number.isNaN(parsed.getTime())) return value.slice(0, 10);
 
-  return toDateKey(parsed) === toDateKey(today);
+  return toDateKey(parsed);
 }
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatDateLabel(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return dateKey;
+  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
 }
 
 function normalizeDt(value: string | number | undefined) {

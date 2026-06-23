@@ -21,6 +21,8 @@ export default function ModulacionPage() {
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
   const [search, setSearch] = useState("");
+  const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
+  const [telefonosJefeComercial, setTelefonosJefeComercial] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -38,7 +40,7 @@ export default function ModulacionPage() {
         const term = search.trim().toLowerCase();
         if (!term) return true;
 
-        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.com} ${registro.preventista} ${registro.persona} ${registro.personaNombre} ${registro.causal} ${registro.comentario}`
+        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.telefonoCliente} ${registro.com} ${registro.jefeComercial} ${registro.telefonoJefeComercial} ${registro.preventista} ${registro.persona} ${registro.personaNombre} ${registro.causal} ${registro.comentario} ${registro.comentarioModulador}`
           .toLowerCase()
           .includes(term);
       })
@@ -55,6 +57,33 @@ export default function ModulacionPage() {
     return vehiculosSeguimiento.find((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(registroSeleccionado.dt)) ?? null;
   }, [registroSeleccionado, vehiculosSeguimiento]);
 
+  useEffect(() => {
+    if (
+      !registroSeleccionado?.codigoCliente ||
+      (registroSeleccionado.telefonoCliente && registroSeleccionado.telefonoJefeComercial) ||
+      (telefonosCliente[registroSeleccionado.codigoCliente] && telefonosJefeComercial[registroSeleccionado.codigoCliente])
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(`/api/clientes?codigo=${encodeURIComponent(registroSeleccionado.codigoCliente)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const telefono = body.cliente?.telefono || "";
+        const telefonoJefe = body.cliente?.telefonoJefeComercial || "";
+        if (telefono) setTelefonosCliente((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefono }));
+        if (telefonoJefe) setTelefonosJefeComercial((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefonoJefe }));
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [registroSeleccionado, telefonosCliente, telefonosJefeComercial]);
+
   function updateCajasGestionadas(id: string, value: string) {
     const nextRecords = registros.map((registro) =>
       registro.id === id ? { ...registro, cajasGestionadas: value.replace(/\D/g, "") } : registro,
@@ -64,8 +93,8 @@ export default function ModulacionPage() {
     setRegistros(nextRecords);
   }
 
-  function updateComentario(id: string, value: string) {
-    const nextRecords = registros.map((registro) => (registro.id === id ? { ...registro, comentario: value } : registro));
+  function updateComentarioModulador(id: string, value: string) {
+    const nextRecords = registros.map((registro) => (registro.id === id ? { ...registro, comentarioModulador: value } : registro));
 
     saveModulacionRegistros(nextRecords);
     setRegistros(nextRecords);
@@ -228,10 +257,12 @@ export default function ModulacionPage() {
         {registroSeleccionado ? (
           <ModulacionDetailModal
             onChangeGestionadas={updateCajasGestionadas}
-            onChangeComentario={updateComentario}
+            onChangeComentarioModulador={updateComentarioModulador}
             onClose={() => setSelectedRegistroId(null)}
             registro={registroSeleccionado}
             selectedVehicle={vehiculoSeleccionado}
+            telefonoCliente={registroSeleccionado.telefonoCliente || telefonosCliente[registroSeleccionado.codigoCliente] || ""}
+            telefonoJefeComercial={registroSeleccionado.telefonoJefeComercial || telefonosJefeComercial[registroSeleccionado.codigoCliente] || ""}
           />
         ) : null}
       </section>
@@ -243,38 +274,31 @@ function ModulacionDetailModal({
   onClose,
   registro,
   selectedVehicle,
+  telefonoCliente,
+  telefonoJefeComercial,
   onChangeGestionadas,
-  onChangeComentario,
+  onChangeComentarioModulador,
 }: {
   onClose: () => void;
   registro: ModulacionRegistro;
   selectedVehicle: Vehiculo | null;
+  telefonoCliente: string;
+  telefonoJefeComercial: string;
   onChangeGestionadas: (id: string, value: string) => void;
-  onChangeComentario: (id: string, value: string) => void;
+  onChangeComentarioModulador: (id: string, value: string) => void;
 }) {
-  const details = [
-    ["Codigo cliente", registro.codigoCliente],
-    ["Nombre cliente", registro.nombreCliente || "-"],
-    ["COM", registro.com || "-"],
-    ["Preventista", registro.preventista || "-"],
-    ["Placa de vehiculo", selectedVehicle?.vehiculo || "-"],
-    ["Transportista", selectedVehicle?.transportista || "-"],
-    ["Responsable", selectedVehicle?.responsable || registro.personaNombre || registro.persona],
-    ["Territorio", selectedVehicle?.territorio || "-"],
-    ["Causal", registro.causal],
-    ["Comentario", registro.comentario || "-"],
-  ];
-
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
-      <section className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+      <section className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
         <div className="relative border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-start gap-3 pr-12">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
               <PackageCheck size={20} />
             </span>
-            <div>
+            <div className="[&>h2:nth-of-type(2)]:hidden">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Detalle de modulacion</p>
+              <h2 className="mt-1 text-xl font-semibold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</h2>
+              <p className="mt-0.5 text-sm font-semibold text-slate-500">Cliente {registro.codigoCliente} - DT {registro.dt}</p>
               <h2 className="mt-1 text-lg font-semibold text-[#10223d]">DT {registro.dt} · Cliente {registro.codigoCliente}</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {formatDate(registro.createdAt)} · {formatTime(registro.createdAt)}
@@ -292,7 +316,7 @@ function ModulacionDetailModal({
         </div>
 
         <div className="max-h-[calc(92vh-76px)] overflow-y-auto p-4">
-          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+          <div className="mb-3 grid gap-2 sm:grid-cols-3">
             <ModalMetric label="Rechazadas" value={registro.totalCajas} tone="red" />
             <ModalMetric
               label="Gestionadas"
@@ -307,28 +331,51 @@ function ModulacionDetailModal({
             <ModalMetric label="Modulador" value={registro.personaNombre || registro.persona} tone="blue" />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_230px]">
             <div className="grid gap-2 sm:grid-cols-2">
-              {details.map(([label, value]) => (
-                <DetailTile key={label} label={label} value={value} />
-              ))}
+              <DetailTile label="Datos del cliente">
+                <p className="text-base font-bold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">No. {registro.codigoCliente}</p>
+                <DetailLine label="Telefono" value={telefonoCliente || "-"} />
+              </DetailTile>
+              <DetailTile label="Datos de ventas">
+                <DetailLine label="Jefe" value={registro.jefeComercial || "-"} />
+                <DetailLine label="Tel. jefe" value={telefonoJefeComercial || "-"} />
+                <DetailLine label="Preventista" value={registro.preventista || "-"} />
+              </DetailTile>
+              <DetailTile label="Ruta">
+                <DetailLine label="DT" value={registro.dt} />
+                <DetailLine label="Placa" value={selectedVehicle?.vehiculo || "-"} />
+                <DetailLine label="Transportista" value={selectedVehicle?.transportista || "-"} />
+              </DetailTile>
+              <DetailTile label="Gestion RR">
+                <DetailLine label="Responsable" value={selectedVehicle?.responsable || registro.personaNombre || registro.persona} />
+                <DetailLine label="Causal" value={registro.causal} />
+              </DetailTile>
+              <DetailTile label="Comentario RR">
+                <p className="text-sm font-semibold leading-5 text-[#10223d]">{registro.comentario || "-"}</p>
+              </DetailTile>
+              <DetailTile label="Nota modulador">
+                <p className="text-sm font-semibold leading-5 text-[#10223d]">{registro.comentarioModulador || "Sin nota interna"}</p>
+              </DetailTile>
             </div>
 
             <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#10223d]">
                 <UsersRound size={16} />
-                Gestion
+                Modulador
               </div>
-              <label className="mb-4 block">
-                <span className="text-sm font-medium text-slate-700">Comentario</span>
+              <label className="mb-3 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Comentario interno</span>
                 <textarea
-                  className="mt-2 min-h-24 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-                  onChange={(event) => onChangeComentario(registro.id, event.target.value)}
-                  value={registro.comentario}
+                  className="mt-2 min-h-20 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                  onChange={(event) => onChangeComentarioModulador(registro.id, event.target.value)}
+                  placeholder="Agrega una nota interna de modulacion"
+                  value={registro.comentarioModulador || ""}
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-slate-700">Cajas gestionadas</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Cajas gestionadas</span>
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   inputMode="numeric"
@@ -463,12 +510,21 @@ function ModalMetric({ label, value, tone }: { label: string; value: ReactNode; 
   );
 }
 
-function DetailTile({ label, value }: { label: string; value: string | number }) {
+function DetailTile({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-[#10223d]">{value}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <div className="mt-1.5 break-words">{children}</div>
     </div>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <span className="mt-1 flex items-start justify-between gap-3 text-xs first:mt-0">
+      <span className="font-medium text-slate-500">{label}</span>
+      <span className="text-right font-semibold text-[#10223d]">{value}</span>
+    </span>
   );
 }
 

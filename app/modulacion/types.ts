@@ -3,8 +3,10 @@ export type FormState = {
   dt: string;
   codigoCliente: string;
   nombreCliente: string;
+  telefonoCliente: string;
   com: string;
   jefeComercial: string;
+  telefonoJefeComercial: string;
   preventista: string;
   totalCajas: string;
   cajasGestionadas: string;

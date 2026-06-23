@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileDown } from "lucide-react";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
-import { getLocalDateKey, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
+import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
 import { loadSeguimientoVehiculos } from "../../services/vehicleRecords";
@@ -17,6 +17,7 @@ type RefusalComRow = {
   establecimiento: string;
   jefeVentas: string;
   placa: string;
+  preventista: string;
   rechazadas: number;
   rr: string;
 };
@@ -35,10 +36,9 @@ export default function ReportePdfPage() {
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
 
   const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
-  const todayModulaciones = useMemo(
-    () => getOperationalModulaciones(modulaciones, todayVehicles),
-    [modulaciones, todayVehicles],
-  );
+  const visibleModulaciones = useMemo(() => {
+    return modulaciones.filter(isTodayModulacion);
+  }, [modulaciones]);
 
   const seguimiento = useMemo(() => {
     const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
@@ -59,7 +59,7 @@ export default function ReportePdfPage() {
   const refusal = useMemo(() => {
     const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
     const byVehicle = todayVehicles.map((vehicle) => {
-      const registrosDt = todayModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
+      const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
       const checkin = getCheckinByDt(checkins, vehicle.transporte);
       return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
     });
@@ -76,12 +76,12 @@ export default function ReportePdfPage() {
       totalCajasSeguimiento,
       topeMaximo: Math.floor(totalCajasSeguimiento / 100) || 1,
     };
-  }, [checkins, todayModulaciones, todayVehicles]);
+  }, [checkins, visibleModulaciones, todayVehicles]);
 
   const refusalComRows = useMemo<RefusalComRow[]>(() => {
     const vehicleByDt = new Map(todayVehicles.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
 
-    return todayModulaciones
+    return visibleModulaciones
       .map((registro) => {
         const vehicle = vehicleByDt.get(normalizeDt(registro.dt));
 
@@ -89,14 +89,15 @@ export default function ReportePdfPage() {
           causal: registro.causal || "Sin causal",
           com: getCom(registro, vehicle),
           establecimiento: registro.nombreCliente || `Cliente ${registro.codigoCliente}`,
-          jefeVentas: vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion",
+          jefeVentas: getJefeVentas(registro, vehicle),
           placa: vehicle?.vehiculo || `DT-${registro.dt}`,
+          preventista: registro.preventista || "Sin asignacion",
           rechazadas: Number(registro.totalCajas || 0),
-          rr: registro.persona || vehicle?.responsable || "Sin asistencia",
+          rr: registro.personaNombre || registro.persona || vehicle?.responsable || "Sin asistencia",
         };
       })
       .sort((a, b) => b.rechazadas - a.rechazadas);
-  }, [todayModulaciones, todayVehicles]);
+  }, [visibleModulaciones, todayVehicles]);
 
   const byCom = useMemo(() => groupRows(refusalComRows, (row) => row.com).slice(0, 12), [refusalComRows]);
   const byCausal = useMemo(() => groupRows(refusalComRows, (row) => row.causal).slice(0, 8), [refusalComRows]);
@@ -261,9 +262,9 @@ export default function ReportePdfPage() {
       ]);
       dataTable(
         ["DT / Cliente", "Persona", "Rechazo", "Gestionadas", "Causal"],
-        todayModulaciones.slice(0, 50).map((item) => [
+        visibleModulaciones.slice(0, 50).map((item) => [
           `DT ${item.dt} / ${item.codigoCliente}`,
-          item.persona,
+          item.personaNombre || item.persona,
           item.totalCajas,
           item.cajasGestionadas || "0",
           item.causal,
@@ -279,9 +280,9 @@ export default function ReportePdfPage() {
         ["Por causal", String(byCausal.length)],
       ]);
       dataTable(
-        ["Establecimiento", "Causal", "RR", "Placa", "COM", "Cajas"],
-        refusalComRows.slice(0, 60).map((row) => [row.establecimiento, row.causal, row.rr, row.placa, row.com, String(row.rechazadas)]),
-        [42, 38, 40, 24, 20, 18],
+        ["Establecimiento", "Causal", "RR", "Placa", "Preventista", "Jefe ventas", "COM", "Cajas"],
+        refusalComRows.slice(0, 60).map((row) => [row.establecimiento, row.causal, row.rr, row.placa, row.preventista, row.jefeVentas, row.com, String(row.rechazadas)]),
+        [34, 30, 28, 22, 24, 24, 20, 16],
       );
 
       const totalPages = pdf.getNumberOfPages();
@@ -399,9 +400,9 @@ export default function ReportePdfPage() {
           </div>
           <SimpleTable
             headers={["DT / Cliente", "Persona", "Rechazo", "Gestionadas", "Causal"]}
-            rows={todayModulaciones.slice(0, 22).map((item) => [
+            rows={visibleModulaciones.slice(0, 22).map((item) => [
               `DT ${item.dt} / Cliente ${item.codigoCliente}`,
-              item.persona,
+              item.personaNombre || item.persona,
               item.totalCajas,
               item.cajasGestionadas || "0",
               item.causal,
@@ -422,8 +423,8 @@ export default function ReportePdfPage() {
             <Bars title="Top causales" rows={byCausal} />
           </div>
           <SimpleTable
-            headers={["Establecimiento", "Causal", "RR", "Placa", "Jefe ventas", "COM", "Cajas"]}
-            rows={refusalComRows.slice(0, 28).map((row) => [row.establecimiento, row.causal, row.rr, row.placa, row.jefeVentas, row.com, String(row.rechazadas)])}
+            headers={["Establecimiento", "Causal", "RR", "Placa", "Preventista", "Jefe ventas", "COM", "Cajas"]}
+            rows={refusalComRows.slice(0, 28).map((row) => [row.establecimiento, row.causal, row.rr, row.placa, row.preventista, row.jefeVentas, row.com, String(row.rechazadas)])}
             empty="No hay registros de refusal-com para hoy."
           />
         </ReportSection>
@@ -551,12 +552,24 @@ function groupRows(rows: RefusalComRow[], getLabel: (row: RefusalComRow) => stri
 }
 
 function getCom(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (registro.com?.trim()) return registro.com.trim();
+
   const candidates = [vehicle?.bloque, vehicle?.viaje, vehicle?.territorio].filter(Boolean) as string[];
   const found = candidates.find((value) => /^COM/i.test(value.trim()));
   if (found) return found.trim().toUpperCase();
 
   const code = String(registro.codigoCliente || registro.dt || "0").replace(/\D/g, "");
   return code ? `COM${code.slice(-3).padStart(3, "0")}` : "Sin asignacion";
+}
+
+function getJefeVentas(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (registro.jefeComercial?.trim()) return registro.jefeComercial.trim();
+
+  return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
+}
+
+function isTodayModulacion(registro: ModulacionRegistro) {
+  return isToday(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
 }
 
 function isTodayVehicle(vehicle: Vehiculo) {
@@ -569,7 +582,7 @@ function isToday(value: string | undefined) {
 
 function toDateKey(value: string | undefined) {
   if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   if (value.includes("/")) {
     const [day, month, year] = value.split("/").map(Number);
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

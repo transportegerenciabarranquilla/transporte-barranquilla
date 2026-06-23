@@ -9,6 +9,7 @@ import { WelcomeCharacter } from "./WelcomeCharacter";
 const modules = [
   { id: 1, title: "Seguimiento", href: "/seguimiento" },
   { id: 2, title: "Modulación", href: "/modulacion" },
+  { id: 3, title: "Jornada laboral", href: "/jornada-laboral" },
 ];
 
 const WELCOME_DISMISSED_KEY = "bavaria.portal.welcomeDismissed";
@@ -16,7 +17,7 @@ const WELCOME_DISMISSED_KEY = "bavaria.portal.welcomeDismissed";
 export function PortalDashboard({ onLogout, isAdmin = false }: { onLogout: () => void; isAdmin?: boolean }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const router = useRouter();
-  const visibleModules = isAdmin ? [{ ...modules[0], href: "/admin" }, modules[1]] : modules;
+  const visibleModules = isAdmin ? [{ ...modules[0], href: "/admin" }, modules[1], modules[2]] : modules;
 
   useEffect(() => {
     setShowWelcome(sessionStorage.getItem(WELCOME_DISMISSED_KEY) !== "true");

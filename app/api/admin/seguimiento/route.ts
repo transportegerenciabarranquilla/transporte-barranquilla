@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS } from "../../../lib/contractors";
-import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
@@ -16,7 +16,7 @@ export async function GET() {
     const session = await getAuthenticatedSession();
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
-    const headers = supabaseUserHeaders(session.accessToken);
+    const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
     const seguimientoParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
     const relatedParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
     const [response, modulacionesResponse, checkinsResponse] = await Promise.all([
@@ -40,10 +40,10 @@ export async function GET() {
     const rows = (await response.json()) as Row[];
     const modulacionesRows = (await modulacionesResponse.json()) as ModulacionRow[];
     const checkinRows = (await checkinsResponse.json()) as CheckinRow[];
-    const modulaciones = modulacionesRows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista }));
-    const checkins = checkinRows.map((row) => ({ ...row.data, contratista: row.contractor }));
+    const modulaciones = modulacionesRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor || row.data.contratista) || row.data.contratista }));
+    const checkins = checkinRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor) }));
     const records = rows.map((row) => {
-      const transportista = row.contractor || row.data.transportista;
+      const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
       const registrosDt = getModulacionesByDt(modulaciones, row.data.transporte, transportista);
       const checkin = getCheckinByDt(checkins, row.data.transporte, transportista);
       const refusal = summarizeRefusal(registrosDt, Number(row.data.cajas || 0), checkin?.totalCajas);
@@ -148,4 +148,9 @@ function normalizeContractor(value: string | undefined) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]/g, "");
+}
+
+function contractorLabel(value: string | undefined) {
+  const normalized = normalizeContractor(value);
+  return CONTRACTORS.find((contractor) => normalizeContractor(contractor) === normalized);
 }

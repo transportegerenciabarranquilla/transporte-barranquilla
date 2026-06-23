@@ -36,6 +36,11 @@ export function VehicleDrawer({
             <div>
               <p className="text-sm font-medium text-slate-500">Detalle del vehiculo</p>
               <h2 className="mt-1 text-2xl font-semibold text-[#10223d]">{vehicle.vehiculo}</h2>
+              <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                <Truck size={15} className="text-[#0f7c58]" />
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">DT</span>
+                <span className="text-sm font-bold text-[#10223d]">{vehicle.transporte || "-"}</span>
+              </div>
             </div>
             <button
               className="grid h-10 w-10 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-[#10223d]"

@@ -35,7 +35,7 @@ export function VehiclesTable({
               <th className="w-28 px-2 py-1.5 text-left">Vehículo</th>
               <th className="w-20 px-2 py-1.5 text-left">DT</th>
               <th className="w-36 px-2 py-1.5 text-left">Responsable</th>
-              <th className="w-28 px-2 py-1.5 text-left">Fecha DT</th>
+              <th className="w-28 px-2 py-1.5 text-left">Fecha despacho</th>
               <th className="w-16 px-2 py-1.5 text-left">Cajas</th>
               <th className="w-16 px-2 py-1.5 text-left">Clientes</th>
               <th className="w-48 px-2 py-1.5 text-left">Ruta</th>
@@ -72,7 +72,7 @@ export function VehiclesTable({
                     <EditableText value={item.responsable} onChange={(value) => onUpdateVehicle(recordKey, { responsable: value })} strong />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
-                    <EditableDate value={item.fechaDt} onChange={(value) => onUpdateVehicle(recordKey, { fechaDt: value })} />
+                    <EditableDate value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <EditableNumber value={item.cajas} onChange={(value) => onUpdateVehicle(recordKey, { cajas: value })} />

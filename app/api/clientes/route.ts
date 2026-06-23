@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
 
 type ClienteRow = Record<string, unknown>;
 
@@ -27,10 +27,90 @@ const CODE_COLUMNS = [
   "CLIENTE",
 ];
 const NAME_HINTS = ["nombre", "cliente", "razon", "razón", "establecimiento"];
-const COM_HINTS = ["com"];
-const PREVENTISTA_KEYS = ["CodigoZona_Principal", "codigozona_principal", "codigoZonaPrincipal", "CODIGOZONA_PRINCIPAL", "CODIGO_ZONA_PRINCIPAL"];
+const COM_KEYS = ["COM", "com", "Com", "codigo_com", "CODIGO_COM", "codigoCom", "CodigoCom"];
+const COM_HINTS = ["codigo_com", "codigocom"];
+const PREVENTISTA_KEYS = [
+  "CodigoZona_Principal",
+  "codigozona_principal",
+  "codigoZonaPrincipal",
+  "CODIGOZONA_PRINCIPAL",
+  "CODIGO_ZONA_PRINCIPAL",
+  "PREVENTISTA",
+  "Preventista",
+  "preventista",
+];
+const JEFE_KEYS = [
+  "JefeVentas",
+  "jefeVentas",
+  "jefeventas",
+  "JEFE_VENTAS",
+  "Jefe_Ventas",
+  "jefe_ventas",
+  "Jefe de ventas",
+  "JEFE DE VENTAS",
+  "jefe de ventas",
+  "Jefe_De_Ventas",
+  "JEFE_DE_VENTAS",
+  "jefe_comercial",
+  "Jefe comercial",
+  "JEFE COMERCIAL",
+  "JefeComercial",
+  "JEFE_COMERCIAL",
+  "JefeVenta",
+  "jefeVenta",
+  "JEFEVENTA",
+];
 const PREVENTISTA_HINTS = ["codigozonaprincipal", "preventista"];
-const JEFE_HINTS = ["jefe", "comercial", "ventas"];
+const JEFE_HINTS = ["jefeventas", "jefecomercial", "jefe", "comercial", "ventas"];
+const PHONE_KEYS = [
+  "telefono",
+  "teléfono",
+  "TELEFONO",
+  "TELÉFONO",
+  "celular",
+  "CELULAR",
+  "phone",
+  "PHONE",
+  "telefono_cliente",
+  "TELEFONO_CLIENTE",
+  "TelefonoCliente",
+  "telefono1",
+  "telefono_1",
+  "TELEFONO1",
+  "TELEFONO_1",
+  "tel",
+  "TEL",
+  "celular1",
+  "celular_1",
+  "CELULAR1",
+  "CELULAR_1",
+  "movil",
+  "MOVIL",
+];
+const PHONE_HINTS = ["telefono", "celular", "movil", "phone"];
+const JEFE_PHONE_KEYS = [
+  "telefono_jefe",
+  "TELEFONO_JEFE",
+  "telefono_jefe_comercial",
+  "TELEFONO_JEFE_COMERCIAL",
+  "telefono_jefe_ventas",
+  "TELEFONO_JEFE_VENTAS",
+  "celular_jefe",
+  "CELULAR_JEFE",
+  "celular_jefe_comercial",
+  "CELULAR_JEFE_COMERCIAL",
+  "celular_jefe_ventas",
+  "CELULAR_JEFE_VENTAS",
+  "TelefonoJefe",
+  "TelefonoJefeComercial",
+  "TelefonoJefeVentas",
+  "CelularJefe",
+  "CelularJefeComercial",
+  "CelularJefeVentas",
+];
+const JEFE_PHONE_HINTS = ["telefonojefe", "celularjefe", "moviljefe", "phonejefe", "jefetelefono", "jefecelular"];
+const SCAN_PAGE_SIZE = 1000;
+const MAX_SCAN_PAGES = 200;
 
 export async function GET(request: Request) {
   try {
@@ -62,7 +142,7 @@ async function findByKnownColumns(codigo: string) {
       limit: "1",
     });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseHeaders(),
+      headers: supabaseAdminHeaders() ?? supabaseHeaders(),
       cache: "no-store",
     });
 
@@ -75,20 +155,30 @@ async function findByKnownColumns(codigo: string) {
 }
 
 async function findByScanningRows(codigo: string) {
-  const params = new URLSearchParams({ select: "*", limit: "5000" });
-  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-    headers: supabaseHeaders(),
-    cache: "no-store",
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(body)) return null;
+  let fallback: ClienteRow | null = null;
 
-  const rows = body as ClienteRow[];
-  return (
-    rows.find((row) => rowMatchesCodigo(row, codigo, true)) ||
-    rows.find((row) => rowMatchesCodigo(row, codigo, false)) ||
-    null
-  );
+  for (let page = 0; page < MAX_SCAN_PAGES; page += 1) {
+    const from = page * SCAN_PAGE_SIZE;
+    const to = from + SCAN_PAGE_SIZE - 1;
+    const params = new URLSearchParams({ select: "*" });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      headers: {
+        ...(supabaseAdminHeaders() ?? supabaseHeaders()),
+        Range: `${from}-${to}`,
+      },
+      cache: "no-store",
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(body)) return fallback;
+
+    const rows = body as ClienteRow[];
+    const direct = rows.find((row) => rowMatchesCodigo(row, codigo, true));
+    if (direct) return direct;
+    fallback ||= rows.find((row) => rowMatchesCodigo(row, codigo, false)) || null;
+    if (rows.length < SCAN_PAGE_SIZE) return fallback;
+  }
+
+  return fallback;
 }
 
 function rowMatchesCodigo(row: ClienteRow, codigo: string, codeColumnsOnly: boolean) {
@@ -105,9 +195,11 @@ function normalizeCliente(row: ClienteRow, codigo: string) {
   return {
     codigo: valueByKnownKeys(row, CODE_COLUMNS) || codigo,
     nombre: valueByHints(row, NAME_HINTS, [codigo]) || valueByFirstText(row, [codigo]),
-    com: valueByHints(row, COM_HINTS),
-    jefeComercial: valueByHints(row, JEFE_HINTS),
+    com: valueByKnownKeys(row, COM_KEYS) || valueByHints(row, COM_HINTS),
+    jefeComercial: valueByKnownKeys(row, JEFE_KEYS) || valueByHints(row, JEFE_HINTS),
     preventista: valueByKnownKeys(row, PREVENTISTA_KEYS) || valueByHints(row, PREVENTISTA_HINTS),
+    telefono: valueByKnownKeys(row, PHONE_KEYS) || valueByPhoneHints(row, PHONE_HINTS),
+    telefonoJefeComercial: valueByKnownKeys(row, JEFE_PHONE_KEYS) || valueByPhoneHints(row, JEFE_PHONE_HINTS),
   };
 }
 
@@ -131,6 +223,22 @@ function valueByHints(row: ClienteRow, hints: string[], excludeValues: string[] 
 
     const text = String(value).trim();
     if (exclude.has(normalizeText(text))) continue;
+    return text;
+  }
+
+  return "";
+}
+
+function valueByPhoneHints(row: ClienteRow, hints: string[]) {
+  for (const [key, value] of Object.entries(row)) {
+    if (!isPresent(value)) continue;
+
+    const normalizedKey = normalizeText(key);
+    if (!hints.some((hint) => normalizedKey.includes(normalizeText(hint)))) continue;
+
+    const text = String(value).trim();
+    const digits = text.replace(/\D/g, "");
+    if (digits.length < 7) continue;
     return text;
   }
 

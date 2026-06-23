@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "../../../lib/authServer";
 import { contractorForEmail, isAdminEmail } from "../../../lib/contractors";
-import { SUPABASE_KEY, SUPABASE_URL } from "../../../lib/supabaseServer";
+import { requireSupabaseKey, SUPABASE_URL } from "../../../lib/supabaseServer";
 
 type LoginResponse = { access_token?: string; refresh_token?: string; expires_in?: number; user?: { email?: string }; error_description?: string; msg?: string };
 
@@ -11,9 +11,10 @@ export async function POST(request: Request) {
   const contractor = contractorForEmail(normalizedEmail);
   if (!contractor) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });
 
+  const supabaseKey = requireSupabaseKey();
   const authResponse = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
-    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+    headers: { apikey: supabaseKey, "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizedEmail, password }),
     cache: "no-store",
   });

@@ -6,7 +6,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
-  Map,
+  Map as MapIcon,
   Package,
   TrendingDown,
   UserCheck,
@@ -16,7 +16,7 @@ import {
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
-import { getLocalDateKey, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import type { Vehiculo } from "../types";
 import { useStorageSnapshot } from "../../lib/storageEvents";
@@ -34,6 +34,7 @@ const EMPTY_CHECKINS: CheckinCajasRegistro[] = [];
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
+  const selectedDate = todayKey();
   const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
   const allModulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, EMPTY_MODULACIONES);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, EMPTY_CHECKINS);
@@ -41,25 +42,30 @@ export default function SeguimientoRefusalPage() {
   const activeVehiculos = useMemo(() => {
     const loaded = loadSeguimientoVehiculos();
     return loaded.length ? loaded : vehicles;
-  }, [vehicles, allModulaciones, checkins]);
+  }, [vehicles]);
 
-  const todayVehicles = useMemo(() => activeVehiculos.filter(isTodayVehicle), [activeVehiculos]);
-  const modulaciones = useMemo(
-    () => getOperationalModulaciones(allModulaciones, todayVehicles),
-    [allModulaciones, todayVehicles],
-  );
+  const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
+  const modulaciones = useMemo(() => {
+    return allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate);
+  }, [allModulaciones, selectedDate]);
 
   const refusalData = useMemo(() => {
     const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
+    const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
     const byVehicle = todayVehicles.map((vehicle) => {
       const registrosDt = modulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
       const checkin = getCheckinByDt(checkins, vehicle.transporte);
 
       return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
     });
-    const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0);
-    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0);
-    const final = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0);
+    const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
+    const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
+    const rechazosSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0);
+    const gestionadasSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0);
+    const finalSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0);
+    const rechazadas = rechazosSeguimiento + resumenSinSeguimiento.cajasRechazadas;
+    const gestionadas = gestionadasSeguimiento + resumenSinSeguimiento.cajasGestionadas;
+    const final = finalSeguimiento + resumenSinSeguimiento.cajasPendientes;
     const checkinAplicadas = byVehicle.filter((resumen) => resumen.tieneCheckin).length;
 
     return {
@@ -99,7 +105,7 @@ export default function SeguimientoRefusalPage() {
           <div className="flex items-center gap-3">
             <button
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push("/seguimiento")}
+              onClick={() => router.push(selectedDate ? `/seguimiento?fecha=${encodeURIComponent(selectedDate)}` : "/seguimiento")}
               type="button"
               aria-label="Volver a seguimiento"
             >
@@ -124,7 +130,7 @@ export default function SeguimientoRefusalPage() {
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-[#10223d]">
                 <TrendingDown size={19} />
@@ -160,39 +166,45 @@ export default function SeguimientoRefusalPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-5 flex items-center gap-2 text-[#10223d]">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-[#10223d]">
               <UserCheck size={19} />
               <h2 className="text-lg font-semibold">Personal y territorio</h2>
             </div>
 
-            <div className="mb-5">
-              <p className="mb-3 text-sm font-medium text-slate-500">Personal en operación</p>
-              <div className="flex flex-wrap gap-2">
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-slate-500">Personal en operación</p>
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{refusalData.moduladores.length}</span>
+              </div>
+              <div className="grid max-h-28 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
                 {refusalData.moduladores.length ? (
                   refusalData.moduladores.map((name) => (
-                    <span className="rounded-md bg-[#10223d] px-3 py-2 text-sm font-semibold text-white" key={name}>
+                    <span className="truncate rounded-md bg-[#10223d] px-2.5 py-1.5 text-xs font-semibold text-white" key={name} title={name}>
                       {name}
                     </span>
                   ))
                 ) : (
-                  <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-medium text-slate-500">Sin registros hoy</span>
+                  <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-500">Sin registros hoy</span>
                 )}
               </div>
             </div>
 
             <div>
-              <div className="mb-3 flex items-center gap-2 text-slate-600">
-                <Map size={17} />
-                <p className="text-sm font-medium">Impacto por territorio</p>
+              <div className="mb-2 flex items-center justify-between gap-3 text-slate-600">
+                <div className="flex items-center gap-2">
+                  <MapIcon size={17} />
+                  <p className="text-sm font-medium">Impacto por territorio</p>
+                </div>
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{territorioData.length}</span>
               </div>
-              <div className="space-y-3">
+              <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
                 {territorioData.length ? (
                   territorioData.map((item) => (
                     <TerritoryRow key={item.label} label={item.label} value={item.value} max={maxTerritorio} />
                   ))
                 ) : (
-                  <p className="rounded-lg bg-slate-50 p-4 text-center text-sm font-medium text-slate-500">Sin rechazos registrados hoy</p>
+                  <p className="rounded-md bg-slate-50 p-3 text-center text-xs font-medium text-slate-500">Sin rechazos registrados hoy</p>
                 )}
               </div>
             </div>
@@ -213,36 +225,38 @@ export default function SeguimientoRefusalPage() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="max-h-[460px] overflow-auto">
             <table className="w-full min-w-[820px]">
-              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500 shadow-[0_1px_0_#e2e8f0]">
                 <tr>
-                  <th className="px-4 py-3 text-left">DT / Cliente</th>
-                  <th className="px-4 py-3 text-left">Persona</th>
-                  <th className="px-4 py-3 text-center">Rechazo</th>
-                  <th className="px-4 py-3 text-center">Gestionadas</th>
-                  <th className="px-4 py-3 text-right">Causal</th>
+                  <th className="px-3 py-2.5 text-left">DT / Cliente</th>
+                  <th className="px-3 py-2.5 text-left">Persona</th>
+                  <th className="px-3 py-2.5 text-center">Rechazo</th>
+                  <th className="px-3 py-2.5 text-center">Gestionadas</th>
+                  <th className="px-3 py-2.5 text-right">Causal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {modulaciones.length ? (
                   modulaciones.map((item) => (
                     <tr className="transition hover:bg-slate-50" key={item.id}>
-                      <td className="px-4 py-2.5">
+                      <td className="px-3 py-2">
                         <p className="text-sm font-semibold text-[#10223d]">DT {item.dt}</p>
                         <p className="text-xs text-slate-500">Cliente {item.codigoCliente}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{item.persona}</td>
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="max-w-64 truncate px-3 py-2 text-sm font-medium text-slate-600" title={item.personaNombre || item.persona}>
+                        {item.personaNombre || item.persona}
+                      </td>
+                      <td className="px-3 py-2 text-center">
                         <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{item.totalCajas}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="px-3 py-2 text-center">
                         <div className="inline-flex items-center gap-2">
                           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{item.cajasGestionadas || 0}</span>
                           <GestionBuddy modulacion={item} />
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm font-medium text-slate-600">{item.causal}</td>
+                      <td className="max-w-64 truncate px-3 py-2 text-right text-sm font-medium text-slate-600" title={item.causal}>{item.causal}</td>
                     </tr>
                   ))
                 ) : (
@@ -384,12 +398,12 @@ function TerritoryRow({ label, value, max }: { label: string; value: number; max
 
   return (
     <div>
-      <div className="mb-2 flex justify-between text-sm">
-        <span className="font-medium text-slate-600">{label}</span>
+      <div className="mb-1 flex justify-between gap-3 text-xs">
+        <span className="truncate font-medium text-slate-600" title={label}>{label}</span>
         <span className="font-semibold text-[#10223d]">{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-slate-200">
-        <div className={`h-2 rounded-full ${color}`} style={{ width: `${percentage}%` }} />
+      <div className="h-1.5 rounded-full bg-slate-200">
+        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${percentage}%` }} />
       </div>
     </div>
   );
@@ -404,13 +418,17 @@ function todayKey() {
   return getLocalDateKey();
 }
 
-function isTodayVehicle(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === todayKey();
+function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
+}
+
+function getModulacionDateKey(registro: ModulacionRegistro) {
+  return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
 }
 
 function toDateKey(value: string | undefined) {
   if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   if (value.includes("/")) {
     const [day, month, year] = value.split("/").map(Number);
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

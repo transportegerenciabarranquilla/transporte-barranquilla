@@ -66,6 +66,7 @@ drop policy if exists "seguimiento lectura" on public.seguimiento_vehiculos;
 drop policy if exists "seguimiento escritura" on public.seguimiento_vehiculos;
 drop policy if exists "asistencias lectura" on public.asistencias_ruta;
 drop policy if exists "asistencias escritura" on public.asistencias_ruta;
+drop policy if exists "asistencias lectura publica" on public.asistencias_ruta;
 drop policy if exists "asistencias captura publica" on public.asistencias_ruta;
 drop policy if exists "asistencias actualizacion publica" on public.asistencias_ruta;
 drop policy if exists "personal lectura" on public.transporte_barranquilla;
@@ -120,6 +121,8 @@ using (public.current_is_admin() or public.normalize_contractor_label(contractor
 with check (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
 create policy "asistencias lectura" on public.asistencias_ruta
 for select to authenticated using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor());
+create policy "asistencias lectura publica" on public.asistencias_ruta
+for select to anon using (public.normalize_contractor_label(contractor) is not null);
 create policy "asistencias escritura" on public.asistencias_ruta
 for all to authenticated
 using (public.current_is_admin() or public.normalize_contractor_label(contractor) = public.current_contractor())
@@ -150,6 +153,7 @@ revoke all on public.transporte_barranquilla from anon;
 grant select, insert, update, delete on public.asistencias_ruta, public.checkins_cajas, public.modulaciones_ruta to authenticated;
 grant select on public.transporte_barranquilla to authenticated;
 grant select on public.transporte_barranquilla to anon;
+grant select on public.asistencias_ruta to anon;
 grant insert, update on public.asistencias_ruta to anon;
 
 notify pgrst, 'reload schema';

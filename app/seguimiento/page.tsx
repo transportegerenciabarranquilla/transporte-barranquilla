@@ -19,10 +19,12 @@ import type { Vehiculo } from "./types";
 import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey } from "./utils";
 import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { removeCheckinByDt } from "../lib/checkinStorage";
-import { getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, isTodayDate, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
+import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
 import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
+
+const SEGUIMIENTO_DATE_FILTER_KEY = "bavaria.seguimiento.fechaFiltro";
 
 export default function SeguimientoPage() {
   const router = useRouter();
@@ -57,6 +59,13 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
+    const urlDate = new URLSearchParams(window.location.search).get("fecha") || "";
+    const storedDate = sessionStorage.getItem(SEGUIMIENTO_DATE_FILTER_KEY) || "";
+    const nextDate = urlDate || storedDate;
+    if (nextDate) setFechaDtFilter(nextDate);
+  }, []);
+
+  useEffect(() => {
     if (pendingLocalSaveRef.current) return;
     setVehiculos(storedVehiculos);
   }, [storedVehiculos]);
@@ -71,7 +80,7 @@ export default function SeguimientoPage() {
     return vehiculos.filter((item) => {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
-      const matchesFechaDt = !fechaDtFilter || item.fechaDt === fechaDtFilter || item.fechaDespacho === fechaDtFilter;
+      const matchesFechaDt = !fechaDtFilter || toDateKey(item.fechaDespacho) === fechaDtFilter;
 
       return matchesSearch && matchesFechaDt;
     });
@@ -97,17 +106,20 @@ export default function SeguimientoPage() {
   }, [filteredVehicles, matchingVehicles]);
 
   const modulacionesHoy = useMemo(() => {
+    const targetDate = fechaDtFilter || getLocalDateKey();
     const operational = getOperationalModulaciones(modulaciones, filteredVehicles);
     const byId = new Map<string, ModulacionRegistro>();
 
     modulaciones.forEach((registro) => {
-      if (isTodayDate(registro.createdAt)) byId.set(registro.id, registro);
+      if (getModulacionDateKey(registro) === targetDate) byId.set(registro.id, registro);
     });
 
-    operational.forEach((registro) => byId.set(registro.id, registro));
+    operational.forEach((registro) => {
+      if (getModulacionDateKey(registro) === targetDate) byId.set(registro.id, registro);
+    });
 
     return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [filteredVehicles, modulaciones]);
+  }, [fechaDtFilter, filteredVehicles, modulaciones]);
   const showModulacionAlert = modulacionesHoy.length > 0 && !modulacionAlertDismissed;
   const latestModulacionId = modulacionesHoy[0]?.id || "";
   const selectedVehicle = useMemo(() => {
@@ -128,45 +140,49 @@ export default function SeguimientoPage() {
     setModulacionAlertDismissed(false);
   }, [latestModulacionId]);
 
-  function actualizarVisitados(recordKey: string, visitados: number) {
-    setVehiculos((current) => {
-      const prepared = prepareSeguimientoVehicles(
-        current.map((item) =>
-          getVehicleUiKey(item) === recordKey
-            ? {
-                ...item,
-                visitados: Math.min(Math.max(visitados, 0), item.clientes),
-              }
-            : item,
-        ),
-      );
+  useEffect(() => {
+    if (!showModulacionAlert) return;
 
-      scheduleSeguimientoSave(prepared);
-      return prepared;
-    });
+    const timeout = window.setTimeout(() => {
+      setModulacionAlertDismissed(true);
+    }, 30000);
+
+    return () => window.clearTimeout(timeout);
+  }, [latestModulacionId, showModulacionAlert]);
+
+  function actualizarVisitados(recordKey: string, visitados: number) {
+    const prepared = prepareSeguimientoVehicles(
+      vehiculos.map((item) =>
+        getVehicleUiKey(item) === recordKey
+          ? {
+              ...item,
+              visitados: Math.min(Math.max(visitados, 0), item.clientes),
+            }
+          : item,
+      ),
+    );
+
+    setVehiculos(prepared);
+    scheduleSeguimientoSave(prepared);
   }
 
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
     const shouldResetAttendance =
       changes.fechaDespacho !== undefined || changes.status === "Pernoctado" || changes.status === "Cambio de fecha";
+    const previousVehicle = vehiculos.find((item) => getVehicleUiKey(item) === recordKey);
 
     setVehiculoSeleccionado((current) =>
       current && (vehiculoSeleccionadoKey || getVehicleUiKey(current)) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
     );
 
-    setVehiculos((current) => {
-      const prepared = prepareSeguimientoVehicles(
-        current.map((item) => {
-          if (getVehicleUiKey(item) !== recordKey) return item;
+    if (previousVehicle) removeStaleRouteData(previousVehicle, shouldResetAttendance);
 
-          removeStaleRouteData(item, shouldResetAttendance);
-          return applyVehicleChanges(item, changes, shouldResetAttendance);
-        }),
-      );
+    const prepared = prepareSeguimientoVehicles(
+      vehiculos.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, shouldResetAttendance) : item)),
+    );
 
-      scheduleSeguimientoSave(prepared);
-      return prepared;
-    });
+    setVehiculos(prepared);
+    scheduleSeguimientoSave(prepared);
   }
 
   function scheduleSeguimientoSave(records: Vehiculo[]) {
@@ -224,6 +240,25 @@ export default function SeguimientoPage() {
     removeCheckinByDt(item.transporte);
   }
 
+  function getModulacionDateKey(registro: ModulacionRegistro) {
+    return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+  }
+
+  function toDateKey(value: string | undefined) {
+    if (!value) return "";
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+    if (value.includes("/")) {
+      const [day, month, year] = value.split("/").map(Number);
+      if ([day, month, year].every(Number.isFinite)) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+
   function seleccionarVehiculo(vehicle: Vehiculo) {
     setVehiculoSeleccionado(vehicle);
     setVehiculoSeleccionadoKey(getVehicleUiKey(vehicle));
@@ -237,11 +272,9 @@ export default function SeguimientoPage() {
 
     if (vehicle) removeStaleRouteData(vehicle, true);
 
-    setVehiculos((current) => {
-      const prepared = prepareSeguimientoVehicles(current.filter((item) => getVehicleUiKey(item) !== recordKey));
-      scheduleSeguimientoSave(prepared);
-      return prepared;
-    });
+    const prepared = prepareSeguimientoVehicles(vehiculos.filter((item) => getVehicleUiKey(item) !== recordKey));
+    setVehiculos(prepared);
+    scheduleSeguimientoSave(prepared);
 
     if (vehiculoSeleccionadoKey === recordKey) {
       setVehiculoSeleccionado(null);
@@ -269,6 +302,20 @@ export default function SeguimientoPage() {
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "No se pudo leer el archivo.");
     }
+  }
+
+  function updateFechaDtFilter(value: string) {
+    setFechaDtFilter(value);
+    if (value) {
+      sessionStorage.setItem(SEGUIMIENTO_DATE_FILTER_KEY, value);
+    } else {
+      sessionStorage.removeItem(SEGUIMIENTO_DATE_FILTER_KEY);
+    }
+  }
+
+  function goToGraficas() {
+    const query = fechaDtFilter ? `?fecha=${encodeURIComponent(fechaDtFilter)}` : "";
+    router.push(`/seguimiento/graficas${query}`);
   }
 
   return (
@@ -326,7 +373,7 @@ export default function SeguimientoPage() {
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
             <button
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white transition hover:bg-[#0b684a]"
-              onClick={() => router.push("/seguimiento/graficas")}
+              onClick={goToGraficas}
               type="button"
             >
               <BarChart3 size={18} />
@@ -355,7 +402,7 @@ export default function SeguimientoPage() {
           fechaDtFilter={fechaDtFilter}
           search={search}
           statusFilters={statusFilters}
-          onFechaDtChange={setFechaDtFilter}
+          onFechaDtChange={updateFechaDtFilter}
           onSearchChange={setSearch}
           onStatusChange={setStatusFilters}
         />

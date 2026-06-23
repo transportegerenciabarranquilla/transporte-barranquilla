@@ -16,6 +16,7 @@ const DELAY_THRESHOLD = 25;
 
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
+  const [selectedDate, setSelectedDate] = useState(getTodayKey);
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
     loadSeguimientoVehiculos,
@@ -35,12 +36,21 @@ export default function SeguimientoGraficasPage() {
   }, []);
 
   useEffect(() => {
+    const fecha = new URLSearchParams(window.location.search).get("fecha") || getTodayKey();
+    setSelectedDate(fecha);
+  }, []);
+
+  useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 60000);
 
     return () => window.clearInterval(interval);
   }, []);
 
-  const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
+  useEffect(() => {
+    setDateLabel(formatDateLabel(selectedDate));
+  }, [selectedDate]);
+
+  const todayVehicles = useMemo(() => vehicles.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [selectedDate, vehicles]);
 
   const resumen = useMemo(() => {
     const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
@@ -118,7 +128,7 @@ export default function SeguimientoGraficasPage() {
           <div className="flex items-center gap-3">
             <button
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push("/seguimiento")}
+              onClick={() => router.push(selectedDate ? `/seguimiento?fecha=${encodeURIComponent(selectedDate)}` : "/seguimiento")}
               type="button"
               aria-label="Volver a seguimiento"
             >
@@ -358,8 +368,8 @@ function getStatusTone(status: string): StatusTone {
   return tones[status] ?? "slate";
 }
 
-function isTodayVehicle(vehicle: Vehiculo) {
-  return parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getTodayKey();
+function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
+  return parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function parseDate(value: string | undefined) {
@@ -378,6 +388,12 @@ function parseDate(value: string | undefined) {
 function getTodayKey() {
   const today = new Date();
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function formatDateLabel(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return dateKey;
+  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
 }
 
 function getAverageRouteSeconds(vehicles: Vehiculo[], now: Date | null) {

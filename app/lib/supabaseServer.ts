@@ -5,14 +5,24 @@ export const SUPABASE_URL =
 export const SUPABASE_KEY: string =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
-  (() => {
-    throw new Error("Falta SUPABASE_ANON_KEY en .env.local.");
-  })();
+  "";
+
+export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+export function requireSupabaseKey() {
+  if (!SUPABASE_KEY) {
+    throw new Error("Falta SUPABASE_ANON_KEY en las variables de entorno.");
+  }
+
+  return SUPABASE_KEY;
+}
 
 export function supabaseHeaders(extra?: Record<string, string>) {
+  const key = requireSupabaseKey();
+
   return {
-    apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`,
+    apikey: key,
+    Authorization: `Bearer ${key}`,
     "Content-Type": "application/json",
     ...extra,
   };
@@ -20,6 +30,17 @@ export function supabaseHeaders(extra?: Record<string, string>) {
 
 export function supabaseUserHeaders(accessToken: string, extra?: Record<string, string>) {
   return supabaseHeaders({ Authorization: `Bearer ${accessToken}`, ...extra });
+}
+
+export function supabaseAdminHeaders(extra?: Record<string, string>) {
+  if (!SUPABASE_SERVICE_ROLE_KEY) return null;
+
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
 }
 
 export function supabaseRest(table: string, query = "") {
