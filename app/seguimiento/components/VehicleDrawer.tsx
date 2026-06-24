@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus } from "../utils";
@@ -23,10 +23,39 @@ export function VehicleDrawer({
   const capacity = vehicle.capacidad ? Math.round((vehicle.peso / vehicle.capacidad) * 100) : 0;
   const routeTime = calculateRouteTime(vehicle, now);
   const status = getStatus(progress, vehicle);
+  const onTimeClassification = getOnTimeClassification(vehicle.fechaDt, vehicle.fechaDespacho);
+  const hasRecargue = hasRecargueValue(vehicle.recargue);
+  const onUpdateVehicleRef = useRef(onUpdateVehicle);
+
+  useEffect(() => {
+    onUpdateVehicleRef.current = onUpdateVehicle;
+  }, [onUpdateVehicle]);
 
   function updateVehicle(changes: Partial<Vehiculo>) {
     onUpdateVehicle(recordKey, changes);
   }
+
+  useEffect(() => {
+    const plate = vehicle.vehiculo.trim();
+    if (!plate) return;
+
+    const controller = new AbortController();
+
+    fetch(`/api/capacidad-carga?placa=${encodeURIComponent(plate)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        const capacidad = Number(body.capacidad);
+        if (body.error) console.warn("No se pudo cargar capacidad_carga:", body.error);
+        if (!response.ok || !Number.isFinite(capacidad) || capacidad <= 0 || capacidad === vehicle.capacidad) return;
+        onUpdateVehicleRef.current(recordKey, { capacidad });
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [vehicle.vehiculo, vehicle.capacidad, recordKey]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
@@ -133,8 +162,32 @@ export function VehicleDrawer({
             <EditableInfo icon={<Truck size={18} />} label="Transporte" value={vehicle.transporte} onChange={(value) => updateVehicle({ transporte: String(value) })} />
             <EditableInfo icon={<MapPin size={18} />} label="Centro" value={vehicle.centro} onChange={(value) => updateVehicle({ centro: String(value) })} />
             <EditableInfo icon={<Truck size={18} />} label="Cod transportista" value={vehicle.codTransportista} onChange={(value) => updateVehicle({ codTransportista: String(value) })} />
-            <EditableInfo icon={<CalendarDays size={18} />} label="Fecha de DT" type="date" value={vehicle.fechaDt} onChange={(value) => updateVehicle({ fechaDt: String(value) })} />
-            <EditableInfo icon={<CalendarDays size={18} />} label="Fecha despacho" type="date" value={vehicle.fechaDespacho} onChange={(value) => updateVehicle({ fechaDespacho: String(value) })} />
+            <EditableInfo
+              icon={<CalendarDays size={18} />}
+              label="Fecha de DT"
+              type="date"
+              value={vehicle.fechaDt}
+              onChange={(value) => {
+                const fechaDt = String(value);
+                updateVehicle({
+                  fechaDt,
+                  clasificacionOnTime: getOnTimeClassification(fechaDt, vehicle.fechaDespacho),
+                });
+              }}
+            />
+            <EditableInfo
+              icon={<CalendarDays size={18} />}
+              label="Fecha despacho"
+              type="date"
+              value={vehicle.fechaDespacho}
+              onChange={(value) => {
+                const fechaDespacho = String(value);
+                updateVehicle({
+                  fechaDespacho,
+                  clasificacionOnTime: getOnTimeClassification(vehicle.fechaDt, fechaDespacho),
+                });
+              }}
+            />
             <EditableInfo icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} onChange={(value) => updateVehicle({ transportista: String(value) })} />
             <EditableInfo icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} onChange={(value) => updateVehicle({ responsable: String(value) })} />
             <EditableInfo icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || ""} onChange={(value) => updateVehicle({ cedulaResponsable: String(value) })} />
@@ -164,8 +217,11 @@ export function VehicleDrawer({
             <EditableInfo icon={<PackageCheck size={18} />} label="Alerta SIF potencial" value={vehicle.alertaSifPotencial} onChange={(value) => updateVehicle({ alertaSifPotencial: String(value) })} />
             <EditableInfo icon={<Users size={18} />} label="Relevador" value={vehicle.relevador} onChange={(value) => updateVehicle({ relevador: String(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Causal desviado" value={vehicle.causalDesviado} onChange={(value) => updateVehicle({ causalDesviado: String(value) })} />
-            <EditableInfo icon={<Clock3 size={18} />} label="Clasificacion on time" value={vehicle.clasificacionOnTime} onChange={(value) => updateVehicle({ clasificacionOnTime: String(value) })} />
-            <EditableInfo icon={<PackageCheck size={18} />} label="Recargue" value={vehicle.recargue} onChange={(value) => updateVehicle({ recargue: String(value) })} />
+            <Info icon={<Clock3 size={18} />} label="Clasificacion on time" value={onTimeClassification} />
+            <RecargueToggle
+              active={hasRecargue}
+              onToggle={() => updateVehicle({ recargue: hasRecargue ? "No" : "Si" })}
+            />
           </div>
 
           <div className="rounded-lg border border-slate-200 p-4">
@@ -242,4 +298,57 @@ function Info({ icon, label, value }: { icon: ReactNode; label: string; value: s
       <p className="font-semibold text-slate-900">{value}</p>
     </div>
   );
+}
+
+function RecargueToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center gap-2 text-[#10223d]">
+        <PackageCheck size={18} />
+        <p className="text-sm font-medium text-slate-500">Recargue</p>
+      </div>
+      <button
+        className={`h-10 w-full rounded-md px-3 text-sm font-semibold text-white transition ${
+          active ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+        }`}
+        onClick={onToggle}
+        type="button"
+      >
+        {active ? "Tiene recargue" : "Sin recargue"}
+      </button>
+    </div>
+  );
+}
+
+function hasRecargueValue(value: string | undefined) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return Boolean(normalized && !["no", "sin", "sin recargue", "pendiente", "-", "0"].includes(normalized));
+}
+
+function getOnTimeClassification(fechaDt: string | undefined, fechaDespacho: string | undefined) {
+  const dtDate = toDateKey(fechaDt);
+  const dispatchDate = toDateKey(fechaDespacho);
+
+  if (!dtDate || !dispatchDate) return "Pendiente";
+  return dtDate === dispatchDate ? "On Time" : "No On Time";
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }

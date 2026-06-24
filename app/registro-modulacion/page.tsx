@@ -111,7 +111,17 @@ export default function RegistroModulacionPage() {
       const timeout = window.setTimeout(() => {
         setClienteError("");
         setLoadingCliente(false);
-        setForm((current) => ({ ...current, nombreCliente: "", telefonoCliente: "", com: "", jefeComercial: "", telefonoJefeComercial: "", preventista: "" }));
+        setForm((current) => ({
+          ...current,
+          nombreCliente: "",
+          telefonoCliente: "",
+          com: "",
+          jefeComercial: "",
+          telefonoJefeComercial: "",
+          preventista: "",
+          preventistaNombre: "",
+          telefonoPreventista: "",
+        }));
       }, 0);
       return () => window.clearTimeout(timeout);
     }
@@ -132,7 +142,17 @@ export default function RegistroModulacionPage() {
           const cliente = body.cliente;
           if (!cliente) {
             setClienteError("Cliente no encontrado.");
-            setForm((current) => ({ ...current, nombreCliente: "", telefonoCliente: "", com: "", jefeComercial: "", telefonoJefeComercial: "", preventista: "" }));
+            setForm((current) => ({
+              ...current,
+              nombreCliente: "",
+              telefonoCliente: "",
+              com: "",
+              jefeComercial: "",
+              telefonoJefeComercial: "",
+              preventista: "",
+              preventistaNombre: "",
+              telefonoPreventista: "",
+            }));
             return;
           }
 
@@ -144,6 +164,8 @@ export default function RegistroModulacionPage() {
             jefeComercial: cliente.jefeComercial || "",
             telefonoJefeComercial: cliente.telefonoJefeComercial || "",
             preventista: cliente.preventista || "",
+            preventistaNombre: cliente.preventistaNombre || "",
+            telefonoPreventista: cliente.telefonoPreventista || "",
           }));
         })
         .catch((error) => {

@@ -26,6 +26,8 @@ export const initialForm: FormState = {
   jefeComercial: "",
   telefonoJefeComercial: "",
   preventista: "",
+  preventistaNombre: "",
+  telefonoPreventista: "",
   totalCajas: "",
   cajasGestionadas: "",
   persona: "",

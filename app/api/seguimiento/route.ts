@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import type { Vehiculo } from "../../seguimiento/types";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "seguimiento_vehiculos";
+const CAPACITY_TABLE = "capacidad_carga";
 const PUBLIC_CONTRACTORS: Record<string, string> = {
   logisticos: "Logisticos",
   puntocorona: "Punto Corona",
@@ -32,7 +33,8 @@ export async function GET(request: Request) {
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
     const rows = (await response.json()) as { contractor?: string; data: Vehiculo }[];
-    return NextResponse.json({ records: rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista })) });
+    const records = rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista }));
+    return NextResponse.json({ records: await applyDatabaseCapacities(records, session?.accessToken) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando seguimiento." }, { status: 500 });
   }
@@ -46,10 +48,13 @@ export async function PUT(request: Request) {
     const { records } = (await request.json()) as { records: Vehiculo[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
-    const scopedRecords = records.map((record) => ({
-      ...record,
-      transportista: session.contractor,
-    }));
+    const scopedRecords = await applyDatabaseCapacities(
+      records.map((record) => ({
+        ...record,
+        transportista: session.contractor,
+      })),
+      session.accessToken,
+    );
 
     const rows = scopedRecords.map((record, index) => ({
       record_id: record.recordId || `${record.transporte}-${record.fechaDespacho || record.fechaDt}-${index}`,
@@ -92,8 +97,127 @@ export async function PUT(request: Request) {
     if (!savedResponse.ok) return NextResponse.json({ error: await supabaseError(savedResponse) }, { status: savedResponse.status });
 
     const savedRows = (await savedResponse.json()) as { data: Vehiculo }[];
-    return NextResponse.json({ records: savedRows.map((row) => row.data) });
+    return NextResponse.json({ records: await applyDatabaseCapacities(savedRows.map((row) => row.data), session.accessToken) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
   }
+}
+
+async function applyDatabaseCapacities(records: Vehiculo[], accessToken?: string) {
+  if (!records.length) return records;
+
+  const capacityByPlate = await readCapacityByPlate(accessToken);
+  if (!capacityByPlate.size) return records;
+
+  return records.map((record) => {
+    const capacity = capacityByPlate.get(normalizePlate(record.vehiculo));
+    return typeof capacity === "number" ? { ...record, capacidad: capacity } : record;
+  });
+}
+
+async function readCapacityByPlate(accessToken?: string) {
+  const params = new URLSearchParams({ select: "*" });
+  const response = await fetch(supabaseRest(CAPACITY_TABLE, `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? (accessToken ? supabaseUserHeaders(accessToken) : supabaseHeaders()),
+    cache: "no-store",
+  });
+  if (!response.ok) return new Map<string, number>();
+
+  const rows = (await response.json().catch(() => [])) as Record<string, unknown>[];
+  const capacities = new Map<string, number>();
+
+  rows.forEach((row) => {
+    const sources = getSearchableRows(row);
+    const plate = normalizePlate(sources.map(readPlate).find(Boolean));
+    const capacity = firstFiniteNumber(sources.map(readCapacity));
+
+    if (!plate || !Number.isFinite(capacity)) return;
+    capacities.set(plate, capacity);
+  });
+
+  return capacities;
+}
+
+function valueByKnownKeys(row: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
+  }
+
+  return valueByHints(row, keys);
+}
+
+function valueByHints(row: Record<string, unknown>, hints: string[]) {
+  const normalizedHints = hints.map(normalizeKey);
+
+  for (const [key, value] of Object.entries(row)) {
+    if (value === undefined || value === null || String(value).trim() === "") continue;
+
+    const normalizedKey = normalizeKey(key);
+    if (normalizedHints.some((hint) => normalizedKey.includes(hint) || hint.includes(normalizedKey))) return String(value).trim();
+  }
+
+  return "";
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(String(value ?? "").replace(",", ".").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function getSearchableRows(row: Record<string, unknown>) {
+  const rows = [row];
+
+  Object.values(row).forEach((value) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) rows.push(value as Record<string, unknown>);
+  });
+
+  return rows;
+}
+
+function readPlate(row: Record<string, unknown>) {
+  return valueByKnownKeys(row, ["placa", "PLACA", "Placa", "vehiculo", "VEHICULO", "Vehiculo", "vehículo", "Vehículo", "vehicle", "plate", "vh", "VH"]);
+}
+
+function readCapacity(row: Record<string, unknown>) {
+  return numberValue(
+    valueByKnownKeys(row, [
+      "capacidad",
+      "CAPACIDAD",
+      "Capacidad",
+      "capacidad_carga",
+      "CAPACIDAD_CARGA",
+      "capacidadCarga",
+      "CapacidadCarga",
+      "capacidad de carga",
+      "Capacidad de carga",
+      "carga",
+      "CARGA",
+      "Carga",
+      "peso",
+      "PESO",
+      "Peso",
+    ]),
+  );
+}
+
+function firstFiniteNumber(values: number[]) {
+  return values.find((value) => Number.isFinite(value)) ?? Number.NaN;
+}
+
+function normalizeKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizePlate(value: string | undefined) {
+  const normalized = String(value ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, "");
+
+  return normalized.replace(/^vh/, "");
 }

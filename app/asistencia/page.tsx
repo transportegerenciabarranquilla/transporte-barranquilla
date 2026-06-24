@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
@@ -79,11 +79,6 @@ export default function AsistenciaPage() {
     return () => timers.forEach((timer) => timer && window.clearTimeout(timer));
   }, [form.cedulaAuxiliar1, form.cedulaAuxiliar2, form.cedulaResponsable, form.contratista]);
 
-  const llave = useMemo(() => {
-    if (!form.contratista || !form.dt) return "";
-    return createAttendanceKey(form.contratista, form.dt);
-  }, [form.contratista, form.dt]);
-
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
@@ -150,24 +145,7 @@ export default function AsistenciaPage() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-6xl gap-6 px-5 py-8 sm:px-8 lg:grid-cols-[0.95fr_1.05fr] lg:py-10">
-        <aside className="rounded-lg bg-[#10223d] p-6 text-white shadow-[0_22px_70px_rgba(16,34,61,0.2)] sm:p-8">
-          <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-md bg-[#f5bd19] text-[#10223d]">
-            <Users size={24} />
-          </div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Asistencia de ruta</p>
-          <h1 className="mt-3 text-3xl font-semibold leading-tight">Registro de RR, conductor y auxiliares</h1>
-          <p className="mt-4 text-sm leading-6 text-white/72">
-            Este formulario captura el DT, contratista y cedulas. Con el contratista y el DT se genera la llave que luego
-            alimentara el modulo de seguimiento.
-          </p>
-
-          <div className="mt-8 rounded-md border border-white/15 bg-white/10 p-4">
-            <p className="text-sm text-white/65">Llave generada</p>
-            <p className="mt-2 break-all text-xl font-semibold text-[#f5bd19]">{llave || "Selecciona contratista e ingresa DT"}</p>
-          </div>
-        </aside>
-
+      <section className="mx-auto max-w-3xl px-5 py-8 sm:px-8 lg:py-10">
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <form className="space-y-5" onSubmit={handleSubmit} noValidate>
             <label className="block">

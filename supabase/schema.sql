@@ -155,5 +155,11 @@ grant select on public.transporte_barranquilla to authenticated;
 grant select on public.transporte_barranquilla to anon;
 grant select on public.asistencias_ruta to anon;
 grant insert, update on public.asistencias_ruta to anon;
+grant select on public.capacidad_carga to anon, authenticated;
+
+alter table public.capacidad_carga enable row level security;
+drop policy if exists "capacidad carga lectura" on public.capacidad_carga;
+create policy "capacidad carga lectura" on public.capacidad_carga
+for select to anon, authenticated using (true);
 
 notify pgrst, 'reload schema';

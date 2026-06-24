@@ -25,6 +25,7 @@ import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 
 const SEGUIMIENTO_DATE_FILTER_KEY = "bavaria.seguimiento.fechaFiltro";
+const MODULACION_ALERT_VISIBLE_MS = 30000;
 
 export default function SeguimientoPage() {
   const router = useRouter();
@@ -62,7 +63,10 @@ export default function SeguimientoPage() {
     const urlDate = new URLSearchParams(window.location.search).get("fecha") || "";
     const storedDate = sessionStorage.getItem(SEGUIMIENTO_DATE_FILTER_KEY) || "";
     const nextDate = urlDate || storedDate;
-    if (nextDate) setFechaDtFilter(nextDate);
+    if (!nextDate) return;
+
+    const timeout = window.setTimeout(() => setFechaDtFilter(nextDate), 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -120,8 +124,13 @@ export default function SeguimientoPage() {
 
     return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [fechaDtFilter, filteredVehicles, modulaciones]);
-  const showModulacionAlert = modulacionesHoy.length > 0 && !modulacionAlertDismissed;
   const latestModulacionId = modulacionesHoy[0]?.id || "";
+  const latestModulacionCreatedAt = modulacionesHoy[0]?.createdAt || "";
+  const showModulacionAlert =
+    modulacionesHoy.length > 0 &&
+    !modulacionAlertDismissed &&
+    isViewingToday(fechaDtFilter) &&
+    isRecentModulacion(latestModulacionCreatedAt);
   const selectedVehicle = useMemo(() => {
     if (!vehiculoSeleccionado) return null;
 
@@ -137,7 +146,8 @@ export default function SeguimientoPage() {
 
   useEffect(() => {
     if (!latestModulacionId) return;
-    setModulacionAlertDismissed(false);
+    const timeout = window.setTimeout(() => setModulacionAlertDismissed(false), 0);
+    return () => window.clearTimeout(timeout);
   }, [latestModulacionId]);
 
   useEffect(() => {
@@ -145,7 +155,7 @@ export default function SeguimientoPage() {
 
     const timeout = window.setTimeout(() => {
       setModulacionAlertDismissed(true);
-    }, 30000);
+    }, MODULACION_ALERT_VISIBLE_MS);
 
     return () => window.clearTimeout(timeout);
   }, [latestModulacionId, showModulacionAlert]);
@@ -226,6 +236,12 @@ export default function SeguimientoPage() {
       updated.visitados = 0;
     }
 
+    if (changes.status === "Pernoctado") {
+      updated.horaSalida = "Pendiente";
+      updated.horaLlegada = "Pendiente";
+      updated.tiempoRuta = "Pendiente";
+    }
+
     if (changes.horaSalida !== undefined || changes.horaLlegada !== undefined) {
       updated.tiempoRuta = calculateRouteTime(updated, now);
     }
@@ -240,23 +256,11 @@ export default function SeguimientoPage() {
     removeCheckinByDt(item.transporte);
   }
 
-  function getModulacionDateKey(registro: ModulacionRegistro) {
-    return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
-  }
+  function isRecentModulacion(value: string) {
+    const createdAt = new Date(value).getTime();
+    if (!Number.isFinite(createdAt)) return false;
 
-  function toDateKey(value: string | undefined) {
-    if (!value) return "";
-    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-    if (value.includes("/")) {
-      const [day, month, year] = value.split("/").map(Number);
-      if ([day, month, year].every(Number.isFinite)) {
-        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      }
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return "";
-    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    return now.getTime() - createdAt <= MODULACION_ALERT_VISIBLE_MS;
   }
 
   function seleccionarVehiculo(vehicle: Vehiculo) {
@@ -432,4 +436,27 @@ export default function SeguimientoPage() {
       </section>
     </main>
   );
+}
+
+function getModulacionDateKey(registro: ModulacionRegistro) {
+  return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function isViewingToday(value: string) {
+  return !value || value === getLocalDateKey();
 }

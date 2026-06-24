@@ -15,9 +15,11 @@ type RefusalRow = {
   causal: string;
   com: string;
   establecimiento: string;
+  gestionadas: number;
   jefeVentas: string;
   placa: string;
   preventista: string;
+  reportadas: number;
   rechazadas: number;
   registro: ModulacionRegistro;
   rr: string;
@@ -33,20 +35,11 @@ export default function RefusalComPage() {
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
-  const [dateLabel, setDateLabel] = useState("");
 
   useEffect(() => {
     const fecha = new URLSearchParams(window.location.search).get("fecha") || toDateKey(new Date());
     setSelectedDate(fecha);
   }, []);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setDateLabel(formatDateLabel(selectedDate));
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [selectedDate]);
 
   const activeVehiculos = useMemo(() => {
     const loaded = loadSeguimientoVehiculos();
@@ -59,30 +52,36 @@ export default function RefusalComPage() {
 
   const rows = useMemo(() => {
     const vehicleByDt = new Map(todayVehicles.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
+    const fallbackVehicleByDt = new Map(activeVehiculos.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
 
-    return visibleModulaciones
+    const mappedRows = visibleModulaciones
       .map((registro) => {
-        const vehicle = vehicleByDt.get(normalizeDt(registro.dt));
+        const normalizedDt = normalizeDt(registro.dt);
+        const vehicle = vehicleByDt.get(normalizedDt) || fallbackVehicleByDt.get(normalizedDt);
+        const reportadas = Number(registro.totalCajas || 0);
+        const gestionadas = Number(registro.cajasGestionadas || 0);
 
         return {
           causal: registro.causal || "Sin causal",
           com: getCom(registro, vehicle),
-          establecimiento: registro.nombreCliente || `Cliente ${registro.codigoCliente}`,
+          establecimiento: formatCliente(registro.codigoCliente, registro.nombreCliente),
+          gestionadas,
           jefeVentas: getJefeVentas(registro, vehicle),
-          placa: vehicle?.vehiculo || `DT-${registro.dt}`,
-          preventista: registro.preventista || "Sin asignacion",
-          rechazadas: Number(registro.totalCajas || 0),
+          placa: vehicle?.vehiculo || "Sin placa",
+          preventista: getPreventista(registro),
+          reportadas,
+          rechazadas: Math.max(reportadas - gestionadas, 0),
           registro,
-          rr: registro.persona || vehicle?.responsable || "Sin asistencia",
+          rr: registro.personaNombre || vehicle?.nombreResponsable || vehicle?.responsable || "Sin asistencia",
         };
       })
-      .sort((a, b) => b.rechazadas - a.rechazadas);
-  }, [todayVehicles, visibleModulaciones]);
+    return groupRowsByPlate(mappedRows).sort((a, b) => b.rechazadas - a.rechazadas);
+  }, [activeVehiculos, todayVehicles, visibleModulaciones]);
 
   const totals = useMemo(() => {
     const cajasRechazadas = rows.reduce((total, row) => total + row.rechazadas, 0);
-    const cajasGestionadas = visibleModulaciones.reduce((total, registro) => total + Number(registro.cajasGestionadas || 0), 0);
-    const cajasReportadas = visibleModulaciones.reduce((total, registro) => total + Number(registro.totalCajas || 0), 0);
+    const cajasGestionadas = rows.reduce((total, row) => total + row.gestionadas, 0);
+    const cajasReportadas = rows.reduce((total, row) => total + row.reportadas, 0);
     const totalCajasSeguimiento = todayVehicles.reduce((total, vehicle) => total + Number(vehicle.cajas || 0), 0);
     const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
     const byVehicle = todayVehicles.map((vehicle) => {
@@ -107,7 +106,7 @@ export default function RefusalComPage() {
 
   const byJefe = useMemo(() => groupRows(rows, (row) => row.jefeVentas).slice(0, 6), [rows]);
   const byCausal = useMemo(() => groupRows(rows, (row) => row.causal).slice(0, 8), [rows]);
-  const byCom = useMemo(() => groupRows(rows, (row) => row.com).slice(0, 18), [rows]);
+  const byPreventista = useMemo(() => groupRows(rows, (row) => row.preventista).slice(0, 18), [rows]);
 
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
@@ -140,11 +139,18 @@ export default function RefusalComPage() {
                 <ShieldAlert size={18} />
               </span>
               <div>
-                <h2 className="text-base font-semibold text-[#10223d]">Detalle refusal por COM</h2>
+                <h2 className="text-base font-semibold text-[#10223d]">Detalle refusal por preventista</h2>
                 <p className="mt-0.5 text-xs text-slate-500">Resumen del dia cruzado con modulaciones y seguimiento. Modulaciones cargadas: {modulaciones.length}.</p>
               </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">{dateLabel || "Hoy"}</span>
+            <div className="flex items-center gap-2">
+              <input
+                className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                onChange={(event) => setSelectedDate(event.target.value)}
+                type="date"
+                value={selectedDate}
+              />
+            </div>
           </div>
           <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 xl:grid-cols-4">
               <TopMetric label="% refusal dia" value={`${totals.refusal.toLocaleString("es-CO")}%`} highlight />
@@ -164,8 +170,8 @@ export default function RefusalComPage() {
         </div>
 
         <div className="mt-4">
-          <ChartPanel icon={<Package size={16} />} title="Cajas de rechazo por COM">
-            <ComBars data={byCom} />
+          <ChartPanel icon={<Package size={16} />} title="Cajas de rechazo por preventista">
+            <ComBars data={byPreventista} />
           </ChartPanel>
         </div>
 
@@ -178,7 +184,7 @@ export default function RefusalComPage() {
             <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600">{rows.length} registros</span>
           </div>
           <div className="max-h-[520px] overflow-auto">
-            <table className="w-full min-w-[1160px]">
+            <table className="w-full min-w-[1240px]">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">Establecimiento</th>
@@ -187,27 +193,29 @@ export default function RefusalComPage() {
                   <th className="px-3 py-2 text-left">Placa</th>
                   <th className="px-3 py-2 text-left">Preventista</th>
                   <th className="px-3 py-2 text-left">Jefe de ventas</th>
-                  <th className="px-3 py-2 text-left">COM</th>
+                  <th className="px-3 py-2 text-right">Cajas reportadas</th>
+                  <th className="px-3 py-2 text-right">Cajas gestionadas</th>
                   <th className="px-3 py-2 text-right">Cajas rechazadas</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length ? (
+                  {rows.length ? (
                   rows.map((row, index) => (
-                    <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-50"} key={row.registro.id}>
+                    <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-50"} key={row.placa}>
                       <td className="px-3 py-1.5 text-xs font-medium text-slate-700">{row.establecimiento}</td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-slate-700">{row.causal}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.rr}</td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-[#10223d]">{row.placa}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.preventista}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.jefeVentas}</td>
-                      <td className="px-3 py-1.5 text-xs font-semibold text-[#10223d]">{row.com}</td>
+                      <td className="px-3 py-1.5 text-right text-xs font-black text-slate-700">{row.reportadas}</td>
+                      <td className="px-3 py-1.5 text-right text-xs font-black text-emerald-700">{row.gestionadas}</td>
                       <td className="px-3 py-1.5 text-right text-xs font-black text-red-700">{row.rechazadas}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={8}>
+                    <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={9}>
                       No hay registros de refusal para hoy.
                     </td>
                   </tr>
@@ -306,6 +314,34 @@ function EmptyChart() {
   );
 }
 
+function groupRowsByPlate(rows: RefusalRow[]) {
+  const grouped = new Map<string, RefusalRow>();
+
+  rows.forEach((row) => {
+    const key = normalizePlate(row.placa) || row.placa;
+    const current = grouped.get(key);
+
+    if (!current) {
+      grouped.set(key, { ...row });
+      return;
+    }
+
+    current.establecimiento = mergeLabels(current.establecimiento, row.establecimiento);
+    current.causal = mergeLabels(current.causal, row.causal);
+    current.gestionadas += row.gestionadas;
+    current.reportadas += row.reportadas;
+    current.rechazadas = Math.max(current.reportadas - current.gestionadas, 0);
+  });
+
+  return Array.from(grouped.values());
+}
+
+function mergeLabels(current: string, next: string) {
+  const values = Array.from(new Set([...current.split(" / "), next].map((value) => value.trim()).filter(Boolean)));
+  if (values.length <= 2) return values.join(" / ");
+  return `${values.length} registros`;
+}
+
 function groupRows(rows: RefusalRow[], getLabel: (row: RefusalRow) => string) {
   const totals = new Map<string, number>();
 
@@ -326,14 +362,26 @@ function getCom(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
   const found = candidates.find((value) => /^COM/i.test(value.trim()));
   if (found) return found.trim().toUpperCase();
 
-  const code = String(registro.codigoCliente || registro.dt || "0").replace(/\D/g, "");
-  return code ? `COM${code.slice(-3).padStart(3, "0")}` : "Sin asignacion";
+  return "Sin asignacion";
+}
+
+function formatCliente(codigoCliente: string | undefined, nombreCliente: string | undefined) {
+  const code = codigoCliente?.trim();
+  const name = nombreCliente?.trim();
+
+  if (code && name) return `${code} - ${name}`;
+  if (code) return `Cliente ${code}`;
+  return name || "Sin cliente";
 }
 
 function getJefeVentas(registro: ModulacionRegistro, vehicle: Vehiculo | undefined) {
   if (registro.jefeComercial?.trim()) return registro.jefeComercial.trim();
 
   return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
+}
+
+function getPreventista(registro: ModulacionRegistro) {
+  return registro.preventistaNombre?.trim() || registro.preventista?.trim() || "Sin asignacion";
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
@@ -357,14 +405,15 @@ function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function formatDateLabel(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  if (![year, month, day].every(Number.isFinite)) return dateKey;
-  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
-}
-
 function normalizeDt(value: string | number | undefined) {
   return String(value ?? "")
     .replace(/^DT-?/i, "")
     .replace(/\D/g, "");
+}
+
+function normalizePlate(value: string | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, "");
 }

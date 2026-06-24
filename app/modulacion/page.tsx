@@ -10,6 +10,7 @@ import {
   saveModulacionRegistros,
   type ModulacionRegistro,
 } from "../lib/modulacionStorage";
+import { readSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
 import type { Vehiculo } from "../seguimiento/types";
@@ -23,11 +24,13 @@ export default function ModulacionPage() {
   const [search, setSearch] = useState("");
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
   const [telefonosJefeComercial, setTelefonosJefeComercial] = useState<Record<string, string>>({});
+  const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
+  const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setRegistros(readModulacionRegistros());
-      setVehiculosSeguimiento(getVehiculosSeguimiento());
+      setVehiculosSeguimiento(mergeVehiclesByDt(readSeguimientoVehiculos(), getVehiculosSeguimiento()));
     }, 0);
 
     return () => window.clearTimeout(timeout);
@@ -54,14 +57,19 @@ export default function ModulacionPage() {
 
   const vehiculoSeleccionado = useMemo(() => {
     if (!registroSeleccionado) return null;
-    return vehiculosSeguimiento.find((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(registroSeleccionado.dt)) ?? null;
+    const registroDate = getRegistroDateKey(registroSeleccionado);
+    const vehiclesByDt = vehiculosSeguimiento.filter((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(registroSeleccionado.dt));
+    return vehiclesByDt.find((vehiculo) => getVehicleDateKey(vehiculo) === registroDate) ?? vehiclesByDt[0] ?? null;
   }, [registroSeleccionado, vehiculosSeguimiento]);
 
   useEffect(() => {
     if (
       !registroSeleccionado?.codigoCliente ||
-      (registroSeleccionado.telefonoCliente && registroSeleccionado.telefonoJefeComercial) ||
-      (telefonosCliente[registroSeleccionado.codigoCliente] && telefonosJefeComercial[registroSeleccionado.codigoCliente])
+      (registroSeleccionado.telefonoCliente && registroSeleccionado.telefonoJefeComercial && registroSeleccionado.telefonoPreventista && registroSeleccionado.preventistaNombre) ||
+      (telefonosCliente[registroSeleccionado.codigoCliente] &&
+        telefonosJefeComercial[registroSeleccionado.codigoCliente] &&
+        telefonosPreventista[registroSeleccionado.codigoCliente] &&
+        nombresPreventista[registroSeleccionado.codigoCliente])
     ) {
       return;
     }
@@ -76,13 +84,17 @@ export default function ModulacionPage() {
         if (!response.ok) return;
         const telefono = body.cliente?.telefono || "";
         const telefonoJefe = body.cliente?.telefonoJefeComercial || "";
+        const telefonoPreventista = body.cliente?.telefonoPreventista || "";
+        const preventistaNombre = body.cliente?.preventistaNombre || "";
         if (telefono) setTelefonosCliente((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefono }));
         if (telefonoJefe) setTelefonosJefeComercial((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefonoJefe }));
+        if (telefonoPreventista) setTelefonosPreventista((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefonoPreventista }));
+        if (preventistaNombre) setNombresPreventista((current) => ({ ...current, [registroSeleccionado.codigoCliente]: preventistaNombre }));
       })
       .catch(() => undefined);
 
     return () => controller.abort();
-  }, [registroSeleccionado, telefonosCliente, telefonosJefeComercial]);
+  }, [nombresPreventista, registroSeleccionado, telefonosCliente, telefonosJefeComercial, telefonosPreventista]);
 
   function updateCajasGestionadas(id: string, value: string) {
     const nextRecords = registros.map((registro) =>
@@ -263,6 +275,8 @@ export default function ModulacionPage() {
             selectedVehicle={vehiculoSeleccionado}
             telefonoCliente={registroSeleccionado.telefonoCliente || telefonosCliente[registroSeleccionado.codigoCliente] || ""}
             telefonoJefeComercial={registroSeleccionado.telefonoJefeComercial || telefonosJefeComercial[registroSeleccionado.codigoCliente] || ""}
+            telefonoPreventista={registroSeleccionado.telefonoPreventista || telefonosPreventista[registroSeleccionado.codigoCliente] || ""}
+            preventistaNombre={registroSeleccionado.preventistaNombre || nombresPreventista[registroSeleccionado.codigoCliente] || ""}
           />
         ) : null}
       </section>
@@ -276,6 +290,8 @@ function ModulacionDetailModal({
   selectedVehicle,
   telefonoCliente,
   telefonoJefeComercial,
+  telefonoPreventista,
+  preventistaNombre,
   onChangeGestionadas,
   onChangeComentarioModulador,
 }: {
@@ -284,6 +300,8 @@ function ModulacionDetailModal({
   selectedVehicle: Vehiculo | null;
   telefonoCliente: string;
   telefonoJefeComercial: string;
+  telefonoPreventista: string;
+  preventistaNombre: string;
   onChangeGestionadas: (id: string, value: string) => void;
   onChangeComentarioModulador: (id: string, value: string) => void;
 }) {
@@ -298,7 +316,9 @@ function ModulacionDetailModal({
             <div className="[&>h2:nth-of-type(2)]:hidden">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Detalle de modulacion</p>
               <h2 className="mt-1 text-xl font-semibold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</h2>
-              <p className="mt-0.5 text-sm font-semibold text-slate-500">Cliente {registro.codigoCliente} - DT {registro.dt}</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-500">
+                Cliente {registro.codigoCliente} - DT {registro.dt} - Placa {selectedVehicle?.vehiculo || "-"}
+              </p>
               <h2 className="mt-1 text-lg font-semibold text-[#10223d]">DT {registro.dt} · Cliente {registro.codigoCliente}</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {formatDate(registro.createdAt)} · {formatTime(registro.createdAt)}
@@ -335,18 +355,19 @@ function ModulacionDetailModal({
             <div className="grid gap-2 sm:grid-cols-2">
               <DetailTile label="Datos del cliente">
                 <p className="text-base font-bold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</p>
-                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">No. {registro.codigoCliente}</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Codigo del cliente {registro.codigoCliente}</p>
                 <DetailLine label="Telefono" value={telefonoCliente || "-"} />
               </DetailTile>
               <DetailTile label="Datos de ventas">
                 <DetailLine label="Jefe" value={registro.jefeComercial || "-"} />
                 <DetailLine label="Tel. jefe" value={telefonoJefeComercial || "-"} />
-                <DetailLine label="Preventista" value={registro.preventista || "-"} />
+                <DetailLine label="Preventista" value={preventistaNombre || registro.preventista || "-"} />
+                <DetailLine label="Tel. preventista" value={telefonoPreventista || "-"} />
               </DetailTile>
               <DetailTile label="Ruta">
                 <DetailLine label="DT" value={registro.dt} />
                 <DetailLine label="Placa" value={selectedVehicle?.vehiculo || "-"} />
-                <DetailLine label="Transportista" value={selectedVehicle?.transportista || "-"} />
+                <DetailLine label="Contratista" value={registro.contratista || selectedVehicle?.transportista || "-"} />
               </DetailTile>
               <DetailTile label="Gestion RR">
                 <DetailLine label="Responsable" value={selectedVehicle?.responsable || registro.personaNombre || registro.persona} />
@@ -512,16 +533,16 @@ function ModalMetric({ label, value, tone }: { label: string; value: ReactNode; 
 
 function DetailTile({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <div className="mt-1.5 break-words">{children}</div>
+    <div className="min-h-24 rounded-md border border-slate-200 bg-white p-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <div className="mt-1 break-words">{children}</div>
     </div>
   );
 }
 
 function DetailLine({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <span className="mt-1 flex items-start justify-between gap-3 text-xs first:mt-0">
+    <span className="mt-0.5 flex items-start justify-between gap-3 text-xs first:mt-0">
       <span className="font-medium text-slate-500">{label}</span>
       <span className="text-right font-semibold text-[#10223d]">{value}</span>
     </span>
@@ -540,4 +561,44 @@ function formatDate(value: string) {
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("es-CO");
+}
+
+function mergeVehiclesByDt(primary: Vehiculo[], fallback: Vehiculo[]) {
+  const vehicles = new Map<string, Vehiculo>();
+
+  fallback.forEach((vehicle) => {
+    vehicles.set(getVehicleLookupKey(vehicle), vehicle);
+  });
+  primary.forEach((vehicle) => {
+    vehicles.set(getVehicleLookupKey(vehicle), vehicle);
+  });
+
+  return Array.from(vehicles.values());
+}
+
+function getVehicleLookupKey(vehicle: Vehiculo) {
+  return `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`;
+}
+
+function getRegistroDateKey(registro: ModulacionRegistro) {
+  return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+}
+
+function getVehicleDateKey(vehicle: Vehiculo) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }

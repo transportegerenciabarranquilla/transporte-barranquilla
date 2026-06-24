@@ -91,7 +91,7 @@ export function ModulacionForm({
                   {!form.contratista
                     ? "Primero selecciona el contratista"
                     : !form.dt
-                      ? "Escribe el DT manual para validar"
+                      ? ""
                       : loadingVehicles
                         ? "Validando DT..."
                         : "Sin DT cargado para ese numero"}

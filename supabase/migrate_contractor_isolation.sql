@@ -216,5 +216,11 @@ with check (public.current_is_admin() or public.normalize_contractor_label(contr
 
 grant select on public.seguimiento_vehiculos, public.asistencias_ruta to anon;
 grant select, insert, update, delete on public.seguimiento_vehiculos, public.asistencias_ruta, public.checkins_cajas, public.modulaciones_ruta to authenticated;
+grant select on public.capacidad_carga to anon, authenticated;
+
+alter table public.capacidad_carga enable row level security;
+drop policy if exists "capacidad carga lectura" on public.capacidad_carga;
+create policy "capacidad carga lectura" on public.capacidad_carga
+for select to anon, authenticated using (true);
 
 notify pgrst, 'reload schema';

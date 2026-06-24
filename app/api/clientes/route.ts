@@ -61,6 +61,19 @@ const JEFE_KEYS = [
   "JEFEVENTA",
 ];
 const PREVENTISTA_HINTS = ["codigozonaprincipal", "preventista"];
+const PREVENTISTA_NAME_KEYS = [
+  "nombre_preventista",
+  "NOMBRE_PREVENTISTA",
+  "NombrePreventista",
+  "nombrePreventista",
+  "preventista_nombre",
+  "PREVENTISTA_NOMBRE",
+  "Nombre preventista",
+  "NOMBRE PREVENTISTA",
+  "vendedor",
+  "VENDEDOR",
+];
+const PREVENTISTA_NAME_HINTS = ["nombrepreventista", "preventistanombre", "vendedor"];
 const JEFE_HINTS = ["jefeventas", "jefecomercial", "jefe", "comercial", "ventas"];
 const PHONE_KEYS = [
   "telefono",
@@ -109,6 +122,21 @@ const JEFE_PHONE_KEYS = [
   "CelularJefeVentas",
 ];
 const JEFE_PHONE_HINTS = ["telefonojefe", "celularjefe", "moviljefe", "phonejefe", "jefetelefono", "jefecelular"];
+const PREVENTISTA_PHONE_KEYS = [
+  "telefono_preventista",
+  "TELEFONO_PREVENTISTA",
+  "TelefonoPreventista",
+  "telefonoPreventista",
+  "celular_preventista",
+  "CELULAR_PREVENTISTA",
+  "CelularPreventista",
+  "celularPreventista",
+  "telefono_vendedor",
+  "TELEFONO_VENDEDOR",
+  "celular_vendedor",
+  "CELULAR_VENDEDOR",
+];
+const PREVENTISTA_PHONE_HINTS = ["telefonopreventista", "celularpreventista", "movilpreventista", "phonepreventista", "telefonovendedor", "celularvendedor"];
 const SCAN_PAGE_SIZE = 1000;
 const MAX_SCAN_PAGES = 200;
 
@@ -198,8 +226,10 @@ function normalizeCliente(row: ClienteRow, codigo: string) {
     com: valueByKnownKeys(row, COM_KEYS) || valueByHints(row, COM_HINTS),
     jefeComercial: valueByKnownKeys(row, JEFE_KEYS) || valueByHints(row, JEFE_HINTS),
     preventista: valueByKnownKeys(row, PREVENTISTA_KEYS) || valueByHints(row, PREVENTISTA_HINTS),
+    preventistaNombre: valueByKnownKeys(row, PREVENTISTA_NAME_KEYS) || valueByHints(row, PREVENTISTA_NAME_HINTS),
     telefono: valueByKnownKeys(row, PHONE_KEYS) || valueByPhoneHints(row, PHONE_HINTS),
     telefonoJefeComercial: valueByKnownKeys(row, JEFE_PHONE_KEYS) || valueByPhoneHints(row, JEFE_PHONE_HINTS),
+    telefonoPreventista: valueByKnownKeys(row, PREVENTISTA_PHONE_KEYS) || valueByPhoneHints(row, PREVENTISTA_PHONE_HINTS),
   };
 }
 

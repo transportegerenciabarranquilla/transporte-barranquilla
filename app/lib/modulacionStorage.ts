@@ -15,6 +15,8 @@ export type ModulacionRegistro = {
   jefeComercial?: string;
   telefonoJefeComercial?: string;
   preventista?: string;
+  preventistaNombre?: string;
+  telefonoPreventista?: string;
   totalCajas: string;
   cajasGestionadas?: string;
   persona: string;

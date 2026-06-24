@@ -1,31 +1,20 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ClipboardList,
-  Map as MapIcon,
-  Package,
-  TrendingDown,
-  UserCheck,
-  Users,
-  XCircle,
-} from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, ClipboardList, Package, TrendingDown, Users, XCircle } from "lucide-react";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
-import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
+import { useStorageSnapshot } from "../../lib/storageEvents";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import type { Vehiculo } from "../types";
-import { useStorageSnapshot } from "../../lib/storageEvents";
+import { getProgress, getStatus } from "../utils";
 
 const PALETTE = {
   safe: "#0f7c58",
-  warn: "#f5bd19",
   danger: "#dc2626",
-  navy: "#10223d",
   track: "#e2e8f0",
 };
 
@@ -34,10 +23,15 @@ const EMPTY_CHECKINS: CheckinCajasRegistro[] = [];
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
-  const selectedDate = todayKey();
+  const [selectedDate, setSelectedDate] = useState(todayKey);
   const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
   const allModulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, EMPTY_MODULACIONES);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, EMPTY_CHECKINS);
+
+  useEffect(() => {
+    const fecha = new URLSearchParams(window.location.search).get("fecha") || todayKey();
+    setSelectedDate(fecha);
+  }, []);
 
   const activeVehiculos = useMemo(() => {
     const loaded = loadSeguimientoVehiculos();
@@ -45,9 +39,7 @@ export default function SeguimientoRefusalPage() {
   }, [vehicles]);
 
   const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
-  const modulaciones = useMemo(() => {
-    return allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate);
-  }, [allModulaciones, selectedDate]);
+  const modulaciones = useMemo(() => allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate), [allModulaciones, selectedDate]);
 
   const refusalData = useMemo(() => {
     const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
@@ -60,42 +52,41 @@ export default function SeguimientoRefusalPage() {
     });
     const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
     const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
-    const rechazosSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0);
-    const gestionadasSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0);
-    const finalSeguimiento = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0);
-    const rechazadas = rechazosSeguimiento + resumenSinSeguimiento.cajasRechazadas;
-    const gestionadas = gestionadasSeguimiento + resumenSinSeguimiento.cajasGestionadas;
-    const final = finalSeguimiento + resumenSinSeguimiento.cajasPendientes;
+    const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0) + resumenSinSeguimiento.cajasRechazadas;
+    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0) + resumenSinSeguimiento.cajasGestionadas;
+    const pendientes = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
     const checkinAplicadas = byVehicle.filter((resumen) => resumen.tieneCheckin).length;
 
     return {
       totalCajasSeguimiento,
       rechazadas,
       gestionadas,
-      pendientes: final,
-      clientesRechazan: byVehicle.reduce((acc, resumen) => acc + resumen.clientesRechazan, 0),
+      pendientes,
       checkinAplicadas,
       topeMaximo: Math.floor(totalCajasSeguimiento / 100) || 1,
-      porcentaje: totalCajasSeguimiento ? Number(((final / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
-      moduladores: Array.from(new Set(byVehicle.flatMap((resumen) => resumen.moduladores))),
+      porcentaje: totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
     };
   }, [checkins, modulaciones, todayVehicles]);
 
-  const territorioData = useMemo(() => {
-    const map: Record<string, number> = {};
+  const modulationRows = useMemo(() => {
+    const rows = modulaciones
+      .map((modulacion) => {
+        const vehicle = todayVehicles.find((item) => normalizeDt(item.transporte) === normalizeDt(modulacion.dt));
+        const checkin = getCheckinByDt(checkins, modulacion.dt);
 
-    modulaciones.forEach((modulacion) => {
-      const vehicle = todayVehicles.find((item) => normalizeDt(item.transporte) === normalizeDt(modulacion.dt));
-      const territorio = vehicle?.territorio || "Sin asignar";
-      map[territorio] = (map[territorio] || 0) + Number(modulacion.totalCajas || 0);
-    });
+        return {
+          bloque: getBloque(vehicle, modulacion),
+          cajasRechazo: getCajasRechazoFinal(modulacion, checkin),
+          id: modulacion.id,
+          responsable: vehicle?.nombreResponsable || vehicle?.responsable || modulacion.personaNombre || modulacion.persona || "Sin responsable",
+          status: vehicle ? getStatus(getProgress(vehicle), vehicle) : "Sin seguimiento",
+          vehiculo: vehicle?.vehiculo || `DT ${modulacion.dt}`,
+        };
+      });
 
-    return Object.entries(map)
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [modulaciones, todayVehicles]);
+    return groupModulationRowsByVehicle(rows).sort((a, b) => b.cajasRechazo - a.cajasRechazo);
+  }, [checkins, modulaciones, todayVehicles]);
 
-  const maxTerritorio = Math.max(...territorioData.map((item) => item.value), 1);
   const refusalTone = getRefusalTone(refusalData.porcentaje);
 
   return (
@@ -104,16 +95,16 @@ export default function SeguimientoRefusalPage() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <button
+              aria-label="Volver a seguimiento"
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
               onClick={() => router.push(selectedDate ? `/seguimiento?fecha=${encodeURIComponent(selectedDate)}` : "/seguimiento")}
               type="button"
-              aria-label="Volver a seguimiento"
             >
               <ArrowLeft size={19} />
             </button>
             <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analítica diaria</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analitica diaria</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
             </div>
           </div>
@@ -122,6 +113,22 @@ export default function SeguimientoRefusalPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-[#10223d]">
+            <CalendarDays size={18} />
+            <div>
+              <p className="text-sm font-semibold">Filtro por dia</p>
+              <p className="text-xs text-slate-500">{formatDateLabel(selectedDate)}</p>
+            </div>
+          </div>
+          <input
+            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+            onChange={(event) => setSelectedDate(event.target.value)}
+            type="date"
+            value={selectedDate}
+          />
+        </div>
+
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <RefusalMetric icon={<Package size={21} />} label="Cajas seguimiento" value={refusalData.totalCajasSeguimiento} />
           <RefusalMetric icon={<XCircle size={21} />} label="Rechazadas" value={refusalData.rechazadas} tone="red" />
@@ -129,147 +136,77 @@ export default function SeguimientoRefusalPage() {
           <RefusalMetric icon={<Users size={21} />} label="Checkins" value={refusalData.checkinAplicadas} tone="amber" />
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+        <div className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-[#10223d]">
                 <TrendingDown size={19} />
                 <h2 className="text-lg font-semibold">Resumen de refusal</h2>
               </div>
-              <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${refusalTone.badge}`}>
-                {refusalTone.label}
-              </span>
+              <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${refusalTone.badge}`}>{refusalTone.label}</span>
             </div>
 
             <div className="grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
               <RefusalGauge value={refusalData.pendientes} max={refusalData.topeMaximo} percentage={refusalData.porcentaje} />
               <div className="space-y-4">
-                <div>
-                  <div className="mb-2 flex justify-between text-sm">
-                    <span className="font-medium text-slate-600">Refusal final</span>
-                    <span className="font-semibold text-[#10223d]">{refusalData.pendientes} cajas</span>
-                  </div>
-                  <Progress value={Math.min(100, refusalData.topeMaximo ? (refusalData.pendientes / refusalData.topeMaximo) * 100 : 0)} color="bg-[#dc2626]" />
-                </div>
-                <div>
-                  <div className="mb-2 flex justify-between text-sm">
-                    <span className="font-medium text-slate-600">Gestionadas</span>
-                    <span className="font-semibold text-[#10223d]">{refusalData.gestionadas} cajas</span>
-                  </div>
-                  <Progress value={Math.min(100, refusalData.rechazadas ? (refusalData.gestionadas / refusalData.rechazadas) * 100 : 0)} color="bg-[#0f7c58]" />
-                </div>
+                <ProgressLine label="Refusal final" value={refusalData.pendientes} max={refusalData.topeMaximo} color="bg-[#dc2626]" />
+                <ProgressLine label="Gestionadas" value={refusalData.gestionadas} max={refusalData.rechazadas} color="bg-[#0f7c58]" />
                 <div className="rounded-lg bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-[#10223d]">Tope máximo: {refusalData.topeMaximo} cajas</p>
+                  <p className="text-sm font-semibold text-[#10223d]">Tope maximo: {refusalData.topeMaximo} cajas</p>
                   <p className="mt-1 text-sm text-slate-500">Usa cajas checkin por DT; si no existen, toma el pendiente modulado actual.</p>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-[#10223d]">
-              <UserCheck size={19} />
-              <h2 className="text-lg font-semibold">Personal y territorio</h2>
-            </div>
-
-            <div className="mb-4">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-slate-500">Personal en operación</p>
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{refusalData.moduladores.length}</span>
-              </div>
-              <div className="grid max-h-28 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
-                {refusalData.moduladores.length ? (
-                  refusalData.moduladores.map((name) => (
-                    <span className="truncate rounded-md bg-[#10223d] px-2.5 py-1.5 text-xs font-semibold text-white" key={name} title={name}>
-                      {name}
-                    </span>
-                  ))
-                ) : (
-                  <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-500">Sin registros hoy</span>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-3 text-slate-600">
-                <div className="flex items-center gap-2">
-                  <MapIcon size={17} />
-                  <p className="text-sm font-medium">Impacto por territorio</p>
+          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <ClipboardList size={16} className="shrink-0 text-[#10223d]" />
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-semibold text-[#10223d]">Detalle de modulaciones</h2>
+                  <p className="truncate text-[11px] text-slate-500">Rechazo por ruta.</p>
                 </div>
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{territorioData.length}</span>
               </div>
-              <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
-                {territorioData.length ? (
-                  territorioData.map((item) => (
-                    <TerritoryRow key={item.label} label={item.label} value={item.value} max={maxTerritorio} />
-                  ))
-                ) : (
-                  <p className="rounded-md bg-slate-50 p-3 text-center text-xs font-medium text-slate-500">Sin rechazos registrados hoy</p>
-                )}
-              </div>
+              <span className="shrink-0 rounded-md bg-[#e9f3ff] px-2 py-1 text-[11px] font-semibold text-[#10223d]">{modulationRows.length}</span>
+            </div>
+
+            <div className="max-h-[360px] overflow-y-auto">
+              <table className="w-full table-fixed">
+                <thead className="sticky top-0 z-10 bg-[#242424] text-[9px] uppercase tracking-[0.03em] text-white shadow-[0_1px_0_#e2e8f0]">
+                  <tr>
+                    <th className="w-[18%] px-1.5 py-1.5 text-left">Bloque</th>
+                    <th className="w-[18%] px-1.5 py-1.5 text-left">Vehiculo</th>
+                    <th className="w-[34%] px-1.5 py-1.5 text-left">Responsable</th>
+                    <th className="w-[18%] px-1.5 py-1.5 text-left">Status</th>
+                    <th className="w-[12%] px-1.5 py-1.5 text-right">Cajas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modulationRows.length ? (
+                    modulationRows.map((item, index) => (
+                      <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-100"} key={item.id}>
+                        <td className="truncate px-1.5 py-1 text-[11px] font-medium text-slate-600" title={item.bloque}>{item.bloque}</td>
+                        <td className="truncate px-1.5 py-1 text-[11px] font-semibold text-slate-700" title={item.vehiculo}>{item.vehiculo}</td>
+                        <td className="truncate px-1.5 py-1 text-[11px] text-slate-600" title={item.responsable}>{item.responsable}</td>
+                        <td className="px-1.5 py-1">
+                          <span className="inline-flex max-w-full truncate rounded-sm bg-yellow-300 px-1 py-0.5 text-[10px] font-semibold text-[#10223d]" title={item.status}>{item.status}</span>
+                        </td>
+                        <td className="px-1.5 py-1 text-right text-[11px] font-bold text-slate-700">{item.cajasRechazo}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                        No se han registrado modulaciones para este dia.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         </div>
-
-        <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardList size={17} className="text-[#10223d]" />
-              <div>
-                <h2 className="text-base font-semibold text-[#10223d]">Detalle de modulaciones</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Registros del día asociados a rechazo y gestión.</p>
-              </div>
-            </div>
-            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
-              {modulaciones.length} registros
-            </span>
-          </div>
-
-          <div className="max-h-[460px] overflow-auto">
-            <table className="w-full min-w-[820px]">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500 shadow-[0_1px_0_#e2e8f0]">
-                <tr>
-                  <th className="px-3 py-2.5 text-left">DT / Cliente</th>
-                  <th className="px-3 py-2.5 text-left">Persona</th>
-                  <th className="px-3 py-2.5 text-center">Rechazo</th>
-                  <th className="px-3 py-2.5 text-center">Gestionadas</th>
-                  <th className="px-3 py-2.5 text-right">Causal</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {modulaciones.length ? (
-                  modulaciones.map((item) => (
-                    <tr className="transition hover:bg-slate-50" key={item.id}>
-                      <td className="px-3 py-2">
-                        <p className="text-sm font-semibold text-[#10223d]">DT {item.dt}</p>
-                        <p className="text-xs text-slate-500">Cliente {item.codigoCliente}</p>
-                      </td>
-                      <td className="max-w-64 truncate px-3 py-2 text-sm font-medium text-slate-600" title={item.personaNombre || item.persona}>
-                        {item.personaNombre || item.persona}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{item.totalCajas}</span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="inline-flex items-center gap-2">
-                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{item.cajasGestionadas || 0}</span>
-                          <GestionBuddy modulacion={item} />
-                        </div>
-                      </td>
-                      <td className="max-w-64 truncate px-3 py-2 text-right text-sm font-medium text-slate-600" title={item.causal}>{item.causal}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
-                      No se han registrado modulaciones hoy.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
       </section>
     </main>
   );
@@ -292,63 +229,6 @@ function RefusalMetric({ icon, label, value, tone = "navy" }: { icon: ReactNode;
   );
 }
 
-function GestionBuddy({ modulacion }: { modulacion: ModulacionRegistro }) {
-  const total = Number(modulacion.totalCajas) || 0;
-  const gestionadas = Number(modulacion.cajasGestionadas) || 0;
-  const status = gestionadas <= 0 ? "empty" : total > 0 && gestionadas >= total ? "done" : "half";
-  const styles = {
-    empty: {
-      label: "Robot esperando",
-      className: "border-red-200 bg-red-50 text-red-700 shadow-[0_0_18px_rgba(220,38,38,0.14)]",
-      botClassName: "robot-wait",
-    },
-    half: {
-      label: "Robot gestionando",
-      className: "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_18px_rgba(245,189,25,0.2)]",
-      botClassName: "robot-ready",
-    },
-    done: {
-      label: "Gol de gestion",
-      className: "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_18px_rgba(15,124,88,0.2)]",
-      botClassName: "robot-kick",
-    },
-  }[status];
-
-  return (
-    <span className={`inline-flex h-9 items-center gap-1 rounded-full border px-2 text-xs font-semibold ${styles.className}`} title={styles.label}>
-      <MiniRobot status={status} className={styles.botClassName} />
-    </span>
-  );
-}
-
-function MiniRobot({ status, className }: { status: "empty" | "half" | "done"; className: string }) {
-  const colors = {
-    empty: { shell: "#dc2626", eye: "#fee2e2", glow: "#fecaca" },
-    half: { shell: "#d97706", eye: "#fef3c7", glow: "#fde68a" },
-    done: { shell: "#0f7c58", eye: "#dcfce7", glow: "#bbf7d0" },
-  }[status];
-
-  return (
-    <span className={`robot-bot ${className}`} aria-hidden="true">
-      <svg className="h-7 w-9 overflow-visible" viewBox="0 0 48 34" fill="none">
-        <path d="M19 5h10" stroke={colors.shell} strokeWidth="2.4" strokeLinecap="round" />
-        <circle cx="24" cy="3.5" r="2.5" fill={colors.glow} stroke={colors.shell} strokeWidth="1.4" />
-        <rect x="8" y="8" width="27" height="20" rx="8" fill="#10223d" stroke={colors.shell} strokeWidth="2.3" />
-        <rect x="12" y="12" width="19" height="11" rx="5" fill={colors.shell} opacity="0.18" />
-        <circle cx="17" cy="17.5" r="3.2" fill={colors.eye} />
-        <circle cx="26" cy="17.5" r="3.2" fill={colors.eye} />
-        <circle cx="17" cy="17.5" r="1.1" fill="#10223d" />
-        <circle cx="26" cy="17.5" r="1.1" fill="#10223d" />
-        <path d="M17 24c2.7 2 6.5 2 9.2 0" stroke={colors.eye} strokeWidth="1.8" strokeLinecap="round" />
-        <path className="robot-leg" d="M28 27l4 4" stroke={colors.shell} strokeWidth="2.3" strokeLinecap="round" />
-        <path d="M15 27l-3 4" stroke={colors.shell} strokeWidth="2.3" strokeLinecap="round" />
-        <circle className="robot-ball" cx="40" cy="27" r="4.2" fill="#f8fafc" stroke="#10223d" strokeWidth="1.2" />
-        <path className="robot-ball" d="M37.5 27h5M40 24.6v4.8" stroke="#10223d" strokeWidth="0.8" strokeLinecap="round" />
-      </svg>
-    </span>
-  );
-}
-
 function RefusalGauge({ value, max, percentage }: { value: number; max: number; percentage: number }) {
   const progress = Math.min(100, (value / max) * 100);
   const radius = 42;
@@ -360,50 +240,25 @@ function RefusalGauge({ value, max, percentage }: { value: number; max: number; 
     <div className="relative mx-auto grid h-52 w-52 place-items-center">
       <svg className="h-full w-full -rotate-90" viewBox="0 0 110 110">
         <circle cx="55" cy="55" r={radius} fill="none" stroke={PALETTE.track} strokeWidth="11" />
-        <circle
-          cx="55"
-          cy="55"
-          r={radius}
-          fill="none"
-          stroke={tone.color}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          strokeWidth="11"
-        />
+        <circle cx="55" cy="55" r={radius} fill="none" stroke={tone.color} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" strokeWidth="11" />
       </svg>
       <div className="absolute text-center">
-        <p className="text-4xl font-semibold" style={{ color: tone.color }}>
-          {percentage.toFixed(2)}%
-        </p>
-        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-          {value} / {max} cajas
-        </p>
+        <p className="text-4xl font-semibold" style={{ color: tone.color }}>{percentage.toFixed(2)}%</p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{value} / {max} cajas</p>
       </div>
     </div>
   );
 }
 
-function Progress({ value, color }: { value: number; color: string }) {
-  return (
-    <div className="h-2 rounded-full bg-slate-200">
-      <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
-    </div>
-  );
-}
-
-function TerritoryRow({ label, value, max }: { label: string; value: number; max: number }) {
-  const percentage = Math.min(100, (value / max) * 100);
-  const color = percentage > 70 ? "bg-red-500" : percentage > 40 ? "bg-[#f5bd19]" : "bg-[#0f7c58]";
-
+function ProgressLine({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
   return (
     <div>
-      <div className="mb-1 flex justify-between gap-3 text-xs">
-        <span className="truncate font-medium text-slate-600" title={label}>{label}</span>
-        <span className="font-semibold text-[#10223d]">{value}</span>
+      <div className="mb-2 flex justify-between text-sm">
+        <span className="font-medium text-slate-600">{label}</span>
+        <span className="font-semibold text-[#10223d]">{value} cajas</span>
       </div>
-      <div className="h-1.5 rounded-full bg-slate-200">
-        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${percentage}%` }} />
+      <div className="h-2 rounded-full bg-slate-200">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(100, max ? (value / max) * 100 : 0)}%` }} />
       </div>
     </div>
   );
@@ -412,6 +267,41 @@ function TerritoryRow({ label, value, max }: { label: string; value: number; max
 function getRefusalTone(value: number) {
   if (value <= 1) return { color: PALETTE.safe, label: "Controlado", badge: "border-emerald-100 bg-emerald-50 text-emerald-700" };
   return { color: PALETTE.danger, label: "En peligro", badge: "border-red-100 bg-red-50 text-red-700" };
+}
+
+function getBloque(vehicle: Vehiculo | undefined, modulacion: ModulacionRegistro) {
+  const candidates = [vehicle?.bloque, vehicle?.transportista, modulacion.contratista].filter(Boolean) as string[];
+  const value = candidates.find((item) => item.trim() && item.trim().toLowerCase() !== "pendiente");
+  return value || "Sin bloque";
+}
+
+function getCajasRechazoFinal(modulacion: ModulacionRegistro, checkin: CheckinCajasRegistro | undefined) {
+  return typeof checkin?.totalCajas === "number" ? checkin.totalCajas : Number(modulacion.totalCajas || 0);
+}
+
+function groupModulationRowsByVehicle<T extends { bloque: string; cajasRechazo: number; id: string; responsable: string; status: string; vehiculo: string }>(rows: T[]) {
+  const grouped = new Map<string, T>();
+
+  rows.forEach((row) => {
+    const key = normalizeVehicle(row.vehiculo) || row.vehiculo;
+    const current = grouped.get(key);
+
+    if (!current) {
+      grouped.set(key, { ...row });
+      return;
+    }
+
+    current.cajasRechazo += row.cajasRechazo;
+  });
+
+  return Array.from(grouped.values());
+}
+
+function normalizeVehicle(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function todayKey() {
@@ -428,7 +318,7 @@ function getModulacionDateKey(registro: ModulacionRegistro) {
 
 function toDateKey(value: string | undefined) {
   if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   if (value.includes("/")) {
     const [day, month, year] = value.split("/").map(Number);
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -437,4 +327,10 @@ function toDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return getLocalDateKey(parsed);
+}
+
+function formatDateLabel(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return dateKey;
+  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
 }
