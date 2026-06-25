@@ -202,6 +202,7 @@ function StatusPill({ status }: { status: string }) {
     Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
     Cargando: "bg-amber-50 text-amber-700 border-amber-100",
     "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
+    Recargue: "bg-cyan-50 text-cyan-700 border-cyan-100",
     Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
   };
 

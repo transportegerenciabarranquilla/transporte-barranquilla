@@ -1,6 +1,6 @@
 import type { Vehiculo } from "./types";
 
-export const ROUTE_STATUSES = ["Pendiente por salir", "En ruta", "Pernoctado", "Cargando", "Cambio de fecha", "Finalizado"];
+export const ROUTE_STATUSES = ["Pendiente por salir", "En ruta", "Pernoctado", "Cargando", "Cambio de fecha", "Recargue", "Finalizado"];
 
 export function getVehicleRecordKey(item: Pick<Vehiculo, "fechaDespacho" | "transporte" | "vehiculo">) {
   const dt = normalizeRecordPart(item.transporte);

@@ -5,6 +5,7 @@ export function StatusBadge({ status }: { status: string }) {
     Pernoctado: "bg-violet-50 text-violet-700 ring-violet-200",
     Cargando: "bg-amber-50 text-amber-700 ring-amber-200",
     "Cambio de fecha": "bg-orange-50 text-orange-700 ring-orange-200",
+    Recargue: "bg-cyan-50 text-cyan-700 ring-cyan-200",
     Finalizado: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   };
   const className = styles[status] ?? styles.Cargando;

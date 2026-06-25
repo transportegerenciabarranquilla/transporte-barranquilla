@@ -35,6 +35,13 @@ export function VehicleDrawer({
     onUpdateVehicle(recordKey, changes);
   }
 
+  function updateStatus(nextStatus: string) {
+    updateVehicle({
+      status: nextStatus,
+      recargue: nextStatus === "Recargue" ? "Si" : status === "Recargue" ? "No" : vehicle.recargue,
+    });
+  }
+
   useEffect(() => {
     const plate = vehicle.vehiculo.trim();
     if (!plate) return;
@@ -113,7 +120,7 @@ export function VehicleDrawer({
                 <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Estado</span>
                 <select
                   className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-[#f5bd19]"
-                  onChange={(event) => updateVehicle({ status: event.target.value })}
+                  onChange={(event) => updateStatus(event.target.value)}
                   value={status}
                 >
                   {ROUTE_STATUSES.map((routeStatus) => (
@@ -220,7 +227,7 @@ export function VehicleDrawer({
             <Info icon={<Clock3 size={18} />} label="Clasificacion on time" value={onTimeClassification} />
             <RecargueToggle
               active={hasRecargue}
-              onToggle={() => updateVehicle({ recargue: hasRecargue ? "No" : "Si" })}
+              onToggle={() => updateVehicle(hasRecargue ? { recargue: "No", status: "En ruta" } : { recargue: "Si", status: "Recargue" })}
             />
           </div>
 

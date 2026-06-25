@@ -62,13 +62,15 @@ export async function PUT(request: Request) {
       data: record,
       updated_at: new Date().toISOString(),
     }));
-    const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
-      method: "POST",
-      headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
-      body: JSON.stringify(rows),
-      cache: "no-store",
-    });
-    if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
+    if (rows.length) {
+      const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
+        method: "POST",
+        headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+        body: JSON.stringify(rows),
+        cache: "no-store",
+      });
+      if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
+    }
 
     const keepIds = new Set(rows.map((row) => row.record_id));
     const currentParams = new URLSearchParams({ select: "record_id", contractor: `eq.${session.contractor}` });

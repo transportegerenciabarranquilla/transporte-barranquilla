@@ -1,6 +1,6 @@
 import { Clock3, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
@@ -103,8 +103,16 @@ export function VehiclesTable({
                       {calculateRouteTime(item, now)}
                     </span>
                   </td>
-                  <td className="px-2 py-1">
-                    <StatusBadge status={status} />
+                  <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
+                    <StatusSelect
+                      status={status}
+                      onChange={(nextStatus) =>
+                        onUpdateVehicle(recordKey, {
+                          status: nextStatus,
+                          recargue: nextStatus === "Recargue" ? "Si" : status === "Recargue" ? "No" : item.recargue,
+                        })
+                      }
+                    />
                   </td>
                   <td className="px-1.5 py-1 text-right" onClick={(event) => event.stopPropagation()}>
                     <button
@@ -122,6 +130,27 @@ export function VehiclesTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {
+  return (
+    <div className="relative inline-flex max-w-full">
+      <StatusBadge status={status} />
+      <select
+        aria-label="Cambiar estado"
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        onChange={(event) => onChange(event.target.value)}
+        onClick={(event) => event.stopPropagation()}
+        value={status}
+      >
+        {ROUTE_STATUSES.map((routeStatus) => (
+          <option key={routeStatus} value={routeStatus}>
+            {routeStatus}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

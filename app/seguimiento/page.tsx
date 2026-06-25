@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Trash2, Truck, Users, Boxes } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -286,6 +286,38 @@ export default function SeguimientoPage() {
     }
   }
 
+  async function borrarTodoSeguimiento() {
+    if (!vehiculos.length) {
+      setImportMessage("No hay seguimiento para borrar.");
+      return;
+    }
+
+    if (!window.confirm(`Quieres borrar todo el seguimiento cargado? Se eliminaran ${vehiculos.length} vehiculos y sus checkins/asistencias asociados.`)) return;
+
+    const previousVehicles = vehiculos;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    previousVehicles.forEach((vehicle) => removeStaleRouteData(vehicle, true));
+    pendingLocalSaveRef.current = true;
+    setVehiculos([]);
+    setVehiculoSeleccionado(null);
+    setVehiculoSeleccionadoKey(null);
+    setImportMessage("Borrando seguimiento en Supabase...");
+
+    try {
+      await saveSeguimientoVehiculos([]);
+      setImportMessage("Seguimiento borrado correctamente.");
+    } catch (error) {
+      setVehiculos(previousVehicles);
+      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el seguimiento.");
+    } finally {
+      pendingLocalSaveRef.current = false;
+    }
+  }
+
   async function handleImport(file: File | undefined) {
     if (!file) return;
 
@@ -390,6 +422,15 @@ export default function SeguimientoPage() {
             >
               <ClipboardCheck size={18} />
               Cajas checkin
+            </button>
+            <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!vehiculos.length}
+              onClick={borrarTodoSeguimiento}
+              type="button"
+            >
+              <Trash2 size={17} />
+              Borrar seguimiento
             </button>
             <a
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"

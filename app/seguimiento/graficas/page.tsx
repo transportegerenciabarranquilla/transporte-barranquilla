@@ -343,6 +343,7 @@ function StatusPill({ status }: { status: string }) {
     Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
     Cargando: "bg-amber-50 text-amber-700 border-amber-100",
     "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
+    Recargue: "bg-cyan-50 text-cyan-700 border-cyan-100",
     Retraso: "bg-red-50 text-red-700 border-red-100",
   };
 
@@ -366,6 +367,7 @@ function getStatusTone(status: string): StatusTone {
     Pernoctado: "violet",
     Cargando: "amber",
     "Cambio de fecha": "orange",
+    Recargue: "blue",
     Finalizado: "green",
   };
 
