@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
@@ -19,7 +19,7 @@ const CAUSALES_DESVIO = [
   "Investigacion del desvio",
 ];
 
-type JornadaState = "ok" | "warn" | "danger" | "done" | "empty";
+type JornadaState = "ok" | "warn" | "danger" | "done" | "lateDone" | "empty";
 type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string };
 
 export default function JornadaLaboralPage() {
@@ -43,7 +43,7 @@ export default function JornadaLaboralPage() {
   useEffect(() => {
     const controller = new AbortController();
 
-    fetch("/api/personas?cargo=jornada%20laboral", {
+    fetch("/api/personas?listar=1", {
       cache: "no-store",
       signal: controller.signal,
     })
@@ -56,10 +56,10 @@ export default function JornadaLaboralPage() {
 
         if (Array.isArray(body.personas)) {
           setRelevadores(body.personas);
-          if (!body.personas.length) setMessage("No se encontraron personas con cargo de relevador.");
+          if (!body.personas.length) setMessage("No se encontraron personas.");
         }
       })
-      .catch(() => setMessage("No se pudieron cargar los relevadores."));
+      .catch(() => setMessage("No se pudieron cargar las personas."));
 
     return () => controller.abort();
   }, []);
@@ -75,19 +75,19 @@ export default function JornadaLaboralPage() {
     () => ({
       rutas: rows.length,
       amarillas: rows.filter((row) => row.state === "warn").length,
-      sif: rows.filter((row) => row.state === "danger").length,
-      relevadas: rows.filter((row) => row.state === "done").length,
+      sif: rows.filter((row) => row.alertaSif).length,
+      relevadas: rows.filter((row) => row.state === "done" || row.state === "lateDone").length,
     }),
     [rows],
   );
-  const sifRows = useMemo(() => rows.filter((row) => row.state === "danger"), [rows]);
+  const sifRows = useMemo(() => rows.filter((row) => row.alertaSif), [rows]);
   const filteredRows = useMemo(() => {
     const searchTerm = search.trim().toLowerCase();
 
     return rows.filter((row) => {
       const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio} ${row.vehicle.relevador}`.toLowerCase();
       const matchesSearch = !searchTerm || searchable.includes(searchTerm);
-      const matchesState = !stateFilter || row.state === stateFilter;
+      const matchesState = !stateFilter || row.state === stateFilter || (stateFilter === "done" && row.state === "lateDone");
       const matchesClassification = !classificationFilter || row.clasificacion === classificationFilter;
 
       return matchesSearch && matchesState && matchesClassification;
@@ -102,13 +102,13 @@ export default function JornadaLaboralPage() {
         const updated = { ...vehicle, ...changes };
         const metaRelevo = calculateMetaRelevo(updated.horaSalida);
         const clasificacion = classifyRelevo(updated.horaSalida, updated.horaInicioRelevo);
-        const hasRelevo = hasTimeValue(updated.horaInicioRelevo);
+        const hasSifAlert = hasSifPotential(updated.horaSalida, updated.horaInicioRelevo, now);
 
         return {
           ...updated,
           metaRelevo,
           clasificacionRelevo: clasificacion,
-          alertaSifPotencial: hasRelevo ? "No" : updated.alertaSifPotencial,
+          alertaSifPotencial: hasSifAlert ? "Si" : "No",
         };
       }),
     );
@@ -179,14 +179,14 @@ export default function JornadaLaboralPage() {
                 <div>
                   <p className="text-sm font-bold uppercase tracking-[0.12em]">Alerta SIF potencial</p>
                   <p className="mt-1 text-sm">
-                    {sifRows.length} ruta{sifRows.length === 1 ? "" : "s"} superaron 13 horas sin relevo registrado.
+                    {sifRows.length} ruta{sifRows.length === 1 ? "" : "s"} superaron 13 horas en jornada laboral.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {sifRows.slice(0, 5).map((row) => (
                   <span className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm" key={getVehicleUiKey(row.vehicle)}>
-                    {row.vehicle.vehiculo} · DT {row.vehicle.transporte} · {row.elapsedLabel}
+                    {row.vehicle.vehiculo} · DT {row.vehicle.transporte} · {row.elapsedLabel} · {row.statusLabel}
                   </span>
                 ))}
               </div>
@@ -221,6 +221,7 @@ export default function JornadaLaboralPage() {
                   <option value="warn">Pendiente relevo</option>
                   <option value="danger">Alerta SIF</option>
                   <option value="done">Relevadas</option>
+                  <option value="lateDone">Relevo con alerta</option>
                   <option value="empty">Sin hora salida</option>
                 </select>
                 <select
@@ -295,6 +296,7 @@ export default function JornadaLaboralPage() {
                         </td>
                         <td className="px-1 py-0.5">
                           <RelevadorSelect
+                            key={`${key}-relevador-${normalizeSelectValue(row.vehicle.relevador) || "empty"}`}
                             relevadores={relevadores}
                             value={normalizeSelectValue(row.vehicle.relevador)}
                             onChange={(value) => updateVehicle(key, { relevador: value || "-" })}
@@ -380,26 +382,115 @@ function RelevadorSelect({
   relevadores: Persona[];
   value: string;
 }) {
-  const hasCurrentValue = value && relevadores.some((persona) => (persona.NOMBRE || String(persona.CC)) === value);
+  const [draft, setDraft] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [remoteMatches, setRemoteMatches] = useState<Persona[]>([]);
+  const selectedValueRef = useRef<string | null>(null);
+  const searchTerm = normalizeSearch(draft);
+
+  const matches = useMemo(() => {
+    if (searchTerm.length >= 2 && remoteMatches.length) return remoteMatches.slice(0, 8);
+
+    const filtered = searchTerm
+      ? relevadores.filter((persona) => {
+          const name = persona.NOMBRE || String(persona.CC);
+          return normalizeSearch(`${name} ${persona.CC} ${persona.CARGO}`).includes(searchTerm);
+        })
+      : relevadores;
+
+    return filtered.slice(0, 8);
+  }, [remoteMatches, relevadores, searchTerm]);
+
+  useEffect(() => {
+    if (searchTerm.length < 2) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      fetch(`/api/personas?q=${encodeURIComponent(draft)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || !Array.isArray(body.personas)) return;
+          setRemoteMatches(body.personas);
+        })
+        .catch(() => undefined);
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [draft, searchTerm]);
+
+  function selectName(name: string) {
+    selectedValueRef.current = name;
+    setDraft(name);
+    setOpen(false);
+    onChange(name);
+  }
 
   return (
-    <select
-      className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-      onChange={(event) => onChange(event.target.value)}
-      title={value || "Sin relevador"}
-      value={value}
-    >
-      <option value="">Sin relevador</option>
-      {value && !hasCurrentValue ? <option value={value}>{value}</option> : null}
-      {relevadores.map((persona) => {
-        const name = persona.NOMBRE || String(persona.CC);
-        return (
-          <option key={`${persona.CC}-${name}`} value={name}>
-            {name}
-          </option>
-        );
-      })}
-    </select>
+    <div className="relative">
+      <input
+        className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] font-medium text-[#10223d] outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
+        onBlur={() => {
+          window.setTimeout(() => {
+            onChange((selectedValueRef.current ?? draft) || "-");
+            selectedValueRef.current = null;
+            setOpen(false);
+          }, 120);
+        }}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraft(nextValue);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder="Sin relevador"
+        title={value || "Sin relevador"}
+        value={draft}
+      />
+      {open ? (
+        <div className="absolute left-0 right-0 top-7 z-40 max-h-48 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-xl">
+          <button
+            className="block w-full px-2 py-1.5 text-left text-[10px] font-medium text-slate-500 hover:bg-slate-50"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              selectName("");
+            }}
+            type="button"
+          >
+            Sin relevador
+          </button>
+          {matches.length ? (
+            matches.map((persona) => {
+              const name = persona.NOMBRE || String(persona.CC);
+              return (
+                <button
+                  className="block w-full px-2 py-1.5 text-left text-[10px] font-semibold text-[#10223d] hover:bg-[#e9f3ff]"
+                  key={`${persona.CC}-${name}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectName(name);
+                  }}
+                  title={`${name} · ${persona.CARGO || "Sin cargo"}`}
+                  type="button"
+                >
+                  <span className="block truncate">{name}</span>
+                  <span className="block truncate text-[9px] font-medium text-slate-500">{persona.CARGO || "Sin cargo"}</span>
+                </button>
+              );
+            })
+          ) : (
+            <p className="px-2 py-2 text-[10px] font-medium text-slate-500">Sin coincidencias</p>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -408,6 +499,7 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
     danger: "border-red-100 bg-red-50 text-red-700",
     done: "border-emerald-100 bg-emerald-50 text-emerald-700",
     empty: "border-slate-200 bg-slate-50 text-slate-600",
+    lateDone: "border-red-200 bg-red-50 text-red-700",
     ok: "border-emerald-100 bg-emerald-50 text-emerald-700",
     warn: "border-amber-100 bg-amber-50 text-amber-700",
   };
@@ -450,8 +542,8 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
   }
 
   const elapsedMinutes = hasRelevo ? diffFromStart(salidaMinutes, relevoMinutes) : diffFromStart(salidaMinutes, now.getHours() * 60 + now.getMinutes());
-  const alertaSif = !hasRelevo && elapsedMinutes >= SIF_ALERT_MINUTES;
-  const state: JornadaState = hasRelevo ? "done" : alertaSif ? "danger" : elapsedMinutes >= META_RELEVO_MINUTES ? "warn" : "ok";
+  const alertaSif = elapsedMinutes >= SIF_ALERT_MINUTES;
+  const state: JornadaState = hasRelevo ? (alertaSif ? "lateDone" : "done") : alertaSif ? "danger" : elapsedMinutes >= META_RELEVO_MINUTES ? "warn" : "ok";
   const statusLabel = hasRelevo
     ? "Relevo realizado"
     : alertaSif
@@ -483,6 +575,15 @@ function classifyRelevo(horaSalida: string | undefined, horaInicioRelevo: string
   const relevoMinutes = parseTimeToMinutes(horaInicioRelevo);
   if (salidaMinutes === null || relevoMinutes === null) return "Pendiente";
   return diffFromStart(salidaMinutes, relevoMinutes) <= META_RELEVO_MINUTES ? "Efectivo" : "No efectivo";
+}
+
+function hasSifPotential(horaSalida: string | undefined, horaInicioRelevo: string | undefined, now: Date) {
+  const salidaMinutes = parseTimeToMinutes(horaSalida);
+  if (salidaMinutes === null) return false;
+
+  const relevoMinutes = parseTimeToMinutes(horaInicioRelevo);
+  const endMinutes = relevoMinutes ?? now.getHours() * 60 + now.getMinutes();
+  return diffFromStart(salidaMinutes, endMinutes) >= SIF_ALERT_MINUTES;
 }
 
 function diffFromStart(startMinutes: number, endMinutes: number) {
@@ -523,6 +624,14 @@ function normalizeSelectValue(value: string | undefined) {
   return value;
 }
 
+function normalizeSearch(value: string | number | undefined) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function formatCompactDate(value: string | undefined) {
   const dateKey = toDateKey(value);
   if (!dateKey) return "-";
@@ -532,7 +641,7 @@ function formatCompactDate(value: string | undefined) {
 }
 
 function rowTone(state: JornadaState) {
-  if (state === "danger") return "bg-red-50/70";
+  if (state === "danger" || state === "lateDone") return "bg-red-50/70";
   if (state === "warn") return "bg-amber-50/70";
   return "bg-white transition hover:bg-slate-50";
 }
