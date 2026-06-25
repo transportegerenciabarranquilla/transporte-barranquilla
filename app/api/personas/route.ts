@@ -3,11 +3,14 @@ import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/s
 
 export async function GET(request: Request) {
   try {
-    const rawCc = new URL(request.url).searchParams.get("cc");
-    const contractor = new URL(request.url).searchParams.get("contratista")?.trim();
+    const searchParams = new URL(request.url).searchParams;
+    const rawCc = searchParams.get("cc");
+    const contractor = searchParams.get("contratista")?.trim();
+    const cargo = searchParams.get("cargo")?.trim();
     const cc = rawCc?.replace(/\D/g, "").trim();
 
     if (!cc) {
+      if (cargo) return listPersonasByCargo(cargo, contractor);
       return NextResponse.json({ persona: null });
     }
 
@@ -52,4 +55,58 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+async function listPersonasByCargo(cargo: string, contractor: string | undefined) {
+  const normalizedCargo = cargo
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const params = new URLSearchParams({
+    select: "CC,NOMBRE,CARGO,CONTRATISTA",
+    order: "NOMBRE.asc",
+    limit: "1000",
+  });
+  const shouldFilterJornadaLocally = normalizedCargo.includes("jornada") || normalizedCargo.includes("relev");
+  if (!shouldFilterJornadaLocally) {
+    params.set("CARGO", `ilike.*${cargo}*`);
+  }
+  if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
+
+  const response = await fetch(supabaseRest("transporte_barranquilla", `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return NextResponse.json(
+      {
+        error:
+          body?.message ||
+          body?.error ||
+          `Supabase respondiÃ³ ${response.status}.`,
+      },
+      { status: response.status },
+    );
+  }
+
+  const personas = Array.isArray(body) ? body : [];
+  const filteredPersonas = shouldFilterJornadaLocally
+    ? personas.filter((persona) => {
+        const cargoText = normalizeText(persona?.CARGO);
+        return cargoText.includes("jornada laboral") || cargoText.includes("jornada") || cargoText.includes("relev") || cargoText.includes("relevo");
+      })
+    : personas;
+
+  return NextResponse.json({ personas: filteredPersonas });
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }

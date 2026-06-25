@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Package, ShieldAlert, Table2 } from "lucide-react";
+import { AnalyticsDateFilter } from "../../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import { MODULACION_STORAGE_KEY, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
@@ -10,6 +11,7 @@ import { SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
 import { loadSeguimientoVehiculos } from "../../services/vehicleRecords";
 import type { Vehiculo } from "../../types";
+import { normalizeCajasTotal } from "../../utils";
 
 type RefusalRow = {
   causal: string;
@@ -51,7 +53,7 @@ export default function RefusalComPage() {
   }, [modulaciones, selectedDate]);
 
   const refusalData = useMemo(() => {
-    const totalCajasSeguimiento = todayVehicles.reduce((total, vehicle) => total + (vehicle.cajas || 0), 0);
+    const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((total, vehicle) => total + (vehicle.cajas || 0), 0));
     const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
     const byVehicle = todayVehicles.map((vehicle) => {
       const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
@@ -132,7 +134,10 @@ export default function RefusalComPage() {
               <h1 className="text-2xl font-semibold text-[#10223d]">refusal-com</h1>
             </div>
           </div>
-          <AnalyticsViewToggle active="refusal-com" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <AnalyticsViewToggle active="refusal-com" />
+          </div>
         </div>
       </header>
 
@@ -147,14 +152,6 @@ export default function RefusalComPage() {
                 <h2 className="text-base font-semibold text-[#10223d]">Detalle refusal por preventista</h2>
                 <p className="mt-0.5 text-xs text-slate-500">Resumen del dia cruzado con modulaciones y seguimiento. Modulaciones cargadas: {modulaciones.length}.</p>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-                onChange={(event) => setSelectedDate(event.target.value)}
-                type="date"
-                value={selectedDate}
-              />
             </div>
           </div>
           <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -181,41 +178,41 @@ export default function RefusalComPage() {
         </div>
 
         <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <Table2 size={17} className="text-[#10223d]" />
-              <h3 className="text-base font-semibold text-[#10223d]">Detalle refusal</h3>
+              <Table2 size={15} className="text-[#10223d]" />
+              <h3 className="text-sm font-semibold text-[#10223d]">Detalle refusal</h3>
             </div>
-            <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600">{rows.length} registros</span>
+            <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{rows.length} registros</span>
           </div>
-          <div className="max-h-[520px] overflow-auto">
-            <table className="w-full min-w-[1240px]">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1080px] table-fixed">
+              <thead className="bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 text-left">Establecimiento</th>
-                  <th className="px-3 py-2 text-left">Causal</th>
-                  <th className="px-3 py-2 text-left">RR</th>
-                  <th className="px-3 py-2 text-left">Placa</th>
-                  <th className="px-3 py-2 text-left">Preventista</th>
-                  <th className="px-3 py-2 text-left">Jefe de ventas</th>
-                  <th className="px-3 py-2 text-right">Cajas reportadas</th>
-                  <th className="px-3 py-2 text-right">Cajas gestionadas</th>
-                  <th className="px-3 py-2 text-right">Cajas rechazadas</th>
+                  <th className="w-[210px] px-2 py-1.5 text-left">Establecimiento</th>
+                  <th className="w-[180px] px-2 py-1.5 text-left">Causal</th>
+                  <th className="w-[190px] px-2 py-1.5 text-left">RR</th>
+                  <th className="w-[88px] px-2 py-1.5 text-left">Placa</th>
+                  <th className="w-[95px] px-2 py-1.5 text-left">Prev.</th>
+                  <th className="w-[170px] px-2 py-1.5 text-left">Jefe ventas</th>
+                  <th className="w-[70px] px-2 py-1.5 text-right">Rep.</th>
+                  <th className="w-[70px] px-2 py-1.5 text-right">Gest.</th>
+                  <th className="w-[70px] px-2 py-1.5 text-right">Rech.</th>
                 </tr>
               </thead>
               <tbody>
                   {rows.length ? (
                   rows.map((row, index) => (
                     <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-50"} key={row.registro.id}>
-                      <td className="px-3 py-1.5 text-xs font-medium text-slate-700">{row.establecimiento}</td>
-                      <td className="px-3 py-1.5 text-xs font-semibold text-slate-700">{row.causal}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-700">{row.rr}</td>
-                      <td className="px-3 py-1.5 text-xs font-semibold text-[#10223d]">{row.placa}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-700">{row.preventista}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-700">{row.jefeVentas}</td>
-                      <td className="px-3 py-1.5 text-right text-xs font-black text-slate-700">{row.reportadas}</td>
-                      <td className="px-3 py-1.5 text-right text-xs font-black text-emerald-700">{row.gestionadas}</td>
-                      <td className="px-3 py-1.5 text-right text-xs font-black text-red-700">{row.rechazadas}</td>
+                      <td className="truncate px-2 py-1 text-[11px] font-medium text-slate-700" title={row.establecimiento}>{row.establecimiento}</td>
+                      <td className="truncate px-2 py-1 text-[11px] font-semibold text-slate-700" title={row.causal}>{row.causal}</td>
+                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.rr}>{row.rr}</td>
+                      <td className="truncate px-2 py-1 text-[11px] font-semibold text-[#10223d]" title={row.placa}>{row.placa}</td>
+                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.preventista}>{row.preventista}</td>
+                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.jefeVentas}>{row.jefeVentas}</td>
+                      <td className="px-2 py-1 text-right text-[11px] font-black text-slate-700">{row.reportadas}</td>
+                      <td className="px-2 py-1 text-right text-[11px] font-black text-emerald-700">{row.gestionadas}</td>
+                      <td className="px-2 py-1 text-right text-[11px] font-black text-red-700">{row.rechazadas}</td>
                     </tr>
                   ))
                 ) : (

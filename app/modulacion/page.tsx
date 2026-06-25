@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, UserRound, UsersRound, X } from "lucide-react";
+import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, UsersRound, X } from "lucide-react";
 import {
   getLocalDateKey,
   MODULACION_STORAGE_KEY,
@@ -182,63 +182,64 @@ export default function ModulacionPage() {
         </div>
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <ClipboardList size={17} className="text-[#10223d]" />
+              <ClipboardList size={16} className="text-[#10223d]" />
               <div>
-                <h2 className="text-base font-semibold text-[#10223d]">Tabla de modulaciones</h2>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <h2 className="text-sm font-semibold text-[#10223d]">Tabla de modulaciones</h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">
                   {selectedDate ? `Mostrando registros del ${selectedDate}` : "Mostrando todos los dias"}
                 </p>
               </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
+            <span className="rounded-md bg-[#e9f3ff] px-2 py-1 text-[11px] font-semibold text-[#10223d]">
               {registrosFiltrados.length} modulacion{registrosFiltrados.length === 1 ? "" : "es"}
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px]">
-              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+            <table className="w-full min-w-[1160px] table-fixed">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 text-left">Fecha / hora</th>
-                  <th className="px-4 py-3 text-left">DT</th>
-                  <th className="px-4 py-3 text-left">Cliente</th>
-                  <th className="px-4 py-3 text-left">Persona</th>
-                  <th className="px-4 py-3 text-left">Causal</th>
-                  <th className="px-4 py-3 text-center">Rechazadas</th>
-                  <th className="px-4 py-3 text-center">Gestionadas</th>
-                  <th className="px-4 py-3 text-left">Comentario</th>
-                  <th className="px-4 py-3 text-right">Detalle</th>
+                  <th className="w-[105px] px-3 py-2 text-left">Fecha / hora</th>
+                  <th className="w-[115px] px-3 py-2 text-left">DT</th>
+                  <th className="w-[170px] px-3 py-2 text-left">Cliente</th>
+                  <th className="w-[165px] px-3 py-2 text-left">Persona</th>
+                  <th className="w-[165px] px-3 py-2 text-left">Causal</th>
+                  <th className="w-[90px] px-3 py-2 text-center">Rechaz.</th>
+                  <th className="w-[135px] px-3 py-2 text-center">Gestion.</th>
+                  <th className="px-3 py-2 text-left">Comentario</th>
+                  <th className="w-[95px] px-3 py-2 text-right">Detalle</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {registrosFiltrados.length ? (
                   registrosFiltrados.map((registro) => (
                     <tr className="transition hover:bg-slate-50" key={registro.id}>
-                      <td className="px-4 py-2.5">
-                        <p className="text-sm font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
-                        <p className="text-xs text-slate-500">{formatTime(registro.createdAt)}</p>
+                      <td className="px-3 py-2">
+                        <p className="text-xs font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
+                        <p className="text-[11px] text-slate-500">{formatTime(registro.createdAt)}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-semibold text-[#10223d]">DT {registro.dt}</td>
-                      <td className="px-4 py-2.5">
-                        <p className="text-sm font-medium text-slate-700">{registro.codigoCliente}</p>
-                        <p className="max-w-40 truncate text-xs text-slate-500">{registro.nombreCliente || "-"}</p>
+                      <td className="px-3 py-2 text-xs font-semibold leading-4 text-[#10223d]">DT {registro.dt}</td>
+                      <td className="px-3 py-2">
+                        <p className="truncate text-xs font-semibold text-slate-700">{registro.codigoCliente}</p>
+                        <p className="truncate text-[11px] text-slate-500" title={registro.nombreCliente || "-"}>{registro.nombreCliente || "-"}</p>
                       </td>
-                      <td className="px-4 py-2.5">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e9f3ff] px-2 py-1 text-xs font-semibold text-[#10223d]">
-                          <UserRound size={13} />
+                      <td className="px-3 py-2">
+                        <span className="block truncate rounded bg-[#e9f3ff] px-2 py-1 text-xs font-semibold leading-4 text-[#10223d]" title={registro.personaNombre || registro.persona}>
                           {registro.personaNombre || registro.persona}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{registro.causal}</td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{registro.totalCajas}</span>
+                      <td className="px-3 py-2">
+                        <p className="line-clamp-2 text-xs font-medium leading-4 text-slate-600" title={registro.causal}>{registro.causal}</p>
                       </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center justify-center gap-2">
+                      <td className="px-3 py-2 text-center">
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">{registro.totalCajas}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-center gap-1.5">
                           <input
-                            className="h-8 w-16 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                            className="h-7 w-14 rounded-md border border-slate-200 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                             inputMode="numeric"
                             onChange={(event) => updateCajasGestionadas(registro.id, event.target.value)}
                             placeholder="0"
@@ -248,17 +249,17 @@ export default function ModulacionPage() {
                           <GestionBadge registro={registro} />
                         </div>
                       </td>
-                      <td className="px-4 py-2.5">
-                        <p className="max-w-64 truncate text-xs text-slate-600">{registro.comentario || "-"}</p>
+                      <td className="px-3 py-2">
+                        <p className="truncate text-xs text-slate-600" title={registro.comentario || "-"}>{registro.comentario || "-"}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-3 py-2 text-right">
                         <button
-                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-100 px-2 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-100 px-2 text-[11px] font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
                           onClick={() => setSelectedRegistroId(registro.id)}
                           type="button"
                         >
-                          <Eye size={14} />
-                          Modulador
+                          <Eye size={13} />
+                          Ver
                         </button>
                       </td>
                     </tr>
@@ -470,7 +471,7 @@ function GestionBadge({ registro, showLabel = false }: { registro: ModulacionReg
 
   return (
     <span
-      className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-2 text-xs font-semibold ${config.className}`}
+      className={`inline-flex h-7 items-center gap-1 rounded-full border px-1.5 text-[11px] font-semibold ${config.className}`}
       title={config.label}
     >
       <MiniRobot status={status} className={config.botClassName} />
@@ -488,7 +489,7 @@ function MiniRobot({ status, className }: { status: GestionStatus; className: st
 
   return (
     <span className={`robot-bot ${className}`} aria-hidden="true">
-      <svg className="h-7 w-9 overflow-visible" viewBox="0 0 48 34" fill="none">
+      <svg className="h-5 w-7 overflow-visible" viewBox="0 0 48 34" fill="none">
         <path d="M19 5h10" stroke={colors.shell} strokeWidth="2.4" strokeLinecap="round" />
         <circle cx="24" cy="3.5" r="2.5" fill={colors.glow} stroke={colors.shell} strokeWidth="1.4" />
         <rect x="8" y="8" width="27" height="20" rx="8" fill="#10223d" stroke={colors.shell} strokeWidth="2.3" />

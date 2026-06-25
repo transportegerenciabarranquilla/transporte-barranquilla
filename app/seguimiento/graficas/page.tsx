@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ClipboardList, Clock3, PackageCheck, Route, Truck, Users, X } from "lucide-react";
+import { AnalyticsDateFilter } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
 import { MODULACION_STORAGE_KEY } from "../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue, normalizeCajasTotal } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 
 const DELAY_THRESHOLD = 25;
@@ -55,7 +56,7 @@ export default function SeguimientoGraficasPage() {
   const resumen = useMemo(() => {
     const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
     const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
-    const cajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
+    const cajas = normalizeCajasTotal(todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0));
     const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
     const avance = getVisitProgress(visitados, clientes);
 
@@ -139,7 +140,10 @@ export default function SeguimientoGraficasPage() {
               <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento operativo</h1>
             </div>
           </div>
-          <AnalyticsViewToggle active="seguimiento" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <AnalyticsViewToggle active="seguimiento" />
+          </div>
         </div>
       </header>
 
@@ -176,7 +180,7 @@ export default function SeguimientoGraficasPage() {
         </div>
 
         <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <ClipboardList size={17} className="text-[#10223d]" />
               <div>
@@ -191,13 +195,13 @@ export default function SeguimientoGraficasPage() {
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px]">
-              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 text-left">Vehículo / DT</th>
-                  <th className="px-4 py-3 text-left">Responsable</th>
-                  <th className="px-4 py-3 text-center">Visitas</th>
-                  <th className="px-4 py-3 text-center">Avance</th>
-                  <th className="px-4 py-3 text-right">Estado</th>
+                  <th className="px-4 py-2 text-left">Vehículo / DT</th>
+                  <th className="px-4 py-2 text-left">Responsable</th>
+                  <th className="px-4 py-2 text-center">Visitas</th>
+                  <th className="px-4 py-2 text-center">Avance</th>
+                  <th className="px-4 py-2 text-right">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -207,22 +211,22 @@ export default function SeguimientoGraficasPage() {
 
                   return (
                     <tr className={delayed ? "bg-red-50/50" : "transition hover:bg-slate-50"} key={getVehicleRecordKey(vehicle)}>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-3">
-                          <span className={`grid h-10 w-10 place-items-center rounded-md ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
-                            {delayed ? <AlertTriangle size={18} /> : <Truck size={18} />}
+                      <td className="px-4 py-1.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className={`grid h-8 w-8 place-items-center rounded-md ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
+                            {delayed ? <AlertTriangle size={16} /> : <Truck size={16} />}
                           </span>
-                          <div>
-                            <p className="text-sm font-semibold text-[#10223d]">{vehicle.vehiculo}</p>
-                            <p className="text-xs text-slate-500">{vehicle.transporte}</p>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold leading-5 text-[#10223d]">{vehicle.vehiculo}</p>
+                            <p className="truncate text-xs leading-4 text-slate-500">{vehicle.transporte}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-medium text-slate-600">{vehicle.responsable}</td>
-                      <td className="px-4 py-2.5 text-center text-sm font-semibold text-[#10223d]">
+                      <td className="max-w-80 truncate px-4 py-1.5 text-sm font-medium text-slate-600">{vehicle.responsable}</td>
+                      <td className="px-4 py-1.5 text-center text-sm font-semibold text-[#10223d]">
                         {vehicle.visitados} / {vehicle.clientes}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-1.5">
                         <div className="mx-auto flex max-w-44 items-center gap-3">
                           <div className="h-2 flex-1 rounded-full bg-slate-200">
                             <div className={`h-2 rounded-full ${delayed ? "bg-red-500" : "bg-[#0f7c58]"}`} style={{ width: `${percentage}%` }} />
@@ -230,7 +234,7 @@ export default function SeguimientoGraficasPage() {
                           <span className={`w-10 text-sm font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-4 py-1.5 text-right">
                         <StatusPill status={delayed ? "Retraso" : getStatus(percentage, vehicle)} />
                       </td>
                     </tr>

@@ -16,7 +16,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, normalizeCajasTotal } from "./utils";
 import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -106,7 +106,7 @@ export default function SeguimientoPage() {
 
     return {
       vehiculos: filteredVehicles.length,
-      cajas: roundToNearestTen(filteredVehicles.reduce((total, item) => total + Number(item.cajas || 0), 0)),
+      cajas: normalizeCajasTotal(filteredVehicles.reduce((total, item) => total + Number(item.cajas || 0), 0)),
       hl: filteredVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
       visitados,
       clientes,
@@ -444,15 +444,7 @@ export default function SeguimientoPage() {
               <ClipboardCheck size={18} />
               Cajas checkin
             </button>
-            <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!hasTodayVehicles}
-              onClick={borrarTodoSeguimiento}
-              type="button"
-            >
-              <Trash2 size={17} />
-              Borrar hoy
-            </button>
+           
             <a
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
               download="plantilla-seguimiento.xlsx"
@@ -531,10 +523,6 @@ function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle:
     ...storedVehicle,
     visitados: Math.min(visitados, storedVehicle.clientes || visitados),
   };
-}
-
-function roundToNearestTen(value: number) {
-  return Math.round(value / 10) * 10;
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {

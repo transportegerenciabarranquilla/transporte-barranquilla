@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock3, Save, Search, ShieldAlert, Truck } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
@@ -20,25 +20,48 @@ const CAUSALES_DESVIO = [
 ];
 
 type JornadaState = "ok" | "warn" | "danger" | "done" | "empty";
+type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string };
 
 export default function JornadaLaboralPage() {
   const router = useRouter();
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
-  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [draftVehiculos, setDraftVehiculos] = useState<Vehiculo[] | null>(null);
   const [selectedDate, setSelectedDate] = useState(getTodayKey);
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [classificationFilter, setClassificationFilter] = useState("");
-
-  useEffect(() => {
-    setVehiculos(storedVehiculos);
-  }, [storedVehiculos]);
+  const [relevadores, setRelevadores] = useState<Persona[]>([]);
+  const vehiculos = draftVehiculos ?? storedVehiculos;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 60000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/personas?cargo=jornada%20laboral", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setMessage(body.error || "No se pudieron cargar los relevadores.");
+          return;
+        }
+
+        if (Array.isArray(body.personas)) {
+          setRelevadores(body.personas);
+          if (!body.personas.length) setMessage("No se encontraron personas con cargo de relevador.");
+        }
+      })
+      .catch(() => setMessage("No se pudieron cargar los relevadores."));
+
+    return () => controller.abort();
   }, []);
 
   const rows = useMemo(() => {
@@ -62,7 +85,7 @@ export default function JornadaLaboralPage() {
     const searchTerm = search.trim().toLowerCase();
 
     return rows.filter((row) => {
-      const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio}`.toLowerCase();
+      const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio} ${row.vehicle.relevador}`.toLowerCase();
       const matchesSearch = !searchTerm || searchable.includes(searchTerm);
       const matchesState = !stateFilter || row.state === stateFilter;
       const matchesClassification = !classificationFilter || row.clasificacion === classificationFilter;
@@ -90,11 +113,11 @@ export default function JornadaLaboralPage() {
       }),
     );
 
-    setVehiculos(next);
+    setDraftVehiculos(next);
     setMessage("Guardando cambios...");
     saveSeguimientoVehiculos(next)
-      .then((saved) => {
-        setVehiculos(saved);
+      .then(() => {
+        setDraftVehiculos(null);
         setMessage("Cambios guardados.");
       })
       .catch((error) => {
@@ -215,23 +238,23 @@ export default function JornadaLaboralPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px]">
+            <table className="w-full min-w-[1030px] table-fixed">
               <thead className="bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
                 <tr>
-                  <th className="px-1.5 py-1.5 text-left">Jornada</th>
-                  <th className="px-1.5 py-1.5 text-left">Placa</th>
-                  <th className="px-1.5 py-1.5 text-left">Fecha</th>
-                  <th className="px-1.5 py-1.5 text-left">DT</th>
-                  <th className="px-1.5 py-1.5 text-left">Salida</th>
-                  <th className="px-1.5 py-1.5 text-left">Tiempo</th>
-                  <th className="px-1.5 py-1.5 text-center">Cl.</th>
-                  <th className="px-1.5 py-1.5 text-center">Vis.</th>
-                  <th className="px-1.5 py-1.5 text-left">Avance</th>
-                  <th className="px-1.5 py-1.5 text-left">Meta</th>
-                  <th className="px-1.5 py-1.5 text-left">Inicio relevo</th>
-                  <th className="px-1.5 py-1.5 text-left">Clasif.</th>
-                  <th className="px-1.5 py-1.5 text-left">Causal</th>
-                  <th className="px-1.5 py-1.5 text-left">Investigacion</th>
+                  <th className="w-[86px] px-1.5 py-1 text-left">Jornada</th>
+                  <th className="w-[82px] px-1.5 py-1 text-left">Placa</th>
+                  <th className="w-[54px] px-1 py-1 text-left">Fecha</th>
+                  <th className="w-[60px] px-1 py-1 text-left">Salida</th>
+                  <th className="w-[58px] px-1 py-1 text-left">Tiempo</th>
+                  <th className="w-[30px] px-0.5 py-1 text-center">Cl.</th>
+                  <th className="w-[30px] px-0.5 py-1 text-center">Vis.</th>
+                  <th className="w-[105px] px-1 py-1 text-left">Avance</th>
+                  <th className="w-[58px] px-1 py-1 text-left">Meta</th>
+                  <th className="w-[108px] px-1 py-1 text-left">Inicio</th>
+                  <th className="w-[135px] px-1 py-1 text-left">Relevador</th>
+                  <th className="w-[78px] px-1 py-1 text-left">Clasif.</th>
+                  <th className="w-[110px] px-1 py-1 text-left">Causal</th>
+                  <th className="w-[136px] px-1 py-1 text-left">Investigacion</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -240,42 +263,49 @@ export default function JornadaLaboralPage() {
                     const key = getVehicleUiKey(row.vehicle);
                     return (
                       <tr className={rowTone(row.state)} key={key}>
-                        <td className="px-1.5 py-1">
+                        <td className="px-1 py-0.5">
                           <StatusBadge state={row.state} label={row.statusLabel} />
                         </td>
-                        <td className="px-1.5 py-1 text-[11px] font-semibold text-[#10223d]">{row.vehicle.vehiculo}</td>
-                        <td className="px-1.5 py-1 text-[11px] text-slate-700">{row.vehicle.fechaDespacho || row.vehicle.fechaDt || "-"}</td>
-                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.vehicle.transporte}</td>
-                        <td className="px-1.5 py-1">
-                          <span className="inline-flex h-7 w-16 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-[#10223d]">
+                        <td className="truncate px-1 py-0.5 text-[11px] font-semibold text-[#10223d]" title={row.vehicle.vehiculo}>{row.vehicle.vehiculo}</td>
+                        <td className="px-1 py-0.5 text-[11px] text-slate-700">{formatCompactDate(row.vehicle.fechaDespacho || row.vehicle.fechaDt)}</td>
+                        <td className="px-1 py-0.5">
+                          <span className="inline-flex h-6 w-12 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-[#10223d]">
                             {timeInputValue(row.vehicle.horaSalida) || "-"}
                           </span>
                         </td>
-                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.elapsedLabel}</td>
-                        <td className="px-1.5 py-1 text-center text-[11px] text-slate-700">{row.vehicle.clientes}</td>
-                        <td className="px-1.5 py-1 text-center text-[11px] font-semibold text-[#10223d]">{row.vehicle.visitados}</td>
-                        <td className="px-1.5 py-1">
+                        <td className="px-1 py-0.5 text-[11px] font-semibold text-slate-700">{row.elapsedLabel}</td>
+                        <td className="px-0.5 py-0.5 text-center text-[11px] text-slate-700">{row.vehicle.clientes}</td>
+                        <td className="px-0.5 py-0.5 text-center text-[11px] font-semibold text-[#10223d]">{row.vehicle.visitados}</td>
+                        <td className="px-1 py-0.5">
                           <ProgressCell value={row.avance} />
                         </td>
-                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.metaRelevo}</td>
-                        <td className="px-1.5 py-1">
+                        <td className="px-1 py-0.5 text-[11px] font-semibold text-slate-700">{row.metaRelevo}</td>
+                        <td className="px-1 py-0.5">
                           <div className="flex items-center gap-1">
                             <TimeInput value={timeInputValue(row.vehicle.horaInicioRelevo)} onChange={(value) => updateVehicle(key, { horaInicioRelevo: value || "Pendiente" })} />
                             <button
-                              className="rounded-md border border-slate-200 px-1.5 py-1 text-[9px] font-semibold text-slate-500 transition hover:bg-slate-100"
+                              aria-label="Quitar relevo"
+                              className="grid h-6 w-6 place-items-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-100"
                               onClick={() => updateVehicle(key, { horaInicioRelevo: "Pendiente", clasificacionRelevo: "Pendiente" })}
                               type="button"
                             >
-                              Sin relevo
+                              <RotateCcw size={12} />
                             </button>
                           </div>
                         </td>
-                        <td className="px-1.5 py-1">
-                          <span className="rounded-md bg-white px-1.5 py-1 text-[10px] font-semibold text-[#10223d] shadow-sm">{row.clasificacion}</span>
+                        <td className="px-1 py-0.5">
+                          <RelevadorSelect
+                            relevadores={relevadores}
+                            value={normalizeSelectValue(row.vehicle.relevador)}
+                            onChange={(value) => updateVehicle(key, { relevador: value || "-" })}
+                          />
                         </td>
-                        <td className="px-1.5 py-1">
+                        <td className="px-1 py-0.5">
+                          <span className="rounded-md bg-white px-1 py-0.5 text-[10px] font-semibold text-[#10223d] shadow-sm">{row.clasificacion}</span>
+                        </td>
+                        <td className="px-1 py-0.5">
                           <select
-                            className="h-7 w-32 rounded-md border border-slate-200 bg-white px-1.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
+                            className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             onChange={(event) => updateVehicle(key, { causalDesviado: event.target.value })}
                             value={normalizeSelectValue(row.vehicle.causalDesviado)}
                           >
@@ -287,9 +317,9 @@ export default function JornadaLaboralPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-1.5 py-1">
+                        <td className="px-1 py-0.5">
                           <textarea
-                            className="h-7 w-36 resize-none rounded-md border border-slate-200 px-1.5 py-1 text-[10px] outline-none transition focus:border-[#f5bd19]"
+                            className="h-6 w-full resize-none rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             defaultValue={row.vehicle.investigacionDesvio || ""}
                             onBlur={(event) => updateVehicle(key, { investigacionDesvio: event.target.value })}
                           />
@@ -333,11 +363,43 @@ function Metric({ icon, label, value, tone = "navy" }: { icon: React.ReactNode; 
 function TimeInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
   return (
     <input
-      className="h-7 w-20 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+      className="h-6 w-[76px] rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
       onChange={(event) => onChange(event.target.value)}
       type="time"
       value={value}
     />
+  );
+}
+
+function RelevadorSelect({
+  onChange,
+  relevadores,
+  value,
+}: {
+  onChange: (value: string) => void;
+  relevadores: Persona[];
+  value: string;
+}) {
+  const hasCurrentValue = value && relevadores.some((persona) => (persona.NOMBRE || String(persona.CC)) === value);
+
+  return (
+    <select
+      className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+      onChange={(event) => onChange(event.target.value)}
+      title={value || "Sin relevador"}
+      value={value}
+    >
+      <option value="">Sin relevador</option>
+      {value && !hasCurrentValue ? <option value={value}>{value}</option> : null}
+      {relevadores.map((persona) => {
+        const name = persona.NOMBRE || String(persona.CC);
+        return (
+          <option key={`${persona.CC}-${name}`} value={name}>
+            {name}
+          </option>
+        );
+      })}
+    </select>
   );
 }
 
@@ -350,18 +412,18 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
     warn: "border-amber-100 bg-amber-50 text-amber-700",
   };
 
-  return <span className={`inline-flex max-w-24 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
+  return <span className={`inline-flex max-w-20 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
 }
 
 function ProgressCell({ value }: { value: number }) {
   const color = value >= 80 ? "bg-emerald-600" : value >= 45 ? "bg-[#f5bd19]" : "bg-red-500";
 
   return (
-    <div className="flex min-w-24 items-center gap-1.5">
+    <div className="flex min-w-20 items-center gap-1">
       <div className="h-1.5 flex-1 rounded-full bg-slate-200">
         <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
       </div>
-      <span className="w-8 text-right text-[11px] font-semibold text-[#10223d]">{value}%</span>
+      <span className="w-7 text-right text-[11px] font-semibold text-[#10223d]">{value}%</span>
     </div>
   );
 }
@@ -459,6 +521,14 @@ function timeInputValue(value: string | undefined) {
 function normalizeSelectValue(value: string | undefined) {
   if (!value || value === "-") return "";
   return value;
+}
+
+function formatCompactDate(value: string | undefined) {
+  const dateKey = toDateKey(value);
+  if (!dateKey) return "-";
+
+  const [, month, day] = dateKey.split("-");
+  return `${day}/${month}`;
 }
 
 function rowTone(state: JornadaState) {

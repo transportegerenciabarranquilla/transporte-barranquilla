@@ -27,6 +27,10 @@ export function getProgress(item: Vehiculo) {
   return Math.round((item.visitados / item.clientes) * 100);
 }
 
+export function normalizeCajasTotal(value: number) {
+  return Math.round(value / 10) * 10;
+}
+
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
   if (hasRecargueValue(item?.recargue)) return "Recargue";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;

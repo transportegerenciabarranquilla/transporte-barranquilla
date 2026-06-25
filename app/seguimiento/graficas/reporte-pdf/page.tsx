@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileDown } from "lucide-react";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
+import { AnalyticsDateFilter } from "../../components/AnalyticsDateFilter";
 import { loadSeguimientoVehiculos } from "../../services/vehicleRecords";
 import type { Vehiculo } from "../../types";
+import { normalizeCajasTotal } from "../../utils";
 import { useContractorBrand } from "../../../lib/contractorBranding";
 
 type RefusalComRow = {
@@ -25,6 +27,7 @@ type RefusalComRow = {
 export default function ReportePdfPage() {
   const router = useRouter();
   const brand = useContractorBrand();
+  const [selectedDate, setSelectedDate] = useState(getLocalDateKey);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const vehicles = useStorageSnapshot<Vehiculo[]>(
@@ -35,15 +38,20 @@ export default function ReportePdfPage() {
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
 
-  const todayVehicles = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
+  useEffect(() => {
+    const fecha = new URLSearchParams(window.location.search).get("fecha") || getLocalDateKey();
+    setSelectedDate(fecha);
+  }, []);
+
+  const todayVehicles = useMemo(() => vehicles.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [selectedDate, vehicles]);
   const visibleModulaciones = useMemo(() => {
-    return modulaciones.filter(isTodayModulacion);
-  }, [modulaciones]);
+    return modulaciones.filter((registro) => isModulacionForDate(registro, selectedDate));
+  }, [modulaciones, selectedDate]);
 
   const seguimiento = useMemo(() => {
     const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
     const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
-    const cajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
+    const cajas = normalizeCajasTotal(todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0));
     const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
 
     return {
@@ -57,7 +65,7 @@ export default function ReportePdfPage() {
   }, [todayVehicles]);
 
   const refusal = useMemo(() => {
-    const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
+    const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
     const byVehicle = todayVehicles.map((vehicle) => {
       const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
       const checkin = getCheckinByDt(checkins, vehicle.transporte);
@@ -101,7 +109,7 @@ export default function ReportePdfPage() {
 
   const byCom = useMemo(() => groupRows(refusalComRows, (row) => row.com).slice(0, 12), [refusalComRows]);
   const byCausal = useMemo(() => groupRows(refusalComRows, (row) => row.causal).slice(0, 8), [refusalComRows]);
-  const todayLabel = new Date().toLocaleDateString("es-CO");
+  const todayLabel = formatDateLabel(selectedDate);
 
   async function downloadPdf() {
     if (downloading) return;
@@ -313,7 +321,7 @@ export default function ReportePdfPage() {
             <button
               aria-label="Volver a graficas"
               className="grid h-8 w-8 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push("/seguimiento/graficas")}
+              onClick={() => router.push(`/seguimiento/graficas?fecha=${encodeURIComponent(selectedDate)}`)}
               type="button"
             >
               <ArrowLeft size={19} />
@@ -323,15 +331,18 @@ export default function ReportePdfPage() {
               <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento {brand.name}, refusal y refusal-com</h1>
             </div>
           </div>
-          <button
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-[#10223d] px-3 text-xs font-semibold text-white transition hover:bg-[#1b355b] disabled:opacity-60"
-            disabled={downloading}
-            onClick={downloadPdf}
-            type="button"
-          >
-            <FileDown size={16} />
-            {downloading ? "Generando..." : "Descargar PDF"}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <button
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[#10223d] px-3 text-xs font-semibold text-white transition hover:bg-[#1b355b] disabled:opacity-60"
+              disabled={downloading}
+              onClick={downloadPdf}
+              type="button"
+            >
+              <FileDown size={16} />
+              {downloading ? "Generando..." : "Descargar PDF"}
+            </button>
+          </div>
           {downloadError ? <p className="text-xs font-medium text-red-600">{downloadError}</p> : null}
         </div>
       </header>
@@ -558,16 +569,12 @@ function getJefeVentas(registro: ModulacionRegistro, vehicle: Vehiculo | undefin
   return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
 }
 
-function isTodayModulacion(registro: ModulacionRegistro) {
-  return isToday(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+function isModulacionForDate(registro: ModulacionRegistro, dateKey: string) {
+  return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt) === dateKey;
 }
 
-function isTodayVehicle(vehicle: Vehiculo) {
-  return isToday(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
-}
-
-function isToday(value: string | undefined) {
-  return toDateKey(value) === getLocalDateKey();
+function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function getVisitProgress(visitados: number, clientes: number) {
@@ -586,6 +593,13 @@ function toDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return getLocalDateKey(parsed);
+}
+
+function formatDateLabel(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+
+  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
 }
 
 function hexToRgb(value: string): [number, number, number] {

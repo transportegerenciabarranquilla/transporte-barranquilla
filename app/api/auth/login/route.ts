@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ACCESS_COOKIE, REFRESH_COOKIE } from "../../../lib/authServer";
+import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
 import { contractorForEmail, isAdminEmail } from "../../../lib/contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "../../../lib/supabaseServer";
 
@@ -25,7 +25,8 @@ export async function POST(request: Request) {
 
   const response = NextResponse.json({ email: normalizedEmail, contractor, isAdmin: isAdminEmail(normalizedEmail) });
   const maxAge = remember ? body.expires_in || 3600 : undefined;
-  response.cookies.set(ACCESS_COOKIE, body.access_token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge });
-  if (body.refresh_token) response.cookies.set(REFRESH_COOKIE, body.refresh_token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: remember ? 60 * 60 * 24 * 30 : undefined });
+  response.cookies.set(ACCESS_COOKIE, body.access_token, getAuthCookieOptions(maxAge));
+  response.cookies.set(REMEMBER_COOKIE, remember ? "true" : "false", getAuthCookieOptions(remember ? 60 * 60 * 24 * 30 : undefined));
+  if (body.refresh_token) response.cookies.set(REFRESH_COOKIE, body.refresh_token, getAuthCookieOptions(remember ? 60 * 60 * 24 * 30 : undefined));
   return response;
 }

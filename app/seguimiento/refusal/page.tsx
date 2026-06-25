@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, CheckCircle2, ClipboardList, Package, TrendingDown, Users, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ClipboardList, Package, TrendingDown, Users, XCircle } from "lucide-react";
+import { AnalyticsDateFilter } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
@@ -10,7 +11,7 @@ import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import type { Vehiculo } from "../types";
-import { getProgress, getStatus } from "../utils";
+import { getProgress, getStatus, normalizeCajasTotal } from "../utils";
 
 const PALETTE = {
   safe: "#0f7c58",
@@ -46,7 +47,7 @@ export default function SeguimientoRefusalPage() {
   );
 
   const refusalData = useMemo(() => {
-    const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
+    const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
     const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
     const byVehicle = todayVehicles.map((vehicle) => {
       const registrosDt = modulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
@@ -113,27 +114,14 @@ export default function SeguimientoRefusalPage() {
               <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
             </div>
           </div>
-          <AnalyticsViewToggle active="refusal" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <AnalyticsViewToggle active="refusal" />
+          </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-[#10223d]">
-            <CalendarDays size={18} />
-            <div>
-              <p className="text-sm font-semibold">Filtro por dia</p>
-              <p className="text-xs text-slate-500">{formatDateLabel(selectedDate)}</p>
-            </div>
-          </div>
-          <input
-            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-            onChange={(event) => setSelectedDate(event.target.value)}
-            type="date"
-            value={selectedDate}
-          />
-        </div>
-
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <RefusalMetric icon={<Package size={21} />} label="Cajas seguimiento" value={refusalData.totalCajasSeguimiento} />
           <RefusalMetric icon={<XCircle size={21} />} label="Rechazadas" value={refusalData.rechazadas} tone="red" />
@@ -349,10 +337,4 @@ function toDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return getLocalDateKey(parsed);
-}
-
-function formatDateLabel(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  if (![year, month, day].every(Number.isFinite)) return dateKey;
-  return new Date(year, month - 1, day).toLocaleDateString("es-CO");
 }
