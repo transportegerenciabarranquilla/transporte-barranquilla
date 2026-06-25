@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Clock3, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
@@ -82,13 +83,10 @@ export function VehiclesTable({
                   </td>
                   <td className="px-2 py-1">
                     <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-                      <input
+                      <EditableNumber
                         className="h-6 w-12 rounded border border-slate-200 px-1.5 text-[10px] outline-none focus:border-[#0f7c58]"
-                        max={item.clientes}
-                        min={0}
-                        onChange={(event) => onUpdateVisited(recordKey, Number(event.target.value))}
-                        type="number"
                         value={item.visitados}
+                        onChange={(value) => onUpdateVisited(recordKey, value)}
                       />
                       <span className="text-[9px] text-slate-400">/ {item.clientes}</span>
                       <div className="h-1.5 min-w-12 flex-1 rounded-full bg-slate-200">
@@ -188,14 +186,31 @@ function EditableDate({ value, onChange }: { value: string; onChange: (value: st
   );
 }
 
-function EditableNumber({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function EditableNumber({ className, value, onChange }: { className?: string; value: number; onChange: (value: number) => void }) {
+  const [draft, setDraft] = useState(value ? String(value) : "");
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(value ? String(value) : "");
+  }, [focused, value]);
+
   return (
     <input
-      className="h-6 w-full min-w-0 rounded border border-transparent bg-transparent px-1 text-[10px] font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"
+      className={className || "h-6 w-full min-w-0 rounded border border-transparent bg-transparent px-1 text-[10px] font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"}
       min={0}
-      onChange={(event) => onChange(Number(event.target.value))}
-      type="number"
-      value={value}
+      onBlur={() => {
+        if (!draft) onChange(0);
+        setFocused(false);
+      }}
+      onChange={(event) => {
+        const cleanValue = event.target.value.replace(/\D/g, "");
+        setDraft(cleanValue);
+        if (cleanValue) onChange(Number(cleanValue));
+      }}
+      onFocus={() => setFocused(true)}
+      placeholder="0"
+      type="text"
+      value={draft}
     />
   );
 }

@@ -5,20 +5,25 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, UserRound, UsersRound, X } from "lucide-react";
 import {
   getLocalDateKey,
+  MODULACION_STORAGE_KEY,
   normalizeDt,
   readModulacionRegistros,
   saveModulacionRegistros,
   type ModulacionRegistro,
 } from "../lib/modulacionStorage";
-import { readSeguimientoVehiculos } from "../lib/seguimientoStorage";
+import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { refreshRemoteRecords } from "../lib/remoteStore";
+import { useStorageSnapshot } from "../lib/storageEvents";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
 import type { Vehiculo } from "../seguimiento/types";
 
+const MODULACION_REFRESH_MS = 1500;
+
 export default function ModulacionPage() {
   const router = useRouter();
-  const [registros, setRegistros] = useState<ModulacionRegistro[]>([]);
-  const [vehiculosSeguimiento, setVehiculosSeguimiento] = useState<Vehiculo[]>([]);
+  const registros = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
+  const seguimientoVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
   const [search, setSearch] = useState("");
@@ -27,13 +32,18 @@ export default function ModulacionPage() {
   const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
   const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setRegistros(readModulacionRegistros());
-      setVehiculosSeguimiento(mergeVehiclesByDt(readSeguimientoVehiculos(), getVehiculosSeguimiento()));
-    }, 0);
+  const vehiculosSeguimiento = useMemo(
+    () => mergeVehiclesByDt(seguimientoVehiculos, getVehiculosSeguimiento()),
+    [seguimientoVehiculos],
+  );
 
-    return () => window.clearTimeout(timeout);
+  useEffect(() => {
+    void refreshRemoteRecords("/api/modulaciones");
+    const interval = window.setInterval(() => {
+      void refreshRemoteRecords("/api/modulaciones");
+    }, MODULACION_REFRESH_MS);
+
+    return () => window.clearInterval(interval);
   }, []);
 
   const registrosFiltrados = useMemo(() => {
@@ -102,14 +112,12 @@ export default function ModulacionPage() {
     );
 
     saveModulacionRegistros(nextRecords);
-    setRegistros(nextRecords);
   }
 
   function updateComentarioModulador(id: string, value: string) {
     const nextRecords = registros.map((registro) => (registro.id === id ? { ...registro, comentarioModulador: value } : registro));
 
     saveModulacionRegistros(nextRecords);
-    setRegistros(nextRecords);
   }
 
   return (
@@ -233,8 +241,9 @@ export default function ModulacionPage() {
                             className="h-8 w-16 rounded-md border border-slate-200 px-2 text-center text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                             inputMode="numeric"
                             onChange={(event) => updateCajasGestionadas(registro.id, event.target.value)}
+                            placeholder="0"
                             type="text"
-                            value={registro.cajasGestionadas || "0"}
+                            value={getEditableGestionadas(registro.cajasGestionadas)}
                           />
                           <GestionBadge registro={registro} />
                         </div>
@@ -401,8 +410,9 @@ function ModulacionDetailModal({
                   className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   inputMode="numeric"
                   onChange={(event) => onChangeGestionadas(registro.id, event.target.value)}
+                  placeholder="0"
                   type="text"
-                  value={registro.cajasGestionadas || "0"}
+                  value={getEditableGestionadas(registro.cajasGestionadas)}
                 />
               </label>
               <div className="mt-3">
@@ -432,6 +442,10 @@ function getGestionStatus(registro: ModulacionRegistro): GestionStatus {
   if (rechazadas > 0 && gestionadas >= rechazadas) return "done";
   if (gestionadas > 0) return "half";
   return "empty";
+}
+
+function getEditableGestionadas(value: string | undefined) {
+  return value && value !== "0" ? value : "";
 }
 
 function GestionBadge({ registro, showLabel = false }: { registro: ModulacionRegistro; showLabel?: boolean }) {

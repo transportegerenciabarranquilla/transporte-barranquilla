@@ -23,9 +23,12 @@ import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, t
 import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
+import { refreshRemoteRecords } from "../lib/remoteStore";
 
 const SEGUIMIENTO_DATE_FILTER_KEY = "bavaria.seguimiento.fechaFiltro";
-const MODULACION_ALERT_VISIBLE_MS = 30000;
+const MODULACION_ALERT_VISIBLE_MS = 5 * 60 * 1000;
+const DATA_REFRESH_MS = 1500;
+const SEGUIMIENTO_SAVE_DEBOUNCE_MS = 200;
 
 export default function SeguimientoPage() {
   const router = useRouter();
@@ -33,7 +36,7 @@ export default function SeguimientoPage() {
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
   const [vehiculoSeleccionadoKey, setVehiculoSeleccionadoKey] = useState<string | null>(null);
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>(
-    [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY],
+    [SEGUIMIENTO_STORAGE_KEY],
     loadSeguimientoVehiculos,
     [],
   );
@@ -72,7 +75,7 @@ export default function SeguimientoPage() {
 
   useEffect(() => {
     if (pendingLocalSaveRef.current) return;
-    setVehiculos(storedVehiculos);
+    setVehiculos((current) => mergeStoredVehiclesPreservingProgress(current, storedVehiculos));
   }, [storedVehiculos]);
 
   useEffect(() => {
@@ -148,6 +151,17 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
+    void refreshRemoteRecords("/api/seguimiento");
+    void refreshRemoteRecords("/api/modulaciones");
+    const interval = window.setInterval(() => {
+      void refreshRemoteRecords("/api/seguimiento");
+      void refreshRemoteRecords("/api/modulaciones");
+    }, DATA_REFRESH_MS);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!latestModulacionId) return;
     const timeout = window.setTimeout(() => setModulacionAlertDismissed(false), 0);
     return () => window.clearTimeout(timeout);
@@ -211,7 +225,7 @@ export default function SeguimientoPage() {
         pendingLocalSaveRef.current = false;
         saveTimerRef.current = null;
       }
-    }, 900);
+    }, SEGUIMIENTO_SAVE_DEBOUNCE_MS);
   }
 
   function applyVehicleChanges(item: Vehiculo, changes: Partial<Vehiculo>, shouldResetAttendance: boolean) {
@@ -490,6 +504,23 @@ export default function SeguimientoPage() {
 
 function getModulacionDateKey(registro: ModulacionRegistro) {
   return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+}
+
+function mergeStoredVehiclesPreservingProgress(currentVehicles: Vehiculo[], storedVehicles: Vehiculo[]) {
+  if (!currentVehicles.length) return storedVehicles;
+
+  const currentByKey = new Map(currentVehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
+
+  return storedVehicles.map((storedVehicle) => {
+    const currentVehicle = currentByKey.get(getVehicleUiKey(storedVehicle));
+    if (!currentVehicle) return storedVehicle;
+
+    const visitados = Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0));
+    return {
+      ...storedVehicle,
+      visitados: Math.min(visitados, storedVehicle.clientes || visitados),
+    };
+  });
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {

@@ -13,8 +13,11 @@ import {
 } from "../../lib/checkinStorage";
 import { getLocalDateKey, getModulacionesByDt, getOperationalModulaciones, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
+import { refreshRemoteRecords } from "../../lib/remoteStore";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import type { Vehiculo } from "../types";
+
+const DATA_REFRESH_MS = 1500;
 
 export default function CajasCheckinPage() {
   const router = useRouter();
@@ -31,6 +34,19 @@ export default function CajasCheckinPage() {
 
   useEffect(() => {
     setDateLabel(new Date().toLocaleDateString("es-CO"));
+  }, []);
+
+  useEffect(() => {
+    void refreshRemoteRecords("/api/checkins");
+    void refreshRemoteRecords("/api/modulaciones");
+    void refreshRemoteRecords("/api/seguimiento");
+    const interval = window.setInterval(() => {
+      void refreshRemoteRecords("/api/checkins");
+      void refreshRemoteRecords("/api/modulaciones");
+      void refreshRemoteRecords("/api/seguimiento");
+    }, DATA_REFRESH_MS);
+
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {

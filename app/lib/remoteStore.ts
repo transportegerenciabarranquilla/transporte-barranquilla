@@ -5,6 +5,12 @@ import { notifyStorageChange } from "./storageEvents";
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
+const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
+  "/api/asistencias": "bavaria.asistencia.registros",
+  "/api/checkins": "bavaria.checkin.cajas",
+  "/api/modulaciones": "bavaria.modulacion.registros",
+  "/api/seguimiento": "bavaria.seguimiento.vehiculos",
+};
 
 function shouldRedirectOnUnauthorized() {
   if (typeof window === "undefined") return false;
@@ -18,38 +24,34 @@ export function clearRemoteCache() {
   notifyStorageChange();
 }
 
+export function refreshRemoteRecords(endpoint: string) {
+  if (loading.has(endpoint)) return loading.get(endpoint);
+
+  const request = fetch(endpoint, { cache: "no-store" })
+    .then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
+        throw new Error(body.error || "No se pudieron consultar los datos.");
+      }
+
+      const data = body.records ?? body.persona ?? body.data ?? [];
+      cache.set(endpoint, Array.isArray(data) ? data : data ? [data] : []);
+      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+    })
+    .catch(() => undefined)
+    .finally(() => loading.delete(endpoint));
+
+  loading.set(endpoint, request);
+  return request;
+}
+
 export function readRemoteRecords<T>(endpoint: string): T[] {
   const cached = cache.get(endpoint);
 
   if (!cached && !loading.has(endpoint)) {
-    const request = fetch(endpoint, { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
-          throw new Error(
-            body.error || "No se pudieron consultar los datos."
-          );
-        }
-
-        // 🔥 FIX IMPORTANTE: soportar varios formatos
-        const data =
-          body.records ??
-          body.persona ??
-          body.data ??
-          [];
-
-        cache.set(endpoint, Array.isArray(data) ? data : data ? [data] : []);
-
-        notifyStorageChange();
-      })
-      .catch(() => {
-        cache.set(endpoint, []);
-      })
-      .finally(() => loading.delete(endpoint));
-
-    loading.set(endpoint, request);
+    void refreshRemoteRecords(endpoint);
   }
 
   return (cached ?? []) as T[];
@@ -61,7 +63,7 @@ export async function saveRemoteRecords<T>(
 ) {
   const previousRecords = cache.get(endpoint);
   cache.set(endpoint, records);
-  notifyStorageChange();
+  notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
 
   try {
     const response = await fetch(endpoint, {
@@ -82,7 +84,7 @@ export async function saveRemoteRecords<T>(
 
     const savedRecords = Array.isArray(body.records) ? body.records : records;
     cache.set(endpoint, savedRecords);
-    notifyStorageChange();
+    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     return savedRecords as T[];
   } catch (error) {
     if (previousRecords) {
@@ -91,7 +93,7 @@ export async function saveRemoteRecords<T>(
       cache.delete(endpoint);
     }
 
-    notifyStorageChange();
+    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     throw error;
   }
 }
