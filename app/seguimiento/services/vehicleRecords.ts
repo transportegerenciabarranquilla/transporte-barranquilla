@@ -82,8 +82,16 @@ export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones
 
 function prepareVehicles(records: Vehiculo[]) {
   const withIds = ensureVehicleRecordIds(records);
-  const withAttendance = applyAttendanceToVehicles(withIds);
+  const withRoundedBoxes = roundVehicleBoxes(withIds);
+  const withAttendance = applyAttendanceToVehicles(withRoundedBoxes);
   return enrichVehiclesWithModulacion(withAttendance, readModulacionRegistros());
+}
+
+function roundVehicleBoxes(records: Vehiculo[]) {
+  return records.map((vehicle) => ({
+    ...vehicle,
+    cajas: Math.round(Number(vehicle.cajas || 0)),
+  }));
 }
 
 function ensureVehicleRecordIds(records: Vehiculo[]) {
@@ -170,14 +178,14 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
   if (!transporte && !vehiculo) return null;
 
   const fecha = dateValue(value(["fecha despacho", "fecha", "fecha dt", "dia"])) || getLocalDateKey();
-  const clientes = numberValue(value(["clientes", "total clientes", "clientes programados"]), 0);
-  const visitados = numberValue(value(["visitados", "clientes visitados"]), 0);
+  const clientes = roundedNumberValue(value(["clientes", "total clientes", "clientes programados"]), 0);
+  const visitados = roundedNumberValue(value(["visitados", "clientes visitados"]), 0);
   const importedCapacity = numberValue(value(["capacidad", "capacidad peso", "capacidad vehiculo"]), 1);
   const createdAt = new Date(`${fecha}T00:00:00`).toISOString();
 
   return {
-    cajasGestionadas: numberValue(value(["cajas gestionadas", "gestionadas"]), 0),
-    cajasReportadas: numberValue(value(["cajas reportadas", "reportadas"]), 0),
+    cajasGestionadas: roundedNumberValue(value(["cajas gestionadas", "gestionadas"]), 0),
+    cajasReportadas: roundedNumberValue(value(["cajas reportadas", "reportadas"]), 0),
     createdAt,
     date: fecha,
     mes: stringValue(value(["mes"])) || new Date(`${fecha}T00:00:00`).toLocaleDateString("es-CO", { month: "long" }),
@@ -194,7 +202,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     territorio: stringValue(value(["territorio", "zona", "ruta"])) || "Pendiente",
     viaje: stringValue(value(["viaje"])) || "Pendiente",
     bloque: stringValue(value(["bloque"])) || "Pendiente",
-    cajas: numberValue(value(["cajas", "total cajas", "cajas programadas", "cajas salida"]), 0),
+    cajas: roundedNumberValue(value(["cajas", "total cajas", "cajas programadas", "cajas salida"]), 0),
     hl: numberValue(value(["hl", "hectolitros"]), 0),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
@@ -280,6 +288,10 @@ function stringValue(value: unknown) {
 function numberValue(value: unknown, fallback: number) {
   const parsed = Number(String(value ?? "").replace(",", ".").replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function roundedNumberValue(value: unknown, fallback: number) {
+  return Math.round(numberValue(value, fallback));
 }
 
 function dateValue(value: unknown) {

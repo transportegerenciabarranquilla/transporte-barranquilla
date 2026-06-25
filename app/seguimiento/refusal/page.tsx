@@ -73,6 +73,7 @@ export default function SeguimientoRefusalPage() {
       .map((modulacion) => {
         const vehicle = todayVehicles.find((item) => normalizeDt(item.transporte) === normalizeDt(modulacion.dt));
         const checkin = getCheckinByDt(checkins, modulacion.dt);
+        const tieneCheckin = typeof checkin?.totalCajas === "number";
 
         return {
           bloque: getBloque(vehicle, modulacion),
@@ -80,6 +81,7 @@ export default function SeguimientoRefusalPage() {
           id: modulacion.id,
           responsable: vehicle?.nombreResponsable || vehicle?.responsable || modulacion.personaNombre || modulacion.persona || "Sin responsable",
           status: vehicle ? getStatus(getProgress(vehicle), vehicle) : "Sin seguimiento",
+          tieneCheckin,
           vehiculo: vehicle?.vehiculo || `DT ${modulacion.dt}`,
         };
       });
@@ -102,7 +104,6 @@ export default function SeguimientoRefusalPage() {
             >
               <ArrowLeft size={19} />
             </button>
-            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analitica diaria</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
@@ -279,7 +280,7 @@ function getCajasRechazoFinal(modulacion: ModulacionRegistro, checkin: CheckinCa
   return typeof checkin?.totalCajas === "number" ? checkin.totalCajas : Number(modulacion.totalCajas || 0);
 }
 
-function groupModulationRowsByVehicle<T extends { bloque: string; cajasRechazo: number; id: string; responsable: string; status: string; vehiculo: string }>(rows: T[]) {
+function groupModulationRowsByVehicle<T extends { bloque: string; cajasRechazo: number; id: string; responsable: string; status: string; tieneCheckin: boolean; vehiculo: string }>(rows: T[]) {
   const grouped = new Map<string, T>();
 
   rows.forEach((row) => {
@@ -288,6 +289,13 @@ function groupModulationRowsByVehicle<T extends { bloque: string; cajasRechazo: 
 
     if (!current) {
       grouped.set(key, { ...row });
+      return;
+    }
+
+    if (current.tieneCheckin) return;
+    if (row.tieneCheckin) {
+      current.cajasRechazo = row.cajasRechazo;
+      current.tieneCheckin = true;
       return;
     }
 

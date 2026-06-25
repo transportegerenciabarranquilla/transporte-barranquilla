@@ -105,7 +105,7 @@ export default function SeguimientoPage() {
       hl: matchingVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
       visitados,
       clientes,
-      avance: clientes ? Math.round((visitados / clientes) * 100) : 0,
+      avance: clientes ? Number(((visitados / clientes) * 100).toFixed(1)) : 0,
     };
   }, [filteredVehicles, matchingVehicles]);
 
@@ -217,7 +217,7 @@ export default function SeguimientoPage() {
       ...changes,
       clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
       visitados: changes.visitados === undefined ? item.visitados : Math.max(changes.visitados, 0),
-      cajas: changes.cajas === undefined ? item.cajas : Math.max(changes.cajas, 0),
+      cajas: changes.cajas === undefined ? item.cajas : Math.round(Math.max(changes.cajas, 0)),
       hl: changes.hl === undefined ? item.hl : Math.max(changes.hl, 0),
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),

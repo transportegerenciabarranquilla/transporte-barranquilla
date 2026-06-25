@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock3, Save, ShieldAlert, Truck } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, Save, Search, ShieldAlert, Truck } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
@@ -28,6 +28,9 @@ export default function JornadaLaboralPage() {
   const [selectedDate, setSelectedDate] = useState(getTodayKey);
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+  const [classificationFilter, setClassificationFilter] = useState("");
 
   useEffect(() => {
     setVehiculos(storedVehiculos);
@@ -55,6 +58,18 @@ export default function JornadaLaboralPage() {
     [rows],
   );
   const sifRows = useMemo(() => rows.filter((row) => row.state === "danger"), [rows]);
+  const filteredRows = useMemo(() => {
+    const searchTerm = search.trim().toLowerCase();
+
+    return rows.filter((row) => {
+      const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio}`.toLowerCase();
+      const matchesSearch = !searchTerm || searchable.includes(searchTerm);
+      const matchesState = !stateFilter || row.state === stateFilter;
+      const matchesClassification = !classificationFilter || row.clasificacion === classificationFilter;
+
+      return matchesSearch && matchesState && matchesClassification;
+    });
+  }, [classificationFilter, rows, search, stateFilter]);
 
   function updateVehicle(recordKey: string, changes: Partial<Vehiculo>) {
     const next = prepareSeguimientoVehicles(
@@ -157,60 +172,94 @@ export default function JornadaLaboralPage() {
         ) : null}
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-4 py-2.5">
-            <h2 className="text-sm font-semibold text-[#10223d]">Seguimiento de relevo y jornada laboral</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              La meta de relevo se calcula sumando 10:30 a la hora de salida. Si no hay relevo y la jornada llega a 13 horas, se marca alerta SIF potencial.
-            </p>
+          <div className="border-b border-slate-200 px-3 py-2">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-[#10223d]">Seguimiento de relevo y jornada laboral</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Meta de relevo: 10:30 despues de la salida.</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_160px_150px]">
+                <label className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                  <input
+                    className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-xs outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Buscar placa, DT, responsable"
+                    value={search}
+                  />
+                </label>
+                <select
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-[#f5bd19]"
+                  onChange={(event) => setStateFilter(event.target.value)}
+                  value={stateFilter}
+                >
+                  <option value="">Todas las jornadas</option>
+                  <option value="ok">En jornada</option>
+                  <option value="warn">Pendiente relevo</option>
+                  <option value="danger">Alerta SIF</option>
+                  <option value="done">Relevadas</option>
+                  <option value="empty">Sin hora salida</option>
+                </select>
+                <select
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-[#f5bd19]"
+                  onChange={(event) => setClassificationFilter(event.target.value)}
+                  value={classificationFilter}
+                >
+                  <option value="">Toda clasif.</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="No efectivo">No efectivo</option>
+                  <option value="Pendiente">Pendiente</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1280px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
                 <tr>
-                  <th className="px-2 py-2 text-left">Jornada</th>
-                  <th className="px-2 py-2 text-left">Placa</th>
-                  <th className="px-2 py-2 text-left">Fecha</th>
-                  <th className="px-2 py-2 text-left">DT</th>
-                  <th className="px-2 py-2 text-left">Salida</th>
-                  <th className="px-2 py-2 text-left">Tiempo</th>
-                  <th className="px-2 py-2 text-center">Cl.</th>
-                  <th className="px-2 py-2 text-center">Vis.</th>
-                  <th className="px-2 py-2 text-left">Avance</th>
-                  <th className="px-2 py-2 text-left">Meta</th>
-                  <th className="px-2 py-2 text-left">Inicio relevo</th>
-                  <th className="px-2 py-2 text-left">Clasif.</th>
-                  <th className="px-2 py-2 text-left">Causal</th>
-                  <th className="px-2 py-2 text-left">Investigacion</th>
-                  <th className="px-2 py-2 text-left">SIF</th>
+                  <th className="px-1.5 py-1.5 text-left">Jornada</th>
+                  <th className="px-1.5 py-1.5 text-left">Placa</th>
+                  <th className="px-1.5 py-1.5 text-left">Fecha</th>
+                  <th className="px-1.5 py-1.5 text-left">DT</th>
+                  <th className="px-1.5 py-1.5 text-left">Salida</th>
+                  <th className="px-1.5 py-1.5 text-left">Tiempo</th>
+                  <th className="px-1.5 py-1.5 text-center">Cl.</th>
+                  <th className="px-1.5 py-1.5 text-center">Vis.</th>
+                  <th className="px-1.5 py-1.5 text-left">Avance</th>
+                  <th className="px-1.5 py-1.5 text-left">Meta</th>
+                  <th className="px-1.5 py-1.5 text-left">Inicio relevo</th>
+                  <th className="px-1.5 py-1.5 text-left">Clasif.</th>
+                  <th className="px-1.5 py-1.5 text-left">Causal</th>
+                  <th className="px-1.5 py-1.5 text-left">Investigacion</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.length ? (
-                  rows.map((row) => {
+                {filteredRows.length ? (
+                  filteredRows.map((row) => {
                     const key = getVehicleUiKey(row.vehicle);
                     return (
                       <tr className={rowTone(row.state)} key={key}>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1">
                           <StatusBadge state={row.state} label={row.statusLabel} />
                         </td>
-                        <td className="px-2 py-1.5 text-xs font-semibold text-[#10223d]">{row.vehicle.vehiculo}</td>
-                        <td className="px-2 py-1.5 text-xs text-slate-700">{row.vehicle.fechaDespacho || row.vehicle.fechaDt || "-"}</td>
-                        <td className="px-2 py-1.5 text-xs font-semibold text-slate-700">{row.vehicle.transporte}</td>
-                        <td className="px-2 py-1.5">
-                          <span className="inline-flex h-8 w-20 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-[#10223d]">
+                        <td className="px-1.5 py-1 text-[11px] font-semibold text-[#10223d]">{row.vehicle.vehiculo}</td>
+                        <td className="px-1.5 py-1 text-[11px] text-slate-700">{row.vehicle.fechaDespacho || row.vehicle.fechaDt || "-"}</td>
+                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.vehicle.transporte}</td>
+                        <td className="px-1.5 py-1">
+                          <span className="inline-flex h-7 w-16 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-[#10223d]">
                             {timeInputValue(row.vehicle.horaSalida) || "-"}
                           </span>
                         </td>
-                        <td className="px-2 py-1.5 text-xs font-semibold text-slate-700">{row.elapsedLabel}</td>
-                        <td className="px-2 py-1.5 text-center text-xs text-slate-700">{row.vehicle.clientes}</td>
-                        <td className="px-2 py-1.5 text-center text-xs font-semibold text-[#10223d]">{row.vehicle.visitados}</td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.elapsedLabel}</td>
+                        <td className="px-1.5 py-1 text-center text-[11px] text-slate-700">{row.vehicle.clientes}</td>
+                        <td className="px-1.5 py-1 text-center text-[11px] font-semibold text-[#10223d]">{row.vehicle.visitados}</td>
+                        <td className="px-1.5 py-1">
                           <ProgressCell value={row.avance} />
                         </td>
-                        <td className="px-2 py-1.5 text-xs font-semibold text-slate-700">{row.metaRelevo}</td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex items-center gap-2">
+                        <td className="px-1.5 py-1 text-[11px] font-semibold text-slate-700">{row.metaRelevo}</td>
+                        <td className="px-1.5 py-1">
+                          <div className="flex items-center gap-1">
                             <TimeInput value={timeInputValue(row.vehicle.horaInicioRelevo)} onChange={(value) => updateVehicle(key, { horaInicioRelevo: value || "Pendiente" })} />
                             <button
                               className="rounded-md border border-slate-200 px-1.5 py-1 text-[9px] font-semibold text-slate-500 transition hover:bg-slate-100"
@@ -221,12 +270,12 @@ export default function JornadaLaboralPage() {
                             </button>
                           </div>
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1">
                           <span className="rounded-md bg-white px-1.5 py-1 text-[10px] font-semibold text-[#10223d] shadow-sm">{row.clasificacion}</span>
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1">
                           <select
-                            className="h-8 w-40 rounded-md border border-slate-200 bg-white px-2 text-[10px] outline-none transition focus:border-[#f5bd19]"
+                            className="h-7 w-32 rounded-md border border-slate-200 bg-white px-1.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             onChange={(event) => updateVehicle(key, { causalDesviado: event.target.value })}
                             value={normalizeSelectValue(row.vehicle.causalDesviado)}
                           >
@@ -238,25 +287,20 @@ export default function JornadaLaboralPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1">
                           <textarea
-                            className="h-9 w-40 resize-none rounded-md border border-slate-200 px-2 py-1 text-[10px] outline-none transition focus:border-[#f5bd19]"
+                            className="h-7 w-36 resize-none rounded-md border border-slate-200 px-1.5 py-1 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             defaultValue={row.vehicle.investigacionDesvio || ""}
                             onBlur={(event) => updateVehicle(key, { investigacionDesvio: event.target.value })}
                           />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <span className={`rounded-md px-1.5 py-1 text-[10px] font-semibold ${row.alertaSif ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-600"}`}>
-                            {row.alertaSif ? "SIF potencial" : "Sin alerta"}
-                          </span>
                         </td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={15}>
-                      No hay rutas de seguimiento para esta fecha.
+                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={14}>
+                      No hay rutas de seguimiento para esta fecha o filtro.
                     </td>
                   </tr>
                 )}
@@ -289,7 +333,7 @@ function Metric({ icon, label, value, tone = "navy" }: { icon: React.ReactNode; 
 function TimeInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
   return (
     <input
-      className="h-8 w-24 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+      className="h-7 w-20 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
       onChange={(event) => onChange(event.target.value)}
       type="time"
       value={value}
@@ -306,18 +350,18 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
     warn: "border-amber-100 bg-amber-50 text-amber-700",
   };
 
-  return <span className={`inline-flex max-w-24 rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
+  return <span className={`inline-flex max-w-24 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
 }
 
 function ProgressCell({ value }: { value: number }) {
   const color = value >= 80 ? "bg-emerald-600" : value >= 45 ? "bg-[#f5bd19]" : "bg-red-500";
 
   return (
-    <div className="flex min-w-28 items-center gap-2">
-      <div className="h-2 flex-1 rounded-full bg-slate-200">
-        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+    <div className="flex min-w-24 items-center gap-1.5">
+      <div className="h-1.5 flex-1 rounded-full bg-slate-200">
+        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
       </div>
-      <span className="w-10 text-right text-xs font-semibold text-[#10223d]">{value}%</span>
+      <span className="w-8 text-right text-[11px] font-semibold text-[#10223d]">{value}%</span>
     </div>
   );
 }

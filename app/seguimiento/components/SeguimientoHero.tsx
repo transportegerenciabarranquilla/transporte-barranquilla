@@ -8,9 +8,7 @@ export function SeguimientoHero({ resumen, brand }: { resumen: ResumenSeguimient
       <div className="relative p-6 sm:p-8">
         <div className="absolute right-0 top-0 h-40 w-40 rounded-bl-full bg-[#f5bd19]/20" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex items-start gap-4">
-            <img className="h-16 w-16 rounded-xl border border-white/15 object-cover shadow-lg" src={brand.logo} alt={`Emblema de ${brand.name}`} />
-            <div>
+          <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/10 px-3 py-2 text-sm text-white/80">
               <Truck size={18} />
               Modulo operativo
@@ -19,7 +17,6 @@ export function SeguimientoHero({ resumen, brand }: { resumen: ResumenSeguimient
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
               Monitorea vehículos, avance de visitas, carga movilizada y novedades de ruta en tiempo real.
             </p>
-            </div>
           </div>
 
           <div className="min-w-[220px] rounded-md border border-white/15 bg-white/10 p-4">

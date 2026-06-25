@@ -114,7 +114,6 @@ export default function CajasCheckinPage() {
             >
               <ArrowLeft size={19} />
             </button>
-            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Checkin diario</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Cajas checkin</h1>

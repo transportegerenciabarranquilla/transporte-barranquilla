@@ -47,7 +47,7 @@ export default function ReportePdfPage() {
     const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
 
     return {
-      avance: clientes ? Math.round((visitados / clientes) * 100) : 0,
+      avance: getVisitProgress(visitados, clientes),
       cajas,
       clientes,
       hl: hl.toFixed(1),
@@ -219,19 +219,17 @@ export default function ReportePdfPage() {
 
       pdf.setFillColor(...accent);
       pdf.rect(0, 0, 210, 4, "F");
-      const logoData = await imageToDataUrl(brand.logo);
-      pdf.addImage(logoData, "PNG", margin, 12, 18, 18, undefined, "FAST");
       pdf.setFont("helvetica", "bold");
       pdf.setTextColor(...accent);
       pdf.setFontSize(9);
-      pdf.text(brand.name.toUpperCase(), 37, 16);
+      pdf.text(brand.name.toUpperCase(), margin, 16);
       pdf.setTextColor(...navy);
       pdf.setFontSize(20);
-      pdf.text("Reporte diario de operación", 37, 24);
+      pdf.text("Reporte diario de operación", margin, 24);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(8.5);
       pdf.setTextColor(...slate);
-      pdf.text(`Fecha: ${todayLabel}  ·  Centro de distribución Barranquilla`, 37, 29);
+      pdf.text(`Fecha: ${todayLabel}  ·  Centro de distribución Barranquilla`, margin, 29);
       y = 38;
 
       sectionTitle(`Seguimiento ${brand.name}`);
@@ -247,7 +245,7 @@ export default function ReportePdfPage() {
           `${vehicle.vehiculo} / ${vehicle.transporte}`,
           vehicle.responsable,
           `${vehicle.visitados || 0}/${vehicle.clientes || 0}`,
-          `${vehicle.clientes ? Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100) : 0}%`,
+          `${getVisitProgress(vehicle.visitados || 0, vehicle.clientes)}%`,
           String(vehicle.cajas || 0),
         ]),
         [42, 62, 24, 24, 30],
@@ -344,15 +342,7 @@ export default function ReportePdfPage() {
       >
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm print:rounded-none print:border-0 print:shadow-none" style={{ borderTop: `5px solid ${brand.accent}` }}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-3">
-              <img
-                className="shrink-0 rounded-lg border border-slate-200 object-cover"
-                src={brand.logo}
-                alt={`Emblema de ${brand.name}`}
-                width={46}
-                height={46}
-                style={{ width: "46px", height: "46px", minWidth: "46px", maxWidth: "46px", objectFit: "cover" }}
-              />
+            <div>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: brand.accent }}>{brand.name}</p>
                 <h2 className="mt-0.5 text-xl font-bold text-[#10223d]">Reporte diario de operación</h2>
@@ -379,7 +369,7 @@ export default function ReportePdfPage() {
               `${vehicle.vehiculo} / ${vehicle.transporte}`,
               vehicle.responsable,
               `${vehicle.visitados || 0}/${vehicle.clientes || 0}`,
-              `${vehicle.clientes ? Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100) : 0}%`,
+              `${getVisitProgress(vehicle.visitados || 0, vehicle.clientes)}%`,
               String(vehicle.cajas || 0),
             ])}
             empty="No hay vehiculos para hoy."
@@ -580,6 +570,11 @@ function isToday(value: string | undefined) {
   return toDateKey(value) === getLocalDateKey();
 }
 
+function getVisitProgress(visitados: number, clientes: number) {
+  if (!clientes) return 0;
+  return Math.min(100, Number(((visitados / clientes) * 100).toFixed(1)));
+}
+
 function toDateKey(value: string | undefined) {
   if (!value) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -601,17 +596,4 @@ function hexToRgb(value: string): [number, number, number] {
     Number.parseInt(normalized.slice(2, 4), 16) || 124,
     Number.parseInt(normalized.slice(4, 6), 16) || 88,
   ];
-}
-
-async function imageToDataUrl(source: string) {
-  const response = await fetch(source);
-  if (!response.ok) throw new Error("No se pudo cargar el emblema del contratista.");
-  const blob = await response.blob();
-
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
 }

@@ -47,14 +47,34 @@ export default function RefusalComPage() {
   }, [vehicles]);
   const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
   const visibleModulaciones = useMemo(() => {
-    return modulaciones.filter((registro) => isRecordCreatedForDate(registro, selectedDate));
+    return modulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate);
   }, [modulaciones, selectedDate]);
+
+  const refusalData = useMemo(() => {
+    const totalCajasSeguimiento = todayVehicles.reduce((total, vehicle) => total + (vehicle.cajas || 0), 0);
+    const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
+    const byVehicle = todayVehicles.map((vehicle) => {
+      const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
+      const checkin = getCheckinByDt(checkins, vehicle.transporte);
+
+      return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
+    });
+    const modulacionesSinSeguimiento = visibleModulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
+    const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
+    const pendientes = byVehicle.reduce((total, resumen) => total + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
+
+    return {
+      pendientes,
+      porcentaje: totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
+      totalCajasSeguimiento,
+    };
+  }, [checkins, todayVehicles, visibleModulaciones]);
 
   const rows = useMemo(() => {
     const vehicleByDt = new Map(todayVehicles.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
     const fallbackVehicleByDt = new Map(activeVehiculos.map((vehicle) => [normalizeDt(vehicle.transporte), vehicle]));
 
-    const mappedRows = visibleModulaciones
+    return visibleModulaciones
       .map((registro) => {
         const normalizedDt = normalizeDt(registro.dt);
         const vehicle = vehicleByDt.get(normalizedDt) || fallbackVehicleByDt.get(normalizedDt);
@@ -75,34 +95,20 @@ export default function RefusalComPage() {
           rr: registro.personaNombre || vehicle?.nombreResponsable || vehicle?.responsable || "Sin asistencia",
         };
       })
-    return groupRowsByPlate(mappedRows).sort((a, b) => b.rechazadas - a.rechazadas);
+      .sort((a, b) => b.rechazadas - a.rechazadas);
   }, [activeVehiculos, todayVehicles, visibleModulaciones]);
 
   const totals = useMemo(() => {
     const cajasRechazadas = rows.reduce((total, row) => total + row.rechazadas, 0);
     const cajasGestionadas = rows.reduce((total, row) => total + row.gestionadas, 0);
     const cajasReportadas = rows.reduce((total, row) => total + row.reportadas, 0);
-    const totalCajasSeguimiento = todayVehicles.reduce((total, vehicle) => total + Number(vehicle.cajas || 0), 0);
-    const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
-    const byVehicle = todayVehicles.map((vehicle) => {
-      const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
-      const checkin = getCheckinByDt(checkins, vehicle.transporte);
-
-      return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
-    });
-    const modulacionesSinSeguimiento = visibleModulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
-    const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
-    const refusalFinal =
-      byVehicle.reduce((total, resumen) => total + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
-    const refusal = totalCajasSeguimiento ? Number(((refusalFinal / totalCajasSeguimiento) * 100).toFixed(2)) : 0;
 
     return {
       cajasGestionadas,
       cajasRechazadas,
       cajasReportadas,
-      refusal,
     };
-  }, [checkins, rows, todayVehicles, visibleModulaciones]);
+  }, [rows]);
 
   const byJefe = useMemo(() => groupRows(rows, (row) => row.jefeVentas).slice(0, 6), [rows]);
   const byCausal = useMemo(() => groupRows(rows, (row) => row.causal).slice(0, 8), [rows]);
@@ -121,7 +127,6 @@ export default function RefusalComPage() {
             >
               <ArrowLeft size={19} />
             </button>
-            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Detalle refusal</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">refusal-com</h1>
@@ -153,7 +158,7 @@ export default function RefusalComPage() {
             </div>
           </div>
           <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 xl:grid-cols-4">
-              <TopMetric label="% refusal dia" value={`${totals.refusal.toLocaleString("es-CO")}%`} highlight />
+              <TopMetric label="% refusal dia" value={`${refusalData.porcentaje.toFixed(2)}%`} highlight />
               <TopMetric label="Cajas reportadas" value={totals.cajasReportadas} />
               <TopMetric label="Cajas gestionadas" value={totals.cajasGestionadas} />
               <TopMetric label="Cajas rechazadas" value={totals.cajasRechazadas} />
@@ -201,7 +206,7 @@ export default function RefusalComPage() {
               <tbody>
                   {rows.length ? (
                   rows.map((row, index) => (
-                    <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-50"} key={row.placa}>
+                    <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-50"} key={row.registro.id}>
                       <td className="px-3 py-1.5 text-xs font-medium text-slate-700">{row.establecimiento}</td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-slate-700">{row.causal}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-700">{row.rr}</td>
@@ -314,34 +319,6 @@ function EmptyChart() {
   );
 }
 
-function groupRowsByPlate(rows: RefusalRow[]) {
-  const grouped = new Map<string, RefusalRow>();
-
-  rows.forEach((row) => {
-    const key = normalizePlate(row.placa) || row.placa;
-    const current = grouped.get(key);
-
-    if (!current) {
-      grouped.set(key, { ...row });
-      return;
-    }
-
-    current.establecimiento = mergeLabels(current.establecimiento, row.establecimiento);
-    current.causal = mergeLabels(current.causal, row.causal);
-    current.gestionadas += row.gestionadas;
-    current.reportadas += row.reportadas;
-    current.rechazadas = Math.max(current.reportadas - current.gestionadas, 0);
-  });
-
-  return Array.from(grouped.values());
-}
-
-function mergeLabels(current: string, next: string) {
-  const values = Array.from(new Set([...current.split(" / "), next].map((value) => value.trim()).filter(Boolean)));
-  if (values.length <= 2) return values.join(" / ");
-  return `${values.length} registros`;
-}
-
 function groupRows(rows: RefusalRow[], getLabel: (row: RefusalRow) => string) {
   const totals = new Map<string, number>();
 
@@ -385,18 +362,25 @@ function getPreventista(registro: ModulacionRegistro) {
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKeyValue(vehicle.fechaDespacho) === dateKey;
+  return toDateKeyValue(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
-function isRecordCreatedForDate(record: ModulacionRegistro, dateKey: string) {
-  return toDateKeyValue(record.createdAt) === dateKey;
+function getModulacionDateKey(record: ModulacionRegistro) {
+  return toDateKeyValue(record.fechaDespacho || record.fechaDt || record.createdAt);
 }
 
 function toDateKeyValue(value: string | undefined) {
   if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
 
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value.slice(0, 10);
+  if (Number.isNaN(parsed.getTime())) return "";
 
   return toDateKey(parsed);
 }
@@ -409,11 +393,4 @@ function normalizeDt(value: string | number | undefined) {
   return String(value ?? "")
     .replace(/^DT-?/i, "")
     .replace(/\D/g, "");
-}
-
-function normalizePlate(value: string | undefined) {
-  return String(value ?? "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]/g, "");
 }

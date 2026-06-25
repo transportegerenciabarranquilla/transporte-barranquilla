@@ -57,7 +57,7 @@ export default function SeguimientoGraficasPage() {
     const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
     const cajas = todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0);
     const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
-    const avance = clientes ? Math.round((visitados / clientes) * 100) : 0;
+    const avance = getVisitProgress(visitados, clientes);
 
     return {
       vehiculos: todayVehicles.length,
@@ -74,7 +74,7 @@ export default function SeguimientoGraficasPage() {
     return todayVehicles
       .map((vehicle) => ({
         ...vehicle,
-        currentProgress: vehicle.clientes ? Math.round((vehicle.visitados / vehicle.clientes) * 100) : 0,
+        currentProgress: getVisitProgress(vehicle.visitados, vehicle.clientes),
       }))
       .filter((vehicle) => resumen.avance - vehicle.currentProgress > DELAY_THRESHOLD)
       .filter((vehicle) => !closedAlerts.includes(getVehicleRecordKey(vehicle)));
@@ -99,7 +99,7 @@ export default function SeguimientoGraficasPage() {
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-red-600">Retraso operativo</p>
                 <p className="mt-1 text-sm leading-5 text-slate-600">
                   DT <span className="font-semibold text-[#10223d]">{vehicle.transporte}</span> está{" "}
-                  <span className="font-semibold text-red-600">{resumen.avance - vehicle.currentProgress}%</span> por debajo
+                  <span className="font-semibold text-red-600">{(resumen.avance - vehicle.currentProgress).toFixed(1)}%</span> por debajo
                   del promedio.
                 </p>
                 <button
@@ -134,7 +134,6 @@ export default function SeguimientoGraficasPage() {
             >
               <ArrowLeft size={19} />
             </button>
-            <img className="h-11 w-11 rounded-md object-contain" src="/favicon.ico" alt="Bavaria" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Analítica diaria</p>
               <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento operativo</h1>
@@ -203,7 +202,7 @@ export default function SeguimientoGraficasPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {todayVehicles.map((vehicle) => {
-                  const percentage = vehicle.clientes ? Math.min(100, Math.round((vehicle.visitados / vehicle.clientes) * 100)) : 0;
+                  const percentage = getVisitProgress(vehicle.visitados, vehicle.clientes);
                   const delayed = resumen.avance - percentage > DELAY_THRESHOLD;
 
                   return (
@@ -351,8 +350,13 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function getVehicleStatus(vehicle: Vehiculo) {
-  const progress = vehicle.clientes ? Math.min(100, Math.round((vehicle.visitados / vehicle.clientes) * 100)) : 0;
+  const progress = getVisitProgress(vehicle.visitados, vehicle.clientes);
   return getStatus(progress, vehicle);
+}
+
+function getVisitProgress(visitados: number, clientes: number) {
+  if (!clientes) return 0;
+  return Math.min(100, Number(((visitados / clientes) * 100).toFixed(1)));
 }
 
 function getStatusTone(status: string): StatusTone {
