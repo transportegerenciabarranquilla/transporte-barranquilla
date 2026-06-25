@@ -43,6 +43,7 @@ export default function SeguimientoPage() {
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [fechaDtFilter, setFechaDtFilter] = useState("");
+  const [onlyWithoutResponsible, setOnlyWithoutResponsible] = useState(false);
   
   const [importMessage, setImportMessage] = useState("");
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
@@ -85,10 +86,11 @@ export default function SeguimientoPage() {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
       const matchesFechaDt = !fechaDtFilter || toDateKey(item.fechaDespacho) === fechaDtFilter;
+      const matchesResponsible = !onlyWithoutResponsible || isWithoutResponsible(item);
 
-      return matchesSearch && matchesFechaDt;
+      return matchesSearch && matchesFechaDt && matchesResponsible;
     });
-  }, [fechaDtFilter, search, vehiculos]);
+  }, [fechaDtFilter, onlyWithoutResponsible, search, vehiculos]);
 
   const filteredVehicles = useMemo(
     () => matchingVehicles.filter((item) => statusFilters.length === 0 || statusFilters.includes(getStatus(getProgress(item), item))),
@@ -450,9 +452,11 @@ export default function SeguimientoPage() {
 
         <SeguimientoFilters
           fechaDtFilter={fechaDtFilter}
+          onlyWithoutResponsible={onlyWithoutResponsible}
           search={search}
           statusFilters={statusFilters}
           onFechaDtChange={updateFechaDtFilter}
+          onOnlyWithoutResponsibleChange={setOnlyWithoutResponsible}
           onSearchChange={setSearch}
           onStatusChange={setStatusFilters}
         />
@@ -490,6 +494,13 @@ function getModulacionDateKey(registro: ModulacionRegistro) {
 
 function getVehicleDateKey(vehicle: Vehiculo) {
   return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
+}
+
+function isWithoutResponsible(vehicle: Vehiculo) {
+  const responsibleId = vehicle.cedulaResponsable?.trim();
+  const responsibleName = vehicle.nombreResponsable?.trim();
+
+  return !responsibleId && !responsibleName;
 }
 
 function toDateKey(value: string | undefined) {
