@@ -137,6 +137,7 @@ export default function SeguimientoPage() {
     const selectedKey = vehiculoSeleccionadoKey || getVehicleUiKey(vehiculoSeleccionado);
     return vehiculos.find((item) => getVehicleUiKey(item) === selectedKey) ?? vehiculoSeleccionado;
   }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
+  const hasTodayVehicles = useMemo(() => vehiculos.some((vehicle) => getVehicleDateKey(vehicle) === getLocalDateKey()), [vehiculos]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
@@ -287,12 +288,16 @@ export default function SeguimientoPage() {
   }
 
   async function borrarTodoSeguimiento() {
-    if (!vehiculos.length) {
-      setImportMessage("No hay seguimiento para borrar.");
+    const todayKey = getLocalDateKey();
+    const todayVehicles = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) === todayKey);
+    const remainingVehicles = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) !== todayKey);
+
+    if (!todayVehicles.length) {
+      setImportMessage("No hay seguimiento de hoy para borrar.");
       return;
     }
 
-    if (!window.confirm(`Quieres borrar todo el seguimiento cargado? Se eliminaran ${vehiculos.length} vehiculos y sus checkins/asistencias asociados.`)) return;
+    if (!window.confirm(`Quieres borrar solo el seguimiento de hoy? Se eliminaran ${todayVehicles.length} vehiculos de hoy y sus checkins/asistencias asociados.`)) return;
 
     const previousVehicles = vehiculos;
     if (saveTimerRef.current) {
@@ -300,19 +305,19 @@ export default function SeguimientoPage() {
       saveTimerRef.current = null;
     }
 
-    previousVehicles.forEach((vehicle) => removeStaleRouteData(vehicle, true));
+    todayVehicles.forEach((vehicle) => removeStaleRouteData(vehicle, true));
     pendingLocalSaveRef.current = true;
-    setVehiculos([]);
+    setVehiculos(remainingVehicles);
     setVehiculoSeleccionado(null);
     setVehiculoSeleccionadoKey(null);
-    setImportMessage("Borrando seguimiento en Supabase...");
+    setImportMessage("Borrando seguimiento de hoy en Supabase...");
 
     try {
-      await saveSeguimientoVehiculos([]);
-      setImportMessage("Seguimiento borrado correctamente.");
+      await saveSeguimientoVehiculos(remainingVehicles);
+      setImportMessage("Seguimiento de hoy borrado correctamente.");
     } catch (error) {
       setVehiculos(previousVehicles);
-      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el seguimiento.");
+      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el seguimiento de hoy.");
     } finally {
       pendingLocalSaveRef.current = false;
     }
@@ -425,12 +430,12 @@ export default function SeguimientoPage() {
             </button>
             <button
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!vehiculos.length}
+              disabled={!hasTodayVehicles}
               onClick={borrarTodoSeguimiento}
               type="button"
             >
               <Trash2 size={17} />
-              Borrar seguimiento
+              Borrar hoy
             </button>
             <a
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
@@ -481,6 +486,10 @@ export default function SeguimientoPage() {
 
 function getModulacionDateKey(registro: ModulacionRegistro) {
   return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+}
+
+function getVehicleDateKey(vehicle: Vehiculo) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
 }
 
 function toDateKey(value: string | undefined) {

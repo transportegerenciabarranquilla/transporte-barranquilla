@@ -31,6 +31,7 @@ const initialForm: FormState = {
 };
 
 const contractors = ["Punto Corona", "Logisticos", "Surti Cervezas"];
+const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
 
 function onlyNumbers(value: string) {
   return value.replace(/\D/g, "");
@@ -41,9 +42,9 @@ function validate(form: FormState) {
 
   if (!form.contratista) errors.contratista = "Selecciona el contratista.";
   if (!form.dt) errors.dt = "Ingresa el DT.";
-  if (!form.cedulaResponsable) errors.cedulaResponsable = "Ingresa la cedula del RR.";
-  if (!form.cedulaAuxiliar1) errors.cedulaAuxiliar1 = "Ingresa la cedula del conductor o auxiliar 1.";
-  if (!form.cedulaAuxiliar2) errors.cedulaAuxiliar2 = "Ingresa la cedula del auxiliar 2.";
+  if (!personFields.some((field) => form[field])) {
+    errors.cedulaResponsable = "Ingresa al menos una cedula.";
+  }
 
   return errors;
 }
@@ -58,13 +59,13 @@ export default function AsistenciaPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const fields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
-    const timers = fields.map((field) => {
+    const timers = personFields.map((field) => {
       const cc = form[field];
       if (!cc || !form.contratista) {
         setPersonas((current) => ({ ...current, [field]: undefined }));
         return undefined;
       }
+
       return window.setTimeout(async () => {
         try {
           const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}&contratista=${encodeURIComponent(form.contratista)}`, { cache: "no-store" });
@@ -76,6 +77,7 @@ export default function AsistenciaPage() {
         }
       }, 350);
     });
+
     return () => timers.forEach((timer) => timer && window.clearTimeout(timer));
   }, [form.cedulaAuxiliar1, form.cedulaAuxiliar2, form.cedulaResponsable, form.contratista]);
 
@@ -88,41 +90,51 @@ export default function AsistenciaPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validate(form);
-    const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
+
     personFields.forEach((field) => {
       const persona = personas[field];
-      if (form[field] && !persona) nextErrors[field] = "Cédula no encontrada en Transporte Barranquilla.";
+      if (!form[field]) return;
+
+      if (!persona) nextErrors[field] = "Cedula no encontrada en Transporte Barranquilla.";
       if (persona && persona.CONTRATISTA.trim().toLowerCase() !== form.contratista.trim().toLowerCase()) {
         nextErrors[field] = `La persona pertenece a ${persona.CONTRATISTA}.`;
       }
     });
+
     setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
 
-    if (Object.keys(nextErrors).length === 0) {
-      setSaving(true);
-      setSaveError("");
-      const nextRecord: AsistenciaRegistro = {
-        id: crypto.randomUUID(),
-        contratista: form.contratista,
-        dt: form.dt,
-        cedulaResponsable: form.cedulaResponsable,
-        cedulaAuxiliar1: form.cedulaAuxiliar1,
-        cedulaAuxiliar2: form.cedulaAuxiliar2,
-        nombreResponsable: personas.cedulaResponsable?.NOMBRE,
-        nombreAuxiliar1: personas.cedulaAuxiliar1?.NOMBRE,
-        nombreAuxiliar2: personas.cedulaAuxiliar2?.NOMBRE,
-        llave: createAttendanceKey(form.contratista, form.dt),
-        createdAt: new Date().toISOString(),
-      };
+    setSaving(true);
+    setSaveError("");
 
-      try {
-        await saveAsistenciaRegistros([nextRecord]);
-        setSubmitted(form);
-      } catch (error) {
-        setSaveError(error instanceof Error ? error.message : "No se pudo guardar la asistencia.");
-      } finally {
-        setSaving(false);
-      }
+    const nextRecord: AsistenciaRegistro = {
+      id: crypto.randomUUID(),
+      contratista: form.contratista,
+      dt: form.dt,
+      cedulaResponsable: form.cedulaResponsable,
+      cedulaAuxiliar1: form.cedulaAuxiliar1,
+      cedulaAuxiliar2: form.cedulaAuxiliar2,
+      nombreResponsable: personas.cedulaResponsable?.NOMBRE,
+      nombreAuxiliar1: personas.cedulaAuxiliar1?.NOMBRE,
+      nombreAuxiliar2: personas.cedulaAuxiliar2?.NOMBRE,
+      llave: createAttendanceKey(form.contratista, form.dt),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await saveAsistenciaRegistros([nextRecord]);
+      setSubmitted(form);
+      setForm((current) => ({
+        ...current,
+        cedulaResponsable: "",
+        cedulaAuxiliar1: "",
+        cedulaAuxiliar2: "",
+      }));
+      setPersonas({});
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "No se pudo guardar la asistencia.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -140,7 +152,7 @@ export default function AsistenciaPage() {
           </button>
           <div className="flex items-center gap-2 rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">
             <ClipboardCheck size={18} />
-            Registro RR
+            Registro asistencia
           </div>
         </div>
       </header>
@@ -177,14 +189,16 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("dt", value)}
               value={form.dt}
             />
+
             <NumericField
               error={errors.cedulaResponsable}
               icon={<IdCard size={18} />}
-              label="Cedula de responsable de ruta - conductor RR"
+              label="Cedula responsable de ruta - RR"
               onChange={(value) => updateField("cedulaResponsable", value)}
               value={form.cedulaResponsable}
             />
             <PersonMatch persona={personas.cedulaResponsable} value={form.cedulaResponsable} />
+
             <NumericField
               error={errors.cedulaAuxiliar1}
               icon={<Truck size={18} />}
@@ -193,17 +207,18 @@ export default function AsistenciaPage() {
               value={form.cedulaAuxiliar1}
             />
             <PersonMatch persona={personas.cedulaAuxiliar1} value={form.cedulaAuxiliar1} />
+
             <NumericField
               error={errors.cedulaAuxiliar2}
               icon={<Users size={18} />}
-              label="Cedula de auxiliar 2"
+              label="Cedula auxiliar 2"
               onChange={(value) => updateField("cedulaAuxiliar2", value)}
               value={form.cedulaAuxiliar2}
             />
             <PersonMatch persona={personas.cedulaAuxiliar2} value={form.cedulaAuxiliar2} />
 
             <button
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400] disabled:opacity-60"
               disabled={saving}
               type="submit"
             >
@@ -215,12 +230,12 @@ export default function AsistenciaPage() {
 
           {submitted ? (
             <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-            <p className="font-semibold">Asistencia guardada en Supabase.</p>
-            <p className="mt-1">
-                Llave: <strong>{createAttendanceKey(submitted.contratista, submitted.dt)}</strong>
-            </p>
+              <p className="font-semibold">Asistencia guardada en Supabase.</p>
               <p className="mt-1">
-                Los nombres identificados ya quedan disponibles en Seguimiento.
+                Llave: <strong>{createAttendanceKey(submitted.contratista, submitted.dt)}</strong>
+              </p>
+              <p className="mt-1">
+                Cedulas guardadas: <strong>{personFields.map((field) => submitted[field]).filter(Boolean).join(", ")}</strong>
               </p>
             </div>
           ) : null}
@@ -233,8 +248,8 @@ export default function AsistenciaPage() {
 function PersonMatch({ persona, value }: { persona?: Persona | null; value: string }) {
   if (!value) return null;
   if (persona === undefined) return <p className="-mt-3 text-xs text-slate-400">Buscando persona...</p>;
-  if (persona === null) return <p className="-mt-3 text-xs font-medium text-amber-700">Cedula no encontrada en Transporte barranquilla.</p>;
-  return <p className="-mt-3 text-sm font-semibold text-emerald-700">{persona.NOMBRE} · {persona.CARGO}</p>;
+  if (persona === null) return <p className="-mt-3 text-xs font-medium text-amber-700">Cedula no encontrada en Transporte Barranquilla.</p>;
+  return <p className="-mt-3 text-sm font-semibold text-emerald-700">{persona.NOMBRE} - {persona.CARGO}</p>;
 }
 
 function NumericField({
