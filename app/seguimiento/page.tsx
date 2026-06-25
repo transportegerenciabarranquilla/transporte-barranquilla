@@ -106,13 +106,13 @@ export default function SeguimientoPage() {
 
     return {
       vehiculos: filteredVehicles.length,
-      cajas: matchingVehicles.reduce((total, item) => total + item.cajas, 0),
-      hl: matchingVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
+      cajas: roundToNearestTen(filteredVehicles.reduce((total, item) => total + Number(item.cajas || 0), 0)),
+      hl: filteredVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
       visitados,
       clientes,
       avance: clientes ? Number(((visitados / clientes) * 100).toFixed(1)) : 0,
     };
-  }, [filteredVehicles, matchingVehicles]);
+  }, [filteredVehicles]);
 
   const modulacionesHoy = useMemo(() => {
     const targetDate = fechaDtFilter || getLocalDateKey();
@@ -234,7 +234,7 @@ export default function SeguimientoPage() {
       ...changes,
       clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
       visitados: changes.visitados === undefined ? item.visitados : Math.max(changes.visitados, 0),
-      cajas: changes.cajas === undefined ? item.cajas : Math.round(Math.max(changes.cajas, 0)),
+      cajas: changes.cajas === undefined ? item.cajas : Math.max(changes.cajas, 0),
       hl: changes.hl === undefined ? item.hl : Math.max(changes.hl, 0),
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
@@ -510,17 +510,31 @@ function mergeStoredVehiclesPreservingProgress(currentVehicles: Vehiculo[], stor
   if (!currentVehicles.length) return storedVehicles;
 
   const currentByKey = new Map(currentVehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
+  const storedByKey = new Map(storedVehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
+  const mergedVehicles = currentVehicles
+    .map((currentVehicle) => {
+      const storedVehicle = storedByKey.get(getVehicleUiKey(currentVehicle));
+      return storedVehicle ? mergeVehiclePreservingProgress(currentVehicle, storedVehicle) : currentVehicle;
+    })
+    .filter((vehicle) => storedByKey.has(getVehicleUiKey(vehicle)));
 
-  return storedVehicles.map((storedVehicle) => {
-    const currentVehicle = currentByKey.get(getVehicleUiKey(storedVehicle));
-    if (!currentVehicle) return storedVehicle;
-
-    const visitados = Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0));
-    return {
-      ...storedVehicle,
-      visitados: Math.min(visitados, storedVehicle.clientes || visitados),
-    };
+  storedVehicles.forEach((storedVehicle) => {
+    if (!currentByKey.has(getVehicleUiKey(storedVehicle))) mergedVehicles.push(storedVehicle);
   });
+
+  return mergedVehicles;
+}
+
+function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle: Vehiculo) {
+  const visitados = Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0));
+  return {
+    ...storedVehicle,
+    visitados: Math.min(visitados, storedVehicle.clientes || visitados),
+  };
+}
+
+function roundToNearestTen(value: number) {
+  return Math.round(value / 10) * 10;
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {

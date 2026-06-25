@@ -39,7 +39,11 @@ export default function SeguimientoRefusalPage() {
   }, [vehicles]);
 
   const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
-  const modulaciones = useMemo(() => allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate), [allModulaciones, selectedDate]);
+  const seguimientoDts = useMemo(() => new Set(activeVehiculos.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean)), [activeVehiculos]);
+  const modulaciones = useMemo(
+    () => allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate && seguimientoDts.has(normalizeDt(registro.dt))),
+    [allModulaciones, selectedDate, seguimientoDts],
+  );
 
   const refusalData = useMemo(() => {
     const totalCajasSeguimiento = todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0);
@@ -71,7 +75,7 @@ export default function SeguimientoRefusalPage() {
   const modulationRows = useMemo(() => {
     const rows = modulaciones
       .map((modulacion) => {
-        const vehicle = todayVehicles.find((item) => normalizeDt(item.transporte) === normalizeDt(modulacion.dt));
+        const vehicle = findVehicleForModulacion(modulacion, todayVehicles, activeVehiculos);
         const checkin = getCheckinByDt(checkins, modulacion.dt);
         const tieneCheckin = typeof checkin?.totalCajas === "number";
 
@@ -87,7 +91,7 @@ export default function SeguimientoRefusalPage() {
       });
 
     return groupModulationRowsByVehicle(rows).sort((a, b) => b.cajasRechazo - a.cajasRechazo);
-  }, [checkins, modulaciones, todayVehicles]);
+  }, [activeVehiculos, checkins, modulaciones, todayVehicles]);
 
   const refusalTone = getRefusalTone(refusalData.porcentaje);
 
@@ -274,6 +278,16 @@ function getBloque(vehicle: Vehiculo | undefined, modulacion: ModulacionRegistro
   const candidates = [vehicle?.bloque, vehicle?.transportista, modulacion.contratista].filter(Boolean) as string[];
   const value = candidates.find((item) => item.trim() && item.trim().toLowerCase() !== "pendiente");
   return value || "Sin bloque";
+}
+
+function findVehicleForModulacion(modulacion: ModulacionRegistro, todayVehicles: Vehiculo[], allVehicles: Vehiculo[]) {
+  const targetDt = normalizeDt(modulacion.dt);
+  if (!targetDt) return undefined;
+
+  return (
+    todayVehicles.find((vehicle) => normalizeDt(vehicle.transporte) === targetDt) ||
+    allVehicles.find((vehicle) => normalizeDt(vehicle.transporte) === targetDt)
+  );
 }
 
 function getCajasRechazoFinal(modulacion: ModulacionRegistro, checkin: CheckinCajasRegistro | undefined) {

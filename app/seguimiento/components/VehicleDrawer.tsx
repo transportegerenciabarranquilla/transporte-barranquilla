@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, hasRecargueValue } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehicleDrawer({
@@ -38,7 +38,7 @@ export function VehicleDrawer({
   function updateStatus(nextStatus: string) {
     updateVehicle({
       status: nextStatus,
-      recargue: nextStatus === "Recargue" ? "Si" : status === "Recargue" ? "No" : vehicle.recargue,
+      recargue: nextStatus === "Recargue" ? "Si" : vehicle.recargue,
     });
   }
 
@@ -325,16 +325,6 @@ function RecargueToggle({ active, onToggle }: { active: boolean; onToggle: () =>
       </button>
     </div>
   );
-}
-
-function hasRecargueValue(value: string | undefined) {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  return Boolean(normalized && !["no", "sin", "sin recargue", "pendiente", "-", "0"].includes(normalized));
 }
 
 function getOnTimeClassification(fechaDt: string | undefined, fechaDespacho: string | undefined) {

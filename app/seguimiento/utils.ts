@@ -1,6 +1,6 @@
 import type { Vehiculo } from "./types";
 
-export const ROUTE_STATUSES = ["Pendiente por salir", "En ruta", "Pernoctado", "Cargando", "Cambio de fecha", "Recargue", "Finalizado"];
+export const ROUTE_STATUSES = ["Pendiente por salir", "En ruta", "Pernoctado", "Cargando", "Cambio de fecha", "Recargue", "Retornando", "Finalizado"];
 
 export function getVehicleRecordKey(item: Pick<Vehiculo, "fechaDespacho" | "transporte" | "vehiculo">) {
   const dt = normalizeRecordPart(item.transporte);
@@ -27,7 +27,8 @@ export function getProgress(item: Vehiculo) {
   return Math.round((item.visitados / item.clientes) * 100);
 }
 
-export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada">) {
+export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
+  if (hasRecargueValue(item?.recargue)) return "Recargue";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
   if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
   if (progress === 0) return "Cargando";
@@ -37,6 +38,16 @@ export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "ho
 
 export function hasTimeValue(value: string | undefined) {
   return Boolean(value && value !== "Pendiente" && value !== "-");
+}
+
+export function hasRecargueValue(value: string | undefined) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return Boolean(normalized && !["no", "sin", "sin recargue", "pendiente", "-", "0"].includes(normalized));
 }
 
 export function isVehicleScheduledForDate(item: Pick<Vehiculo, "fechaDespacho">, dateKey: string) {

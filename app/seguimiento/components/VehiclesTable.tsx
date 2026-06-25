@@ -76,7 +76,7 @@ export function VehiclesTable({
                     <EditableDate value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
-                    <EditableNumber value={item.cajas} onChange={(value) => onUpdateVehicle(recordKey, { cajas: value })} />
+                    <EditableNumber allowDecimal value={item.cajas} onChange={(value) => onUpdateVehicle(recordKey, { cajas: value })} />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <EditableNumber value={item.clientes} onChange={(value) => onUpdateVehicle(recordKey, { clientes: value })} />
@@ -107,7 +107,7 @@ export function VehiclesTable({
                       onChange={(nextStatus) =>
                         onUpdateVehicle(recordKey, {
                           status: nextStatus,
-                          recargue: nextStatus === "Recargue" ? "Si" : status === "Recargue" ? "No" : item.recargue,
+                          recargue: nextStatus === "Recargue" ? "Si" : item.recargue,
                         })
                       }
                     />
@@ -186,7 +186,7 @@ function EditableDate({ value, onChange }: { value: string; onChange: (value: st
   );
 }
 
-function EditableNumber({ className, value, onChange }: { className?: string; value: number; onChange: (value: number) => void }) {
+function EditableNumber({ allowDecimal = false, className, value, onChange }: { allowDecimal?: boolean; className?: string; value: number; onChange: (value: number) => void }) {
   const [draft, setDraft] = useState(value ? String(value) : "");
   const [focused, setFocused] = useState(false);
 
@@ -203,7 +203,7 @@ function EditableNumber({ className, value, onChange }: { className?: string; va
         setFocused(false);
       }}
       onChange={(event) => {
-        const cleanValue = event.target.value.replace(/\D/g, "");
+        const cleanValue = cleanNumberInput(event.target.value, allowDecimal);
         setDraft(cleanValue);
         if (cleanValue) onChange(Number(cleanValue));
       }}
@@ -213,4 +213,12 @@ function EditableNumber({ className, value, onChange }: { className?: string; va
       value={draft}
     />
   );
+}
+
+function cleanNumberInput(value: string, allowDecimal: boolean) {
+  const cleanValue = value.replace(",", ".").replace(/[^\d.]/g, "");
+  if (!allowDecimal) return cleanValue.replace(/\D/g, "");
+
+  const [integer = "", ...decimals] = cleanValue.split(".");
+  return decimals.length ? `${integer}.${decimals.join("")}` : integer;
 }

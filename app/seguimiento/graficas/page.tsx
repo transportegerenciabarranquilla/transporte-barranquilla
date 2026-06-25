@@ -314,7 +314,7 @@ function ProgressLine({ label, value, color }: { label: string; value: number; c
   );
 }
 
-type StatusTone = "green" | "blue" | "slate" | "red" | "amber" | "violet" | "orange";
+type StatusTone = "green" | "blue" | "slate" | "red" | "amber" | "violet" | "orange" | "indigo";
 
 function StatusTile({ label, count, tone }: { label: string; count: number; tone: StatusTone }) {
   const colors = {
@@ -325,6 +325,7 @@ function StatusTile({ label, count, tone }: { label: string; count: number; tone
     amber: "bg-amber-50 text-amber-700 border-amber-100",
     violet: "bg-violet-50 text-violet-700 border-violet-100",
     orange: "bg-orange-50 text-orange-700 border-orange-100",
+    indigo: "bg-indigo-50 text-indigo-700 border-indigo-100",
   };
 
   return (
@@ -338,12 +339,13 @@ function StatusTile({ label, count, tone }: { label: string; count: number; tone
 function StatusPill({ status }: { status: string }) {
   const styles: Record<string, string> = {
     Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    "En ruta": "bg-blue-50 text-blue-700 border-blue-100",
+    "En ruta": "bg-emerald-50 text-emerald-700 border-emerald-100",
     "Pendiente por salir": "bg-slate-50 text-slate-700 border-slate-200",
     Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
     Cargando: "bg-amber-50 text-amber-700 border-amber-100",
     "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
     Recargue: "bg-cyan-50 text-cyan-700 border-cyan-100",
+    Retornando: "bg-indigo-50 text-indigo-700 border-indigo-100",
     Retraso: "bg-red-50 text-red-700 border-red-100",
   };
 
@@ -363,11 +365,12 @@ function getVisitProgress(visitados: number, clientes: number) {
 function getStatusTone(status: string): StatusTone {
   const tones: Record<string, StatusTone> = {
     "Pendiente por salir": "slate",
-    "En ruta": "blue",
+    "En ruta": "green",
     Pernoctado: "violet",
     Cargando: "amber",
     "Cambio de fecha": "orange",
     Recargue: "blue",
+    Retornando: "indigo",
     Finalizado: "green",
   };
 

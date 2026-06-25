@@ -198,11 +198,12 @@ export default function SeguimientoRefusalPage() {
 function StatusPill({ status }: { status: string }) {
   const styles: Record<string, string> = {
     "Pendiente por salir": "bg-slate-50 text-slate-700 border-slate-200",
-    "En ruta": "bg-blue-50 text-blue-600 border-blue-100",
+    "En ruta": "bg-emerald-50 text-emerald-700 border-emerald-100",
     Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
     Cargando: "bg-amber-50 text-amber-700 border-amber-100",
     "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
     Recargue: "bg-cyan-50 text-cyan-700 border-cyan-100",
+    Retornando: "bg-indigo-50 text-indigo-700 border-indigo-100",
     Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
   };
 
