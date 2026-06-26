@@ -315,6 +315,22 @@ function ModulacionDetailModal({
   onChangeGestionadas: (id: string, value: string) => void;
   onChangeComentarioModulador: (id: string, value: string) => void;
 }) {
+  const [comentarioModuladorDraft, setComentarioModuladorDraft] = useState(registro.comentarioModulador || "");
+
+  useEffect(() => {
+    setComentarioModuladorDraft(registro.comentarioModulador || "");
+  }, [registro.id]);
+
+  function persistComentarioModulador() {
+    if ((registro.comentarioModulador || "") === comentarioModuladorDraft) return;
+    onChangeComentarioModulador(registro.id, comentarioModuladorDraft);
+  }
+
+  function handleClose() {
+    persistComentarioModulador();
+    onClose();
+  }
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
       <section className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
@@ -338,7 +354,7 @@ function ModulacionDetailModal({
           <button
             aria-label="Cerrar detalle"
             className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-[#10223d]"
-            onClick={onClose}
+            onClick={handleClose}
             type="button"
           >
             <X size={18} />
@@ -400,9 +416,10 @@ function ModulacionDetailModal({
                 <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Comentario interno</span>
                 <textarea
                   className="mt-2 min-h-20 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-                  onChange={(event) => onChangeComentarioModulador(registro.id, event.target.value)}
+                  onBlur={persistComentarioModulador}
+                  onChange={(event) => setComentarioModuladorDraft(event.target.value)}
                   placeholder="Agrega una nota interna de modulacion"
-                  value={registro.comentarioModulador || ""}
+                  value={comentarioModuladorDraft}
                 />
               </label>
               <label className="block">
@@ -421,7 +438,7 @@ function ModulacionDetailModal({
               </div>
               <button
                 className="mt-4 h-10 w-full rounded-md bg-[#10223d] text-sm font-semibold text-white transition hover:bg-[#1b355b]"
-                onClick={onClose}
+                onClick={handleClose}
                 type="button"
               >
                 Cerrar

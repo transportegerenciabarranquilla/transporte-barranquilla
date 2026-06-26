@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
@@ -32,6 +32,7 @@ export default function JornadaLaboralPage() {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [classificationFilter, setClassificationFilter] = useState("");
+  const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores, setRelevadores] = useState<Persona[]>([]);
   const vehiculos = draftVehiculos ?? storedVehiculos;
 
@@ -66,7 +67,7 @@ export default function JornadaLaboralPage() {
 
   const rows = useMemo(() => {
     return vehiculos
-      .filter((vehicle) => toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === selectedDate)
+      .filter((vehicle) => toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === selectedDate)
       .map((vehicle) => buildJornadaRow(vehicle, now))
       .sort((a, b) => getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true }));
   }, [now, selectedDate, vehiculos]);
@@ -93,6 +94,10 @@ export default function JornadaLaboralPage() {
       return matchesSearch && matchesState && matchesClassification;
     });
   }, [classificationFilter, rows, search, stateFilter]);
+  const selectedVehicle = useMemo(() => {
+    if (!selectedVehicleKey) return null;
+    return vehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
+  }, [selectedVehicleKey, vehiculos]);
 
   function updateVehicle(recordKey: string, changes: Partial<Vehiculo>) {
     const next = prepareSeguimientoVehicles(
@@ -263,7 +268,7 @@ export default function JornadaLaboralPage() {
                   filteredRows.map((row) => {
                     const key = getVehicleUiKey(row.vehicle);
                     return (
-                      <tr className={rowTone(row.state)} key={key}>
+                      <tr className={`${rowTone(row.state)} cursor-pointer`} key={key} onClick={() => setSelectedVehicleKey(key)}>
                         <td className="px-1 py-0.5">
                           <StatusBadge state={row.state} label={row.statusLabel} />
                         </td>
@@ -287,7 +292,10 @@ export default function JornadaLaboralPage() {
                             <button
                               aria-label="Quitar relevo"
                               className="grid h-6 w-6 place-items-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-100"
-                              onClick={() => updateVehicle(key, { horaInicioRelevo: "Pendiente", clasificacionRelevo: "Pendiente" })}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                updateVehicle(key, { horaInicioRelevo: "Pendiente", clasificacionRelevo: "Pendiente" });
+                              }}
                               type="button"
                             >
                               <RotateCcw size={12} />
@@ -309,6 +317,7 @@ export default function JornadaLaboralPage() {
                           <select
                             className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             onChange={(event) => updateVehicle(key, { causalDesviado: event.target.value })}
+                            onClick={(event) => event.stopPropagation()}
                             value={normalizeSelectValue(row.vehicle.causalDesviado)}
                           >
                             <option value="">Selecciona</option>
@@ -324,6 +333,7 @@ export default function JornadaLaboralPage() {
                             className="h-6 w-full resize-none rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] outline-none transition focus:border-[#f5bd19]"
                             defaultValue={row.vehicle.investigacionDesvio || ""}
                             onBlur={(event) => updateVehicle(key, { investigacionDesvio: event.target.value })}
+                            onClick={(event) => event.stopPropagation()}
                           />
                         </td>
                       </tr>
@@ -341,6 +351,8 @@ export default function JornadaLaboralPage() {
           </div>
         </section>
       </section>
+
+      {selectedVehicle ? <VehiclePeopleDrawer vehicle={selectedVehicle} onClose={() => setSelectedVehicleKey(null)} /> : null}
     </main>
   );
 }
@@ -367,6 +379,7 @@ function TimeInput({ onChange, value }: { onChange: (value: string) => void; val
     <input
       className="h-6 w-[76px] rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
       onChange={(event) => onChange(event.target.value)}
+      onClick={(event) => event.stopPropagation()}
       type="time"
       value={value}
     />
@@ -434,7 +447,7 @@ function RelevadorSelect({
   }
 
   return (
-    <div className="relative">
+    <div className="relative" onClick={(event) => event.stopPropagation()}>
       <input
         className="h-6 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] font-medium text-[#10223d] outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
         onBlur={() => {
@@ -490,6 +503,55 @@ function RelevadorSelect({
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function VehiclePeopleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose: () => void }) {
+  const people = getVehiclePeople(vehicle);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
+      <aside className="h-full w-full max-w-md overflow-y-auto bg-white shadow-[0_0_70px_rgba(16,34,61,0.24)]">
+        <div className="sticky top-0 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-500">Detalle del vehiculo</p>
+              <h2 className="mt-1 text-2xl font-semibold text-[#10223d]">{vehicle.vehiculo || "Sin placa"}</h2>
+              <p className="mt-1 text-sm text-slate-500">DT {vehicle.transporte || "-"}</p>
+            </div>
+            <button
+              aria-label="Cerrar detalle"
+              className="grid h-10 w-10 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-[#10223d]"
+              onClick={onClose}
+              type="button"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-3 p-5">
+          <div className="mb-2 flex items-center gap-2 text-[#10223d]">
+            <Users size={18} />
+            <h3 className="text-sm font-semibold">Personas del vehiculo</h3>
+          </div>
+
+          {people.length ? (
+            people.map((person) => (
+              <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" key={`${person.rol}-${person.nombre}-${person.cedula || ""}`}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{person.rol}</p>
+                <p className="mt-1 text-sm font-semibold text-[#10223d]">{person.nombre}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{person.cedula ? `CC ${person.cedula}` : "Sin cedula registrada"}</p>
+              </article>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm font-medium text-slate-500">
+              Este vehiculo no tiene personas registradas.
+            </div>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -644,6 +706,45 @@ function rowTone(state: JornadaState) {
   if (state === "danger" || state === "lateDone") return "bg-red-50/70";
   if (state === "warn") return "bg-amber-50/70";
   return "bg-white transition hover:bg-slate-50";
+}
+
+function getVehiclePeople(vehicle: Vehiculo) {
+  const people = [
+    {
+      rol: "Responsable",
+      nombre: cleanPersonValue(vehicle.nombreResponsable) || cleanPersonValue(vehicle.responsable),
+      cedula: cleanPersonValue(vehicle.cedulaResponsable),
+    },
+    {
+      rol: "Conductor / Auxiliar 1",
+      nombre: cleanPersonValue(vehicle.nombreAuxiliar1),
+      cedula: cleanPersonValue(vehicle.cedulaAuxiliar1),
+    },
+    {
+      rol: "Auxiliar 2",
+      nombre: cleanPersonValue(vehicle.nombreAuxiliar2),
+      cedula: cleanPersonValue(vehicle.cedulaAuxiliar2),
+    },
+    {
+      rol: "Relevador",
+      nombre: cleanPersonValue(vehicle.relevador),
+      cedula: "",
+    },
+  ].filter((person) => person.nombre || person.cedula);
+
+  const seen = new Set<string>();
+  return people.filter((person) => {
+    const key = `${person.rol}-${person.nombre}-${person.cedula}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function cleanPersonValue(value: string | undefined) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized || normalized === "-" || normalized.toLowerCase() === "pendiente") return "";
+  return normalized;
 }
 
 function getStableRowOrder(vehicle: Vehiculo) {

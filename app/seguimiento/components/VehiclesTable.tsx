@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Clock3, Trash2, Truck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowUpDown, Clock3, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
 import { StatusBadge } from "./StatusBadge";
@@ -19,6 +19,18 @@ export function VehiclesTable({
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
+  const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
+  const sortedVehicles = useMemo(() => {
+    const nextVehicles = [...vehicles];
+    nextVehicles.sort((a, b) => {
+      const aProgress = getProgress(a);
+      const bProgress = getProgress(b);
+
+      return routeSortOrder === "desc" ? bProgress - aProgress : aProgress - bProgress;
+    });
+    return nextVehicles;
+  }, [routeSortOrder, vehicles]);
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
@@ -39,7 +51,20 @@ export function VehiclesTable({
               <th className="w-28 px-2 py-1.5 text-left">Fecha despacho</th>
               <th className="w-16 px-2 py-1.5 text-left">Cajas</th>
               <th className="w-16 px-2 py-1.5 text-left">Clientes</th>
-              <th className="w-48 px-2 py-1.5 text-left">Ruta</th>
+              <th className="w-48 px-2 py-1.5 text-left">
+                <div className="inline-flex items-center gap-1">
+                  Ruta
+                  <button
+                    aria-label="Ordenar ruta"
+                    className="inline-grid h-4 w-4 place-items-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                    onClick={() => setRouteSortOrder((current) => (current === "desc" ? "asc" : "desc"))}
+                    title={routeSortOrder === "desc" ? "Mayor a menor" : "Menor a mayor"}
+                    type="button"
+                  >
+                    <ArrowUpDown size={10} />
+                  </button>
+                </div>
+              </th>
               <th className="w-24 px-2 py-1.5 text-left">Tiempo</th>
               <th className="w-28 px-2 py-1.5 text-left">Estado</th>
               <th className="w-10 px-1.5 py-1.5 text-right"></th>
@@ -47,7 +72,7 @@ export function VehiclesTable({
           </thead>
 
           <tbody className="divide-y divide-slate-100">
-            {vehicles.map((item) => {
+            {sortedVehicles.map((item) => {
               const progress = getProgress(item);
               const status = getStatus(progress, item);
               const recordKey = getVehicleUiKey(item);

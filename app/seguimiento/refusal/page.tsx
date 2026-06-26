@@ -319,7 +319,7 @@ function todayKey() {
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
+  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function getModulacionDateKey(registro: ModulacionRegistro) {

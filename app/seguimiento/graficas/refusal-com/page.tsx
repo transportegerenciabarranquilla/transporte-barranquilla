@@ -359,7 +359,7 @@ function getPreventista(registro: ModulacionRegistro) {
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKeyValue(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
+  return toDateKeyValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function getModulacionDateKey(record: ModulacionRegistro) {

@@ -177,26 +177,33 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
 
   if (!transporte && !vehiculo) return null;
 
-  const fecha = dateValue(value(["fecha despacho", "fecha", "fecha dt", "dia"])) || getLocalDateKey();
+  // Fecha operativa: siempre priorizar despacho sobre cualquier otra fecha.
+  const fechaDespacho =
+    dateValue(value(["fecha despacho", "fecha de despacho", "f despacho", "despacho", "dia despacho"])) ||
+    dateValue(value(["fecha"])) ||
+    dateValue(value(["dia"])) ||
+    getLocalDateKey();
+  const fechaDt = dateValue(value(["fecha dt", "fecha de dt", "dt fecha", "fecha salida"])) || fechaDespacho;
+  const onTimeClassification = getOnTimeClassification(fechaDt, fechaDespacho);
   const clientes = roundedNumberValue(value(["clientes", "total clientes", "clientes programados"]), 0);
   const visitados = roundedNumberValue(value(["visitados", "clientes visitados"]), 0);
   const importedCapacity = numberValue(value(["capacidad", "capacidad peso", "capacidad vehiculo"]), 1);
-  const createdAt = new Date(`${fecha}T00:00:00`).toISOString();
+  const createdAt = new Date(`${fechaDespacho}T00:00:00`).toISOString();
 
   return {
     cajasGestionadas: roundedNumberValue(value(["cajas gestionadas", "gestionadas"]), 0),
     cajasReportadas: roundedNumberValue(value(["cajas reportadas", "reportadas"]), 0),
     createdAt,
-    date: fecha,
-    mes: stringValue(value(["mes"])) || new Date(`${fecha}T00:00:00`).toLocaleDateString("es-CO", { month: "long" }),
+    date: fechaDespacho,
+    mes: stringValue(value(["mes"])) || new Date(`${fechaDespacho}T00:00:00`).toLocaleDateString("es-CO", { month: "long" }),
     cd: stringValue(value(["cd", "centro distribucion"])) || "BAQ",
     transportista: stringValue(value(["transportista", "contratista"])) || "Pendiente",
-    llave: stringValue(value(["llave"])) || `${transporte || vehiculo}-${fecha}`,
+    llave: stringValue(value(["llave"])) || `${transporte || vehiculo}-${fechaDespacho}`,
     transporte: transporte || vehiculo,
     centro: stringValue(value(["centro", "sede"])) || "Punto Corona",
     codTransportista: stringValue(value(["cod transportista", "codigo transportista"])) || "-",
-    fechaDt: dateValue(value(["fecha dt"])) || fecha,
-    fechaDespacho: fecha,
+    fechaDt,
+    fechaDespacho,
     vehiculo,
     responsable: stringValue(value(["responsable", "rr", "conductor", "nombre"])) || "Sin responsable",
     territorio: stringValue(value(["territorio", "zona", "ruta"])) || "Pendiente",
@@ -220,12 +227,20 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     alertaSifPotencial: stringValue(value(["alerta sif potencial", "alerta sif"])) || "Pendiente",
     relevador: stringValue(value(["relevador"])) || "-",
     causalDesviado: stringValue(value(["causal desviado"])) || "-",
-    clasificacionOnTime: stringValue(value(["clasificacion on time", "on time"])) || "Pendiente",
+    clasificacionOnTime: onTimeClassification,
     recargue: stringValue(value(["recargue"])) || "Pendiente",
     cedulaResponsable: stringValue(value(["cedula responsable", "cedula rr"])),
     cedulaAuxiliar1: stringValue(value(["cedula auxiliar 1", "cedula conductor"])),
     cedulaAuxiliar2: stringValue(value(["cedula auxiliar 2"])),
   };
+}
+
+function getOnTimeClassification(fechaDt: string | undefined, fechaDespacho: string | undefined) {
+  const dtDate = dateValue(fechaDt);
+  const dispatchDate = dateValue(fechaDespacho);
+
+  if (!dtDate || !dispatchDate) return "Pendiente";
+  return dtDate === dispatchDate ? "On Time" : "No On Time";
 }
 
 function createCapacityByPlate(vehicles: Vehiculo[]) {

@@ -268,7 +268,7 @@ function hasDeparture(vehicle: Vehiculo) {
 }
 
 function isTodayVehicle(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getLocalDateKey();
+  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === getLocalDateKey();
 }
 
 function toDateKey(value: string | undefined) {

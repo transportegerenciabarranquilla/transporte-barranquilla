@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ClipboardList, Clock3, PackageCheck, Route, Truck, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Clock3, PackageCheck, Route, Truck, Users } from "lucide-react";
 import { AnalyticsDateFilter } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
@@ -23,7 +23,6 @@ export default function SeguimientoGraficasPage() {
     loadSeguimientoVehiculos,
     [],
   );
-  const [closedAlerts, setClosedAlerts] = useState<string[]>([]);
   const [dateLabel, setDateLabel] = useState("");
   const [now, setNow] = useState<Date | null>(null);
 
@@ -42,7 +41,7 @@ export default function SeguimientoGraficasPage() {
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 60000);
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
 
     return () => window.clearInterval(interval);
   }, []);
@@ -71,15 +70,6 @@ export default function SeguimientoGraficasPage() {
     };
   }, [now, todayVehicles]);
 
-  const alertasCriticas = useMemo(() => {
-    return todayVehicles
-      .map((vehicle) => ({
-        ...vehicle,
-        currentProgress: getVisitProgress(vehicle.visitados, vehicle.clientes),
-      }))
-      .filter((vehicle) => resumen.avance - vehicle.currentProgress > DELAY_THRESHOLD)
-      .filter((vehicle) => !closedAlerts.includes(getVehicleRecordKey(vehicle)));
-  }, [closedAlerts, resumen.avance, todayVehicles]);
   const statusCounts = useMemo(() => {
     return ROUTE_STATUSES.map((status) => ({
       status,
@@ -89,41 +79,6 @@ export default function SeguimientoGraficasPage() {
 
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <div className="fixed right-5 top-20 z-50 w-full max-w-sm space-y-3">
-        {alertasCriticas.map((vehicle) => (
-          <div className="rounded-lg border border-red-100 bg-white p-4 shadow-xl" key={getVehicleRecordKey(vehicle)}>
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-red-50 text-red-600">
-                <AlertTriangle size={18} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-red-600">Retraso operativo</p>
-                <p className="mt-1 text-sm leading-5 text-slate-600">
-                  DT <span className="font-semibold text-[#10223d]">{vehicle.transporte}</span> está{" "}
-                  <span className="font-semibold text-red-600">{(resumen.avance - vehicle.currentProgress).toFixed(1)}%</span> por debajo
-                  del promedio.
-                </p>
-                <button
-                  className="mt-3 rounded-md bg-[#10223d] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1b355b]"
-                  onClick={() => setClosedAlerts((current) => [...current, getVehicleRecordKey(vehicle)])}
-                  type="button"
-                >
-                  Confirmar seguimiento
-                </button>
-              </div>
-              <button
-                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                onClick={() => setClosedAlerts((current) => [...current, getVehicleRecordKey(vehicle)])}
-                type="button"
-                aria-label="Cerrar alerta"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -161,10 +116,7 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
-                <div className="rounded-lg bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-[#10223d]">{alertasCriticas.length} alertas activas</p>
-                  <p className="mt-1 text-sm text-slate-500">Umbral de retraso: {DELAY_THRESHOLD}% contra el promedio.</p>
-                </div>
+                <p className="text-sm text-slate-500">Umbral de retraso: {DELAY_THRESHOLD}% contra el promedio.</p>
               </div>
             </div>
           </Panel>
@@ -174,7 +126,6 @@ export default function SeguimientoGraficasPage() {
               {statusCounts.map(({ status, count }) => (
                 <StatusTile key={status} label={status} count={count} tone={getStatusTone(status)} />
               ))}
-              <StatusTile label="Con alerta" count={alertasCriticas.length} tone="red" />
             </div>
           </Panel>
         </div>
@@ -382,7 +333,7 @@ function getStatusTone(status: string): StatusTone {
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
+  return parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function parseDate(value: string | undefined) {
@@ -432,9 +383,11 @@ function durationToSeconds(value: string | undefined) {
 }
 
 function formatSeconds(seconds: number) {
-  if (seconds <= 0) return "00:00";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  if (seconds <= 0) return "00:00:00";
+  const totalSeconds = Math.round(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
