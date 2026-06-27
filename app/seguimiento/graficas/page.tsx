@@ -131,28 +131,28 @@ export default function SeguimientoGraficasPage() {
         </div>
 
         <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <ClipboardList size={17} className="text-[#10223d]" />
+              <ClipboardList size={15} className="text-[#10223d]" />
               <div>
-                <h2 className="text-base font-semibold text-[#10223d]">Detalle por vehículo</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Comparación de avance contra el promedio del día.</p>
+                <h2 className="text-sm font-semibold leading-5 text-[#10223d]">Detalle por vehículo</h2>
+                <p className="text-[10px] leading-4 text-slate-500">Comparación de avance contra el promedio del día.</p>
               </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-2.5 py-1.5 text-xs font-semibold text-[#10223d]">
+            <span className="rounded-md bg-[#e9f3ff] px-2 py-0.5 text-[10px] font-semibold text-[#10223d]">
               {dateLabel}
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px]">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+            <table className="w-full min-w-[720px] table-fixed text-[10px]">
+              <thead className="bg-slate-50 text-[8px] uppercase tracking-[0.08em] text-slate-500 shadow-[0_1px_0_rgba(226,232,240,1)]">
                 <tr>
-                  <th className="px-4 py-2 text-left">Vehículo / DT</th>
-                  <th className="px-4 py-2 text-left">Responsable</th>
-                  <th className="px-4 py-2 text-center">Visitas</th>
-                  <th className="px-4 py-2 text-center">Avance</th>
-                  <th className="px-4 py-2 text-right">Estado</th>
+                  <th className="w-48 px-2 py-0.5 text-left">Vehículo / DT</th>
+                  <th className="w-72 px-2 py-0.5 text-left">Responsable</th>
+                  <th className="w-24 px-2 py-0.5 text-center">Visitas</th>
+                  <th className="w-40 px-2 py-0.5 text-center">Avance</th>
+                  <th className="w-24 px-2 py-0.5 text-right">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -161,31 +161,33 @@ export default function SeguimientoGraficasPage() {
                   const delayed = resumen.avance - percentage > DELAY_THRESHOLD;
 
                   return (
-                    <tr className={delayed ? "bg-red-50/50" : "transition hover:bg-slate-50"} key={getVehicleRecordKey(vehicle)}>
-                      <td className="px-4 py-1.5">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`grid h-8 w-8 place-items-center rounded-md ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
-                            {delayed ? <AlertTriangle size={16} /> : <Truck size={16} />}
+                    <tr className={delayed ? "bg-red-50/60" : "odd:bg-white even:bg-slate-50/80 transition hover:bg-slate-100/80"} key={getVehicleRecordKey(vehicle)}>
+                      <td className="px-2 py-[2px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`grid h-5 w-5 shrink-0 place-items-center rounded ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
+                            {delayed ? <AlertTriangle size={11} /> : <Truck size={11} />}
                           </span>
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold leading-5 text-[#10223d]">{vehicle.vehiculo}</p>
-                            <p className="truncate text-xs leading-4 text-slate-500">{vehicle.transporte}</p>
+                            <p className="truncate text-[10px] font-semibold leading-3.5 text-[#10223d]">{vehicle.vehiculo}</p>
+                            <p className="truncate text-[10px] leading-3 text-slate-500">{vehicle.transporte}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="max-w-80 truncate px-4 py-1.5 text-sm font-medium text-slate-600">{vehicle.responsable}</td>
-                      <td className="px-4 py-1.5 text-center text-sm font-semibold text-[#10223d]">
+                      <td className="truncate px-2 py-[2px] text-[10px] font-medium text-slate-600" title={vehicle.responsable}>
+                        {vehicle.responsable}
+                      </td>
+                      <td className="px-2 py-[2px] text-center text-[10px] font-semibold text-[#10223d]">
                         {vehicle.visitados} / {vehicle.clientes}
                       </td>
-                      <td className="px-4 py-1.5">
-                        <div className="mx-auto flex max-w-44 items-center gap-3">
-                          <div className="h-2 flex-1 rounded-full bg-slate-200">
-                            <div className={`h-2 rounded-full ${delayed ? "bg-red-500" : "bg-[#0f7c58]"}`} style={{ width: `${percentage}%` }} />
+                      <td className="px-2 py-[2px]">
+                        <div className="mx-auto flex max-w-32 items-center gap-1.5">
+                          <div className="h-1.5 flex-1 rounded-full bg-slate-200">
+                            <div className={`h-1.5 rounded-full ${delayed ? "bg-red-500" : "bg-[#0f7c58]"}`} style={{ width: `${percentage}%` }} />
                           </div>
-                          <span className={`w-10 text-sm font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
+                          <span className={`w-10 text-[10px] font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-1.5 text-right">
+                      <td className="px-2 py-[2px] text-right">
                         <StatusPill status={delayed ? "Retraso" : getStatus(percentage, vehicle)} />
                       </td>
                     </tr>
@@ -292,19 +294,8 @@ function StatusTile({ label, count, tone }: { label: string; count: number; tone
 }
 
 function StatusPill({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    Finalizado: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    "En ruta": "bg-emerald-50 text-emerald-700 border-emerald-100",
-    "Pendiente por salir": "bg-slate-50 text-slate-700 border-slate-200",
-    Pernoctado: "bg-violet-50 text-violet-700 border-violet-100",
-    Cargando: "bg-amber-50 text-amber-700 border-amber-100",
-    "Cambio de fecha": "bg-orange-50 text-orange-700 border-orange-100",
-    Recargue: "bg-cyan-50 text-cyan-700 border-cyan-100",
-    Retornando: "bg-indigo-50 text-indigo-700 border-indigo-100",
-    Retraso: "bg-red-50 text-red-700 border-red-100",
-  };
-
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${styles[status] ?? styles.Cargando}`}>{status}</span>;
+  const style = status === "Retraso" ? "bg-red-50 text-red-700 border-red-200" : "bg-[#f5de2a] text-[#1f2937] border-[#e3cb18]";
+  return <span className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold ${style}`}>{status}</span>;
 }
 
 function getVehicleStatus(vehicle: Vehiculo) {
