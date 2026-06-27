@@ -110,8 +110,10 @@ export function VehiclesTable({
                       onChange={(value) => onUpdateVehicle(recordKey, { transporte: value })}
                     />
                   </td>
-                  <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.responsable} onChange={(value) => onUpdateVehicle(recordKey, { responsable: value })} strong />
+                  <td className="px-2 py-1">
+                    <span className="block truncate px-1 text-[10px] font-semibold text-[#10223d]" title={item.responsable}>
+                      {item.responsable || "Sin responsable"}
+                    </span>
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <EditableDate value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />

@@ -24,6 +24,7 @@ import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguim
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
+import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY } from "../lib/adminSettings";
 import {
   formatCurrentTime,
   getModulacionDateKey,
@@ -50,6 +51,11 @@ export default function SeguimientoPage() {
     [],
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
+  const canEditResponsibleManual = useStorageSnapshot<boolean>(
+    [MANUAL_RESPONSABLE_EDIT_ENABLED_KEY],
+    isManualResponsibleEditEnabled,
+    false,
+  );
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   
   const [search, setSearch] = useState("");
@@ -248,6 +254,7 @@ export default function SeguimientoPage() {
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
     };
+    let shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined;
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);
 
@@ -268,7 +275,12 @@ export default function SeguimientoPage() {
       updated.tiempoRuta = "Pendiente";
     }
 
-    if (changes.horaSalida !== undefined || changes.horaLlegada !== undefined) {
+    if (changes.status === "Finalizado" && !hasTimeValue(updated.horaLlegada)) {
+      updated.horaLlegada = formatCurrentTime();
+      shouldRecalculateRouteTime = true;
+    }
+
+    if (shouldRecalculateRouteTime) {
       updated.tiempoRuta = calculateRouteTime(updated, now);
     }
 
@@ -590,6 +602,7 @@ export default function SeguimientoPage() {
 
         {selectedVehicle ? (
           <VehicleDrawer
+            canEditResponsibleManual={canEditResponsibleManual}
             vehicle={selectedVehicle}
             now={now}
             onClose={() => {

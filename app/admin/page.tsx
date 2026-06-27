@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Boxes, CalendarDays, PackageCheck, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
+import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
+import { useStorageSnapshot } from "../lib/storageEvents";
 
 type Summary = {
   contractor: string;
@@ -19,6 +21,11 @@ type Summary = {
 
 export default function AdminPage() {
   const router = useRouter();
+  const canEditResponsibleManual = useStorageSnapshot<boolean>(
+    [MANUAL_RESPONSABLE_EDIT_ENABLED_KEY],
+    isManualResponsibleEditEnabled,
+    false,
+  );
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
@@ -84,6 +91,15 @@ export default function AdminPage() {
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
 
+  function toggleResponsibleManualEdit() {
+    const nextValue = !canEditResponsibleManual;
+    const confirmationText = nextValue
+      ? "Confirmas habilitar la edicion manual de Responsable en el detalle del vehiculo?"
+      : "Confirmas bloquear la edicion manual de Responsable en el detalle del vehiculo?";
+    if (!window.confirm(confirmationText)) return;
+    setManualResponsibleEditEnabled(nextValue);
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -136,6 +152,30 @@ export default function AdminPage() {
             Limpiar filtros
           </button>
         </div>
+
+        <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Control admin</p>
+              <p className="mt-1 text-sm font-semibold text-[#10223d]">Edicion manual de responsable (detalle de vehiculo)</p>
+            </div>
+            <button
+              className={`h-10 rounded-md px-4 text-sm font-semibold text-white transition ${
+                canEditResponsibleManual ? "bg-red-600 hover:bg-red-700" : "bg-[#0f7c58] hover:bg-[#0b684a]"
+              }`}
+              onClick={toggleResponsibleManualEdit}
+              type="button"
+            >
+              {canEditResponsibleManual ? "Bloquear edicion manual" : "Habilitar con OK"}
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Estado actual:{" "}
+            <span className={`font-semibold ${canEditResponsibleManual ? "text-[#0f7c58]" : "text-red-700"}`}>
+              {canEditResponsibleManual ? "Habilitado por admin" : "Bloqueado"}
+            </span>
+          </p>
+        </section>
 
         <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<Boxes size={21} />} label="Cajas totales" value={totals.cajas.toLocaleString("es-CO")} />

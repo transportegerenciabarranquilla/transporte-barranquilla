@@ -5,6 +5,7 @@ import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, hasRecargue
 import { StatusBadge } from "./StatusBadge";
 
 export function VehicleDrawer({
+  canEditResponsibleManual,
   vehicle,
   now,
   onClose,
@@ -12,6 +13,7 @@ export function VehicleDrawer({
   onUpdateVehicle,
   recordKey,
 }: {
+  canEditResponsibleManual: boolean;
   vehicle: Vehiculo;
   now: Date;
   onClose: () => void;
@@ -196,12 +198,28 @@ export function VehicleDrawer({
               }}
             />
             <EditableInfo icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} onChange={(value) => updateVehicle({ transportista: String(value) })} />
-            <EditableInfo icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} onChange={(value) => updateVehicle({ responsable: String(value) })} />
-            <EditableInfo icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || ""} onChange={(value) => updateVehicle({ cedulaResponsable: String(value) })} />
+            {canEditResponsibleManual ? (
+              <EditableInfo icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} onChange={(value) => updateVehicle({ responsable: String(value) })} />
+            ) : (
+              <Info icon={<Users size={18} />} label="Responsable" value={vehicle.responsable || "Sin responsable"} />
+            )}
+            {canEditResponsibleManual ? (
+              <EditableInfo icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || ""} onChange={(value) => updateVehicle({ cedulaResponsable: String(value) })} />
+            ) : (
+              <Info icon={<Users size={18} />} label="Cedula RR" value={vehicle.cedulaResponsable || "Sin identificar"} />
+            )}
             <Info icon={<Users size={18} />} label="Nombre RR" value={vehicle.nombreResponsable || "Sin identificar"} />
-            <EditableInfo icon={<Users size={18} />} label="Cedula conductor / auxiliar 1" value={vehicle.cedulaAuxiliar1 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar1: String(value) })} />
+            {canEditResponsibleManual ? (
+              <EditableInfo icon={<Users size={18} />} label="Cedula conductor / auxiliar 1" value={vehicle.cedulaAuxiliar1 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar1: String(value) })} />
+            ) : (
+              <Info icon={<Users size={18} />} label="Cedula conductor / auxiliar 1" value={vehicle.cedulaAuxiliar1 || "Sin identificar"} />
+            )}
             <Info icon={<Users size={18} />} label="Nombre conductor / auxiliar 1" value={vehicle.nombreAuxiliar1 || "Sin identificar"} />
-            <EditableInfo icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar2: String(value) })} />
+            {canEditResponsibleManual ? (
+              <EditableInfo icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar2: String(value) })} />
+            ) : (
+              <Info icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || "Sin identificar"} />
+            )}
             <Info icon={<Users size={18} />} label="Nombre auxiliar 2" value={vehicle.nombreAuxiliar2 || "Sin identificar"} />
             <EditableInfo icon={<MapPin size={18} />} label="Territorio" value={vehicle.territorio} onChange={(value) => updateVehicle({ territorio: String(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Viaje" value={vehicle.viaje} onChange={(value) => updateVehicle({ viaje: String(value) })} />
