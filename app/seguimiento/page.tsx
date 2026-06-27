@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, CalendarDays, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -58,6 +58,7 @@ export default function SeguimientoPage() {
   const [onlyWithoutResponsible, setOnlyWithoutResponsible] = useState(false);
   
   const [importMessage, setImportMessage] = useState("");
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
@@ -411,6 +412,46 @@ export default function SeguimientoPage() {
     router.push(`/seguimiento/graficas${query}`);
   }
 
+  async function handleExportDailyVehicles() {
+    const exportDate = fechaDtFilter || getLocalDateKey();
+    const vehiclesForDate = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) === exportDate);
+
+    if (!vehiclesForDate.length) {
+      setImportMessage(`No hay carros cargados para exportar el dia ${exportDate}.`);
+      return;
+    }
+
+    try {
+      const XLSX = await import("xlsx");
+      const exportRows = vehiclesForDate.map((vehicle) => ({
+        DT: vehicle.transporte,
+        Placa: vehicle.vehiculo,
+        Responsable: vehicle.responsable,
+        "Fecha despacho": vehicle.fechaDespacho,
+        "Fecha DT": vehicle.fechaDt,
+        Estado: vehicle.status,
+        Clientes: vehicle.clientes,
+        Visitados: vehicle.visitados,
+        Cajas: vehicle.cajas,
+        HL: vehicle.hl,
+        "Hora salida": vehicle.horaSalida,
+        "Hora llegada": vehicle.horaLlegada,
+        "Tiempo ruta": vehicle.tiempoRuta,
+        Territorio: vehicle.territorio,
+        Transportista: vehicle.transportista,
+      }));
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Seguimiento");
+      const filename = `seguimiento-carros-${exportDate}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+      setImportMessage(`${vehiclesForDate.length} carros exportados del dia ${exportDate} en ${filename}.`);
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : "No se pudo exportar el Excel.");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -463,14 +504,14 @@ export default function SeguimientoPage() {
             />
           </label>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="relative flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
             <button
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
-              onClick={handleMarkFilteredInRoute}
+              onClick={() => setActionsOpen((current) => !current)}
               type="button"
             >
-              <Truck size={16} />
-              Filtrados en ruta
+              Acciones
+              <ChevronDown size={16} />
             </button>
             <button
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white transition hover:bg-[#0b684a]"
@@ -488,15 +529,42 @@ export default function SeguimientoPage() {
               <ClipboardCheck size={18} />
               Cajas checkin
             </button>
-           
-            <a
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
-              download="plantilla-seguimiento.xlsx"
-              href="/plantilla-seguimiento.xlsx"
-            >
-              <FileDown size={18} />
-              Plantilla
-            </a>
+
+            {actionsOpen ? (
+              <div className="absolute right-2 top-12 z-20 min-w-52 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl">
+                <button
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                  onClick={() => {
+                    handleMarkFilteredInRoute();
+                    setActionsOpen(false);
+                  }}
+                  type="button"
+                >
+                  <Truck size={15} />
+                  Filtrados en ruta
+                </button>
+                <button
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                  onClick={() => {
+                    void handleExportDailyVehicles();
+                    setActionsOpen(false);
+                  }}
+                  type="button"
+                >
+                  <FileDown size={15} />
+                  Exportar dia
+                </button>
+                <a
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                  download="plantilla-seguimiento.xlsx"
+                  href="/plantilla-seguimiento.xlsx"
+                  onClick={() => setActionsOpen(false)}
+                >
+                  <FileDown size={15} />
+                  Plantilla
+                </a>
+              </div>
+            ) : null}
           </div>
         </div>
 

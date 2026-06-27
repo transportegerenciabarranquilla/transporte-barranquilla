@@ -20,13 +20,23 @@ export function VehiclesTable({
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
   const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
+  const duplicatedDt = useMemo(() => {
+    const counts = new Map<string, number>();
+    vehicles.forEach((vehicle) => {
+      const key = normalizeDt(vehicle.transporte);
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([key]) => key));
+  }, [vehicles]);
   const sortedVehicles = useMemo(() => {
     const nextVehicles = [...vehicles];
     nextVehicles.sort((a, b) => {
-      const aProgress = getProgress(a);
-      const bProgress = getProgress(b);
+      const aVisited = Number(a.visitados || 0);
+      const bVisited = Number(b.visitados || 0);
 
-      return routeSortOrder === "desc" ? bProgress - aProgress : aProgress - bProgress;
+      return routeSortOrder === "desc" ? bVisited - aVisited : aVisited - bVisited;
     });
     return nextVehicles;
   }, [routeSortOrder, vehicles]);
@@ -55,10 +65,10 @@ export function VehiclesTable({
                 <div className="inline-flex items-center gap-1">
                   Ruta
                   <button
-                    aria-label="Ordenar ruta"
+                    aria-label="Ordenar por visitados"
                     className="inline-grid h-4 w-4 place-items-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
                     onClick={() => setRouteSortOrder((current) => (current === "desc" ? "asc" : "desc"))}
-                    title={routeSortOrder === "desc" ? "Mayor a menor" : "Menor a mayor"}
+                    title={routeSortOrder === "desc" ? "Mas visitados primero" : "Menos visitados primero"}
                     type="button"
                   >
                     <ArrowUpDown size={10} />
@@ -76,6 +86,7 @@ export function VehiclesTable({
               const progress = getProgress(item);
               const status = getStatus(progress, item);
               const recordKey = getVehicleUiKey(item);
+              const isDuplicatedDt = duplicatedDt.has(normalizeDt(item.transporte));
 
               return (
                 <tr
@@ -92,7 +103,12 @@ export function VehiclesTable({
                     </div>
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
-                    <EditableText value={item.transporte} onChange={(value) => onUpdateVehicle(recordKey, { transporte: value })} />
+                    <EditableText
+                      className={isDuplicatedDt ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-50 focus:border-red-400 focus:bg-white" : undefined}
+                      title={isDuplicatedDt ? "DT duplicado" : undefined}
+                      value={item.transporte}
+                      onChange={(value) => onUpdateVehicle(recordKey, { transporte: value })}
+                    />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <EditableText value={item.responsable} onChange={(value) => onUpdateVehicle(recordKey, { responsable: value })} strong />
@@ -179,21 +195,26 @@ function StatusSelect({ status, onChange }: { status: string; onChange: (status:
 }
 
 function EditableText({
+  className,
   value,
   onChange,
+  title,
   strong = false,
 }: {
+  className?: string;
   value: string;
   onChange: (value: string) => void;
+  title?: string;
   strong?: boolean;
 }) {
   return (
     <input
       className={`h-6 w-full min-w-0 truncate rounded border border-transparent bg-transparent px-1 text-[10px] outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white ${
         strong ? "font-semibold text-[#10223d]" : "text-slate-700"
-      }`}
+      } ${className || ""}`}
       onChange={(event) => onChange(event.target.value)}
       onClick={(event) => event.stopPropagation()}
+      title={title}
       type="text"
       value={value}
     />
@@ -246,4 +267,11 @@ function cleanNumberInput(value: string, allowDecimal: boolean) {
 
   const [integer = "", ...decimals] = cleanValue.split(".");
   return decimals.length ? `${integer}.${decimals.join("")}` : integer;
+}
+
+function normalizeDt(value: string | number | undefined) {
+  return String(value ?? "")
+    .replace(/^DT-?/i, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
 }

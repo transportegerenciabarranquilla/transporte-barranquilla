@@ -37,13 +37,38 @@ export async function PUT(request: Request) {
       data: { ...record, contratista: session.contractor },
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, "?on_conflict=checkin_id"), {
-      method: "POST",
-      headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
-      body: JSON.stringify(rows),
+    if (rows.length) {
+      const upsertResponse = await fetch(supabaseRest(TABLE, "?on_conflict=checkin_id"), {
+        method: "POST",
+        headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+        body: JSON.stringify(rows),
+        cache: "no-store",
+      });
+      if (!upsertResponse.ok) return NextResponse.json({ error: await supabaseError(upsertResponse) }, { status: upsertResponse.status });
+    }
+
+    const keepIds = new Set(rows.map((row) => row.checkin_id));
+    const currentParams = new URLSearchParams({ select: "checkin_id", contractor: `eq.${session.contractor}` });
+    const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
+      headers: supabaseUserHeaders(session.accessToken),
       cache: "no-store",
     });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+    if (currentResponse.ok) {
+      const current = (await currentResponse.json()) as { checkin_id: string }[];
+      const removed = current.map((row) => row.checkin_id).filter((id) => !keepIds.has(id));
+      if (removed.length) {
+        const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+        await fetch(
+          supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
+          {
+            method: "DELETE",
+            headers: supabaseUserHeaders(session.accessToken),
+            cache: "no-store",
+          },
+        );
+      }
+    }
+
     return NextResponse.json({ records });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando check-in." }, { status: 500 });

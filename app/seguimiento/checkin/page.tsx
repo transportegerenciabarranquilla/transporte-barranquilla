@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BadgeCheck, Boxes, ClipboardCheck, RotateCcw, Truck, XCircle } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Boxes, CalendarDays, ClipboardCheck, RotateCcw, Truck, XCircle } from "lucide-react";
 import {
   CHECKIN_STORAGE_KEY,
   getCheckinByDt,
@@ -30,7 +30,10 @@ export default function CajasCheckinPage() {
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, []);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [savedDt, setSavedDt] = useState("");
+  const [selectedDate, setSelectedDate] = useState(getLocalDateKey);
   const [dateLabel, setDateLabel] = useState("");
+  const [pendingCheckins, setPendingCheckins] = useState<CheckinCajasRegistro[] | null>(null);
+  const activeCheckins = pendingCheckins ?? checkins;
 
   useEffect(() => {
     setDateLabel(new Date().toLocaleDateString("es-CO"));
@@ -51,12 +54,22 @@ export default function CajasCheckinPage() {
 
   useEffect(() => {
     setInputs((current) => ({
-      ...Object.fromEntries(checkins.map((record) => [normalizeDt(record.dt), String(record.totalCajas)])),
+      ...Object.fromEntries(
+        activeCheckins
+          .filter((record) => Number(record.totalCajas || 0) > 0)
+          .map((record) => [normalizeDt(record.dt), String(record.totalCajas)]),
+      ),
       ...current,
     }));
-  }, [checkins]);
+  }, [activeCheckins]);
 
-  const vehiclesToday = useMemo(() => vehicles.filter(isTodayVehicle), [vehicles]);
+  useEffect(() => {
+    if (!pendingCheckins) return;
+    if (!areEquivalentCheckins(pendingCheckins, checkins)) return;
+    setPendingCheckins(null);
+  }, [checkins, pendingCheckins]);
+
+  const vehiclesToday = useMemo(() => vehicles.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [selectedDate, vehicles]);
   const departedVehicles = useMemo(() => {
     const departed = vehiclesToday.filter(hasDeparture);
     return departed.length ? departed : vehiclesToday;
@@ -70,7 +83,8 @@ export default function CajasCheckinPage() {
     () =>
       departedVehicles.map((vehicle) => {
         const registrosDt = getModulacionesByDt(operationalModulaciones, vehicle.transporte);
-        const checkin = getCheckinByDt(checkins, vehicle.transporte);
+        const rawCheckin = getCheckinByDt(activeCheckins, vehicle.transporte);
+        const checkin = rawCheckin && Number(rawCheckin.totalCajas || 0) > 0 ? rawCheckin : undefined;
         const resumen = summarizeModulaciones(registrosDt, vehicle.cajas, checkin?.totalCajas);
 
         return {
@@ -80,12 +94,13 @@ export default function CajasCheckinPage() {
           key: normalizeDt(vehicle.transporte),
         };
       }),
-    [checkins, departedVehicles, operationalModulaciones],
+    [activeCheckins, departedVehicles, operationalModulaciones],
   );
 
+  const filteredRows = rows;
   const totals = useMemo(
     () =>
-      rows.reduce(
+      filteredRows.reduce(
         (acc, row) => ({
           vehiculos: acc.vehiculos + 1,
           moduladas: acc.moduladas + row.resumen.cajasRechazadas,
@@ -95,20 +110,33 @@ export default function CajasCheckinPage() {
         }),
         { vehiculos: 0, moduladas: 0, gestionadas: 0, checkin: 0, final: 0 },
       ),
-    [rows],
+    [filteredRows],
   );
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>, dt: string) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>, dt: string) {
     event.preventDefault();
 
     const key = normalizeDt(dt);
     const inputValue = inputs[key]?.trim() ?? "";
+    const numericValue = Number(inputValue);
+    const shouldDelete = !inputValue || !Number.isFinite(numericValue) || numericValue <= 0;
     const nextRecords = inputValue
-      ? upsertCheckinCajas(checkins, dt, Number(inputValue))
-      : checkins.filter((record) => normalizeDt(record.dt) !== key);
+      ? upsertCheckinCajas(activeCheckins, dt, numericValue)
+      : activeCheckins.filter((record) => normalizeDt(record.dt) !== key);
+    const cleanRecords = shouldDelete
+      ? activeCheckins.filter((record) => normalizeDt(record.dt) !== key)
+      : nextRecords.filter((record) => Number(record.totalCajas || 0) > 0);
 
-    saveCheckinCajasRegistros(nextRecords);
-    setSavedDt(key);
+    setPendingCheckins(cleanRecords);
+    if (shouldDelete) {
+      setInputs((current) => ({ ...current, [key]: "" }));
+    }
+    try {
+      await saveCheckinCajasRegistros(cleanRecords);
+      setSavedDt(key);
+    } catch {
+      setPendingCheckins(null);
+    }
   }
 
   function updateInput(dt: string, value: string) {
@@ -143,6 +171,15 @@ export default function CajasCheckinPage() {
             <ClipboardCheck size={18} />
             Ver refusal
           </button>
+          <label className="relative">
+            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              className="h-10 rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+              onChange={(event) => setSelectedDate(event.target.value)}
+              type="date"
+              value={selectedDate}
+            />
+          </label>
         </div>
       </header>
 
@@ -184,8 +221,8 @@ export default function CajasCheckinPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.length ? (
-                  rows.map(({ checkin, key, resumen, vehicle }) => (
+                {filteredRows.length ? (
+                  filteredRows.map(({ checkin, key, resumen, vehicle }) => (
                     <tr className="transition hover:bg-slate-50" key={`${vehicle.vehiculo}-${vehicle.transporte}`}>
                       <td className="px-3 py-1.5">
                         <p className="text-xs font-semibold text-[#10223d]">{vehicle.vehiculo}</p>
@@ -232,10 +269,10 @@ export default function CajasCheckinPage() {
                 ) : (
                   <tr>
                     <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={7}>
-                      No hay carros salidos para hoy.
-                    </td>
-                  </tr>
-                )}
+                  No hay carros para esta fecha.
+                </td>
+              </tr>
+            )}
               </tbody>
             </table>
           </div>
@@ -267,8 +304,8 @@ function hasDeparture(vehicle: Vehiculo) {
   return salida !== "" && salida !== "pendiente" && salida !== "-";
 }
 
-function isTodayVehicle(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === getLocalDateKey();
+function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function toDateKey(value: string | undefined) {
@@ -282,4 +319,17 @@ function toDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value.slice(0, 10);
   return getLocalDateKey(parsed);
+}
+
+function areEquivalentCheckins(left: CheckinCajasRegistro[], right: CheckinCajasRegistro[]) {
+  if (left.length !== right.length) return false;
+
+  const serialize = (records: CheckinCajasRegistro[]) =>
+    [...records]
+      .map((record) => ({ dt: normalizeDt(record.dt), totalCajas: Number(record.totalCajas || 0) }))
+      .sort((a, b) => a.dt.localeCompare(b.dt))
+      .map((record) => `${record.dt}:${record.totalCajas}`)
+      .join("|");
+
+  return serialize(left) === serialize(right);
 }
