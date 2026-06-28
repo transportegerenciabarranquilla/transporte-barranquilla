@@ -46,7 +46,7 @@ export function upsertCheckinCajas(records: CheckinCajasRegistro[], dt: string |
   if (!existing) {
     return [
       {
-        id: crypto.randomUUID(),
+        id: createCheckinId(),
         dt: targetDt,
         totalCajas: cleanTotal,
         createdAt: now,
@@ -65,4 +65,12 @@ export function upsertCheckinCajas(records: CheckinCajasRegistro[], dt: string |
         }
       : record,
   );
+}
+
+function createCheckinId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `checkin-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }

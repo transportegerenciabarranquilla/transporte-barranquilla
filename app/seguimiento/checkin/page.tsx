@@ -55,9 +55,7 @@ export default function CajasCheckinPage() {
   useEffect(() => {
     setInputs((current) => ({
       ...Object.fromEntries(
-        activeCheckins
-          .filter((record) => Number(record.totalCajas || 0) > 0)
-          .map((record) => [normalizeDt(record.dt), String(record.totalCajas)]),
+        activeCheckins.map((record) => [normalizeDt(record.dt), String(record.totalCajas)]),
       ),
       ...current,
     }));
@@ -84,7 +82,7 @@ export default function CajasCheckinPage() {
       departedVehicles.map((vehicle) => {
         const registrosDt = getModulacionesByDt(operationalModulaciones, vehicle.transporte);
         const rawCheckin = getCheckinByDt(activeCheckins, vehicle.transporte);
-        const checkin = rawCheckin && Number(rawCheckin.totalCajas || 0) > 0 ? rawCheckin : undefined;
+        const checkin = rawCheckin;
         const resumen = summarizeModulaciones(registrosDt, vehicle.cajas, checkin?.totalCajas);
 
         return {
@@ -119,13 +117,11 @@ export default function CajasCheckinPage() {
     const key = normalizeDt(dt);
     const inputValue = inputs[key]?.trim() ?? "";
     const numericValue = Number(inputValue);
-    const shouldDelete = !inputValue || !Number.isFinite(numericValue) || numericValue <= 0;
+    const shouldDelete = !inputValue || !Number.isFinite(numericValue) || numericValue < 0;
     const nextRecords = inputValue
       ? upsertCheckinCajas(activeCheckins, dt, numericValue)
       : activeCheckins.filter((record) => normalizeDt(record.dt) !== key);
-    const cleanRecords = shouldDelete
-      ? activeCheckins.filter((record) => normalizeDt(record.dt) !== key)
-      : nextRecords.filter((record) => Number(record.totalCajas || 0) > 0);
+    const cleanRecords = shouldDelete ? activeCheckins.filter((record) => normalizeDt(record.dt) !== key) : nextRecords;
 
     setPendingCheckins(cleanRecords);
     if (shouldDelete) {

@@ -32,6 +32,7 @@ export function normalizeCajasTotal(value: number) {
 }
 
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
+  if (item?.status === "Finalizado") return "Finalizado";
   if (hasRecargueValue(item?.recargue)) return "Recargue";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
   if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
