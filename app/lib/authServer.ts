@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { contractorForEmail, isAdminEmail } from "./contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
 
 export const ACCESS_COOKIE = "bavaria_access_token";
@@ -41,7 +41,7 @@ export async function getAuthenticatedSession() {
 
   const email = user.email?.toLowerCase() || "";
   const contractor = contractorForEmail(email);
-  return contractor ? { accessToken, email, contractor, isAdmin: isAdminEmail(email) } : null;
+  return contractor ? { accessToken, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) } : null;
 }
 
 async function fetchSupabaseUser(supabaseKey: string, accessToken: string) {

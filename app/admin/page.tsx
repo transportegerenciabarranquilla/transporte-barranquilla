@@ -19,6 +19,37 @@ type Summary = {
   refusal: number;
 };
 
+type PersonHistory = {
+  type: string;
+  date: string;
+  title: string;
+  detail: string;
+};
+
+type PersonSummary = {
+  cc: string;
+  nombre: string;
+  cargo: string;
+  contratista: string;
+  stats: {
+    rutas: number;
+    modulaciones: number;
+    reubicaciones: number;
+    tiempoPromedioRuta: string;
+    ultimoDt: string;
+  };
+  history: PersonHistory[];
+};
+
+type PeopleGroup = {
+  name: string;
+  people: PersonSummary[];
+};
+
+type VehiclePerson = PersonSummary & {
+  role: string;
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const canEditResponsibleManual = useStorageSnapshot<boolean>(
@@ -28,18 +59,28 @@ export default function AdminPage() {
   );
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
+  const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
+  const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
   const [selectedDate, setSelectedDate] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/admin/seguimiento", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "No se pudo cargar el panel admin.");
-        setSummaries(body.summaries || []);
-        setRecords(body.records || []);
+    Promise.all([
+      fetch("/api/admin/seguimiento", { cache: "no-store" }),
+      fetch("/api/people/summary", { cache: "no-store" }),
+    ])
+      .then(async ([adminResponse, peopleResponse]) => {
+        const adminBody = await adminResponse.json().catch(() => ({}));
+        if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
+        setSummaries(adminBody.summaries || []);
+        setRecords(adminBody.records || []);
+
+        if (peopleResponse.ok) {
+          const peopleBody = await peopleResponse.json().catch(() => ({}));
+          setPeopleGroups(peopleBody.contractors || []);
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el panel admin."))
       .finally(() => setLoading(false));
@@ -90,6 +131,8 @@ export default function AdminPage() {
     if (selectedContractor === "Todas") return dateRecords;
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
+  const allPeople = useMemo(() => peopleGroups.flatMap((group) => group.people), [peopleGroups]);
+  const selectedVehiclePeople = useMemo(() => (selectedRecord ? getVehiclePeople(selectedRecord, allPeople) : []), [allPeople, selectedRecord]);
 
   function toggleResponsibleManualEdit() {
     const nextValue = !canEditResponsibleManual;
@@ -234,7 +277,12 @@ export default function AdminPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRecords.map((record, index) => (
-                  <tr className="text-xs transition hover:bg-slate-50" key={`${record.transportista}-${record.transporte}-${record.recordId || index}`}>
+                  <tr
+                    className="cursor-pointer text-xs transition hover:bg-[#f5f3ff]"
+                    key={`${record.transportista}-${record.transporte}-${record.recordId || index}`}
+                    onClick={() => setSelectedRecord(record)}
+                    tabIndex={0}
+                  >
                     <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#10223d]">{record.transportista}</td>
                     <td className="whitespace-nowrap px-3 py-2">DT {record.transporte}</td>
                     <td className="whitespace-nowrap px-3 py-2">{record.vehiculo}</td>
@@ -259,6 +307,14 @@ export default function AdminPage() {
           </div>
         </section>
       </section>
+
+      {selectedRecord ? (
+        <VehiclePeopleModal
+          onClose={() => setSelectedRecord(null)}
+          people={selectedVehiclePeople}
+          vehicle={selectedRecord}
+        />
+      ) : null}
     </main>
   );
 }
@@ -287,5 +343,185 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-[#10223d]">{value}</p>
     </div>
+  );
+}
+
+function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; people: VehiclePerson[]; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10223d]/45 px-4 py-6 backdrop-blur-sm">
+      <section className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-lg border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.26)]">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7c3aed]">Tripulacion</p>
+            <h2 className="mt-1 text-xl font-semibold text-[#10223d]">DT {vehicle.transporte || "-"} · {vehicle.vehiculo || "Sin vehiculo"}</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {vehicle.transportista || "-"} · {vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || "Sin fecha"} · {vehicle.status || "Sin estado"}
+            </p>
+          </div>
+          <button className="grid h-10 w-10 place-items-center rounded-md text-slate-500 transition hover:bg-white hover:text-[#10223d]" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="max-h-[calc(90vh-92px)] overflow-auto px-4 py-4">
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <RouteStat label="Cajas" value={vehicle.cajas || 0} />
+            <RouteStat label="Clientes" value={`${vehicle.visitados || 0}/${vehicle.clientes || 0}`} />
+            <RouteStat label="Refusal" value={`${vehicle.refusal || 0}%`} />
+          </div>
+
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Personas en el carro</h3>
+          {people.length ? (
+            <div className="grid gap-3 lg:grid-cols-3">
+              {people.map((person) => (
+                <article className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm" key={`${person.role}-${person.contratista}-${person.cc}-${person.nombre}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="rounded-md bg-[#f5f3ff] px-2 py-1 text-xs font-semibold text-[#5b21b6]">{person.role}</span>
+                      <h4 className="mt-2 truncate text-sm font-semibold text-[#10223d]" title={person.nombre || "Sin nombre"}>
+                        {person.nombre || "Sin nombre"}
+                      </h4>
+                      <p className="truncate text-xs text-slate-500" title={`CC ${person.cc || "Sin cedula"} · ${person.cargo || "Sin cargo"}`}>
+                        CC {person.cc || "Sin cedula"} · {person.cargo || "Sin cargo"}
+                      </p>
+                    </div>
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#10223d] to-[#7c3aed] text-xs font-semibold text-white">
+                      {initials(person.nombre)}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+                    <SmallStat label="Mod" value={person.stats.modulaciones} />
+                    <SmallStat label="Reub" value={person.stats.reubicaciones} />
+                    <SmallStat label="Ult. DT" value={person.stats.ultimoDt || "-"} />
+                  </div>
+
+                  <div className="mt-3 space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Modulaciones / reubicaciones</p>
+                    {person.history.filter((item) => item.type !== "Ruta").length ? (
+                      person.history.filter((item) => item.type !== "Ruta").slice(0, 2).map((item, index) => (
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2" key={`${item.type}-${item.title}-${index}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.title}>{item.title}</p>
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-500">{item.type}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">{item.date || "Sin fecha"}</p>
+                          <p className="mt-1 line-clamp-2 text-xs text-slate-600" title={item.detail}>{item.detail}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-500">Sin modulaciones o reubicaciones.</p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+              No se encontraron personas cruzadas por cedula o nombre para este carro.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RouteStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-[#10223d]">{value}</p>
+    </div>
+  );
+}
+
+function SmallStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md bg-slate-50 px-2 py-2">
+      <p className="text-sm font-semibold text-[#10223d]">{value}</p>
+      <p className="text-[10px] uppercase tracking-[0.1em] text-slate-400">{label}</p>
+    </div>
+  );
+}
+
+function getVehiclePeople(vehicle: Vehiculo, people: PersonSummary[]): VehiclePerson[] {
+  const candidates = [
+    { role: "Responsable", cc: vehicle.cedulaResponsable, name: vehicle.nombreResponsable || vehicle.responsable },
+    { role: "Auxiliar 1", cc: vehicle.cedulaAuxiliar1, name: vehicle.nombreAuxiliar1 },
+    { role: "Auxiliar 2", cc: vehicle.cedulaAuxiliar2, name: vehicle.nombreAuxiliar2 },
+  ].filter((candidate) => candidate.cc || candidate.name);
+
+  const used = new Set<string>();
+
+  return candidates
+    .map((candidate) => {
+      const person = findPersonForCandidate(candidate, vehicle.transportista, people);
+      const fallback = person || createFallbackPerson(candidate, vehicle);
+      const key = `${normalizeId(fallback.cc)}:${normalizeText(fallback.nombre)}:${candidate.role}`;
+      if (used.has(key)) return null;
+      used.add(key);
+      return { ...fallback, role: candidate.role };
+    })
+    .filter(Boolean) as VehiclePerson[];
+}
+
+function findPersonForCandidate(candidate: { cc?: string; name?: string }, contractor: string, people: PersonSummary[]) {
+  const targetCc = normalizeId(candidate.cc);
+  const targetName = normalizeText(candidate.name || "");
+  const targetContractor = normalizeText(contractor);
+
+  return people.find((person) => {
+    if (normalizeText(person.contratista) !== targetContractor) return false;
+    if (targetCc && normalizeId(person.cc) === targetCc) return true;
+    const personName = normalizeText(person.nombre);
+    return Boolean(targetName && personName && (personName.includes(targetName) || targetName.includes(personName)));
+  });
+}
+
+function createFallbackPerson(candidate: { cc?: string; name?: string }, vehicle: Vehiculo): PersonSummary {
+  return {
+    cc: String(candidate.cc || ""),
+    nombre: String(candidate.name || "Sin nombre"),
+    cargo: "Tripulacion",
+    contratista: vehicle.transportista || "",
+    stats: {
+      rutas: 1,
+      modulaciones: 0,
+      reubicaciones: 0,
+      tiempoPromedioRuta: vehicle.tiempoRuta || "Sin dato",
+      ultimoDt: vehicle.transporte || "",
+    },
+    history: [
+      {
+        type: "Ruta",
+        date: vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || "",
+        title: `DT ${vehicle.transporte || "-"}`,
+        detail: `${vehicle.vehiculo || "Sin vehiculo"} · ${vehicle.status || "Sin estado"} · ${vehicle.tiempoRuta || "Sin tiempo"}`,
+      },
+    ],
+  };
+}
+
+function normalizeId(value: unknown) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeText(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function initials(value: string) {
+  return (
+    value
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "P"
   );
 }

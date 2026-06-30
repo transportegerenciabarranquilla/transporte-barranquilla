@@ -5,14 +5,20 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
 };
 
 export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
+export const PEOPLE_EMAIL = "people@transporte.com";
 export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas"] as const;
 
 export function isAdminEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === ADMIN_EMAIL;
 }
 
+export function isPeopleEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === PEOPLE_EMAIL;
+}
+
 export function contractorForEmail(email: string | null | undefined) {
   if (isAdminEmail(email)) return "Admin";
+  if (isPeopleEmail(email)) return "People";
   return CONTRACTOR_BY_EMAIL[email?.trim().toLowerCase() || ""] || null;
 }
 

@@ -6,6 +6,8 @@ import { supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } fro
 
 const TABLE = "modulaciones_ruta";
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
+const LIST_SELECT =
+  "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 
 export async function GET() {
   try {
@@ -14,8 +16,8 @@ export async function GET() {
 
     const params = new URLSearchParams(
       session.isAdmin
-        ? { select: "contractor,data", order: "updated_at.desc" }
-        : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
+        ? { select: LIST_SELECT, order: "updated_at.desc" }
+        : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       headers: supabaseUserHeaders(session.accessToken),
@@ -23,8 +25,10 @@ export async function GET() {
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
-    const rows = (await response.json()) as { contractor?: string; data: ModulacionRegistro }[];
-    return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });
+    const rows = (await response.json()) as ModulacionListRow[];
+    return NextResponse.json({
+      records: rows.map((row) => fromListRow(row)),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando modulaciones." }, { status: 500 });
   }
@@ -46,10 +50,13 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: `Solo puedes guardar modulaciones de ${contractor}.` }, { status: 403 });
     }
 
+    const existingById = !isPublicSubmission && session
+      ? await readExistingModulaciones(session.accessToken, contractor, records.map((record) => record.id))
+      : new Map<string, ModulacionRegistro>();
     const rows = records.map((record) => ({
       modulation_id: record.id,
       contractor,
-      data: { ...record, contratista: contractor },
+      data: restoreExistingImage({ ...record, contratista: contractor }, existingById.get(record.id)),
       updated_at: new Date().toISOString(),
     }));
     const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=modulation_id"), {
@@ -62,18 +69,78 @@ export async function PUT(request: Request) {
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
-    if (isPublicSubmission || !session) return NextResponse.json({ records: rows.map((row) => row.data) });
+    if (isPublicSubmission || !session) return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
 
-    const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const savedResponse = await fetch(supabaseRest(TABLE, `?${savedParams.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
-      cache: "no-store",
-    });
-    if (!savedResponse.ok) return NextResponse.json({ error: await supabaseError(savedResponse) }, { status: savedResponse.status });
-
-    const savedRows = (await savedResponse.json()) as { data: ModulacionRegistro }[];
-    return NextResponse.json({ records: savedRows.map((row) => row.data) });
+    return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando modulaciones." }, { status: 500 });
   }
+}
+
+async function readExistingModulaciones(accessToken: string, contractor: string, ids: string[]) {
+  if (!ids.length) return new Map<string, ModulacionRegistro>();
+
+  const idFilter = ids.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+  const params = new URLSearchParams({ select: "modulation_id,data", contractor: `eq.${contractor}` });
+  params.set("modulation_id", `in.(${idFilter})`);
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    headers: supabaseUserHeaders(accessToken),
+    cache: "no-store",
+  });
+  if (!response.ok) return new Map<string, ModulacionRegistro>();
+
+  const rows = (await response.json().catch(() => [])) as { modulation_id: string; data: ModulacionRegistro }[];
+  return new Map(rows.map((row) => [row.modulation_id, row.data]));
+}
+
+function toListRecord(record: ModulacionRegistro) {
+  return {
+    ...record,
+    imagenVista: "",
+  };
+}
+
+type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
+
+function fromListRow(row: ModulacionListRow): ModulacionRegistro {
+  return {
+    id: readString(row.id),
+    contratista: readString(row.contractor) || readString(row.contratista),
+    dt: readString(row.dt),
+    fechaDespacho: readString(row.fechaDespacho),
+    fechaDt: readString(row.fechaDt),
+    codigoCliente: readString(row.codigoCliente),
+    nombreCliente: readString(row.nombreCliente),
+    telefonoCliente: readString(row.telefonoCliente),
+    com: readString(row.com),
+    jefeComercial: readString(row.jefeComercial),
+    telefonoJefeComercial: readString(row.telefonoJefeComercial),
+    preventista: readString(row.preventista),
+    preventistaNombre: readString(row.preventistaNombre),
+    telefonoPreventista: readString(row.telefonoPreventista),
+    totalCajas: readString(row.totalCajas),
+    cajasGestionadas: readString(row.cajasGestionadas),
+    persona: readString(row.persona),
+    personaNombre: readString(row.personaNombre),
+    causal: readString(row.causal),
+    comentario: readString(row.comentario),
+    comentarioModulador: readString(row.comentarioModulador),
+    imagenNombre: readString(row.imagenNombre),
+    imagenVista: "",
+    createdAt: readString(row.createdAt),
+  };
+}
+
+function readString(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function restoreExistingImage(record: ModulacionRegistro, existing: ModulacionRegistro | undefined) {
+  if (record.imagenVista || !existing?.imagenVista) return record;
+
+  return {
+    ...record,
+    imagenVista: existing.imagenVista,
+    imagenNombre: record.imagenNombre || existing.imagenNombre,
+  };
 }

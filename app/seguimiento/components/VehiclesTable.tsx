@@ -42,18 +42,18 @@ export function VehiclesTable({
   }, [routeSortOrder, vehicles]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+    <div className="data-shell rounded-lg">
+      <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/78 px-4 py-3 backdrop-blur">
         <div>
           <h2 className="text-base font-semibold text-[#10223d]">Vehículos en ruta</h2>
           <p className="text-xs text-slate-500">Selecciona una fila para ver el detalle.</p>
         </div>
-        <span className="rounded-full bg-[#e9f3ff] px-2.5 py-1 text-xs font-bold text-[#10223d]">{vehicles.length} rutas</span>
+        <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{vehicles.length} rutas</span>
       </div>
 
       <div className="max-h-[620px] overflow-auto">
-        <table className="w-full min-w-[900px] table-fixed text-[10px]">
-          <thead className="sticky top-0 z-10 bg-slate-50 text-[9px] uppercase tracking-[0.06em] text-slate-500 shadow-[0_1px_0_rgba(226,232,240,1)]">
+        <table className="data-table w-full min-w-[900px] table-fixed text-[10px]">
+          <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
             <tr>
               <th className="w-28 px-2 py-1.5 text-left">Vehículo</th>
               <th className="w-20 px-2 py-1.5 text-left">DT</th>
@@ -81,7 +81,7 @@ export function VehiclesTable({
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {sortedVehicles.map((item) => {
               const progress = getProgress(item);
               const status = getStatus(progress, item);
@@ -90,13 +90,13 @@ export function VehiclesTable({
 
               return (
                 <tr
-                  className="cursor-pointer transition hover:bg-[#f8fbff]"
+                  className="cursor-pointer"
                   key={recordKey}
                   onClick={() => onSelectVehicle(item)}
                 >
                   <td className="px-2 py-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-[#e9f3ff] text-[#10223d]">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
                         <Truck size={13} />
                       </span>
                       <EditableText value={item.vehiculo} onChange={(value) => onUpdateVehicle(recordKey, { vehiculo: value })} strong />
@@ -111,7 +111,7 @@ export function VehiclesTable({
                     />
                   </td>
                   <td className="px-2 py-1">
-                    <span className="block truncate px-1 text-[10px] font-semibold text-[#10223d]" title={item.responsable}>
+                    <span className="block truncate rounded bg-white/62 px-1.5 py-1 text-[10px] font-semibold text-[#10223d]" title={item.responsable}>
                       {item.responsable || "Sin responsable"}
                     </span>
                   </td>
@@ -132,14 +132,14 @@ export function VehiclesTable({
                         onChange={(value) => onUpdateVisited(recordKey, value)}
                       />
                       <span className="text-[9px] text-slate-400">/ {item.clientes}</span>
-                      <div className="h-1.5 min-w-12 flex-1 rounded-full bg-slate-200">
-                        <div className={`h-1.5 rounded-full ${progressColor(progress)}`} style={{ width: `${progress}%` }} />
+                      <div className="h-2 min-w-12 flex-1 overflow-hidden rounded-full bg-slate-200">
+                        <div className={`h-2 rounded-full ${progressColor(progress)} shadow-[0_0_12px_rgba(0,184,217,0.22)]`} style={{ width: `${progress}%` }} />
                       </div>
-                      <span className="w-8 text-[10px] font-semibold text-slate-700">{progress}%</span>
+                      <span className="number-pill w-10 text-[10px] text-slate-700">{progress}%</span>
                     </div>
                   </td>
                   <td className="px-2 py-1">
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-slate-100 px-1.5 py-1 font-mono text-[10px] font-semibold text-[#10223d]">
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-cyan-100 bg-cyan-50 px-1.5 py-1 font-mono text-[10px] font-semibold text-[#07556b]">
                       <Clock3 size={11} className="text-[#0f7c58]" />
                       {calculateRouteTime(item, now)}
                     </span>

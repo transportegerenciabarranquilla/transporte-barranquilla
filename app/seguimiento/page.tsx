@@ -37,7 +37,7 @@ import {
 
 const SEGUIMIENTO_DATE_FILTER_KEY = "bavaria.seguimiento.fechaFiltro";
 const MODULACION_ALERT_VISIBLE_MS = 5 * 60 * 1000;
-const DATA_REFRESH_MS = 1500;
+const DATA_REFRESH_MS = 30_000;
 const SEGUIMIENTO_SAVE_DEBOUNCE_MS = 200;
 
 export default function SeguimientoPage() {

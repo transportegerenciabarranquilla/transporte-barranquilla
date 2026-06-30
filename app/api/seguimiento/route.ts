@@ -15,7 +15,10 @@ const PUBLIC_CONTRACTORS: Record<string, string> = {
 export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
-    const requestedContractor = new URL(request.url).searchParams.get("contratista");
+    const searchParams = new URL(request.url).searchParams;
+    const requestedContractor = searchParams.get("contratista");
+    const requestedDt = normalizeDt(searchParams.get("dt") || "");
+    const requestedDate = searchParams.get("fecha") || searchParams.get("date") || "";
     const publicContractor = PUBLIC_CONTRACTORS[normalizeContractorName(requestedContractor)];
 
     if (!session && !publicContractor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
@@ -26,6 +29,8 @@ export async function GET(request: Request) {
         ? { select: "contractor,data", order: "updated_at.desc" }
         : { select: "data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
+    if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
+    if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       headers: session ? supabaseUserHeaders(session.accessToken) : supabaseHeaders(),
       cache: "no-store",
@@ -222,4 +227,10 @@ function normalizePlate(value: string | undefined) {
     .replace(/[^a-z0-9]/g, "");
 
   return normalized.replace(/^vh/, "");
+}
+
+function normalizeDt(value: string | undefined) {
+  return String(value ?? "")
+    .replace(/^DT-?/i, "")
+    .replace(/\D/g, "");
 }

@@ -9,6 +9,7 @@ import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
 import { MODULACION_STORAGE_KEY } from "../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
+import { useContractorBrand } from "../../lib/contractorBranding";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue, normalizeCajasTotal } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
@@ -17,6 +18,7 @@ const DELAY_THRESHOLD = 25;
 
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
+  const brand = useContractorBrand();
   const [selectedDate, setSelectedDate] = useState(getTodayKey);
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
@@ -78,8 +80,8 @@ export default function SeguimientoGraficasPage() {
   }, [todayVehicles]);
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+    <main className="min-h-screen text-slate-900">
+      <header className="sticky top-0 z-20 border-b border-white/50 bg-white/80 shadow-sm backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -92,7 +94,7 @@ export default function SeguimientoGraficasPage() {
             </button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Analítica diaria</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento operativo</h1>
+              <h1 className="text-2xl font-semibold text-[#10223d]">Seguimiento {brand.name}</h1>
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -130,8 +132,8 @@ export default function SeguimientoGraficasPage() {
           </Panel>
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-1.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="data-shell mt-5 rounded-lg">
+          <div className="flex flex-col gap-1 border-b border-slate-200/70 bg-white/78 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <ClipboardList size={15} className="text-[#10223d]" />
               <div>
@@ -139,14 +141,14 @@ export default function SeguimientoGraficasPage() {
                 <p className="text-[10px] leading-4 text-slate-500">Comparación de avance contra el promedio del día.</p>
               </div>
             </div>
-            <span className="rounded-md bg-[#e9f3ff] px-2 py-0.5 text-[10px] font-semibold text-[#10223d]">
+            <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-[#07556b]">
               {dateLabel}
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] table-fixed text-[10px]">
-              <thead className="bg-slate-50 text-[8px] uppercase tracking-[0.08em] text-slate-500 shadow-[0_1px_0_rgba(226,232,240,1)]">
+            <table className="data-table w-full min-w-[720px] table-fixed text-[10px]">
+              <thead className="sticky top-0 z-10 text-[8px] uppercase tracking-[0.08em]">
                 <tr>
                   <th className="w-48 px-2 py-0.5 text-left">Vehículo / DT</th>
                   <th className="w-72 px-2 py-0.5 text-left">Responsable</th>
@@ -155,13 +157,13 @@ export default function SeguimientoGraficasPage() {
                   <th className="w-24 px-2 py-0.5 text-right">Estado</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {todayVehicles.map((vehicle) => {
                   const percentage = getVisitProgress(vehicle.visitados, vehicle.clientes);
                   const delayed = resumen.avance - percentage > DELAY_THRESHOLD;
 
                   return (
-                    <tr className={delayed ? "bg-red-50/60" : "odd:bg-white even:bg-slate-50/80 transition hover:bg-slate-100/80"} key={getVehicleRecordKey(vehicle)}>
+                    <tr className={delayed ? "bg-red-50/60" : ""} key={getVehicleRecordKey(vehicle)}>
                       <td className="px-2 py-[2px]">
                         <div className="flex items-center gap-1.5">
                           <span className={`grid h-5 w-5 shrink-0 place-items-center rounded ${delayed ? "bg-red-100 text-red-600" : "bg-[#e9f3ff] text-[#10223d]"}`}>
@@ -181,8 +183,8 @@ export default function SeguimientoGraficasPage() {
                       </td>
                       <td className="px-2 py-[2px]">
                         <div className="mx-auto flex max-w-32 items-center gap-1.5">
-                          <div className="h-1.5 flex-1 rounded-full bg-slate-200">
-                            <div className={`h-1.5 rounded-full ${delayed ? "bg-red-500" : "bg-[#0f7c58]"}`} style={{ width: `${percentage}%` }} />
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                            <div className={`h-2 rounded-full ${delayed ? "bg-gradient-to-r from-red-500 to-orange-400" : "bg-gradient-to-r from-[#0f7c58] to-[#00b8d9]"}`} style={{ width: `${percentage}%` }} />
                           </div>
                           <span className={`w-10 text-[10px] font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
                         </div>
@@ -204,10 +206,12 @@ export default function SeguimientoGraficasPage() {
 
 function SummaryCard({ icon, label, value, detail }: { icon: ReactNode; label: string; value: ReactNode; detail: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="tech-card rounded-lg p-5">
       <div className="mb-4 flex items-center justify-between">
-        <span className="grid h-11 w-11 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">{icon}</span>
-        <span className="h-2 w-2 rounded-full bg-[#0f7c58]" />
+        <span className="grid h-11 w-11 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-lg shadow-blue-500/20">{icon}</span>
+        <span className="relative h-2.5 w-2.5 rounded-full bg-[#11a36a]">
+          <span className="absolute inset-0 animate-ping rounded-full bg-[#11a36a]/40" />
+        </span>
       </div>
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-semibold text-[#10223d]">{value}</p>
@@ -218,7 +222,7 @@ function SummaryCard({ icon, label, value, detail }: { icon: ReactNode; label: s
 
 function Panel({ title, icon, children, compact = false }: { title: string; icon: ReactNode; children: ReactNode; compact?: boolean }) {
   return (
-    <section className={`rounded-lg border border-slate-200 bg-white shadow-sm ${compact ? "p-3" : "p-5"}`}>
+    <section className={`glass-panel rounded-lg ${compact ? "p-3" : "p-5"}`}>
       <div className={`flex items-center gap-2 text-[#10223d] ${compact ? "mb-3" : "mb-5"}`}>
         {icon}
         <h2 className={compact ? "text-base font-semibold" : "text-lg font-semibold"}>{title}</h2>
@@ -236,17 +240,25 @@ function Gauge({ value }: { value: number }) {
   return (
     <div className="relative grid h-48 w-48 place-items-center">
       <svg className="-rotate-90" viewBox="0 0 110 110">
+        <defs>
+          <linearGradient id="gaugeGradient" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#1264ff" />
+            <stop offset="55%" stopColor="#00b8d9" />
+            <stop offset="100%" stopColor="#0f7c58" />
+          </linearGradient>
+        </defs>
         <circle cx="55" cy="55" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="11" />
         <circle
           cx="55"
           cy="55"
           r={radius}
           fill="none"
-          stroke="#0f7c58"
+          stroke="url(#gaugeGradient)"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
           strokeWidth="11"
+          className="drop-shadow-sm"
         />
       </svg>
       <div className="absolute text-center">

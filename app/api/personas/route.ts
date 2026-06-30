@@ -100,7 +100,7 @@ async function listPersonas(contractor: string | undefined) {
   const params = new URLSearchParams({
     select: "CC,NOMBRE,CARGO,CONTRATISTA",
     order: "NOMBRE.asc",
-    limit: "3000",
+    limit: "100",
   });
   if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
 
@@ -134,10 +134,12 @@ async function listPersonasByCargo(cargo: string, contractor: string | undefined
   const params = new URLSearchParams({
     select: "CC,NOMBRE,CARGO,CONTRATISTA",
     order: "NOMBRE.asc",
-    limit: "1000",
+    limit: "100",
   });
   const shouldFilterJornadaLocally = normalizedCargo.includes("jornada") || normalizedCargo.includes("relev");
-  if (!shouldFilterJornadaLocally) {
+  if (shouldFilterJornadaLocally) {
+    params.set("or", "(CARGO.ilike.*jornada*,CARGO.ilike.*relev*)");
+  } else {
     params.set("CARGO", `ilike.*${cargo}*`);
   }
   if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);

@@ -9,13 +9,14 @@ import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type Ch
 import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
+import { useContractorBrand } from "../../lib/contractorBranding";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 import type { Vehiculo } from "../types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../utils";
 
 const PALETTE = {
-  safe: "#0f7c58",
-  danger: "#dc2626",
+  safe: "#00b8d9",
+  danger: "#ef4444",
   track: "#e2e8f0",
 };
 
@@ -24,6 +25,7 @@ const EMPTY_CHECKINS: CheckinCajasRegistro[] = [];
 
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
+  const brand = useContractorBrand();
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
   const allModulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, EMPTY_MODULACIONES);
@@ -97,8 +99,8 @@ export default function SeguimientoRefusalPage() {
   const refusalTone = getRefusalTone(refusalData.porcentaje);
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+    <main className="min-h-screen text-slate-900">
+      <header className="sticky top-0 z-20 border-b border-white/50 bg-white/80 shadow-sm backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -111,7 +113,7 @@ export default function SeguimientoRefusalPage() {
             </button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dc2626]">Analitica diaria</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">Control de refusal</h1>
+              <h1 className="text-2xl font-semibold text-[#10223d]">Control refusal {brand.name}</h1>
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -129,8 +131,8 @@ export default function SeguimientoRefusalPage() {
           <RefusalMetric icon={<Users size={21} />} label="Checkins" value={refusalData.checkinAplicadas} tone="amber" />
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+          <section className="glass-panel rounded-lg p-4">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-[#10223d]">
                 <TrendingDown size={19} />
@@ -142,9 +144,9 @@ export default function SeguimientoRefusalPage() {
             <div className="grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
               <RefusalGauge value={refusalData.pendientes} max={refusalData.topeMaximo} percentage={refusalData.porcentaje} />
               <div className="space-y-4">
-                <ProgressLine label="Refusal final" value={refusalData.pendientes} max={refusalData.topeMaximo} color="bg-[#dc2626]" />
-                <ProgressLine label="Gestionadas" value={refusalData.gestionadas} max={refusalData.rechazadas} color="bg-[#0f7c58]" />
-                <div className="rounded-lg bg-slate-50 p-4">
+                <ProgressLine label="Refusal final" value={refusalData.pendientes} max={refusalData.topeMaximo} color={refusalTone.isDanger ? "bg-red-600" : "bg-gradient-to-r from-[#0f7c58] to-[#00b8d9]"} />
+                <ProgressLine label="Gestionadas" value={refusalData.gestionadas} max={refusalData.rechazadas} color="bg-gradient-to-r from-[#0f7c58] to-[#00b8d9]" />
+                <div className="rounded-lg border border-cyan-100 bg-cyan-50/70 p-4">
                   <p className="text-sm font-semibold text-[#10223d]">Tope maximo: {refusalData.topeMaximo} cajas</p>
                   <p className="mt-1 text-sm text-slate-500">Usa cajas checkin por DT; si no existen, toma el pendiente modulado actual.</p>
                 </div>
@@ -152,40 +154,44 @@ export default function SeguimientoRefusalPage() {
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+          <section className="data-shell rounded-lg">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/78 px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <ClipboardList size={16} className="shrink-0 text-[#10223d]" />
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-lg shadow-blue-500/20">
+                  <ClipboardList size={18} />
+                </span>
                 <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold text-[#10223d]">Detalle de modulaciones</h2>
-                  <p className="truncate text-[11px] text-slate-500">Rechazo por ruta.</p>
+                  <h2 className="truncate text-base font-semibold text-[#10223d]">Detalle de modulaciones - {brand.name}</h2>
+                  <p className="truncate text-xs text-slate-500">Rechazo por ruta, responsable y estado operativo.</p>
                 </div>
               </div>
-              <span className="shrink-0 rounded-md bg-[#e9f3ff] px-2 py-1 text-[11px] font-semibold text-[#10223d]">{modulationRows.length}</span>
+              <span className="shrink-0 rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm font-semibold text-[#07556b]">{modulationRows.length}</span>
             </div>
 
-            <div className="max-h-[360px] overflow-y-auto">
-              <table className="w-full table-fixed">
-                <thead className="sticky top-0 z-10 bg-[#242424] text-[9px] uppercase tracking-[0.03em] text-white shadow-[0_1px_0_#e2e8f0]">
+            <div className="max-h-[430px] overflow-y-auto">
+              <table className="data-table w-full table-fixed">
+                <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
                   <tr>
-                    <th className="w-[18%] px-1.5 py-1.5 text-left">Bloque</th>
-                    <th className="w-[18%] px-1.5 py-1.5 text-left">Vehiculo</th>
-                    <th className="w-[34%] px-1.5 py-1.5 text-left">Responsable</th>
-                    <th className="w-[18%] px-1.5 py-1.5 text-left">Status</th>
-                    <th className="w-[12%] px-1.5 py-1.5 text-right">Cajas</th>
+                    <th className="w-[20%] px-2 py-2 text-left">Bloque</th>
+                    <th className="w-[18%] px-2 py-2 text-left">Vehiculo</th>
+                    <th className="w-[34%] px-2 py-2 text-left">Responsable</th>
+                    <th className="w-[16%] px-2 py-2 text-left">Status</th>
+                    <th className="w-[12%] px-2 py-2 text-right">Cajas</th>
                   </tr>
                 </thead>
                 <tbody>
                   {modulationRows.length ? (
                     modulationRows.map((item, index) => (
-                      <tr className={index % 2 === 0 ? "bg-white" : "bg-slate-100"} key={item.id}>
-                        <td className="truncate px-1.5 py-1 text-[11px] font-medium text-slate-600" title={item.bloque}>{item.bloque}</td>
-                        <td className="truncate px-1.5 py-1 text-[11px] font-semibold text-slate-700" title={item.vehiculo}>{item.vehiculo}</td>
-                        <td className="truncate px-1.5 py-1 text-[11px] text-slate-600" title={item.responsable}>{item.responsable}</td>
-                        <td className="px-1.5 py-1">
-                          <span className="inline-flex max-w-full truncate rounded-sm bg-yellow-300 px-1 py-0.5 text-[10px] font-semibold text-[#10223d]" title={item.status}>{item.status}</span>
+                      <tr className={index % 2 === 0 ? "bg-white" : ""} key={item.id}>
+                        <td className="truncate px-2 py-2 text-[11px] font-semibold text-slate-600" title={item.bloque}>{item.bloque}</td>
+                        <td className="px-2 py-2" title={item.vehiculo}>
+                          <span className="rounded bg-[#e8f7ff] px-1.5 py-0.5 text-[11px] font-bold text-[#07556b]">{item.vehiculo}</span>
                         </td>
-                        <td className="px-1.5 py-1 text-right text-[11px] font-bold text-slate-700">{item.cajasRechazo}</td>
+                        <td className="truncate px-2 py-2 text-[11px] text-slate-600" title={item.responsable}>{item.responsable}</td>
+                        <td className="px-2 py-2">
+                          <span className="inline-flex max-w-full truncate rounded-md border border-amber-100 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800" title={item.status}>{item.status}</span>
+                        </td>
+                        <td className="px-2 py-2 text-right text-[11px] text-slate-700"><span className="number-pill border-red-100 bg-red-50 text-red-700">{item.cajasRechazo}</span></td>
                       </tr>
                     ))
                   ) : (
@@ -214,8 +220,8 @@ function RefusalMetric({ icon, label, value, tone = "navy" }: { icon: ReactNode;
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <span className={`mb-4 grid h-11 w-11 place-items-center rounded-md ${colors[tone]}`}>{icon}</span>
+    <div className="tech-card rounded-lg p-5">
+      <span className={`mb-4 grid h-11 w-11 place-items-center rounded-md ${colors[tone]} shadow-sm`}>{icon}</span>
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-semibold text-[#10223d]">{value}</p>
     </div>
@@ -232,6 +238,8 @@ function RefusalGauge({ value, max, percentage }: { value: number; max: number; 
   return (
     <div className="relative mx-auto grid h-52 w-52 place-items-center">
       <svg className="h-full w-full -rotate-90" viewBox="0 0 110 110">
+        <defs>
+        </defs>
         <circle cx="55" cy="55" r={radius} fill="none" stroke={PALETTE.track} strokeWidth="11" />
         <circle cx="55" cy="55" r={radius} fill="none" stroke={tone.color} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" strokeWidth="11" />
       </svg>
@@ -258,8 +266,8 @@ function ProgressLine({ label, value, max, color }: { label: string; value: numb
 }
 
 function getRefusalTone(value: number) {
-  if (value <= 1) return { color: PALETTE.safe, label: "Controlado", badge: "border-emerald-100 bg-emerald-50 text-emerald-700" };
-  return { color: PALETTE.danger, label: "En peligro", badge: "border-red-100 bg-red-50 text-red-700" };
+  if (value <= 1) return { color: PALETTE.safe, isDanger: false, label: "Controlado", badge: "border-emerald-100 bg-emerald-50 text-emerald-700" };
+  return { color: PALETTE.danger, isDanger: true, label: "En peligro", badge: "border-red-100 bg-red-50 text-red-700" };
 }
 
 function getBloque(vehicle: Vehiculo | undefined, modulacion: ModulacionRegistro) {

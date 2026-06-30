@@ -47,14 +47,30 @@ export function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
     const currentRecord = records.get(getVehicleRecordKey(vehicle));
     const fixedCapacity = getFixedCapacity(vehicle.vehiculo, capacityByPlate, vehicle.capacidad);
 
-    records.set(getVehicleRecordKey(vehicle), {
-      ...currentRecord,
-      ...vehicle,
-      capacidad: fixedCapacity,
-    });
+    records.set(getVehicleRecordKey(vehicle), mergeImportedVehicle(currentRecord, vehicle, fixedCapacity));
   });
 
   return Array.from(records.values());
+}
+
+function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehicle: Vehiculo, fixedCapacity: number) {
+  if (!currentRecord) {
+    return {
+      ...importedVehicle,
+      capacidad: fixedCapacity,
+    };
+  }
+
+  const clientes = importedVehicle.clientes > 0 ? importedVehicle.clientes : currentRecord.clientes;
+  const visitados = Math.max(Number(currentRecord.visitados || 0), Number(importedVehicle.visitados || 0));
+
+  return {
+    ...currentRecord,
+    ...importedVehicle,
+    clientes,
+    visitados: Math.min(visitados, clientes || visitados),
+    capacidad: fixedCapacity,
+  };
 }
 
 export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones: ReturnType<typeof readModulacionRegistros>) {

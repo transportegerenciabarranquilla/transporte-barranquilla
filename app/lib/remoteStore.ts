@@ -4,6 +4,8 @@ import { notifyStorageChange } from "./storageEvents";
 
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
+const fetchedAt = new Map<string, number>();
+const REMOTE_CACHE_TTL_MS = 30_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
   "/api/asistencias": "bavaria.asistencia.registros",
@@ -21,10 +23,15 @@ function shouldRedirectOnUnauthorized() {
 export function clearRemoteCache() {
   cache.clear();
   loading.clear();
+  fetchedAt.clear();
   notifyStorageChange();
 }
 
-export function refreshRemoteRecords(endpoint: string) {
+export function refreshRemoteRecords(endpoint: string, options: { force?: boolean } = {}) {
+  const lastFetch = fetchedAt.get(endpoint) || 0;
+  if (!options.force && cache.has(endpoint) && Date.now() - lastFetch < REMOTE_CACHE_TTL_MS) {
+    return Promise.resolve();
+  }
   if (loading.has(endpoint)) return loading.get(endpoint);
 
   const request = fetch(endpoint, { cache: "no-store" })
@@ -38,6 +45,7 @@ export function refreshRemoteRecords(endpoint: string) {
 
       const data = body.records ?? body.persona ?? body.data ?? [];
       cache.set(endpoint, Array.isArray(data) ? data : data ? [data] : []);
+      fetchedAt.set(endpoint, Date.now());
       notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     })
     .catch(() => undefined)
@@ -59,10 +67,11 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
 
 export async function saveRemoteRecords<T>(
   endpoint: string,
-  records: T[]
+  records: T[],
+  options: { mergeByKey?: (record: T) => string } = {},
 ) {
   const previousRecords = cache.get(endpoint);
-  cache.set(endpoint, records);
+  cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
   notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
 
   try {
@@ -83,7 +92,8 @@ export async function saveRemoteRecords<T>(
     }
 
     const savedRecords = Array.isArray(body.records) ? body.records : records;
-    cache.set(endpoint, savedRecords);
+    cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
+    fetchedAt.set(endpoint, Date.now());
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     return savedRecords as T[];
   } catch (error) {
@@ -96,4 +106,14 @@ export async function saveRemoteRecords<T>(
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     throw error;
   }
+}
+
+function mergeCachedRecords<T>(previousRecords: T[] | undefined, records: T[], getKey: (record: T) => string) {
+  const merged = new Map((previousRecords ?? []).map((record) => [getKey(record), record]));
+
+  records.forEach((record) => {
+    merged.set(getKey(record), record);
+  });
+
+  return Array.from(merged.values());
 }

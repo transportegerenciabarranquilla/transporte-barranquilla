@@ -49,7 +49,7 @@ export default function RegistroModulacionPage() {
       setVehiclesError("");
 
       Promise.all([
-        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}`, {
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(getTodayKey())}`, {
           cache: "no-store",
           signal: controller.signal,
         }),

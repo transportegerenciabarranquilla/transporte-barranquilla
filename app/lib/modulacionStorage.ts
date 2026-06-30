@@ -116,6 +116,10 @@ export function saveModulacionRegistros(records: ModulacionRegistro[]) {
   return saveRemoteRecords("/api/modulaciones", records);
 }
 
+export function saveModulacionRegistro(record: ModulacionRegistro) {
+  return saveRemoteRecords("/api/modulaciones", [record], { mergeByKey: (item) => item.id });
+}
+
 export function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined) {
   const targetDt = normalizeDt(dt);
   if (!targetDt) return [];

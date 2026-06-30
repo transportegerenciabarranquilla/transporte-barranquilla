@@ -9,15 +9,27 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
   const router = useRouter();
 
   function href(path: string) {
-    const fecha = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("fecha") || "";
-    return fecha ? `${path}?fecha=${encodeURIComponent(fecha)}` : path;
+    if (typeof window === "undefined") return path;
+
+    const params = new URLSearchParams(window.location.search);
+    const nextParams = new URLSearchParams();
+    ["fecha", "desde", "hasta"].forEach((key) => {
+      const value = params.get(key);
+      if (value) nextParams.set(key, value);
+    });
+
+    const query = nextParams.toString();
+    return query ? `${path}?${query}` : path;
   }
 
+  const activeClass = "bg-gradient-to-r from-[#10223d] to-[#1264ff] text-white shadow-sm";
+  const idleClass = "text-slate-600 hover:bg-cyan-50 hover:text-[#07556b]";
+
   return (
-    <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 shadow-sm">
+    <div className="inline-flex rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
       <button
         className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
-          active === "seguimiento" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+          active === "seguimiento" ? activeClass : idleClass
         }`}
         onClick={() => router.push(href("/seguimiento/graficas"))}
         type="button"
@@ -27,7 +39,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
       </button>
       <button
         className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
-          active === "refusal" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+          active === "refusal" ? activeClass : idleClass
         }`}
         onClick={() => router.push(href("/seguimiento/refusal"))}
         type="button"
@@ -37,7 +49,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
       </button>
       <button
         className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
-          active === "refusal-com" ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+          active === "refusal-com" ? activeClass : idleClass
         }`}
         onClick={() => router.push(href("/seguimiento/graficas/refusal-com"))}
         type="button"
@@ -47,7 +59,7 @@ export function AnalyticsViewToggle({ active }: { active: AnalyticsView }) {
       </button>
       <button
         aria-label="Descargar reporte PDF"
-        className="inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+        className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${idleClass}`}
         onClick={() => router.push(href("/seguimiento/graficas/reporte-pdf"))}
         type="button"
       >

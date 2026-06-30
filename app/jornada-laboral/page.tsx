@@ -34,6 +34,7 @@ export default function JornadaLaboralPage() {
   const [classificationFilter, setClassificationFilter] = useState("");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores, setRelevadores] = useState<Persona[]>([]);
+  const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
   const vehiculos = draftVehiculos ?? storedVehiculos;
 
   useEffect(() => {
@@ -42,27 +43,17 @@ export default function JornadaLaboralPage() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    setRelevadores([]);
+  }, []);
 
-    fetch("/api/personas?listar=1", {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          setMessage(body.error || "No se pudieron cargar los relevadores.");
-          return;
-        }
-
-        if (Array.isArray(body.personas)) {
-          setRelevadores(body.personas);
-          if (!body.personas.length) setMessage("No se encontraron personas.");
-        }
+  useEffect(() => {
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        const session = body?.session;
+        setCanAccessJornada(Boolean(session?.isAdmin || session?.contractor === "Logisticos"));
       })
-      .catch(() => setMessage("No se pudieron cargar las personas."));
-
-    return () => controller.abort();
+      .catch(() => setCanAccessJornada(false));
   }, []);
 
   const rows = useMemo(() => {
@@ -128,6 +119,29 @@ export default function JornadaLaboralPage() {
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
       });
+  }
+
+  if (canAccessJornada === null) {
+    return <main className="min-h-screen" />;
+  }
+
+  if (!canAccessJornada) {
+    return (
+      <main className="grid min-h-screen place-items-center px-5 text-slate-900">
+        <section className="glass-panel max-w-lg rounded-lg p-6 text-center">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-md bg-amber-50 text-amber-700">
+            <ShieldAlert size={23} />
+          </span>
+          <h1 className="mt-4 text-2xl font-semibold text-[#10223d]">Modulo no disponible</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Jornada laboral esta habilitado solo para Logisticos y administradores.
+          </p>
+          <button className="tech-button mt-5 rounded-md px-4 py-2 text-sm font-semibold" onClick={() => router.push("/")} type="button">
+            Volver al portal
+          </button>
+        </section>
+      </main>
+    );
   }
 
   return (

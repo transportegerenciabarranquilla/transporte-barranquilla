@@ -3,15 +3,17 @@
 import { useEffect, useState } from "react";
 import { LoginScreen } from "./components/LoginScreen";
 import { PortalDashboard } from "./components/PortalDashboard";
+import { cacheContractor } from "./lib/contractorBranding";
 import { clearRemoteCache } from "./lib/remoteStore";
 
 type LoginForm = { email: string; password: string; remember: boolean };
-type SessionState = { email: string; contractor: string; isAdmin?: boolean } | null;
+type SessionState = { email: string; contractor: string; isAdmin?: boolean; isPeople?: boolean } | null;
 
 export default function Home() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [session, setSession] = useState<SessionState>(null);
+  const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/session", { cache: "no-store" })
@@ -19,6 +21,11 @@ export default function Home() {
         setIsLoggedIn(response.ok);
         const body = response.ok ? await response.json().catch(() => null) : null;
         setSession(body?.session ?? null);
+        cacheContractor(body?.session?.contractor || "");
+      })
+      .catch(() => {
+        setSessionError("No se pudo validar la sesion. Revisa la conexion e intenta nuevamente.");
+        setIsLoggedIn(false);
       })
       .finally(() => setIsCheckingSession(false));
   }, []);
@@ -32,13 +39,15 @@ export default function Home() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || "No se pudo iniciar sesión.");
     clearRemoteCache();
-    setSession({ email: body.email, contractor: body.contractor, isAdmin: body.isAdmin });
+    cacheContractor(body.contractor);
+    setSession({ email: body.email, contractor: body.contractor, isAdmin: body.isAdmin, isPeople: body.isPeople });
     setIsLoggedIn(true);
   }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     clearRemoteCache();
+    cacheContractor("");
     setSession(null);
     setIsLoggedIn(false);
   }
@@ -48,8 +57,15 @@ export default function Home() {
   }
 
   if (isLoggedIn) {
-    return <PortalDashboard onLogout={handleLogout} isAdmin={Boolean(session?.isAdmin)} />;
+    return (
+      <PortalDashboard
+        onLogout={handleLogout}
+        isAdmin={Boolean(session?.isAdmin)}
+        isPeople={Boolean(session?.isPeople)}
+        contractor={session?.contractor || ""}
+      />
+    );
   }
 
-  return <LoginScreen onLogin={handleLogin} />;
+  return <LoginScreen onLogin={handleLogin} sessionError={sessionError} />;
 }

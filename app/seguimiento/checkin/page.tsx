@@ -17,7 +17,7 @@ import { refreshRemoteRecords } from "../../lib/remoteStore";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import type { Vehiculo } from "../types";
 
-const DATA_REFRESH_MS = 1500;
+const DATA_REFRESH_MS = 30_000;
 
 export default function CajasCheckinPage() {
   const router = useRouter();

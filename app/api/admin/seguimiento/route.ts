@@ -7,9 +7,11 @@ import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
 
 type Row = { data: Vehiculo; contractor?: string };
-type ModulacionRow = { data: ModulacionRegistro; contractor?: string };
 type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
 type AdminCheckin = CheckinCajasRegistro & { contratista?: string };
+type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
+const MODULACION_LIST_SELECT =
+  "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 
 export async function GET() {
   try {
@@ -18,13 +20,14 @@ export async function GET() {
 
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
     const seguimientoParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
+    const modulacionesParams = new URLSearchParams({ select: MODULACION_LIST_SELECT, order: "updated_at.desc" });
     const relatedParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
     const [response, modulacionesResponse, checkinsResponse] = await Promise.all([
       fetch(supabaseRest("seguimiento_vehiculos", `?${seguimientoParams.toString()}`), {
         headers,
         cache: "no-store",
       }),
-      fetch(supabaseRest("modulaciones_ruta", `?${relatedParams.toString()}`), {
+      fetch(supabaseRest("modulaciones_ruta", `?${modulacionesParams.toString()}`), {
         headers,
         cache: "no-store",
       }),
@@ -38,9 +41,12 @@ export async function GET() {
     if (!checkinsResponse.ok) return NextResponse.json({ error: await supabaseError(checkinsResponse) }, { status: checkinsResponse.status });
 
     const rows = (await response.json()) as Row[];
-    const modulacionesRows = (await modulacionesResponse.json()) as ModulacionRow[];
+    const modulacionesRows = (await modulacionesResponse.json()) as ModulacionListRow[];
     const checkinRows = (await checkinsResponse.json()) as CheckinRow[];
-    const modulaciones = modulacionesRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor || row.data.contratista) || row.data.contratista }));
+    const modulaciones = modulacionesRows.map((row) => {
+      const record = fromModulacionListRow(row);
+      return { ...record, contratista: contractorLabel(row.contractor || record.contratista) || record.contratista };
+    });
     const checkins = checkinRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor) }));
     const records = rows.map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
@@ -153,4 +159,37 @@ function normalizeContractor(value: string | undefined) {
 function contractorLabel(value: string | undefined) {
   const normalized = normalizeContractor(value);
   return CONTRACTORS.find((contractor) => normalizeContractor(contractor) === normalized);
+}
+
+function fromModulacionListRow(row: ModulacionListRow): ModulacionRegistro {
+  return {
+    id: readString(row.id),
+    contratista: readString(row.contractor) || readString(row.contratista),
+    dt: readString(row.dt),
+    fechaDespacho: readString(row.fechaDespacho),
+    fechaDt: readString(row.fechaDt),
+    codigoCliente: readString(row.codigoCliente),
+    nombreCliente: readString(row.nombreCliente),
+    telefonoCliente: readString(row.telefonoCliente),
+    com: readString(row.com),
+    jefeComercial: readString(row.jefeComercial),
+    telefonoJefeComercial: readString(row.telefonoJefeComercial),
+    preventista: readString(row.preventista),
+    preventistaNombre: readString(row.preventistaNombre),
+    telefonoPreventista: readString(row.telefonoPreventista),
+    totalCajas: readString(row.totalCajas),
+    cajasGestionadas: readString(row.cajasGestionadas),
+    persona: readString(row.persona),
+    personaNombre: readString(row.personaNombre),
+    causal: readString(row.causal),
+    comentario: readString(row.comentario),
+    comentarioModulador: readString(row.comentarioModulador),
+    imagenNombre: readString(row.imagenNombre),
+    imagenVista: "",
+    createdAt: readString(row.createdAt),
+  };
+}
+
+function readString(value: unknown) {
+  return String(value ?? "").trim();
 }
