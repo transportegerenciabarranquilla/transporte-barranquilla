@@ -10,6 +10,15 @@ type Row = { data: Vehiculo; contractor?: string };
 type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
 type AdminCheckin = CheckinCajasRegistro & { contratista?: string };
 type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
+type AdminRefusalComRow = {
+  contractor: string;
+  com: string;
+  date: string;
+  dt: string;
+  reportadas: number;
+  gestionadas: number;
+  refusalFinal: number;
+};
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 
@@ -63,6 +72,7 @@ export async function GET() {
         refusal: refusal.refusal,
       };
     });
+    const refusalByComRows = buildRefusalByComRows(modulaciones, records);
     const totals = records.reduce(
       (acc, record) => ({
         cajas: acc.cajas + Number(record.cajas || 0),
@@ -94,6 +104,7 @@ export async function GET() {
     return NextResponse.json({
       summaries,
       records,
+      refusalByComRows,
       totalCajas: totals.cajas,
       totalRechazadas: totals.rechazadas,
       totalGestionadas: totals.gestionadas,
@@ -159,6 +170,56 @@ function normalizeContractor(value: string | undefined) {
 function contractorLabel(value: string | undefined) {
   const normalized = normalizeContractor(value);
   return CONTRACTORS.find((contractor) => normalizeContractor(contractor) === normalized);
+}
+
+function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehiculo[]): AdminRefusalComRow[] {
+  const vehicleByDtContractor = new Map(
+    records.map((record) => [`${normalizeContractor(record.transportista)}:${normalizeDt(record.transporte)}`, record]),
+  );
+
+  return modulaciones.map((record) => {
+    const contractor = contractorLabel(record.contratista) || record.contratista || "Sin contratista";
+    const vehicle = vehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}`);
+    const reportadas = Number(record.totalCajas || 0);
+    const gestionadas = Number(record.cajasGestionadas || 0);
+
+    return {
+      contractor,
+      com: getCom(record, vehicle),
+      date: getRecordDate(record),
+      dt: normalizeDt(record.dt),
+      reportadas,
+      gestionadas,
+      refusalFinal: Math.max(reportadas - gestionadas, 0),
+    };
+  });
+}
+
+function getCom(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (record.com?.trim()) return record.com.trim().toUpperCase();
+
+  const candidates = [vehicle?.bloque, vehicle?.viaje, vehicle?.territorio].filter(Boolean) as string[];
+  const found = candidates.find((value) => /^COM/i.test(value.trim()));
+  return found ? found.trim().toUpperCase() : "Sin asignacion";
+}
+
+function getRecordDate(record: ModulacionRegistro) {
+  return toDateKey(record.fechaDespacho || record.fechaDt || record.createdAt);
+}
+
+function toDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 function fromModulacionListRow(row: ModulacionListRow): ModulacionRegistro {

@@ -41,7 +41,7 @@ export async function PUT(request: Request) {
     const { records } = (await request.json()) as { records: ModulacionRegistro[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
-    const isPublicSubmission = records.length === 1 && Boolean(records[0]?.contratista);
+    const isPublicSubmission = !session && records.length === 1 && Boolean(records[0]?.contratista);
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
     if (!contractor || !PUBLIC_CONTRACTORS.includes(normalizeContractorName(contractor))) {
       return NextResponse.json({ error: "Contratista no válido." }, { status: 400 });
@@ -59,11 +59,11 @@ export async function PUT(request: Request) {
       data: restoreExistingImage({ ...record, contratista: contractor }, existingById.get(record.id)),
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=modulation_id"), {
+    const response = await fetch(supabaseRest(TABLE, "?on_conflict=modulation_id"), {
       method: "POST",
       headers: !isPublicSubmission && session
         ? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" })
-        : supabaseHeaders({ Prefer: "return=minimal" }),
+        : supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
       body: JSON.stringify(rows),
       cache: "no-store",
     });

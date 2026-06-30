@@ -17,8 +17,8 @@ import {
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
 import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, normalizeCajasTotal } from "./utils";
-import { removeAsistenciaByDt } from "../lib/asistenciaStorage";
-import { removeCheckinByDt } from "../lib/checkinStorage";
+import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
+import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
 import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
@@ -46,7 +46,7 @@ export default function SeguimientoPage() {
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
   const [vehiculoSeleccionadoKey, setVehiculoSeleccionadoKey] = useState<string | null>(null);
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>(
-    [SEGUIMIENTO_STORAGE_KEY],
+    [SEGUIMIENTO_STORAGE_KEY, ASISTENCIA_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
     loadSeguimientoVehiculos,
     [],
   );
@@ -167,10 +167,14 @@ export default function SeguimientoPage() {
 
   useEffect(() => {
     void refreshRemoteRecords("/api/seguimiento");
+    void refreshRemoteRecords("/api/asistencias");
     void refreshRemoteRecords("/api/modulaciones");
+    void refreshRemoteRecords("/api/checkins");
     const interval = window.setInterval(() => {
       void refreshRemoteRecords("/api/seguimiento");
+      void refreshRemoteRecords("/api/asistencias");
       void refreshRemoteRecords("/api/modulaciones");
+      void refreshRemoteRecords("/api/checkins");
     }, DATA_REFRESH_MS);
 
     return () => window.clearInterval(interval);

@@ -31,6 +31,7 @@ export default function ModulacionPage() {
   const [telefonosJefeComercial, setTelefonosJefeComercial] = useState<Record<string, string>>({});
   const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
   const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
+  const [gestionadasDrafts, setGestionadasDrafts] = useState<Record<string, string>>({});
 
   const vehiculosSeguimiento = useMemo(
     () => mergeVehiclesByDt(seguimientoVehiculos, getVehiculosSeguimiento()),
@@ -106,11 +107,24 @@ export default function ModulacionPage() {
     return () => controller.abort();
   }, [nombresPreventista, registroSeleccionado, telefonosCliente, telefonosJefeComercial, telefonosPreventista]);
 
-  function updateCajasGestionadas(id: string, value: string) {
+  function updateCajasGestionadasDraft(id: string, value: string) {
+    setGestionadasDrafts((current) => ({ ...current, [id]: value.replace(/\D/g, "") }));
+  }
+
+  function commitCajasGestionadas(id: string) {
     const nextRecord = registros.find((registro) => registro.id === id);
     if (!nextRecord) return;
 
-    saveModulacionRegistro({ ...nextRecord, cajasGestionadas: value.replace(/\D/g, "") });
+    const nextValue = (gestionadasDrafts[id] ?? getEditableGestionadas(nextRecord.cajasGestionadas)).replace(/\D/g, "");
+    const currentValue = String(nextRecord.cajasGestionadas || "").replace(/\D/g, "");
+    if (nextValue === currentValue || (!nextValue && currentValue === "0")) {
+      setGestionadasDrafts((current) => removeDraft(current, id));
+      return;
+    }
+
+    void saveModulacionRegistro({ ...nextRecord, cajasGestionadas: nextValue }).finally(() => {
+      setGestionadasDrafts((current) => (current[id] === nextValue ? removeDraft(current, id) : current));
+    });
   }
 
   function updateComentarioModulador(id: string, value: string) {
@@ -214,7 +228,11 @@ export default function ModulacionPage() {
               </thead>
               <tbody>
                 {registrosFiltrados.length ? (
-                  registrosFiltrados.map((registro) => (
+                  registrosFiltrados.map((registro) => {
+                    const gestionadasValue = getGestionadasInputValue(registro, gestionadasDrafts);
+                    const visibleRegistro = withGestionadasValue(registro, gestionadasValue);
+
+                    return (
                     <tr key={registro.id}>
                       <td className="px-3 py-2">
                         <p className="text-xs font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
@@ -241,12 +259,16 @@ export default function ModulacionPage() {
                           <input
                             className="h-7 w-14 rounded-md border border-slate-200 bg-white/90 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#00b8d9]"
                             inputMode="numeric"
-                            onChange={(event) => updateCajasGestionadas(registro.id, event.target.value)}
+                            onBlur={() => commitCajasGestionadas(registro.id)}
+                            onChange={(event) => updateCajasGestionadasDraft(registro.id, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur();
+                            }}
                             placeholder="0"
                             type="text"
-                            value={getEditableGestionadas(registro.cajasGestionadas)}
+                            value={gestionadasValue}
                           />
-                          <GestionBadge registro={registro} />
+                          <GestionBadge registro={visibleRegistro} />
                         </div>
                       </td>
                       <td className="px-3 py-2">
@@ -263,7 +285,8 @@ export default function ModulacionPage() {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 ) : (
                   <tr>
                     <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={9}>
@@ -278,7 +301,9 @@ export default function ModulacionPage() {
 
         {registroSeleccionado ? (
           <ModulacionDetailModal
-            onChangeGestionadas={updateCajasGestionadas}
+            gestionadasDraft={gestionadasDrafts[registroSeleccionado.id]}
+            onChangeGestionadas={updateCajasGestionadasDraft}
+            onCommitGestionadas={commitCajasGestionadas}
             onChangeComentarioModulador={updateComentarioModulador}
             onClose={() => setSelectedRegistroId(null)}
             registro={registroSeleccionado}
@@ -303,7 +328,9 @@ function ModulacionDetailModal({
   telefonoPreventista,
   preventistaNombre,
   onChangeGestionadas,
+  onCommitGestionadas,
   onChangeComentarioModulador,
+  gestionadasDraft,
 }: {
   onClose: () => void;
   registro: ModulacionRegistro;
@@ -312,10 +339,14 @@ function ModulacionDetailModal({
   telefonoJefeComercial: string;
   telefonoPreventista: string;
   preventistaNombre: string;
+  gestionadasDraft?: string;
   onChangeGestionadas: (id: string, value: string) => void;
+  onCommitGestionadas: (id: string) => void;
   onChangeComentarioModulador: (id: string, value: string) => void;
 }) {
   const [comentarioModuladorDraft, setComentarioModuladorDraft] = useState(registro.comentarioModulador || "");
+  const gestionadasValue = gestionadasDraft ?? getEditableGestionadas(registro.cajasGestionadas);
+  const visibleRegistro = withGestionadasValue(registro, gestionadasValue);
 
   useEffect(() => {
     setComentarioModuladorDraft(registro.comentarioModulador || "");
@@ -328,6 +359,7 @@ function ModulacionDetailModal({
 
   function handleClose() {
     persistComentarioModulador();
+    onCommitGestionadas(registro.id);
     onClose();
   }
 
@@ -368,8 +400,8 @@ function ModulacionDetailModal({
               label="Gestionadas"
               value={
                 <span className="flex items-center gap-2">
-                  {registro.cajasGestionadas || "0"}
-                  <GestionBadge registro={registro} showLabel />
+                  {visibleRegistro.cajasGestionadas || "0"}
+                  <GestionBadge registro={visibleRegistro} showLabel />
                 </span>
               }
               tone="green"
@@ -427,14 +459,18 @@ function ModulacionDetailModal({
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   inputMode="numeric"
+                  onBlur={() => onCommitGestionadas(registro.id)}
                   onChange={(event) => onChangeGestionadas(registro.id, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
                   placeholder="0"
                   type="text"
-                  value={getEditableGestionadas(registro.cajasGestionadas)}
+                  value={gestionadasValue}
                 />
               </label>
               <div className="mt-3">
-                <GestionProgress registro={registro} />
+                <GestionProgress registro={visibleRegistro} />
               </div>
               <button
                 className="mt-4 h-10 w-full rounded-md bg-[#10223d] text-sm font-semibold text-white transition hover:bg-[#1b355b]"
@@ -463,7 +499,24 @@ function getGestionStatus(registro: ModulacionRegistro): GestionStatus {
 }
 
 function getEditableGestionadas(value: string | undefined) {
-  return value && value !== "0" ? value : "";
+  return value ?? "";
+}
+
+function getGestionadasInputValue(registro: ModulacionRegistro, drafts: Record<string, string>) {
+  return drafts[registro.id] ?? getEditableGestionadas(registro.cajasGestionadas);
+}
+
+function withGestionadasValue(registro: ModulacionRegistro, value: string) {
+  return {
+    ...registro,
+    cajasGestionadas: value,
+  };
+}
+
+function removeDraft(drafts: Record<string, string>, id: string) {
+  const next = { ...drafts };
+  delete next[id];
+  return next;
 }
 
 function GestionBadge({ registro, showLabel = false }: { registro: ModulacionRegistro; showLabel?: boolean }) {
