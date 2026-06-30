@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "modulaciones_ruta";
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
@@ -59,15 +59,26 @@ export async function PUT(request: Request) {
       data: restoreExistingImage({ ...record, contratista: contractor }, existingById.get(record.id)),
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, "?on_conflict=modulation_id"), {
+    const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=modulation_id"), {
       method: "POST",
-      headers: !isPublicSubmission && session
-        ? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" })
-        : supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+      headers: getWriteHeaders(session?.accessToken, isPublicSubmission),
       body: JSON.stringify(rows),
       cache: "no-store",
     });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+    if (!response.ok) {
+      const errorMessage = await supabaseError(response);
+      if (/permission denied/i.test(errorMessage) && !supabaseAdminHeaders()) {
+        return NextResponse.json(
+          {
+            error:
+              "Supabase nego permisos para modulaciones_ruta. Agrega SUPABASE_SERVICE_ROLE_KEY en el servidor o ejecuta la migracion de permisos/RLS para anon.",
+          },
+          { status: response.status },
+        );
+      }
+
+      return NextResponse.json({ error: errorMessage }, { status: response.status });
+    }
 
     if (isPublicSubmission || !session) return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
 
@@ -75,6 +86,12 @@ export async function PUT(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando modulaciones." }, { status: 500 });
   }
+}
+
+function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: boolean) {
+  const prefer = isPublicSubmission ? { Prefer: "return=minimal" } : { Prefer: "resolution=merge-duplicates,return=minimal" };
+  if (!isPublicSubmission && accessToken) return supabaseUserHeaders(accessToken, prefer);
+  return supabaseAdminHeaders(prefer) || supabaseHeaders(prefer);
 }
 
 async function readExistingModulaciones(accessToken: string, contractor: string, ids: string[]) {

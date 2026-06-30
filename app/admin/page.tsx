@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, PackageCheck, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import { useStorageSnapshot } from "../lib/storageEvents";
@@ -84,6 +84,7 @@ export default function AdminPage() {
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
   const [selectedDate, setSelectedDate] = useState("");
+  const [dtSearch, setDtSearch] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -109,9 +110,14 @@ export default function AdminPage() {
   }, []);
 
   const dateRecords = useMemo(() => {
-    if (!selectedDate) return records;
-    return records.filter((record) => getRecordDate(record) === selectedDate);
-  }, [records, selectedDate]);
+    const targetDt = normalizeDt(dtSearch);
+
+    return records.filter((record) => {
+      const matchesDate = !selectedDate || getRecordDate(record) === selectedDate;
+      const matchesDt = !targetDt || normalizeDt(record.transporte).includes(targetDt);
+      return matchesDate && matchesDt;
+    });
+  }, [dtSearch, records, selectedDate]);
 
   const visibleSummaries = useMemo(() => {
     return summaries.map((summary) => {
@@ -154,7 +160,12 @@ export default function AdminPage() {
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
   const refusalComSummaries = useMemo(() => {
-    const source = selectedDate ? refusalComRows.filter((row) => row.date === selectedDate) : refusalComRows;
+    const targetDt = normalizeDt(dtSearch);
+    const source = refusalComRows.filter((row) => {
+      const matchesDate = !selectedDate || row.date === selectedDate;
+      const matchesDt = !targetDt || normalizeDt(row.dt).includes(targetDt);
+      return matchesDate && matchesDt;
+    });
     const groups = new Map<string, RefusalComSummary>();
 
     source.forEach((row) => {
@@ -178,7 +189,7 @@ export default function AdminPage() {
     });
 
     return Array.from(groups.values()).sort((a, b) => b.refusalFinal - a.refusalFinal);
-  }, [refusalComRows, selectedDate]);
+  }, [dtSearch, refusalComRows, selectedDate]);
   const refusalComTotals = useMemo(() => {
     const values = refusalComSummaries.reduce(
       (acc, row) => ({
@@ -246,11 +257,26 @@ export default function AdminPage() {
               value={selectedDate}
             />
           </label>
+          <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
+            <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
+              <Search size={16} />
+              Buscar por DT
+            </span>
+            <input
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
+              inputMode="numeric"
+              onChange={(event) => setDtSearch(event.target.value)}
+              placeholder="Ej: 123456"
+              type="search"
+              value={dtSearch}
+            />
+          </label>
           <button
             className="flex h-10 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!selectedDate && selectedContractor === "Todas"}
+            disabled={!selectedDate && !dtSearch && selectedContractor === "Todas"}
             onClick={() => {
               setSelectedDate("");
+              setDtSearch("");
               setSelectedContractor("Todas");
             }}
             type="button"
@@ -694,6 +720,12 @@ function createFallbackPerson(candidate: { cc?: string; name?: string }, vehicle
 
 function normalizeId(value: unknown) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeDt(value: unknown) {
+  return String(value || "")
+    .replace(/^DT-?/i, "")
+    .replace(/\D/g, "");
 }
 
 function normalizeText(value: unknown) {

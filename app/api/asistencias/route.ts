@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "asistencias_ruta";
 
@@ -42,9 +42,7 @@ export async function PUT(request: Request) {
     }));
     const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=attendance_key"), {
       method: "POST",
-      headers: !isPublicSubmission && session
-        ? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" })
-        : supabaseHeaders({ Prefer: "return=minimal" }),
+      headers: getWriteHeaders(session?.accessToken, isPublicSubmission),
       body: JSON.stringify(rows),
       cache: "no-store",
     });
@@ -70,4 +68,12 @@ export async function PUT(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando asistencia." }, { status: 500 });
   }
+}
+
+function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: boolean) {
+  if (!isPublicSubmission && accessToken) {
+    return supabaseUserHeaders(accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
+  }
+
+  return supabaseAdminHeaders({ Prefer: "return=minimal" }) || supabaseHeaders({ Prefer: "return=minimal" });
 }
