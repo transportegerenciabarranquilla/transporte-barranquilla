@@ -40,6 +40,15 @@ const peopleModule = {
   accent: "border-l-[#7c3aed]",
 };
 
+const puntoCoronaModule = {
+  id: 5,
+  title: "Punto Corona",
+  href: "/punto-corona",
+  detail: "Entrega en rango y modulacion",
+  tone: "from-[#16a34a] to-[#0f766e]",
+  accent: "border-l-[#16a34a]",
+};
+
 export function PortalDashboard({
   onLogout,
   isAdmin = false,
@@ -54,7 +63,12 @@ export function PortalDashboard({
   const router = useRouter();
   const canSeeJornada = isAdmin || contractor === "Logisticos";
   const baseModules = canSeeJornada ? modules : modules.filter((module) => module.href !== "/jornada-laboral");
-  const visibleModules = isPeople ? [peopleModule] : isAdmin ? [{ ...baseModules[0], href: "/admin" }, ...baseModules.slice(1)] : baseModules;
+  const contractorModules = contractor === "Punto Corona" ? [...baseModules, puntoCoronaModule] : baseModules;
+  const visibleModules = isPeople
+    ? [peopleModule]
+    : isAdmin
+      ? [{ ...baseModules[0], href: "/admin" }, ...baseModules.slice(1)]
+      : contractorModules;
   const sessionLabel = isPeople ? "People Transporte" : isAdmin ? "Administrador" : contractor || "Operacion en tiempo real";
   const heroTitle = isPeople ? "Gestion de personas por contratista" : `Gestion central para ${isAdmin ? "toda la operacion" : sessionLabel}`;
   const heroCopy = isPeople

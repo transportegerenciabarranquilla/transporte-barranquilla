@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
+import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
@@ -47,6 +48,21 @@ export async function PUT(request: Request) {
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+
+    await writeAuditLog({
+      action: "asistencia_guardada",
+      contractor,
+      details: {
+        records: records.length,
+        dts: records.map((record) => record.dt).slice(0, 30),
+        publicSubmission: isPublicSubmission,
+      },
+      module: "asistencia",
+      recordId: rows.map((row) => row.attendance_key).slice(0, 5).join(","),
+      request,
+      session,
+    });
+
     if (isPublicSubmission || !session) return NextResponse.json({ records });
 
     const keepKeys = new Set(rows.map((row) => row.attendance_key));

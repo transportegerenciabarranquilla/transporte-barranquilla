@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Vehiculo } from "../../seguimiento/types";
+import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
@@ -104,6 +105,18 @@ export async function PUT(request: Request) {
     if (!savedResponse.ok) return NextResponse.json({ error: await supabaseError(savedResponse) }, { status: savedResponse.status });
 
     const savedRows = (await savedResponse.json()) as { data: Vehiculo }[];
+    await writeAuditLog({
+      action: "seguimiento_guardado",
+      contractor: session.contractor,
+      details: {
+        records: records.length,
+        dts: scopedRecords.map((record) => record.transporte).slice(0, 30),
+      },
+      module: "seguimiento",
+      recordId: rows.map((row) => row.record_id).slice(0, 5).join(","),
+      request,
+      session,
+    });
     return NextResponse.json({ records: await applyDatabaseCapacities(savedRows.map((row) => row.data), session.accessToken) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });

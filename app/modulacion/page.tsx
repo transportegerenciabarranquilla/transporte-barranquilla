@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Eye, PackageCheck, Search, UsersRound, X } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, Eye, PackageCheck, Search, UsersRound, X } from "lucide-react";
 import {
   getLocalDateKey,
   MODULACION_STORAGE_KEY,
@@ -134,6 +134,62 @@ export default function ModulacionPage() {
     saveModulacionRegistro({ ...nextRecord, comentarioModulador: value });
   }
 
+  async function exportarModulacionesExcel() {
+    if (!registrosFiltrados.length) return;
+
+    const XLSX = await import("xlsx");
+    const rows = registrosFiltrados.map((registro) => ({
+      Fecha: formatDate(registro.createdAt),
+      Hora: formatTime(registro.createdAt),
+      Contratista: registro.contratista || "",
+      DT: normalizeDt(registro.dt),
+      "Codigo cliente": registro.codigoCliente,
+      Cliente: registro.nombreCliente || "",
+      "Telefono cliente": registro.telefonoCliente || telefonosCliente[registro.codigoCliente] || "",
+      COM: registro.com || "",
+      "Jefe comercial": registro.jefeComercial || "",
+      "Telefono jefe comercial": registro.telefonoJefeComercial || telefonosJefeComercial[registro.codigoCliente] || "",
+      Preventista: registro.preventista || "",
+      "Nombre preventista": registro.preventistaNombre || nombresPreventista[registro.codigoCliente] || "",
+      "Telefono preventista": registro.telefonoPreventista || telefonosPreventista[registro.codigoCliente] || "",
+      "Cedula modulador": registro.persona,
+      Modulador: registro.personaNombre || "",
+      Causal: registro.causal,
+      "Cajas rechazadas": Number(registro.totalCajas || 0),
+      "Cajas gestionadas": Number(registro.cajasGestionadas || 0),
+      "Cajas pendientes": Math.max(Number(registro.totalCajas || 0) - Number(registro.cajasGestionadas || 0), 0),
+      Comentario: registro.comentario || "",
+      "Nota modulador": registro.comentarioModulador || "",
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet["!cols"] = [
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 16 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 28 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 36 },
+      { wch: 36 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Modulaciones");
+    XLSX.writeFile(workbook, `modulaciones-${selectedDate || "todas"}.xlsx`);
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <ModulacionHeader onBack={() => router.push("/")} />
@@ -209,6 +265,15 @@ export default function ModulacionPage() {
             <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-1 text-[11px] font-semibold text-[#07556b]">
               {registrosFiltrados.length} modulacion{registrosFiltrados.length === 1 ? "" : "es"}
             </span>
+            <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-800 transition hover:border-emerald-200 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!registrosFiltrados.length}
+              onClick={exportarModulacionesExcel}
+              type="button"
+            >
+              <Download size={14} />
+              Exportar modulaciones
+            </button>
           </div>
 
           <div className="overflow-x-auto">

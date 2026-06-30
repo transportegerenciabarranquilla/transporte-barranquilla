@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Truck, Users, Boxes } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Boxes, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Trash2, Truck, Users, X } from "lucide-react";
 import { MetricCard } from "./components/MetricCard";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
@@ -65,6 +65,7 @@ export default function SeguimientoPage() {
   
   const [importMessage, setImportMessage] = useState("");
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [deleteCandidateKey, setDeleteCandidateKey] = useState<string | null>(null);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
@@ -158,6 +159,10 @@ export default function SeguimientoPage() {
     const selectedKey = vehiculoSeleccionadoKey || getVehicleUiKey(vehiculoSeleccionado);
     return vehiculos.find((item) => getVehicleUiKey(item) === selectedKey) ?? vehiculoSeleccionado;
   }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
+  const deleteCandidate = useMemo(() => {
+    if (!deleteCandidateKey) return null;
+    return vehiculos.find((item) => getVehicleUiKey(item) === deleteCandidateKey) ?? null;
+  }, [deleteCandidateKey, vehiculos]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
@@ -311,21 +316,23 @@ export default function SeguimientoPage() {
   }
 
   function borrarVehiculo(recordKey: string) {
-    const vehicle = vehiculos.find((item) => getVehicleUiKey(item) === recordKey);
-    const label = vehicle?.transporte || vehicle?.vehiculo || "este DT";
+    setDeleteCandidateKey(recordKey);
+  }
 
-    if (!window.confirm(`Quieres borrar ${label} del seguimiento?`)) return;
-
+  function confirmDeleteVehicle() {
+    if (!deleteCandidateKey) return;
+    const vehicle = vehiculos.find((item) => getVehicleUiKey(item) === deleteCandidateKey);
     if (vehicle) removeStaleRouteData(vehicle, true);
 
-    const prepared = prepareSeguimientoVehicles(vehiculos.filter((item) => getVehicleUiKey(item) !== recordKey));
+    const prepared = prepareSeguimientoVehicles(vehiculos.filter((item) => getVehicleUiKey(item) !== deleteCandidateKey));
     setVehiculos(prepared);
     scheduleSeguimientoSave(prepared);
 
-    if (vehiculoSeleccionadoKey === recordKey) {
+    if (vehiculoSeleccionadoKey === deleteCandidateKey) {
       setVehiculoSeleccionado(null);
       setVehiculoSeleccionadoKey(null);
     }
+    setDeleteCandidateKey(null);
   }
 
   async function borrarTodoSeguimiento() {
@@ -620,6 +627,83 @@ export default function SeguimientoPage() {
         ) : null}
       </section>
 
+      {deleteCandidate ? (
+        <DeleteVehicleDialog
+          onCancel={() => setDeleteCandidateKey(null)}
+          onConfirm={confirmDeleteVehicle}
+          vehicle={deleteCandidate}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function DeleteVehicleDialog({
+  onCancel,
+  onConfirm,
+  vehicle,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  vehicle: Vehiculo;
+}) {
+  const label = vehicle.transporte || vehicle.vehiculo || "esta ruta";
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-[#10223d]/55 px-4 py-6 backdrop-blur-sm">
+      <section className="w-full max-w-md overflow-hidden rounded-lg border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.28)]">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-red-50 text-red-700">
+                <AlertTriangle size={20} />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-red-700">Confirmar borrado</p>
+                <h2 className="mt-1 text-lg font-semibold text-[#10223d]">Borrar DT {label}</h2>
+              </div>
+            </div>
+            <button
+              aria-label="Cerrar confirmacion"
+              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-white hover:text-[#10223d]"
+              onClick={onCancel}
+              type="button"
+            >
+              <X size={17} />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4 py-4">
+          <p className="text-sm leading-6 text-slate-600">
+            Se eliminara esta ruta del seguimiento y tambien sus datos asociados de asistencia y check-in.
+          </p>
+          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+            <p className="font-semibold text-[#10223d]">{vehicle.vehiculo || "Sin placa"}</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              DT {vehicle.transporte || "-"} · {vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || "Sin fecha"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-end">
+          <button
+            className="h-10 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
+            onClick={onConfirm}
+            type="button"
+          >
+            <Trash2 size={16} />
+            Borrar ruta
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
+import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
@@ -79,6 +80,20 @@ export async function PUT(request: Request) {
 
       return NextResponse.json({ error: errorMessage }, { status: response.status });
     }
+
+    await writeAuditLog({
+      action: "modulacion_guardada",
+      contractor,
+      details: {
+        records: records.length,
+        dts: records.map((record) => record.dt).slice(0, 30),
+        clientes: records.map((record) => record.codigoCliente).slice(0, 30),
+      },
+      module: "modulacion",
+      recordId: records.map((record) => record.id).slice(0, 5).join(","),
+      request,
+      session,
+    });
 
     if (isPublicSubmission || !session) return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
 

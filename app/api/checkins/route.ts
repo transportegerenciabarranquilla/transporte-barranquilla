@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
+import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -68,6 +69,19 @@ export async function PUT(request: Request) {
         );
       }
     }
+
+    await writeAuditLog({
+      action: "checkin_guardado",
+      contractor: session.contractor,
+      details: {
+        records: records.length,
+        dts: records.map((record) => record.dt).slice(0, 30),
+      },
+      module: "checkin",
+      recordId: rows.map((row) => row.checkin_id).slice(0, 5).join(","),
+      request,
+      session,
+    });
 
     return NextResponse.json({ records });
   } catch (error) {

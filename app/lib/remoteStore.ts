@@ -11,6 +11,7 @@ const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
   "/api/asistencias": "bavaria.asistencia.registros",
   "/api/checkins": "bavaria.checkin.cajas",
   "/api/modulaciones": "bavaria.modulacion.registros",
+  "/api/punto-corona-routes": "bavaria.punto-corona.routes",
   "/api/seguimiento": "bavaria.seguimiento.vehiculos",
 };
 

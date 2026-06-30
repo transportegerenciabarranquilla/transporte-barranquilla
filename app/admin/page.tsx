@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import { useStorageSnapshot } from "../lib/storageEvents";
@@ -243,6 +243,17 @@ export default function AdminPage() {
 
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando panel...</div> : null}
+
+        <div className="mb-5 flex justify-end">
+          <button
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
+            onClick={() => router.push("/admin/auditoria")}
+            type="button"
+          >
+            <History size={16} />
+            Ver auditoria
+          </button>
+        </div>
 
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">

@@ -23,9 +23,11 @@ export function getContractorBrand(contractor: string | null | undefined) {
 }
 
 export function useContractorBrand() {
-  const [brand, setBrand] = useState<ContractorBrand>(() => getCachedContractorBrand());
+  const [brand, setBrand] = useState<ContractorBrand>(DEFAULT_BRAND);
 
   useEffect(() => {
+    setBrand(getCachedContractorBrand());
+
     fetch("/api/auth/session", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((body) => {

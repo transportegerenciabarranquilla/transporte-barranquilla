@@ -218,7 +218,7 @@ export default function JornadaLaboralPage() {
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-[#10223d]">Seguimiento de relevo y jornada laboral</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Meta de relevo: 10:30 despues de la salida.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Cada fila es una ruta. El color indica si sigue en jornada, requiere relevo o tiene alerta SIF.</p>
               </div>
               <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_160px_150px]">
                 <label className="relative">
@@ -255,26 +255,30 @@ export default function JornadaLaboralPage() {
                 </select>
               </div>
             </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-600">
+              <LegendItem tone="ok" label="En jornada" detail="Aun no llega a 10h 30m desde la salida." />
+              <LegendItem tone="warn" label="Pendiente relevo" detail="Supero 10h 30m y no tiene inicio de relevo." />
+              <LegendItem tone="danger" label="Alerta SIF" detail="Supero 13h de jornada laboral." />
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1030px] table-fixed">
-              <thead className="bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
+            <table className="w-full min-w-[1120px] table-fixed">
+              <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="w-[86px] px-1.5 py-1 text-left">Jornada</th>
-                  <th className="w-[82px] px-1.5 py-1 text-left">Placa</th>
-                  <th className="w-[54px] px-1 py-1 text-left">Fecha</th>
-                  <th className="w-[60px] px-1 py-1 text-left">Salida</th>
-                  <th className="w-[58px] px-1 py-1 text-left">Tiempo</th>
-                  <th className="w-[30px] px-0.5 py-1 text-center">Cl.</th>
-                  <th className="w-[30px] px-0.5 py-1 text-center">Vis.</th>
-                  <th className="w-[105px] px-1 py-1 text-left">Avance</th>
-                  <th className="w-[58px] px-1 py-1 text-left">Meta</th>
-                  <th className="w-[108px] px-1 py-1 text-left">Inicio</th>
-                  <th className="w-[135px] px-1 py-1 text-left">Relevador</th>
-                  <th className="w-[78px] px-1 py-1 text-left">Clasif.</th>
-                  <th className="w-[110px] px-1 py-1 text-left">Causal</th>
-                  <th className="w-[136px] px-1 py-1 text-left">Investigacion</th>
+                  <HeaderCell width="w-[110px]" title="Estado" detail="Jornada" />
+                  <HeaderCell width="w-[88px]" title="Placa" detail="Vehiculo" />
+                  <HeaderCell width="w-[64px]" title="Fecha" detail="Despacho" />
+                  <HeaderCell width="w-[72px]" title="Salida" detail="Hora ruta" />
+                  <HeaderCell width="w-[76px]" title="Tiempo" detail="Desde salida" />
+                  <HeaderCell align="center" width="w-[58px]" title="Clientes" detail="Prog." />
+                  <HeaderCell align="center" width="w-[58px]" title="Visitados" detail="Aten." />
+                  <HeaderCell width="w-[78px]" title="Meta" detail="+10:30" />
+                  <HeaderCell width="w-[116px]" title="Inicio relevo" detail="Editable" />
+                  <HeaderCell width="w-[148px]" title="Relevador" detail="Asignado" />
+                  <HeaderCell width="w-[90px]" title="Resultado" detail="Efectivo/no" />
+                  <HeaderCell width="w-[130px]" title="Causal" detail="Desvio" />
+                  <HeaderCell width="w-[188px]" title="Investigacion" detail="Observacion" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -296,9 +300,6 @@ export default function JornadaLaboralPage() {
                         <td className="px-1 py-0.5 text-[11px] font-semibold text-slate-700">{row.elapsedLabel}</td>
                         <td className="px-0.5 py-0.5 text-center text-[11px] text-slate-700">{row.vehicle.clientes}</td>
                         <td className="px-0.5 py-0.5 text-center text-[11px] font-semibold text-[#10223d]">{row.vehicle.visitados}</td>
-                        <td className="px-1 py-0.5">
-                          <ProgressCell value={row.avance} />
-                        </td>
                         <td className="px-1 py-0.5 text-[11px] font-semibold text-slate-700">{row.metaRelevo}</td>
                         <td className="px-1 py-0.5">
                           <div className="flex items-center gap-1">
@@ -355,7 +356,7 @@ export default function JornadaLaboralPage() {
                   })
                 ) : (
                   <tr>
-                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={14}>
+                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={13}>
                       No hay rutas de seguimiento para esta fecha o filtro.
                     </td>
                   </tr>
@@ -385,6 +386,42 @@ function Metric({ icon, label, value, tone = "navy" }: { icon: React.ReactNode; 
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-[#10223d]">{value}</p>
     </div>
+  );
+}
+
+function LegendItem({ detail, label, tone }: { detail: string; label: string; tone: "ok" | "warn" | "danger" }) {
+  const colors = {
+    danger: "border-red-100 bg-red-50 text-red-700",
+    ok: "border-emerald-100 bg-emerald-50 text-emerald-700",
+    warn: "border-amber-100 bg-amber-50 text-amber-700",
+  };
+
+  return (
+    <div className={`inline-flex min-h-7 max-w-[420px] items-center gap-2 rounded-md border px-2.5 py-1 ${colors[tone]}`}>
+      <p className="shrink-0 font-semibold">{label}</p>
+      <p className="truncate text-[10px] opacity-80" title={detail}>{detail}</p>
+    </div>
+  );
+}
+
+function HeaderCell({
+  align = "left",
+  detail,
+  title,
+  width,
+}: {
+  align?: "left" | "center";
+  detail: string;
+  title: string;
+  width: string;
+}) {
+  const alignClass = align === "center" ? "text-center" : "text-left";
+
+  return (
+    <th className={`${width} px-1.5 py-1.5 ${alignClass}`}>
+      <span className="block text-[9px] font-bold uppercase tracking-[0.08em] text-[#10223d]">{title}</span>
+      <span className="mt-0.5 block truncate text-[8px] font-medium normal-case tracking-normal text-slate-500" title={detail}>{detail}</span>
+    </th>
   );
 }
 
