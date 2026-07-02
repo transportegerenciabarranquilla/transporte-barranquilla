@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
@@ -20,6 +20,7 @@ export function VehiclesTable({
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
   const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
+  const [sortedVehicleKeys, setSortedVehicleKeys] = useState(() => sortVehicleKeys(vehicles, "desc"));
   const duplicatedDt = useMemo(() => {
     const counts = new Map<string, number>();
     vehicles.forEach((vehicle) => {
@@ -30,16 +31,32 @@ export function VehiclesTable({
 
     return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([key]) => key));
   }, [vehicles]);
-  const sortedVehicles = useMemo(() => {
-    const nextVehicles = [...vehicles];
-    nextVehicles.sort((a, b) => {
-      const aVisited = Number(a.visitados || 0);
-      const bVisited = Number(b.visitados || 0);
 
-      return routeSortOrder === "desc" ? bVisited - aVisited : aVisited - bVisited;
+  useEffect(() => {
+    setSortedVehicleKeys((currentKeys) => {
+      const vehicleKeys = vehicles.map(getVehicleUiKey);
+      const vehicleKeySet = new Set(vehicleKeys);
+      const currentKeySet = new Set(currentKeys);
+      const existingKeys = currentKeys.filter((key) => vehicleKeySet.has(key));
+      const newKeys = vehicleKeys.filter((key) => !currentKeySet.has(key));
+
+      return [...existingKeys, ...newKeys];
     });
-    return nextVehicles;
-  }, [routeSortOrder, vehicles]);
+  }, [vehicles]);
+
+  const sortedVehicles = useMemo(() => {
+    const vehiclesByKey = new Map(vehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
+    return sortedVehicleKeys.flatMap((key) => {
+      const vehicle = vehiclesByKey.get(key);
+      return vehicle ? [vehicle] : [];
+    });
+  }, [sortedVehicleKeys, vehicles]);
+
+  function handleSortByRoute() {
+    const nextOrder = routeSortOrder === "desc" ? "asc" : "desc";
+    setRouteSortOrder(nextOrder);
+    setSortedVehicleKeys(sortVehicleKeys(vehicles, nextOrder));
+  }
 
   return (
     <div className="data-shell rounded-lg">
@@ -52,14 +69,13 @@ export function VehiclesTable({
       </div>
 
       <div className="max-h-[620px] overflow-auto">
-        <table className="data-table w-full min-w-[900px] table-fixed text-[10px]">
+        <table className="data-table w-full min-w-[980px] table-fixed text-[10px]">
           <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
             <tr>
               <th className="w-28 px-2 py-1.5 text-left">Vehículo</th>
               <th className="w-20 px-2 py-1.5 text-left">DT</th>
               <th className="w-36 px-2 py-1.5 text-left">Responsable</th>
               <th className="w-28 px-2 py-1.5 text-left">Fecha despacho</th>
-              <th className="w-16 px-2 py-1.5 text-left">Cajas</th>
               <th className="w-16 px-2 py-1.5 text-left">Clientes</th>
               <th className="w-48 px-2 py-1.5 text-left">
                 <div className="inline-flex items-center gap-1">
@@ -67,7 +83,7 @@ export function VehiclesTable({
                   <button
                     aria-label="Ordenar por visitados"
                     className="inline-grid h-4 w-4 place-items-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
-                    onClick={() => setRouteSortOrder((current) => (current === "desc" ? "asc" : "desc"))}
+                    onClick={handleSortByRoute}
                     title={routeSortOrder === "desc" ? "Mas visitados primero" : "Menos visitados primero"}
                     type="button"
                   >
@@ -76,6 +92,7 @@ export function VehiclesTable({
                 </div>
               </th>
               <th className="w-24 px-2 py-1.5 text-left">Tiempo</th>
+              <th className="w-32 px-2 py-1.5 text-left">Tiempo planeado</th>
               <th className="w-28 px-2 py-1.5 text-left">Estado</th>
               <th className="w-10 px-1.5 py-1.5 text-right"></th>
             </tr>
@@ -87,10 +104,13 @@ export function VehiclesTable({
               const status = getStatus(progress, item);
               const recordKey = getVehicleUiKey(item);
               const isDuplicatedDt = duplicatedDt.has(normalizeDt(item.transporte));
+              const plannedProgress = getPlannedProgress(item, now);
+              const isBehindPlan = plannedProgress.isBehind;
+              const plannedTimeValue = getPlannedTimeInputValue(item.tiempoPlaneado);
 
               return (
                 <tr
-                  className="cursor-pointer"
+                  className={isBehindPlan ? "cursor-pointer bg-red-50/55" : "cursor-pointer"}
                   key={recordKey}
                   onClick={() => onSelectVehicle(item)}
                 >
@@ -119,9 +139,6 @@ export function VehiclesTable({
                     <EditableDate value={item.fechaDespacho} onChange={(value) => onUpdateVehicle(recordKey, { fechaDespacho: value })} />
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
-                    <EditableNumber allowDecimal value={item.cajas} onChange={(value) => onUpdateVehicle(recordKey, { cajas: value })} />
-                  </td>
-                  <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <EditableNumber value={item.clientes} onChange={(value) => onUpdateVehicle(recordKey, { clientes: value })} />
                   </td>
                   <td className="px-2 py-1">
@@ -135,7 +152,7 @@ export function VehiclesTable({
                       <div className="h-2 min-w-12 flex-1 overflow-hidden rounded-full bg-slate-200">
                         <div className={`h-2 rounded-full ${progressColor(progress)} shadow-[0_0_12px_rgba(0,184,217,0.22)]`} style={{ width: `${progress}%` }} />
                       </div>
-                      <span className="number-pill w-10 text-[10px] text-slate-700">{progress}%</span>
+                      <span className="number-pill w-10 text-[10px] text-slate-700">{formatPercent(progress)}</span>
                     </div>
                   </td>
                   <td className="px-2 py-1">
@@ -143,6 +160,18 @@ export function VehiclesTable({
                       <Clock3 size={11} className="text-[#0f7c58]" />
                       {calculateRouteTime(item, now)}
                     </span>
+                  </td>
+                  <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
+                    <div className={`rounded border px-1.5 py-1 ${isBehindPlan ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>
+                      <EditableText
+                        className={`font-mono ${isBehindPlan ? "text-red-700" : "text-emerald-800"}`}
+                        value={plannedTimeValue}
+                        onChange={(value) => onUpdateVehicle(recordKey, { tiempoPlaneado: value })}
+                      />
+                      <p className="mt-0.5 text-[9px] font-semibold">
+                        Esperado {plannedProgress.label}
+                      </p>
+                    </div>
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <StatusSelect
@@ -276,4 +305,19 @@ function normalizeDt(value: string | number | undefined) {
     .replace(/^DT-?/i, "")
     .replace(/[^a-z0-9]/gi, "")
     .toLowerCase();
+}
+
+function sortVehicleKeys(vehicles: Vehiculo[], order: "desc" | "asc") {
+  return [...vehicles]
+    .sort((a, b) => {
+      const aVisited = Number(a.visitados || 0);
+      const bVisited = Number(b.visitados || 0);
+
+      return order === "desc" ? bVisited - aVisited : aVisited - bVisited;
+    })
+    .map(getVehicleUiKey);
+}
+
+function formatPercent(value: number) {
+  return `${value.toFixed(1)}%`;
 }

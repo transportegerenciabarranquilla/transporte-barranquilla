@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
+import { normalizeCajasTotal } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import { useStorageSnapshot } from "../lib/storageEvents";
 
@@ -35,6 +36,12 @@ type PersonSummary = {
     rutas: number;
     modulaciones: number;
     reubicaciones: number;
+    gestionadas?: number;
+    hectolitros?: number;
+    visitasRango?: number;
+    enRango?: number;
+    fueraRango?: number;
+    porcentajeRango?: number;
     tiempoPromedioRuta: string;
     ultimoDt: string;
   };
@@ -50,26 +57,6 @@ type VehiclePerson = PersonSummary & {
   role: string;
 };
 
-type AdminRefusalComRow = {
-  contractor: string;
-  com: string;
-  date: string;
-  dt: string;
-  reportadas: number;
-  gestionadas: number;
-  refusalFinal: number;
-};
-
-type RefusalComSummary = {
-  contractor: string;
-  com: string;
-  reportadas: number;
-  gestionadas: number;
-  refusalFinal: number;
-  registros: number;
-  refusal: number;
-};
-
 export default function AdminPage() {
   const router = useRouter();
   const canEditResponsibleManual = useStorageSnapshot<boolean>(
@@ -79,7 +66,6 @@ export default function AdminPage() {
   );
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
-  const [refusalComRows, setRefusalComRows] = useState<AdminRefusalComRow[]>([]);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
@@ -98,7 +84,6 @@ export default function AdminPage() {
         if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
         setSummaries(adminBody.summaries || []);
         setRecords(adminBody.records || []);
-        setRefusalComRows(adminBody.refusalByComRows || []);
 
         if (peopleResponse.ok) {
           const peopleBody = await peopleResponse.json().catch(() => ({}));
@@ -122,7 +107,7 @@ export default function AdminPage() {
   const visibleSummaries = useMemo(() => {
     return summaries.map((summary) => {
       const contractorRecords = dateRecords.filter((record) => record.transportista === summary.contractor);
-      const cajas = contractorRecords.reduce((total, record) => total + Number(record.cajas || 0), 0);
+      const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + Number(record.cajas || 0), 0));
       const refusalFinal = contractorRecords.reduce((total, record) => total + Number(record.cajasRefusalFinal || 0), 0);
 
       return {
@@ -149,9 +134,12 @@ export default function AdminPage() {
       { cajas: 0, clientes: 0, refusalFinal: 0 },
     );
 
+    const roundedCajas = normalizeCajasTotal(values.cajas);
+
     return {
       ...values,
-      refusal: values.cajas ? Number(((values.refusalFinal / values.cajas) * 100).toFixed(2)) : 0,
+      cajas: roundedCajas,
+      refusal: roundedCajas ? Number(((values.refusalFinal / roundedCajas) * 100).toFixed(2)) : 0,
     };
   }, [dateRecords]);
 
@@ -159,53 +147,6 @@ export default function AdminPage() {
     if (selectedContractor === "Todas") return dateRecords;
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
-  const refusalComSummaries = useMemo(() => {
-    const targetDt = normalizeDt(dtSearch);
-    const source = refusalComRows.filter((row) => {
-      const matchesDate = !selectedDate || row.date === selectedDate;
-      const matchesDt = !targetDt || normalizeDt(row.dt).includes(targetDt);
-      return matchesDate && matchesDt;
-    });
-    const groups = new Map<string, RefusalComSummary>();
-
-    source.forEach((row) => {
-      const key = `${row.contractor}:${row.com}`;
-      const current = groups.get(key) || {
-        contractor: row.contractor,
-        com: row.com || "Sin asignacion",
-        reportadas: 0,
-        gestionadas: 0,
-        refusalFinal: 0,
-        registros: 0,
-        refusal: 0,
-      };
-
-      current.reportadas += Number(row.reportadas || 0);
-      current.gestionadas += Number(row.gestionadas || 0);
-      current.refusalFinal += Number(row.refusalFinal || 0);
-      current.registros += 1;
-      current.refusal = current.reportadas ? Number(((current.refusalFinal / current.reportadas) * 100).toFixed(2)) : 0;
-      groups.set(key, current);
-    });
-
-    return Array.from(groups.values()).sort((a, b) => b.refusalFinal - a.refusalFinal);
-  }, [dtSearch, refusalComRows, selectedDate]);
-  const refusalComTotals = useMemo(() => {
-    const values = refusalComSummaries.reduce(
-      (acc, row) => ({
-        reportadas: acc.reportadas + row.reportadas,
-        gestionadas: acc.gestionadas + row.gestionadas,
-        refusalFinal: acc.refusalFinal + row.refusalFinal,
-        registros: acc.registros + row.registros,
-      }),
-      { reportadas: 0, gestionadas: 0, refusalFinal: 0, registros: 0 },
-    );
-
-    return {
-      ...values,
-      refusal: values.reportadas ? Number(((values.refusalFinal / values.reportadas) * 100).toFixed(2)) : 0,
-    };
-  }, [refusalComSummaries]);
   const allPeople = useMemo(() => peopleGroups.flatMap((group) => group.people), [peopleGroups]);
   const selectedVehiclePeople = useMemo(() => (selectedRecord ? getVehiclePeople(selectedRecord, allPeople) : []), [allPeople, selectedRecord]);
 
@@ -216,6 +157,18 @@ export default function AdminPage() {
       : "Confirmas bloquear la edicion manual de Responsable en el detalle del vehiculo?";
     if (!window.confirm(confirmationText)) return;
     setManualResponsibleEditEnabled(nextValue);
+  }
+
+  function goToAdminGraficas() {
+    const params = new URLSearchParams();
+    if (selectedDate) {
+      params.set("desde", selectedDate);
+      params.set("hasta", selectedDate);
+    }
+    if (dtSearch) params.set("dt", dtSearch);
+    if (selectedContractor !== "Todas") params.set("contratista", selectedContractor);
+    const query = params.toString();
+    router.push(query ? `/admin/graficas?${query}` : "/admin/graficas");
   }
 
   return (
@@ -244,7 +197,15 @@ export default function AdminPage() {
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando panel...</div> : null}
 
-        <div className="mb-5 flex justify-end">
+        <div className="mb-5 flex flex-wrap justify-end gap-2">
+          <button
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+            onClick={goToAdminGraficas}
+            type="button"
+          >
+            <BarChart3 size={16} />
+            Graficas
+          </button>
           <button
             className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
             onClick={() => router.push("/admin/auditoria")}
@@ -348,72 +309,6 @@ export default function AdminPage() {
           ))}
         </div>
 
-        <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-md bg-red-50 text-red-700">
-                <ShieldAlert size={19} />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Graficas admin</p>
-                <h2 className="text-lg font-semibold text-[#10223d]">Refusal por COM - tres contratistas</h2>
-              </div>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <MiniMetric label="% refusal" value={`${refusalComTotals.refusal.toLocaleString("es-CO")}%`} tone="green" />
-              <MiniMetric label="Reportadas" value={refusalComTotals.reportadas.toLocaleString("es-CO")} />
-              <MiniMetric label="Gestionadas" value={refusalComTotals.gestionadas.toLocaleString("es-CO")} />
-              <MiniMetric label="Final" value={refusalComTotals.refusalFinal.toLocaleString("es-CO")} tone="red" />
-            </div>
-          </div>
-
-          <div className="grid gap-4 p-4 lg:grid-cols-[1.1fr_1.4fr]">
-            <AdminChartPanel icon={<BarChart3 size={16} />} title="Top COM por cajas refusal final">
-              <RefusalComBars data={refusalComSummaries.slice(0, 10)} />
-            </AdminChartPanel>
-
-            <div className="overflow-hidden rounded-lg border border-slate-200">
-              <div className="border-b border-slate-200 bg-white px-3 py-2">
-                <h3 className="text-sm font-semibold text-[#10223d]">Detalle por contratista y COM</h3>
-              </div>
-              <div className="max-h-80 overflow-auto">
-                <table className="w-full min-w-[680px]">
-                  <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Contratista</th>
-                      <th className="px-3 py-2 text-left">COM</th>
-                      <th className="px-3 py-2 text-right">Reportadas</th>
-                      <th className="px-3 py-2 text-right">Gestionadas</th>
-                      <th className="px-3 py-2 text-right">Refusal final</th>
-                      <th className="px-3 py-2 text-right">% Refusal</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs">
-                    {refusalComSummaries.length ? (
-                      refusalComSummaries.map((row) => (
-                        <tr key={`${row.contractor}-${row.com}`} className="hover:bg-red-50/45">
-                          <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#10223d]">{row.contractor}</td>
-                          <td className="px-3 py-2 font-semibold text-slate-700">{row.com}</td>
-                          <td className="px-3 py-2 text-right">{row.reportadas.toLocaleString("es-CO")}</td>
-                          <td className="px-3 py-2 text-right text-emerald-700">{row.gestionadas.toLocaleString("es-CO")}</td>
-                          <td className="px-3 py-2 text-right font-semibold text-red-700">{row.refusalFinal.toLocaleString("es-CO")}</td>
-                          <td className="px-3 py-2 text-right font-semibold">{row.refusal.toLocaleString("es-CO")}%</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td className="px-4 py-8 text-center text-sm text-slate-500" colSpan={6}>
-                          No hay refusal por COM para este filtro.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-[#10223d]">Seguimiento individual ({filteredRecords.length})</h2>
           <button
@@ -513,64 +408,6 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
   );
 }
 
-function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "green" | "red" }) {
-  const toneClass = {
-    slate: "text-[#10223d]",
-    green: "text-[#0f7c58]",
-    red: "text-red-700",
-  }[tone];
-
-  return (
-    <div className="min-w-28 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
-    </div>
-  );
-}
-
-function AdminChartPanel({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
-  return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-[#10223d]">
-        <span className="grid h-8 w-8 place-items-center rounded-md bg-[#10223d] text-white">{icon}</span>
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
-
-function RefusalComBars({ data }: { data: RefusalComSummary[] }) {
-  const max = Math.max(...data.map((item) => item.refusalFinal), 1);
-  if (!data.length) {
-    return (
-      <div className="grid min-h-52 place-items-center rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm text-slate-500">
-        Sin datos de refusal por COM para mostrar.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {data.map((item, index) => (
-        <div className="grid grid-cols-[132px_1fr_56px] items-center gap-2" key={`${item.contractor}-${item.com}`}>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.com}>{item.com}</p>
-            <p className="truncate text-[10px] text-slate-500" title={item.contractor}>{item.contractor}</p>
-          </div>
-          <div className="h-6 overflow-hidden rounded-sm bg-slate-100">
-            <div
-              className={index === 0 ? "h-6 rounded-sm bg-gradient-to-r from-red-600 to-orange-400" : "h-6 rounded-sm bg-red-500/65"}
-              style={{ width: `${Math.max(7, (item.refusalFinal / max) * 100)}%` }}
-            />
-          </div>
-          <span className="text-right text-xs font-bold text-red-700">{item.refusalFinal.toLocaleString("es-CO")}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; people: VehiclePerson[]; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10223d]/45 px-4 py-6 backdrop-blur-sm">
@@ -595,6 +432,24 @@ function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; p
             <RouteStat label="Refusal" value={`${vehicle.refusal || 0}%`} />
           </div>
 
+          {vehicle.causalSalidaTardia || vehicle.comentarioSalidaTardia ? (
+            <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="mb-3 flex items-center gap-2 text-amber-900">
+                <ShieldAlert size={18} />
+                <h3 className="text-sm font-semibold">Salida despues de 7:00</h3>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+                <RouteStat label="Causal" value={vehicle.causalSalidaTardia || "Sin causal"} />
+                <div className="rounded-lg border border-amber-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Comentario</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-5 text-[#10223d]">
+                    {vehicle.comentarioSalidaTardia || "Sin comentario"}
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Personas en el carro</h3>
           {people.length ? (
             <div className="grid gap-3 lg:grid-cols-3">
@@ -616,28 +471,10 @@ function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; p
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-1.5 text-center sm:grid-cols-4">
+                    <SmallStat label="HL" value={formatHl(hlMoved(person))} />
+                    <SmallStat label="En rango" value={person.stats.enRango || 0} />
                     <SmallStat label="Rutas" value={person.stats.rutas} />
-                    <SmallStat label="Mod" value={person.stats.modulaciones} />
-                    <SmallStat label="Reub" value={person.stats.reubicaciones} />
-                    <SmallStat label="Tiempo" value={person.stats.tiempoPromedioRuta || "Sin dato"} />
-                  </div>
-
-                  <div className="mt-3 space-y-1.5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Modulaciones / reubicaciones</p>
-                    {person.history.filter((item) => item.type !== "Ruta").length ? (
-                      person.history.filter((item) => item.type !== "Ruta").slice(0, 2).map((item, index) => (
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2" key={`${item.type}-${item.title}-${index}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.title}>{item.title}</p>
-                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-500">{item.type}</span>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">{item.date || "Sin fecha"}</p>
-                          <p className="mt-1 line-clamp-2 text-xs text-slate-600" title={item.detail}>{item.detail}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-500">Sin modulaciones o reubicaciones.</p>
-                    )}
+                    <SmallStat label="% rango" value={formatPercent(person.stats.porcentajeRango)} />
                   </div>
                 </article>
               ))}
@@ -669,6 +506,22 @@ function SmallStat({ label, value }: { label: string; value: string | number }) 
       <p className="text-[10px] uppercase tracking-[0.1em] text-slate-400">{label}</p>
     </div>
   );
+}
+
+function managedCount(person: PersonSummary) {
+  return Number(person.stats.gestionadas ?? person.stats.reubicaciones ?? 0);
+}
+
+function hlMoved(person: PersonSummary) {
+  return Number(person.stats.hectolitros || 0);
+}
+
+function formatHl(value: number) {
+  return Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 1 });
+}
+
+function formatPercent(value: number | undefined) {
+  return `${Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
 }
 
 function getVehiclePeople(vehicle: Vehiculo, people: PersonSummary[]): VehiclePerson[] {
@@ -715,6 +568,11 @@ function createFallbackPerson(candidate: { cc?: string; name?: string }, vehicle
       rutas: 1,
       modulaciones: 0,
       reubicaciones: 0,
+      hectolitros: vehicle.hl || 0,
+      visitasRango: 0,
+      enRango: 0,
+      fueraRango: 0,
+      porcentajeRango: 0,
       tiempoPromedioRuta: vehicle.tiempoRuta || "Sin dato",
       ultimoDt: vehicle.transporte || "",
     },

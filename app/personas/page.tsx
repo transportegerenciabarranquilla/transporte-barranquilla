@@ -20,6 +20,12 @@ type Person = {
     rutas: number;
     modulaciones: number;
     reubicaciones: number;
+    gestionadas?: number;
+    hectolitros?: number;
+    visitasRango?: number;
+    enRango?: number;
+    fueraRango?: number;
+    porcentajeRango?: number;
     tiempoPromedioRuta: string;
     ultimoDt: string;
   };
@@ -38,6 +44,16 @@ type DraftPerson = {
   nombre: string;
   cargo: string;
   contratista: string;
+};
+
+type PeopleProfile = {
+  cc: string;
+  nombre?: string;
+  cargo?: string;
+  contratista: string;
+  photo?: string;
+  isLocal?: boolean;
+  removed?: boolean;
 };
 
 const CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
@@ -59,6 +75,7 @@ export default function PeoplePage() {
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [localPeople, setLocalPeople] = useState<Person[]>([]);
   const [removedPeople, setRemovedPeople] = useState<string[]>([]);
+  const [profiles, setProfiles] = useState<PeopleProfile[]>([]);
   const [selectedContractor, setSelectedContractor] = useState("Logisticos");
   const [selectedCc, setSelectedCc] = useState("");
   const [query, setQuery] = useState("");
@@ -69,24 +86,25 @@ export default function PeoplePage() {
   const [isAllowed, setIsAllowed] = useState(false);
 
   useEffect(() => {
-    setPhotos(readJson<Record<string, string>>(PHOTO_KEY, {}));
-    setLocalPeople(readJson<Person[]>(LOCAL_PEOPLE_KEY, []));
-    setRemovedPeople(readJson<string[]>(REMOVED_PEOPLE_KEY, []));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
+    fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => null);
         const allowed = Boolean(body?.session?.isPeople || body?.session?.isAdmin);
         setIsAllowed(allowed);
         if (!allowed) throw new Error("No tienes permiso para entrar a People.");
-        return fetch("/api/people/summary", { cache: "no-store" });
+        return Promise.all([
+          fetch("/api/people/summary", { cache: "no-store" }),
+          fetch("/api/people/profiles", { cache: "no-store" }),
+        ]);
       })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "No se pudo cargar People.");
-        setGroups(body.contractors || []);
+      .then(async ([summaryResponse, profilesResponse]) => {
+        const summaryBody = await summaryResponse.json().catch(() => ({}));
+        if (!summaryResponse.ok) throw new Error(summaryBody.error || "No se pudo cargar People.");
+        setGroups(summaryBody.contractors || []);
+
+        const profilesBody = await profilesResponse.json().catch(() => ({}));
+        if (!profilesResponse.ok) throw new Error(profilesBody.error || "No se pudieron cargar fotos de People.");
+        applyProfiles(profilesBody.profiles || []);
       })
       .catch((caughtError) => setError(caughtError instanceof Error ? caughtError.message : "Error cargando People."))
       .finally(() => setIsLoading(false));
@@ -145,12 +163,12 @@ export default function PeoplePage() {
     const newPerson: Person = {
       ...cleanDraft,
       isLocal: true,
-      stats: { rutas: 0, modulaciones: 0, reubicaciones: 0, tiempoPromedioRuta: "Sin dato", ultimoDt: "" },
+      stats: { rutas: 0, modulaciones: 0, reubicaciones: 0, hectolitros: 0, visitasRango: 0, enRango: 0, fueraRango: 0, porcentajeRango: 0, tiempoPromedioRuta: "Sin dato", ultimoDt: "" },
       history: [],
     };
     const nextPeople = [newPerson, ...localPeople.filter((person) => personKey(person) !== personKey(newPerson))];
     setLocalPeople(nextPeople);
-    writeJson(LOCAL_PEOPLE_KEY, nextPeople);
+    void saveProfiles(upsertProfiles(profiles, personToProfile(newPerson)));
     setSelectedContractor(cleanDraft.contratista);
     setSelectedCc(cleanDraft.cc);
     setDraft(emptyDraft);
@@ -162,13 +180,13 @@ export default function PeoplePage() {
     if (person.isLocal) {
       const nextPeople = localPeople.filter((item) => personKey(item) !== key);
       setLocalPeople(nextPeople);
-      writeJson(LOCAL_PEOPLE_KEY, nextPeople);
+      void saveProfiles(upsertProfiles(profiles, { ...personToProfile(person), removed: true }));
       return;
     }
 
     const nextRemoved = Array.from(new Set([...removedPeople, key]));
     setRemovedPeople(nextRemoved);
-    writeJson(REMOVED_PEOPLE_KEY, nextRemoved);
+    void saveProfiles(upsertProfiles(profiles, { ...personToProfile(person), removed: true }));
   }
 
   function handlePhoto(person: Person, file: File | null) {
@@ -177,16 +195,40 @@ export default function PeoplePage() {
     reader.onload = () => {
       const nextPhotos = { ...photos, [personKey(person)]: String(reader.result || "") };
       setPhotos(nextPhotos);
-      writeJson(PHOTO_KEY, nextPhotos);
+      void saveProfiles(upsertProfiles(profiles, { ...personToProfile(person), photo: String(reader.result || "") }));
     };
     reader.readAsDataURL(file);
+  }
+
+  function applyProfiles(nextProfiles: PeopleProfile[]) {
+    setProfiles(nextProfiles);
+    setPhotos(Object.fromEntries(nextProfiles.filter((profile) => profile.photo && !profile.removed).map((profile) => [profileKey(profile), profile.photo || ""])));
+    setLocalPeople(nextProfiles.filter((profile) => profile.isLocal && !profile.removed).map(profileToPerson));
+    setRemovedPeople(nextProfiles.filter((profile) => profile.removed).map(profileKey));
+  }
+
+  async function saveProfiles(nextProfiles: PeopleProfile[]) {
+    try {
+      const response = await fetch("/api/people/profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profiles: nextProfiles }),
+        cache: "no-store",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar en Supabase.");
+      applyProfiles(body.profiles || nextProfiles);
+      setError("");
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "No se pudo guardar en Supabase.");
+    }
   }
 
   const totals = useMemo(
     () => ({
       people: mergedGroups.reduce((total, group) => total + group.total, 0),
-      modulations: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + person.stats.modulaciones, 0),
-      relocations: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + person.stats.reubicaciones, 0),
+      hectoliters: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + hlMoved(person), 0),
+      managed: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + managedCount(person), 0),
     }),
     [mergedGroups],
   );
@@ -227,8 +269,8 @@ export default function PeoplePage() {
 
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           <Metric label="Trabajadores" value={totals.people} />
-          <Metric label="Modulaciones" value={totals.modulations} />
-          <Metric label="Reubicaciones" value={totals.relocations} />
+          <Metric label="HL movidos" value={formatHl(totals.hectoliters)} />
+          <Metric label="Gestionadas" value={totals.managed} />
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-3">
@@ -285,9 +327,9 @@ export default function PeoplePage() {
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <MiniStat label="Mod" value={person.stats.modulaciones} />
-                    <MiniStat label="Reub" value={person.stats.reubicaciones} />
-                    <MiniStat label="Ult. DT" value={person.stats.ultimoDt || "-"} />
+                    <MiniStat label="HL" value={formatHl(hlMoved(person))} />
+                    <MiniStat label="En rango" value={person.stats.enRango || 0} />
+                    <MiniStat label="Tiempo" value={person.stats.tiempoPromedioRuta || "Sin dato"} />
                   </div>
                 </button>
               ))}
@@ -318,10 +360,15 @@ export default function PeoplePage() {
                 </div>
 
                 <div className="mt-5 grid grid-cols-2 gap-3">
+                  <DetailStat label="HL movidos" value={formatHl(hlMoved(selectedPerson))} />
+                  <DetailStat label="Visitados" value={selectedPerson.stats.visitasRango || 0} />
+                  <DetailStat label="En rango" value={selectedPerson.stats.enRango || 0} />
+                  <DetailStat label="Fuera rango" value={selectedPerson.stats.fueraRango || 0} />
+                  <DetailStat label="% rango" value={formatPercent(selectedPerson.stats.porcentajeRango)} />
+                  <DetailStat label="Tiempo ruta prom." value={selectedPerson.stats.tiempoPromedioRuta || "Sin dato"} />
+                  <DetailStat label="Rutas" value={selectedPerson.stats.rutas} />
                   <DetailStat label="Ultimo DT" value={selectedPerson.stats.ultimoDt || "-"} />
-                  <DetailStat label="Modulaciones" value={selectedPerson.stats.modulaciones} />
-                  <DetailStat label="Reubicaciones" value={selectedPerson.stats.reubicaciones} />
-                  <DetailStat label="Cargo" value={selectedPerson.cargo || "-"} />
+                  <DetailStat label="Gestionadas" value={managedCount(selectedPerson)} />
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-2">
@@ -334,24 +381,13 @@ export default function PeoplePage() {
                   </button>
                 </div>
 
-                <div className="mt-6">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Historial</h3>
-                  <div className="mt-3 space-y-2">
-                    {selectedPerson.history.filter((item) => item.type !== "Ruta").length ? (
-                      selectedPerson.history.filter((item) => item.type !== "Ruta").map((item, index) => (
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2" key={`${item.type}-${item.title}-${index}`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-semibold text-[#10223d]">{item.title}</p>
-                            <span className="rounded bg-white px-2 py-1 text-xs text-slate-500">{item.type}</span>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">{item.date || "Sin fecha"}</p>
-                          <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">Sin modulaciones o reubicaciones encontradas.</p>
-                    )}
-                  </div>
+                <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Resumen operativo</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Ha movido <span className="font-semibold text-[#10223d]">{formatHl(hlMoved(selectedPerson))} HL</span>, tiene{" "}
+                    <span className="font-semibold text-[#10223d]">{selectedPerson.stats.enRango || 0}</span> entregas en rango y su tiempo promedio en ruta es{" "}
+                    <span className="font-semibold text-[#10223d]">{selectedPerson.stats.tiempoPromedioRuta || "Sin dato"}</span>.
+                  </p>
                 </div>
               </section>
             ) : null}
@@ -381,7 +417,7 @@ export default function PeoplePage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-white/70 bg-white/88 p-5 shadow-sm backdrop-blur">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
@@ -410,6 +446,22 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function managedCount(person: Person) {
+  return Number(person.stats.gestionadas ?? person.stats.reubicaciones ?? 0);
+}
+
+function hlMoved(person: Person) {
+  return Number(person.stats.hectolitros || 0);
+}
+
+function formatHl(value: number) {
+  return Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 1 });
+}
+
+function formatPercent(value: number | undefined) {
+  return `${Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
+}
+
 function DetailStat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -419,25 +471,41 @@ function DetailStat({ label, value }: { label: string; value: string | number })
   );
 }
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const value = window.localStorage.getItem(key);
-    return value ? (JSON.parse(value) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJson(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Local storage may be full or blocked; the UI still keeps the in-memory change.
-  }
-}
-
 function personKey(person: Pick<Person, "cc" | "contratista">) {
   return `${normalizeText(person.contratista)}:${String(person.cc || "").replace(/\D/g, "")}`.toLowerCase();
+}
+
+function profileKey(profile: Pick<PeopleProfile, "cc" | "contratista">) {
+  return `${normalizeText(profile.contratista)}:${String(profile.cc || "").replace(/\D/g, "")}`.toLowerCase();
+}
+
+function personToProfile(person: Person): PeopleProfile {
+  return {
+    cc: person.cc,
+    nombre: person.nombre,
+    cargo: person.cargo,
+    contratista: person.contratista,
+    isLocal: Boolean(person.isLocal),
+  };
+}
+
+function profileToPerson(profile: PeopleProfile): Person {
+  return {
+    cc: profile.cc,
+    nombre: profile.nombre || "Sin nombre",
+    cargo: profile.cargo || "Sin cargo",
+    contratista: profile.contratista,
+    isLocal: Boolean(profile.isLocal),
+    stats: { rutas: 0, modulaciones: 0, reubicaciones: 0, hectolitros: 0, visitasRango: 0, enRango: 0, fueraRango: 0, porcentajeRango: 0, tiempoPromedioRuta: "Sin dato", ultimoDt: "" },
+    history: [],
+  };
+}
+
+function upsertProfiles(profiles: PeopleProfile[], profile: PeopleProfile) {
+  const key = profileKey(profile);
+  const current = profiles.find((item) => profileKey(item) === key);
+  const merged = { ...current, ...profile };
+  return [merged, ...profiles.filter((item) => profileKey(item) !== key)];
 }
 
 function dedupePeople(people: Person[]) {
@@ -470,6 +538,12 @@ function mergePerson(current: Person | undefined, next: Person) {
       rutas: Math.max(current.stats.rutas, next.stats.rutas),
       modulaciones: Math.max(current.stats.modulaciones, next.stats.modulaciones),
       reubicaciones: Math.max(current.stats.reubicaciones, next.stats.reubicaciones),
+      gestionadas: Math.max(managedCount(current), managedCount(next)),
+      hectolitros: Math.max(hlMoved(current), hlMoved(next)),
+      visitasRango: Math.max(current.stats.visitasRango || 0, next.stats.visitasRango || 0),
+      enRango: Math.max(current.stats.enRango || 0, next.stats.enRango || 0),
+      fueraRango: Math.max(current.stats.fueraRango || 0, next.stats.fueraRango || 0),
+      porcentajeRango: Math.max(current.stats.porcentajeRango || 0, next.stats.porcentajeRango || 0),
       tiempoPromedioRuta: next.stats.tiempoPromedioRuta !== "Sin dato" ? next.stats.tiempoPromedioRuta : current.stats.tiempoPromedioRuta,
       ultimoDt: next.stats.ultimoDt || current.stats.ultimoDt,
     },

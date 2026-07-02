@@ -205,6 +205,10 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
   const visitados = roundedNumberValue(value(["visitados", "clientes visitados"]), 0);
   const importedCapacity = numberValue(value(["capacidad", "capacidad peso", "capacidad vehiculo"]), 1);
   const createdAt = new Date(`${fechaDespacho}T00:00:00`).toISOString();
+  const status = stringValue(value(["status", "estado"])) || "Cargando";
+  const horaSalida = timeValue(value(["hora salida", "salida"]));
+  const horaLlegada = timeValue(value(["hora llegada", "llegada"]));
+  const shouldUseImportedDeparture = isStartedStatus(status) || Boolean(horaLlegada);
 
   return {
     cajasGestionadas: roundedNumberValue(value(["cajas gestionadas", "gestionadas"]), 0),
@@ -229,14 +233,17 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     hl: numberValue(value(["hl", "hectolitros"]), 0),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
-    horaSalida: stringValue(value(["hora salida", "salida"])) || "Pendiente",
+    horaSalida: shouldUseImportedDeparture ? horaSalida || "Pendiente" : "Pendiente",
+    causalSalidaTardia: stringValue(value(["causal salida tardia", "causal salida tarde", "motivo salida tardia"])),
+    comentarioSalidaTardia: stringValue(value(["comentario salida tardia", "comentario salida tarde", "observacion salida tardia"])),
     peso: numberValue(value(["peso", "peso dt"]), 0),
     capacidad: getFixedCapacity(vehiculo, capacityByPlate, importedCapacity),
     validadorPeso: stringValue(value(["validador peso", "validador"])) || "Pendiente",
     avanceRuta: stringValue(value(["avance ruta", "avance"])) || "0%",
-    status: stringValue(value(["status", "estado"])) || "Cargando",
-    horaLlegada: stringValue(value(["hora llegada", "llegada"])) || "Pendiente",
-    tiempoRuta: stringValue(value(["tiempo ruta", "tiempo en ruta"])) || "Pendiente",
+    status,
+    horaLlegada: horaLlegada || "Pendiente",
+    tiempoRuta: durationValue(value(["tiempo ruta", "tiempo en ruta"])) || "Pendiente",
+    tiempoPlaneado: durationValue(value(["tiempo planeado", "tiempo plan", "tiempo planificado", "tiempo estimado", "duracion planeada", "duracion planificada"])),
     metaRelevo: stringValue(value(["meta relevo"])) || "Pendiente",
     horaInicioRelevo: stringValue(value(["hora inicio relevo"])) || "Pendiente",
     clasificacionRelevo: stringValue(value(["clasificacion relevo"])) || "Pendiente",
@@ -249,6 +256,16 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     cedulaAuxiliar1: stringValue(value(["cedula auxiliar 1", "cedula conductor"])),
     cedulaAuxiliar2: stringValue(value(["cedula auxiliar 2"])),
   };
+}
+
+function isStartedStatus(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  return ["en ruta", "retornando", "recargue", "finalizado"].includes(normalized);
 }
 
 function getOnTimeClassification(fechaDt: string | undefined, fechaDespacho: string | undefined) {
@@ -314,6 +331,49 @@ function normalizeHeader(value: string) {
 function stringValue(value: unknown) {
   if (value instanceof Date) return getLocalDateKey(value);
   return String(value ?? "").trim();
+}
+
+function timeValue(value: unknown) {
+  if (value instanceof Date) return formatTimeFromDate(value);
+  return String(value ?? "").trim();
+}
+
+function durationValue(value: unknown) {
+  if (value instanceof Date) return formatTimeFromDate(value);
+
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    const totalSeconds = value < 1 ? Math.round(value * 24 * 3600) : Math.round(value * 3600);
+    return formatDurationFromSeconds(totalSeconds);
+  }
+
+  const text = String(value ?? "").trim();
+  if (!text || /^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+
+  const numericValue = Number(text.replace(",", "."));
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    const totalSeconds = numericValue < 1 ? Math.round(numericValue * 24 * 3600) : Math.round(numericValue * 3600);
+    return formatDurationFromSeconds(totalSeconds);
+  }
+
+  return text;
+}
+
+function formatTimeFromDate(value: Date) {
+  const hours = value.getHours();
+  const minutes = value.getMinutes();
+  const seconds = value.getSeconds();
+  return seconds ? `${padTime(hours)}:${padTime(minutes)}:${padTime(seconds)}` : `${padTime(hours)}:${padTime(minutes)}`;
+}
+
+function formatDurationFromSeconds(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${padTime(hours)}:${padTime(minutes)}:${padTime(seconds)}` : `${padTime(hours)}:${padTime(minutes)}`;
+}
+
+function padTime(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 function numberValue(value: unknown, fallback: number) {

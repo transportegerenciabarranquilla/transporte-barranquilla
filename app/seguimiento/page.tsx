@@ -16,7 +16,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, normalizeCajasTotal } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -236,6 +236,31 @@ export default function SeguimientoPage() {
     scheduleSeguimientoSave(prepared);
   }
 
+  async function guardarSalidaTardia(recordKey: string, changes: Pick<Vehiculo, "causalSalidaTardia" | "comentarioSalidaTardia">) {
+    const prepared = prepareSeguimientoVehicles(
+      vehiculos.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, false) : item)),
+    );
+
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    pendingLocalSaveRef.current = true;
+    setImportMessage("Guardando salida tardia en Supabase...");
+
+    try {
+      const savedRecords = await saveSeguimientoVehiculos(prepared);
+      setVehiculos(savedRecords);
+      setImportMessage("Salida tardia guardada en Supabase.");
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : "No se pudo guardar la salida tardia.");
+      throw error;
+    } finally {
+      pendingLocalSaveRef.current = false;
+    }
+  }
+
   function scheduleSeguimientoSave(records: Vehiculo[]) {
     pendingLocalSaveRef.current = true;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -263,7 +288,7 @@ export default function SeguimientoPage() {
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
     };
-    let shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined;
+    let shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);
 
@@ -278,15 +303,16 @@ export default function SeguimientoPage() {
       updated.visitados = 0;
     }
 
-    if (changes.status === "Pernoctado") {
-      updated.horaSalida = "Pendiente";
+    if (changes.status === "En ruta" && !hasTimeValue(updated.horaSalida)) {
+      updated.horaSalida = formatCurrentTime();
       updated.horaLlegada = "Pendiente";
       updated.tiempoRuta = "Pendiente";
     }
 
-    if (changes.status === "Finalizado" && !hasTimeValue(updated.horaLlegada)) {
-      updated.horaLlegada = formatCurrentTime();
-      shouldRecalculateRouteTime = true;
+    if (changes.status && isRouteClockBlockedStatus(changes.status)) {
+      updated.horaSalida = "Pendiente";
+      updated.horaLlegada = "Pendiente";
+      updated.tiempoRuta = "Pendiente";
     }
 
     if (shouldRecalculateRouteTime) {
@@ -458,8 +484,11 @@ export default function SeguimientoPage() {
         Cajas: vehicle.cajas,
         HL: vehicle.hl,
         "Hora salida": vehicle.horaSalida,
+        "Causal salida tardia": vehicle.causalSalidaTardia || "",
+        "Comentario salida tardia": vehicle.comentarioSalidaTardia || "",
         "Hora llegada": vehicle.horaLlegada,
         "Tiempo ruta": vehicle.tiempoRuta,
+        "Tiempo planeado": vehicle.tiempoPlaneado || "",
         Territorio: vehicle.territorio,
         Transportista: vehicle.transportista,
       }));
@@ -516,7 +545,7 @@ export default function SeguimientoPage() {
             </span>
             <span>
               <span className="block text-sm font-semibold text-[#10223d]">Subir seguimiento diario</span>
-              <span className="mt-1 block text-sm text-slate-500">Acepta Excel o CSV con DT, vehiculo, responsable, cajas y demas columnas.</span>
+              <span className="mt-1 block text-sm text-slate-500">Acepta Excel o CSV con DT, vehiculo, responsable, tiempo planeado y demas columnas.</span>
               {importMessage ? <span className="mt-2 block text-xs font-medium text-[#0f7c58]">{importMessage}</span> : null}
             </span>
             <input
@@ -621,6 +650,7 @@ export default function SeguimientoPage() {
               setVehiculoSeleccionadoKey(null);
             }}
             onDeleteVehicle={borrarVehiculo}
+            onSaveLateDeparture={guardarSalidaTardia}
             onUpdateVehicle={actualizarVehiculo}
             recordKey={vehiculoSeleccionadoKey || getVehicleUiKey(selectedVehicle)}
           />

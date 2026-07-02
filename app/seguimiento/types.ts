@@ -23,6 +23,8 @@ export type Vehiculo = {
   clientes: number;
   visitados: number;
   horaSalida: string;
+  causalSalidaTardia?: string;
+  comentarioSalidaTardia?: string;
   peso: number;
   capacidad: number;
   validadorPeso: string;
@@ -30,6 +32,7 @@ export type Vehiculo = {
   status: string;
   horaLlegada: string;
   tiempoRuta: string;
+  tiempoPlaneado?: string;
   metaRelevo: string;
   horaInicioRelevo: string;
   clasificacionRelevo: string;

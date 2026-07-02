@@ -14,6 +14,9 @@ as $$
     when 'logisticos' then 'Logisticos'
     when 'puntocorona' then 'Punto Corona'
     when 'surticervezas' then 'Surti Cervezas'
+    when 'logisticosarenosa' then 'Logisticos Arenosa'
+    when 'coronaarenosa' then 'Punto Corona Arenosa'
+    when 'puntocoronaarenosa' then 'Punto Corona Arenosa'
     else null
   end
 $$;
@@ -91,6 +94,8 @@ as $$
     when 'logisticos@bavaria-seguimiento.com' then 'Logisticos'
     when 'puntocorona@bavaria-seguimiento.com' then 'Punto Corona'
     when 'surticervezas@bavaria-seguimiento.com' then 'Surti Cervezas'
+    when 'logisticos@transporte.com' then 'Logisticos Arenosa'
+    when 'corona@transporte.com' then 'Punto Corona Arenosa'
     else null
   end
 $$;

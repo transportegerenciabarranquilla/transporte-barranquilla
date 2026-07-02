@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ClipboardList, Clock3, PackageCheck, Route, Truck, Users } from "lucide-react";
-import { AnalyticsDateFilter } from "../components/AnalyticsDateFilter";
+import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
 import { MODULACION_STORAGE_KEY } from "../../lib/modulacionStorage";
@@ -11,15 +11,16 @@ import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import { useContractorBrand } from "../../lib/contractorBranding";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getStatus, getVehicleRecordKey, hasTimeValue, normalizeCajasTotal } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getStatus, getVehicleRecordKey, hasTimeValue, normalizeCajasTotal } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
-
-const DELAY_THRESHOLD = 25;
 
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
   const brand = useContractorBrand();
-  const [selectedDate, setSelectedDate] = useState(getTodayKey);
+  const [dateRange, setDateRange] = useState(() => {
+    const today = getTodayKey();
+    return { from: today, to: today };
+  });
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
     loadSeguimientoVehiculos,
@@ -38,8 +39,9 @@ export default function SeguimientoGraficasPage() {
   }, []);
 
   useEffect(() => {
-    const fecha = new URLSearchParams(window.location.search).get("fecha") || getTodayKey();
-    setSelectedDate(fecha);
+    const params = new URLSearchParams(window.location.search);
+    const fecha = params.get("fecha") || getTodayKey();
+    setDateRange(normalizeDateRange(params.get("desde") || fecha, params.get("hasta") || fecha));
   }, []);
 
   useEffect(() => {
@@ -49,35 +51,39 @@ export default function SeguimientoGraficasPage() {
   }, []);
 
   useEffect(() => {
-    setDateLabel(formatDateLabel(selectedDate));
-  }, [selectedDate]);
+    setDateLabel(formatDateRangeLabel(dateRange));
+  }, [dateRange]);
 
-  const todayVehicles = useMemo(() => vehicles.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [selectedDate, vehicles]);
+  const rangeVehicles = useMemo(() => vehicles.filter((vehicle) => isVehicleInRange(vehicle, dateRange)), [dateRange, vehicles]);
 
   const resumen = useMemo(() => {
-    const clientes = todayVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
-    const visitados = todayVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
-    const cajas = normalizeCajasTotal(todayVehicles.reduce((total, item) => total + (item.cajas || 0), 0));
-    const hl = todayVehicles.reduce((total, item) => total + (item.hl || 0), 0);
+    const clientes = rangeVehicles.reduce((total, item) => total + (item.clientes || 0), 0);
+    const visitados = rangeVehicles.reduce((total, item) => total + (item.visitados || 0), 0);
+    const cajas = normalizeCajasTotal(rangeVehicles.reduce((total, item) => total + (item.cajas || 0), 0));
+    const hl = rangeVehicles.reduce((total, item) => total + (item.hl || 0), 0);
     const avance = getVisitProgress(visitados, clientes);
+    const retrasados = now ? rangeVehicles.filter((vehicle) => getPlannedProgress(vehicle, now).isBehind).length : 0;
+    const retrasadosPercent = rangeVehicles.length ? Number(((retrasados / rangeVehicles.length) * 100).toFixed(1)) : 0;
 
     return {
-      vehiculos: todayVehicles.length,
+      vehiculos: rangeVehicles.length,
       cajas,
       hl: hl.toFixed(1),
       clientes,
       visitados,
       avance,
-      tiempoPromedio: formatSeconds(getAverageRouteSeconds(todayVehicles, now)),
+      retrasados,
+      retrasadosPercent,
+      tiempoPromedio: formatSeconds(getAverageRouteSeconds(rangeVehicles, now)),
     };
-  }, [now, todayVehicles]);
+  }, [now, rangeVehicles]);
 
   const statusCounts = useMemo(() => {
     return ROUTE_STATUSES.map((status) => ({
       status,
-      count: todayVehicles.filter((vehicle) => getVehicleStatus(vehicle) === status).length,
+      count: rangeVehicles.filter((vehicle) => getVehicleStatus(vehicle) === status).length,
     }));
-  }, [todayVehicles]);
+  }, [rangeVehicles]);
 
   return (
     <main className="min-h-screen text-slate-900">
@@ -86,7 +92,7 @@ export default function SeguimientoGraficasPage() {
           <div className="flex items-center gap-3">
             <button
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push(selectedDate ? `/seguimiento?fecha=${encodeURIComponent(selectedDate)}` : "/seguimiento")}
+              onClick={() => router.push(dateRange.to ? `/seguimiento?fecha=${encodeURIComponent(dateRange.to)}` : "/seguimiento")}
               type="button"
               aria-label="Volver a seguimiento"
             >
@@ -98,16 +104,17 @@ export default function SeguimientoGraficasPage() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <AnalyticsDateRangeFilter value={dateRange} onChange={setDateRange} />
             <AnalyticsViewToggle active="seguimiento" />
           </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <SummaryCard icon={<Truck size={21} />} label="Vehículos" value={resumen.vehiculos} detail="Rutas del día" />
-          <SummaryCard icon={<Users size={21} />} label="Clientes" value={`${resumen.visitados}/${resumen.clientes}`} detail={`${resumen.avance}% visitados`} />
+          <SummaryCard icon={<Users size={21} />} label="Clientes" value={`${resumen.visitados}/${resumen.clientes}`} detail={`${formatPercent(resumen.avance)} visitados`} />
+          <SummaryCard icon={<AlertTriangle size={21} />} label="Retrasados" value={resumen.retrasados} detail={`${formatPercent(resumen.retrasadosPercent)} de rutas`} />
           <SummaryCard icon={<PackageCheck size={21} />} label="Cajas" value={resumen.cajas} detail={`${resumen.hl} HL`} />
           <SummaryCard icon={<Clock3 size={21} />} label="Tiempo prom." value={resumen.tiempoPromedio} detail="Promedio de rutas" />
         </div>
@@ -118,7 +125,7 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
-                <p className="text-sm text-slate-500">Umbral de retraso: {DELAY_THRESHOLD}% contra el promedio.</p>
+                <p className="text-sm text-slate-500">Retraso calculado por ritmo planeado por cliente.</p>
               </div>
             </div>
           </Panel>
@@ -128,6 +135,7 @@ export default function SeguimientoGraficasPage() {
               {statusCounts.map(({ status, count }) => (
                 <StatusTile key={status} label={status} count={count} tone={getStatusTone(status)} />
               ))}
+              <StatusTile label="Retraso" count={resumen.retrasados} tone="red" />
             </div>
           </Panel>
         </div>
@@ -138,7 +146,7 @@ export default function SeguimientoGraficasPage() {
               <ClipboardList size={15} className="text-[#10223d]" />
               <div>
                 <h2 className="text-sm font-semibold leading-5 text-[#10223d]">Detalle por vehículo</h2>
-                <p className="text-[10px] leading-4 text-slate-500">Comparación de avance contra el promedio del día.</p>
+                <p className="text-[10px] leading-4 text-slate-500">Comparación de avance contra el ritmo planeado por cliente.</p>
               </div>
             </div>
             <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-[#07556b]">
@@ -158,9 +166,10 @@ export default function SeguimientoGraficasPage() {
                 </tr>
               </thead>
               <tbody>
-                {todayVehicles.map((vehicle) => {
+                {rangeVehicles.map((vehicle) => {
                   const percentage = getVisitProgress(vehicle.visitados, vehicle.clientes);
-                  const delayed = resumen.avance - percentage > DELAY_THRESHOLD;
+                  const plannedProgress = now ? getPlannedProgress(vehicle, now) : null;
+                  const delayed = Boolean(plannedProgress?.isBehind);
 
                   return (
                     <tr className={delayed ? "bg-red-50/60" : ""} key={getVehicleRecordKey(vehicle)}>
@@ -186,7 +195,7 @@ export default function SeguimientoGraficasPage() {
                           <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
                             <div className={`h-2 rounded-full ${delayed ? "bg-gradient-to-r from-red-500 to-orange-400" : "bg-gradient-to-r from-[#0f7c58] to-[#00b8d9]"}`} style={{ width: `${percentage}%` }} />
                           </div>
-                          <span className={`w-10 text-[10px] font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{percentage}%</span>
+                          <span className={`w-10 text-[10px] font-semibold ${delayed ? "text-red-600" : "text-[#10223d]"}`}>{formatPercent(percentage)}</span>
                         </div>
                       </td>
                       <td className="px-2 py-[2px] text-right">
@@ -262,7 +271,7 @@ function Gauge({ value }: { value: number }) {
         />
       </svg>
       <div className="absolute text-center">
-        <p className="text-4xl font-semibold text-[#10223d]">{value}%</p>
+        <p className="text-4xl font-semibold text-[#10223d]">{formatPercent(value)}</p>
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Global</p>
       </div>
     </div>
@@ -274,7 +283,7 @@ function ProgressLine({ label, value, color }: { label: string; value: number; c
     <div>
       <div className="mb-2 flex justify-between text-sm">
         <span className="font-medium text-slate-600">{label}</span>
-        <span className="font-semibold text-[#10223d]">{value}%</span>
+        <span className="font-semibold text-[#10223d]">{formatPercent(value)}</span>
       </div>
       <div className="h-2 rounded-full bg-slate-200">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
@@ -320,6 +329,10 @@ function getVisitProgress(visitados: number, clientes: number) {
   return Math.min(100, Number(((visitados / clientes) * 100).toFixed(1)));
 }
 
+function formatPercent(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
 function getStatusTone(status: string): StatusTone {
   const tones: Record<string, StatusTone> = {
     "Pendiente por salir": "slate",
@@ -335,8 +348,9 @@ function getStatusTone(status: string): StatusTone {
   return tones[status] ?? "slate";
 }
 
-function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
+function isVehicleInRange(vehicle: Vehiculo, range: { from: string; to: string }) {
+  const dateKey = parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+  return Boolean(dateKey) && dateKey >= range.from && dateKey <= range.to;
 }
 
 function parseDate(value: string | undefined) {
@@ -361,6 +375,11 @@ function formatDateLabel(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
   if (![year, month, day].every(Number.isFinite)) return dateKey;
   return new Date(year, month - 1, day).toLocaleDateString("es-CO");
+}
+
+function formatDateRangeLabel(range: { from: string; to: string }) {
+  if (range.from === range.to) return formatDateLabel(range.from);
+  return `${formatDateLabel(range.from)} - ${formatDateLabel(range.to)}`;
 }
 
 function getAverageRouteSeconds(vehicles: Vehiculo[], now: Date | null) {

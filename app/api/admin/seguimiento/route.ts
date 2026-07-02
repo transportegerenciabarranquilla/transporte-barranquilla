@@ -15,6 +15,7 @@ type AdminRefusalComRow = {
   com: string;
   date: string;
   dt: string;
+  preventista: string;
   reportadas: number;
   gestionadas: number;
   refusalFinal: number;
@@ -59,7 +60,7 @@ export async function GET() {
     const checkins = checkinRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor) }));
     const records = rows.map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
-      const registrosDt = getModulacionesByDt(modulaciones, row.data.transporte, transportista);
+      const registrosDt = getModulacionesByDt(modulaciones, row.data.transporte, transportista, getVehicleDate(row.data));
       const checkin = getCheckinByDt(checkins, row.data.transporte, transportista);
       const refusal = summarizeRefusal(registrosDt, Number(row.data.cajas || 0), checkin?.totalCajas);
 
@@ -116,14 +117,15 @@ export async function GET() {
   }
 }
 
-function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined, contractor?: string) {
+function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined, contractor?: string, dateKey?: string) {
   const targetDt = normalizeDt(dt);
   const targetContractor = normalizeContractor(contractor);
 
   return records.filter((record) => {
     const sameDt = normalizeDt(record.dt) === targetDt;
     const sameContractor = !targetContractor || normalizeContractor(record.contratista) === targetContractor;
-    return sameDt && sameContractor;
+    const sameDate = !dateKey || getRecordDate(record) === dateKey;
+    return sameDt && sameContractor && sameDate;
   });
 }
 
@@ -174,20 +176,27 @@ function contractorLabel(value: string | undefined) {
 
 function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehiculo[]): AdminRefusalComRow[] {
   const vehicleByDtContractor = new Map(
+    records.map((record) => [`${normalizeContractor(record.transportista)}:${normalizeDt(record.transporte)}:${getVehicleDate(record)}`, record]),
+  );
+  const fallbackVehicleByDtContractor = new Map(
     records.map((record) => [`${normalizeContractor(record.transportista)}:${normalizeDt(record.transporte)}`, record]),
   );
 
   return modulaciones.map((record) => {
     const contractor = contractorLabel(record.contratista) || record.contratista || "Sin contratista";
-    const vehicle = vehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}`);
+    const date = getRecordDate(record);
+    const vehicle =
+      vehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}:${date}`) ||
+      fallbackVehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}`);
     const reportadas = Number(record.totalCajas || 0);
     const gestionadas = Number(record.cajasGestionadas || 0);
 
     return {
       contractor,
       com: getCom(record, vehicle),
-      date: getRecordDate(record),
+      date,
       dt: normalizeDt(record.dt),
+      preventista: getPreventista(record),
       reportadas,
       gestionadas,
       refusalFinal: Math.max(reportadas - gestionadas, 0),
@@ -200,11 +209,22 @@ function getCom(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
 
   const candidates = [vehicle?.bloque, vehicle?.viaje, vehicle?.territorio].filter(Boolean) as string[];
   const found = candidates.find((value) => /^COM/i.test(value.trim()));
-  return found ? found.trim().toUpperCase() : "Sin asignacion";
+  if (found) return found.trim().toUpperCase();
+
+  const code = String(record.codigoCliente || record.dt || "").replace(/\D/g, "");
+  return code ? `COM${code.slice(-3).padStart(3, "0")}` : "Sin asignacion";
+}
+
+function getPreventista(record: ModulacionRegistro) {
+  return record.preventistaNombre?.trim() || record.preventista?.trim() || "Sin preventista";
 }
 
 function getRecordDate(record: ModulacionRegistro) {
   return toDateKey(record.fechaDespacho || record.fechaDt || record.createdAt);
+}
+
+function getVehicleDate(record: Vehiculo) {
+  return toDateKey(record.fechaDespacho || record.fechaDt || record.date || record.createdAt);
 }
 
 function toDateKey(value: string | undefined) {

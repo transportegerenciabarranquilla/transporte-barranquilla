@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { PUNTO_CORONA_CONTRACTOR, type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
-import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { CONTRACTORS } from "../../lib/contractors";
+import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
+import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "punto_corona_route_reports";
 const LIST_SELECT = "report_id,contractor,operational_date,kind,data,updated_at";
@@ -11,15 +12,15 @@ export async function GET() {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-    if (!canUsePuntoCoronaModule(session)) return NextResponse.json({ error: "Modulo exclusivo para Punto Corona." }, { status: 403 });
+    if (!canUseRangoModule(session)) return NextResponse.json({ error: "Modulo exclusivo para contratistas." }, { status: 403 });
 
     const params = new URLSearchParams({
       select: LIST_SELECT,
-      contractor: `eq.${PUNTO_CORONA_CONTRACTOR}`,
+      contractor: `eq.${session.contractor}`,
       order: "operational_date.desc,updated_at.desc",
     });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
+      headers: supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken),
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
@@ -27,7 +28,7 @@ export async function GET() {
     const rows = (await response.json()) as ReportRow[];
     return NextResponse.json({ records: rows.map((row) => normalizeReport(row.data, row)) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando reportes Punto Corona." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando reportes de rango." }, { status: 500 });
   }
 }
 
@@ -35,24 +36,24 @@ export async function PUT(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-    if (!canUsePuntoCoronaModule(session)) return NextResponse.json({ error: "Modulo exclusivo para Punto Corona." }, { status: 403 });
+    if (!canUseRangoModule(session)) return NextResponse.json({ error: "Modulo exclusivo para contratistas." }, { status: 403 });
 
     const { records } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
     const rows = records.map((record) => ({
       report_id: record.id,
-      contractor: PUNTO_CORONA_CONTRACTOR,
+      contractor: session.contractor,
       operational_date: record.operationalDate,
       kind: record.kind,
-      data: { ...record, contractor: PUNTO_CORONA_CONTRACTOR },
+      data: { ...record, contractor: session.contractor },
       updated_at: new Date().toISOString(),
     }));
 
     if (rows.length) {
       const response = await fetch(supabaseRest(TABLE, "?on_conflict=report_id"), {
         method: "POST",
-        headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+        headers: supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
         body: JSON.stringify(rows),
         cache: "no-store",
       });
@@ -62,7 +63,7 @@ export async function PUT(request: Request) {
     for (const record of records) {
       await writeAuditLog({
         action: record.kind === "closure" ? "cierre_punto_corona" : "punto_corona_archivo_subido",
-        contractor: PUNTO_CORONA_CONTRACTOR,
+        contractor: session.contractor,
         details: {
           archivo: record.fileName,
           fecha: record.operationalDate,
@@ -78,7 +79,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ records: rows.map((row) => row.data) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando reportes Punto Corona." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando reportes de rango." }, { status: 500 });
   }
 }
 
@@ -86,25 +87,25 @@ export async function DELETE(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-    if (!canUsePuntoCoronaModule(session)) return NextResponse.json({ error: "Modulo exclusivo para Punto Corona." }, { status: 403 });
+    if (!canUseRangoModule(session)) return NextResponse.json({ error: "Modulo exclusivo para contratistas." }, { status: 403 });
 
     const reportId = new URL(request.url).searchParams.get("id") || "";
     if (!reportId) return NextResponse.json({ error: "id es requerido." }, { status: 400 });
 
     const params = new URLSearchParams({
       report_id: `eq.${reportId}`,
-      contractor: `eq.${PUNTO_CORONA_CONTRACTOR}`,
+      contractor: `eq.${session.contractor}`,
     });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       method: "DELETE",
-      headers: supabaseUserHeaders(session.accessToken),
+      headers: supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken),
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
     await writeAuditLog({
       action: "cierre_punto_corona_quitado",
-      contractor: PUNTO_CORONA_CONTRACTOR,
+      contractor: session.contractor,
       details: { reportId },
       module: "punto_corona",
       recordId: reportId,
@@ -114,12 +115,12 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando cierre Punto Corona." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando cierre de rango." }, { status: 500 });
   }
 }
 
-function canUsePuntoCoronaModule(session: { contractor?: string; isAdmin?: boolean }) {
-  return !session.isAdmin && session.contractor === PUNTO_CORONA_CONTRACTOR;
+function canUseRangoModule(session: { contractor?: string; isAdmin?: boolean }) {
+  return !session.isAdmin && CONTRACTORS.includes(session.contractor as (typeof CONTRACTORS)[number]);
 }
 
 type ReportRow = {
@@ -135,7 +136,7 @@ function normalizeReport(report: PuntoCoronaRouteReport, row: ReportRow): PuntoC
   return {
     ...report,
     id: report.id || row.report_id,
-    contractor: row.contractor || PUNTO_CORONA_CONTRACTOR,
+    contractor: row.contractor,
     operationalDate: report.operationalDate || row.operational_date,
     kind: report.kind || row.kind,
   };

@@ -1,7 +1,6 @@
 import {
   getPuntoCoronaClosureReportId,
   getPuntoCoronaCurrentReportId,
-  PUNTO_CORONA_CONTRACTOR,
   type PuntoCoronaCrewSummary,
   type PuntoCoronaRouteReport,
   type PuntoCoronaRouteRow,
@@ -13,8 +12,10 @@ import type { Vehiculo } from "../seguimiento/types";
 const NOT_STARTED = "NOT_STARTED";
 const CONCLUDED = "CONCLUDED";
 const RETURNED = "DEFINITELY_RETURNED";
+const WAITING_MODULATION = "WAITING_MODULATION";
+const PARTIAL_DELIVERY = "PARTIAL_DELIVERY";
 
-export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles: Vehiculo[]) {
+export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles: Vehiculo[], contractor: string) {
   const rawRows = await readFileRows(file);
   const operationalDate = getOperationalDate(rawRows) || getLocalDateKey();
   const seguimientoByDt = createSeguimientoByDt(seguimientoVehicles);
@@ -30,8 +31,8 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
   const uploadedAt = new Date().toISOString();
 
   return {
-    id: getPuntoCoronaCurrentReportId(operationalDate),
-    contractor: PUNTO_CORONA_CONTRACTOR,
+    id: getPuntoCoronaCurrentReportId(operationalDate, contractor),
+    contractor,
     operationalDate,
     kind: "current",
     fileName: file.name,
@@ -44,7 +45,7 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
 export function createClosureReport(report: PuntoCoronaRouteReport) {
   return {
     ...report,
-    id: getPuntoCoronaClosureReportId(report.operationalDate),
+    id: getPuntoCoronaClosureReportId(report.operationalDate, report.contractor),
     kind: "closure",
     closedAt: new Date().toISOString(),
   } satisfies PuntoCoronaRouteReport;
@@ -53,12 +54,10 @@ export function createClosureReport(report: PuntoCoronaRouteReport) {
 function createSeguimientoByDt(vehicles: Vehiculo[]) {
   const records = new Map<string, Vehiculo>();
 
-  vehicles
-    .filter((vehicle) => vehicle.transportista === PUNTO_CORONA_CONTRACTOR)
-    .forEach((vehicle) => {
-      const dt = normalizeDt(vehicle.transporte);
-      if (dt && !records.has(dt)) records.set(dt, vehicle);
-    });
+  vehicles.forEach((vehicle) => {
+    const dt = normalizeDt(vehicle.transporte);
+    if (dt && !records.has(dt)) records.set(dt, vehicle);
+  });
 
   return records;
 }
@@ -172,11 +171,17 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
 }
 
 function mergeRouteWithSeguimiento(row: PuntoCoronaRouteRow, vehicle: Vehiculo, routeDt: string) {
+  const seguimientoClientes = Number(vehicle.clientes || 0);
+  const seguimientoVisitados = Number(vehicle.visitados || 0);
+
   return {
     ...row,
     dt: routeDt,
     driverName: getVehicleCrewName(vehicle) || row.driverName,
     truckLicensePlate: vehicle.vehiculo || row.truckLicensePlate,
+    seguimientoClientes,
+    seguimientoVisitados,
+    seguimientoProgress: percentage(seguimientoVisitados, seguimientoClientes),
   };
 }
 
@@ -190,11 +195,14 @@ function summarizeRows(
   rawRows: Record<string, unknown>[],
 ): PuntoCoronaRouteSummary {
   const startedRows = rows.filter((row) => row.status !== NOT_STARTED);
-  const closedRows = rows.filter((row) => row.status === CONCLUDED || row.status === RETURNED);
+  const closedRows = rows.filter((row) => row.status === CONCLUDED || isRejectedForModulation(row.status));
   const inRange = startedRows.filter((row) => row.withinRadius === true).length;
   const outOfRange = startedRows.filter((row) => row.withinRadius === false).length;
   const concluded = rows.filter((row) => row.status === CONCLUDED).length;
-  const returned = rows.filter((row) => row.status === RETURNED).length;
+  const returned = rows.filter((row) => isRejectedForModulation(row.status)).length;
+  const modulatedRows = startedRows.filter((row) => row.status === CONCLUDED).length;
+  const modulationRejectedRows = startedRows.filter((row) => isRejectedForModulation(row.status)).length;
+  const modulationOpenRows = startedRows.length - modulatedRows - modulationRejectedRows;
 
   return {
     seguimientoDts: seguimientoDtsCount,
@@ -208,7 +216,9 @@ function summarizeRows(
     concluded,
     returned,
     openRows: startedRows.length - closedRows.length,
-    modulationPercent: percentage(concluded, concluded + returned),
+    modulatedRows,
+    modulationOpenRows,
+    modulationPercent: percentage(modulatedRows, modulatedRows + modulationRejectedRows),
     deliveryRangePercent: percentage(inRange, startedRows.length),
     crews: summarizeCrews(rows),
   };
@@ -230,7 +240,10 @@ function summarizeCrews(rows: PuntoCoronaRouteRow[]) {
 function summarizeCrew(key: string, rows: PuntoCoronaRouteRow[]): PuntoCoronaCrewSummary {
   const started = rows.filter((row) => row.status !== NOT_STARTED);
   const concluded = rows.filter((row) => row.status === CONCLUDED).length;
-  const returned = rows.filter((row) => row.status === RETURNED).length;
+  const returned = rows.filter((row) => isRejectedForModulation(row.status)).length;
+  const modulatedRows = started.filter((row) => row.status === CONCLUDED).length;
+  const modulationRejectedRows = started.filter((row) => isRejectedForModulation(row.status)).length;
+  const modulationOpenRows = started.length - modulatedRows - modulationRejectedRows;
   const inRange = started.filter((row) => row.withinRadius === true).length;
   const outOfRange = started.filter((row) => row.withinRadius === false).length;
 
@@ -245,9 +258,18 @@ function summarizeCrew(key: string, rows: PuntoCoronaRouteRow[]): PuntoCoronaCre
     concluded,
     returned,
     open: started.length - concluded - returned,
-    modulationPercent: percentage(concluded, concluded + returned),
+    modulatedRows,
+    modulationOpenRows,
+    modulationPercent: percentage(modulatedRows, modulatedRows + modulationRejectedRows),
     deliveryRangePercent: percentage(inRange, started.length),
+    seguimientoClientes: Number(rows[0]?.seguimientoClientes || 0),
+    seguimientoVisitados: Number(rows[0]?.seguimientoVisitados || 0),
+    seguimientoProgress: Number(rows[0]?.seguimientoProgress || 0),
   };
+}
+
+function isRejectedForModulation(status: string) {
+  return status === RETURNED || status === WAITING_MODULATION || status === PARTIAL_DELIVERY;
 }
 
 function createRowReader(row: Record<string, unknown>) {

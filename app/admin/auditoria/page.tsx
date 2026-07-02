@@ -9,10 +9,10 @@ import type { AuditLogRecord } from "../../lib/auditLog";
 const ACTION_LABELS: Record<string, string> = {
   asistencia_guardada: "Asistencia guardada",
   checkin_guardado: "Check-in guardado",
-  cierre_punto_corona: "Cierre Punto Corona",
+  cierre_punto_corona: "Cierre Rango",
   cierre_punto_corona_quitado: "Cierre quitado",
   modulacion_guardada: "Modulacion guardada",
-  punto_corona_archivo_subido: "Archivo Punto Corona",
+  punto_corona_archivo_subido: "Archivo Rango",
   seguimiento_guardado: "Seguimiento guardado",
 };
 

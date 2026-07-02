@@ -28,6 +28,9 @@ export type PuntoCoronaRouteRow = {
   skippedReason: string;
   deliveredVolume: number;
   refusedVolume: number;
+  seguimientoClientes?: number;
+  seguimientoVisitados?: number;
+  seguimientoProgress?: number;
 };
 
 export type PuntoCoronaCrewSummary = {
@@ -41,8 +44,13 @@ export type PuntoCoronaCrewSummary = {
   concluded: number;
   returned: number;
   open: number;
+  modulatedRows?: number;
+  modulationOpenRows?: number;
   modulationPercent: number;
   deliveryRangePercent: number;
+  seguimientoClientes?: number;
+  seguimientoVisitados?: number;
+  seguimientoProgress?: number;
 };
 
 export type PuntoCoronaRouteSummary = {
@@ -57,6 +65,8 @@ export type PuntoCoronaRouteSummary = {
   concluded: number;
   returned: number;
   openRows: number;
+  modulatedRows?: number;
+  modulationOpenRows?: number;
   modulationPercent: number;
   deliveryRangePercent: number;
   crews: PuntoCoronaCrewSummary[];
@@ -83,10 +93,18 @@ export function savePuntoCoronaRouteReports(records: PuntoCoronaRouteReport[]) {
   return saveRemoteRecords("/api/punto-corona-routes", records, { mergeByKey: (record) => record.id });
 }
 
-export function getPuntoCoronaCurrentReportId(operationalDate: string) {
-  return `punto-corona:${operationalDate}:current`;
+export function getPuntoCoronaCurrentReportId(operationalDate: string, contractor = PUNTO_CORONA_CONTRACTOR) {
+  return `rango:${normalizeContractorKey(contractor)}:${operationalDate}:current`;
 }
 
-export function getPuntoCoronaClosureReportId(operationalDate: string) {
-  return `punto-corona:${operationalDate}:closure`;
+export function getPuntoCoronaClosureReportId(operationalDate: string, contractor = PUNTO_CORONA_CONTRACTOR) {
+  return `rango:${normalizeContractorKey(contractor)}:${operationalDate}:closure`;
+}
+
+function normalizeContractorKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
 }

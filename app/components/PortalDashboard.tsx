@@ -3,51 +3,7 @@
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Icon } from "./Icon";
-
-const modules = [
-  {
-    id: 1,
-    title: "Seguimiento",
-    href: "/seguimiento",
-    detail: "Rutas, avance y alertas",
-    tone: "from-[#10223d] to-[#1264ff]",
-    accent: "border-l-[#1264ff]",
-  },
-  {
-    id: 2,
-    title: "Modulacion",
-    href: "/modulacion",
-    detail: "Refusal y gestion comercial",
-    tone: "from-[#0f7c58] to-[#00b8d9]",
-    accent: "border-l-[#0f7c58]",
-  },
-  {
-    id: 3,
-    title: "Jornada laboral",
-    href: "/jornada-laboral",
-    detail: "Relevos y alertas SIF",
-    tone: "from-[#f5bd19] to-[#ff7a1a]",
-    accent: "border-l-[#f5bd19]",
-  },
-];
-
-const peopleModule = {
-  id: 4,
-  title: "Personas",
-  href: "/personas",
-  detail: "Trabajadores, fotos e historial operativo",
-  tone: "from-[#7c3aed] to-[#00b8d9]",
-  accent: "border-l-[#7c3aed]",
-};
-
-const puntoCoronaModule = {
-  id: 5,
-  title: "Punto Corona",
-  href: "/punto-corona",
-  detail: "Entrega en rango y modulacion",
-  tone: "from-[#16a34a] to-[#0f766e]",
-  accent: "border-l-[#16a34a]",
-};
+import { getPortalHeroCopy, getPortalSessionLabel, getVisiblePortalModules } from "./portalModules";
 
 export function PortalDashboard({
   onLogout,
@@ -61,19 +17,10 @@ export function PortalDashboard({
   contractor?: string;
 }) {
   const router = useRouter();
-  const canSeeJornada = isAdmin || contractor === "Logisticos";
-  const baseModules = canSeeJornada ? modules : modules.filter((module) => module.href !== "/jornada-laboral");
-  const contractorModules = contractor === "Punto Corona" ? [...baseModules, puntoCoronaModule] : baseModules;
-  const visibleModules = isPeople
-    ? [peopleModule]
-    : isAdmin
-      ? [{ ...baseModules[0], href: "/admin" }, ...baseModules.slice(1)]
-      : contractorModules;
-  const sessionLabel = isPeople ? "People Transporte" : isAdmin ? "Administrador" : contractor || "Operacion en tiempo real";
+  const visibleModules = getVisiblePortalModules({ contractor, isAdmin, isPeople });
+  const sessionLabel = getPortalSessionLabel({ contractor, isAdmin, isPeople });
   const heroTitle = isPeople ? "Gestion de personas por contratista" : `Gestion central para ${isAdmin ? "toda la operacion" : sessionLabel}`;
-  const heroCopy = isPeople
-    ? "Consulta trabajadores, fotos de reconocimiento e historial operativo de Logisticos, Surti Cervezas y Punto Corona."
-    : "Accede rapido a los modulos activos sin pantallas de bienvenida ni cruces entre contratistas.";
+  const heroCopy = getPortalHeroCopy(isPeople);
 
   return (
     <main className="min-h-screen text-slate-900">

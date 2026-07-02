@@ -27,15 +27,58 @@ export function getProgress(item: Vehiculo) {
   return Math.round((item.visitados / item.clientes) * 100);
 }
 
+export function getPlannedProgress(
+  vehicle: Pick<Vehiculo, "clientes" | "visitados" | "horaSalida" | "horaLlegada" | "tiempoRuta" | "tiempoPlaneado" | "status">,
+  now: Date,
+) {
+  const clientes = Number(vehicle.clientes || 0);
+  const plannedSeconds = parseDurationToSeconds(getPlannedTimeInputValue(vehicle.tiempoPlaneado));
+  if (!clientes || !plannedSeconds) {
+    return {
+      expected: 0,
+      expectedVisited: 0,
+      isBehind: false,
+      label: "Sin plan",
+    };
+  }
+
+  const elapsedSeconds = parseDurationToSeconds(calculateRouteTime(vehicle, now));
+  if (elapsedSeconds === null) {
+    return {
+      expected: 0,
+      expectedVisited: 0,
+      isBehind: false,
+      label: "0.0%",
+    };
+  }
+
+  const secondsPerClient = plannedSeconds / clientes;
+  const expectedVisited = Math.min(clientes, Math.floor(elapsedSeconds / secondsPerClient));
+  const expected = Number(((expectedVisited / clientes) * 100).toFixed(1));
+  const visitados = Number(vehicle.visitados || 0);
+
+  return {
+    expected,
+    expectedVisited,
+    isBehind: visitados < expectedVisited,
+    label: `${expected.toFixed(1)}%`,
+  };
+}
+
+export function getPlannedTimeInputValue(value: string | number | undefined) {
+  const rawValue = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(rawValue) ? "" : rawValue;
+}
+
 export function normalizeCajasTotal(value: number) {
   return Math.round(value / 10) * 10;
 }
 
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
+  if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
   if (item?.status === "Finalizado") return "Finalizado";
   if (hasRecargueValue(item?.recargue)) return "Recargue";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
-  if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
   if (progress === 0) return "Cargando";
   if (progress < 100) return "En ruta";
   return "Finalizado";
@@ -43,6 +86,11 @@ export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "ho
 
 export function hasTimeValue(value: string | undefined) {
   return Boolean(value && value !== "Pendiente" && value !== "-");
+}
+
+export function isLateDepartureTime(value: string | undefined) {
+  const seconds = parseTimeToSeconds(value);
+  return seconds !== null && seconds > 7 * 3600 + 30 * 60;
 }
 
 export function hasRecargueValue(value: string | undefined) {
@@ -73,7 +121,9 @@ export function toDateKey(value: string | undefined) {
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
-export function calculateRouteTime(vehicle: Pick<Vehiculo, "horaSalida" | "horaLlegada" | "tiempoRuta">, now = new Date()) {
+export function calculateRouteTime(vehicle: Pick<Vehiculo, "horaSalida" | "horaLlegada" | "tiempoRuta" | "status">, now = new Date()) {
+  if (isRouteClockBlockedStatus(vehicle.status) && !hasTimeValue(vehicle.horaLlegada)) return "Pendiente";
+
   const startSeconds = parseTimeToSeconds(vehicle.horaSalida);
   if (startSeconds === null) return vehicle.tiempoRuta || "Pendiente";
 
@@ -84,6 +134,10 @@ export function calculateRouteTime(vehicle: Pick<Vehiculo, "horaSalida" | "horaL
   if (elapsedSeconds < 0) elapsedSeconds += 24 * 3600;
 
   return formatRouteDuration(elapsedSeconds);
+}
+
+export function isRouteClockBlockedStatus(status: string | undefined) {
+  return ["Pendiente por salir", "Cargando", "Cambio de fecha", "Pernoctado"].includes(status || "");
 }
 
 export function progressColor(progress: number) {
@@ -106,6 +160,30 @@ function parseTimeToSeconds(value: string | undefined) {
   if (hours > 23 || minutes > 59 || seconds > 59) return null;
 
   return hours * 3600 + minutes * 60 + seconds;
+}
+
+export function parseDurationToSeconds(value: string | number | undefined) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue || rawValue === "Pendiente" || rawValue === "-" || /^\d{4}-\d{2}-\d{2}$/.test(rawValue)) return null;
+
+  const numericValue = Number(rawValue.replace(",", "."));
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    return numericValue > 0 && numericValue < 1 ? Math.round(numericValue * 24 * 3600) : Math.round(numericValue * 3600);
+  }
+
+  const timeMatch = rawValue.match(/^(\d{1,3}):([0-5]\d)(?::([0-5]\d))?$/);
+  if (timeMatch) {
+    return Number(timeMatch[1]) * 3600 + Number(timeMatch[2]) * 60 + Number(timeMatch[3] ?? 0);
+  }
+
+  const normalized = rawValue.toLowerCase();
+  const hours = normalized.match(/(\d+(?:[.,]\d+)?)\s*h/);
+  const minutes = normalized.match(/(\d+(?:[.,]\d+)?)\s*m/);
+  const totalSeconds =
+    (hours ? Number(hours[1].replace(",", ".")) * 3600 : 0) +
+    (minutes ? Number(minutes[1].replace(",", ".")) * 60 : 0);
+
+  return totalSeconds > 0 ? Math.round(totalSeconds) : null;
 }
 
 function formatRouteDuration(totalSeconds: number) {

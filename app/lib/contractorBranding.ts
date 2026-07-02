@@ -13,6 +13,8 @@ const BRANDS: Record<string, ContractorBrand> = {
   Logisticos: { name: "Logisticos", logo: "/contractors/logisticos.png", accent: "#f5bd19", soft: "#fff8e6" },
   "Punto Corona": { name: "Punto Corona", logo: "/contractors/punto-corona.png", accent: "#22c55e", soft: "#ecfdf3" },
   "Surti Cervezas": { name: "Surti Cervezas", logo: "/contractors/surti-cervezas.png", accent: "#f59e0b", soft: "#fff7ed" },
+  "Logisticos Arenosa": { name: "Logisticos Arenosa", logo: "/contractors/logisticos.png", accent: "#f5bd19", soft: "#fff8e6" },
+  "Punto Corona Arenosa": { name: "Punto Corona Arenosa", logo: "/contractors/punto-corona.png", accent: "#22c55e", soft: "#ecfdf3" },
 };
 
 export const CONTRACTOR_SESSION_KEY = "bavaria.session.contractor";
@@ -28,7 +30,7 @@ export function useContractorBrand() {
   useEffect(() => {
     setBrand(getCachedContractorBrand());
 
-    fetch("/api/auth/session", { cache: "no-store" })
+    fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((body) => {
         const contractor = body?.session?.contractor || "";

@@ -16,7 +16,7 @@ export default function Home() {
   const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
+    fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => {
         setIsLoggedIn(response.ok);
         const body = response.ok ? await response.json().catch(() => null) : null;
@@ -31,7 +31,7 @@ export default function Home() {
   }, []);
 
   async function handleLogin(form: LoginForm) {
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch("/api/session/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
@@ -45,7 +45,7 @@ export default function Home() {
   }
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/session/logout", { method: "POST" });
     clearRemoteCache();
     cacheContractor("");
     setSession(null);

@@ -1,11 +1,4 @@
-create table if not exists public.punto_corona_route_reports (
-  report_id text primary key,
-  contractor text not null,
-  operational_date date not null,
-  kind text not null check (kind in ('current', 'closure')),
-  data jsonb not null,
-  updated_at timestamptz not null default now()
-);
+begin;
 
 create or replace function public.normalize_contractor_label(value text)
 returns text
@@ -40,6 +33,15 @@ as $$
   end
 $$;
 
+create table if not exists public.punto_corona_route_reports (
+  report_id text primary key,
+  contractor text not null,
+  operational_date date not null,
+  kind text not null check (kind in ('current', 'closure')),
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 alter table public.punto_corona_route_reports enable row level security;
 
 drop policy if exists "punto corona rutas acceso" on public.punto_corona_route_reports;
@@ -56,3 +58,5 @@ grant execute on function public.current_contractor() to authenticated;
 grant select, insert, update, delete on public.punto_corona_route_reports to authenticated;
 
 notify pgrst, 'reload schema';
+
+commit;

@@ -1,4 +1,5 @@
-import type { PuntoCoronaCrewSummary, PuntoCoronaRouteReport } from "../lib/puntoCoronaRoutesStorage";
+import type { PuntoCoronaCrewSummary, PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../lib/puntoCoronaRoutesStorage";
+import { getDispatchDateKey, normalizeDt, type ModulacionRegistro } from "../lib/modulacionStorage";
 
 type PdfTone = [number, number, number];
 
@@ -8,24 +9,27 @@ const BORDER: PdfTone = [203, 213, 225];
 const LIGHT: PdfTone = [241, 245, 249];
 const GREEN: PdfTone = [4, 120, 87];
 const RED: PdfTone = [185, 28, 28];
-const AMBER: PdfTone = [180, 83, 9];
+const NOT_STARTED = "NOT_STARTED";
+const RETURNED = "DEFINITELY_RETURNED";
+const WAITING_MODULATION = "WAITING_MODULATION";
+const PARTIAL_DELIVERY = "PARTIAL_DELIVERY";
 
-export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport) {
+export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[] = []) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const margin = 14;
-  const contentWidth = 182;
-  const pageBottom = 282;
+  const contentWidth = 269;
+  const pageBottom = 195;
   let y = 12;
 
   const addPage = () => {
     pdf.addPage();
     pdf.setFillColor(...GREEN);
-    pdf.rect(0, 0, 210, 3, "F");
+    pdf.rect(0, 0, 297, 3, "F");
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(8);
     pdf.setTextColor(...SLATE);
-    pdf.text("Punto Corona - Entrega en rango y modulacion", margin, 11);
+    pdf.text(`${report.contractor || "Rango"} - Entrega en rango`, margin, 11);
     y = 17;
   };
   const ensureSpace = (height: number) => {
@@ -43,7 +47,7 @@ export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport) {
   };
 
   pdf.setFillColor(...GREEN);
-  pdf.rect(0, 0, 210, 4, "F");
+  pdf.rect(0, 0, 297, 4, "F");
   pdf.setFont("helvetica", "bold");
   pdf.setTextColor(...GREEN);
   pdf.setFontSize(9);
@@ -59,11 +63,12 @@ export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport) {
   y = 46;
 
   sectionTitle("Indicadores principales");
+  const modulationStats = getReportModulationStats(report, modulaciones);
   drawMetricCards(pdf, margin, y, contentWidth, [
     ["Entrega en rango", `${report.summary.deliveryRangePercent.toFixed(2)}%`, GREEN],
-    ["Modulacion", `${report.summary.modulationPercent.toFixed(2)}%`, NAVY],
-    ["Fuera de rango", String(report.summary.outOfRange), RED],
-    ["Visitas abiertas", String(report.summary.openRows), AMBER],
+    ["Modulacion real", `${modulationStats.percent.toFixed(2)}%`, NAVY],
+    ["Moduladas", String(modulationStats.modulated), NAVY],
+    ["Pendientes", String(modulationStats.rejected), RED],
   ]);
   y += 24;
 
@@ -71,18 +76,17 @@ export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport) {
   drawMetricCards(pdf, margin, y, contentWidth, [
     ["DT seguimiento", String(report.summary.seguimientoDts), NAVY],
     ["DT archivo", String(report.summary.csvDts), NAVY],
-    ["DT tomados", String(report.summary.matchedDts), GREEN],
-    ["No iniciados", String(report.summary.ignoredNotStarted), SLATE],
+    ["Sin validacion", String(Math.max(report.summary.startedRows - report.summary.inRange - report.summary.outOfRange, 0)), SLATE],
   ]);
   y += 24;
 
   drawProgress(pdf, margin, y, contentWidth, "Entrega en rango", report.summary.deliveryRangePercent, GREEN);
   y += 12;
-  drawProgress(pdf, margin, y, contentWidth, "Modulacion", report.summary.modulationPercent, NAVY);
+  drawProgress(pdf, margin, y, contentWidth, "Modulacion real", modulationStats.percent, NAVY);
   y += 16;
 
   sectionTitle("Detalle por tripulacion");
-  drawCrewTable(pdf, report.summary.crews, {
+  drawCrewTable(pdf, report, modulaciones, {
     addPage,
     contentWidth,
     getY: () => y,
@@ -97,15 +101,24 @@ export async function downloadPuntoCoronaPdf(report: PuntoCoronaRouteReport) {
   for (let page = 1; page <= totalPages; page += 1) {
     pdf.setPage(page);
     pdf.setDrawColor(...BORDER);
-    pdf.line(margin, 287, 196, 287);
+    pdf.line(margin, 200, 283, 200);
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(7);
     pdf.setTextColor(...SLATE);
-    pdf.text(`Punto Corona - ${getReportStatusLabel(report)}`, margin, 292);
-    pdf.text(`Pagina ${page} de ${totalPages}`, 196, 292, { align: "right" });
+    pdf.text(`${report.contractor || "Rango"} - ${getReportStatusLabel(report)}`, margin, 205);
+    pdf.text(`Pagina ${page} de ${totalPages}`, 283, 205, { align: "right" });
   }
 
-  pdf.save(`punto-corona-${report.operationalDate}-${report.kind}.pdf`);
+  pdf.save(`rango-${normalizeFileName(report.contractor || "contratista")}-${report.operationalDate}-${report.kind}.pdf`);
+}
+
+function normalizeFileName(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function drawMetricCards(
@@ -116,7 +129,7 @@ function drawMetricCards(
   items: Array<[string, string, PdfTone]>,
 ) {
   const gap = 3;
-  const cardWidth = (contentWidth - gap * 3) / 4;
+  const cardWidth = (contentWidth - gap * (items.length - 1)) / items.length;
 
   items.forEach(([label, value, tone], index) => {
     const x = margin + index * (cardWidth + gap);
@@ -155,7 +168,8 @@ function drawProgress(
 
 function drawCrewTable(
   pdf: InstanceType<typeof import("jspdf").jsPDF>,
-  crews: PuntoCoronaCrewSummary[],
+  report: PuntoCoronaRouteReport,
+  modulaciones: ModulacionRegistro[],
   layout: {
     addPage: () => void;
     contentWidth: number;
@@ -165,8 +179,9 @@ function drawCrewTable(
     setY: (value: number) => void;
   },
 ) {
-  const headers = ["DT", "Tripulacion", "Placa", "Visit.", "Rango", "Fuera", "% rango", "% mod."];
-  const widths = [20, 48, 22, 16, 17, 15, 22, 22];
+  const crews = report.summary.crews;
+  const headers = ["Placa", "Tripulacion", "Inic. arch.", "En rango", "Fuera rango", "% entrega", "Mod.", "Causales", "% mod.", "Avance seg."];
+  const widths = [26, 50, 20, 20, 20, 24, 18, 45, 22, 44];
 
   const drawHeader = () => {
     let x = layout.margin;
@@ -199,15 +214,18 @@ function drawCrewTable(
   }
 
   crews.forEach((crew, rowIndex) => {
+    const modulationStats = getCrewModulationStats(report, crew, modulaciones);
     const row = [
-      crew.dt,
-      crew.driverName,
       crew.truckLicensePlate,
+      crew.driverName,
       crew.totalStarted,
       crew.inRange,
       crew.outOfRange,
       `${crew.deliveryRangePercent.toFixed(2)}%`,
-      `${crew.modulationPercent.toFixed(2)}%`,
+      modulationStats.modulated,
+      formatCauseCounts(modulationStats.causes),
+      `${modulationStats.percent.toFixed(2)}%`,
+      formatCrewSeguimientoProgress(crew),
     ];
     const y = layout.getY();
     const rowHeight = 9;
@@ -235,6 +253,112 @@ function drawCrewTable(
     });
     layout.setY(nextY + rowHeight);
   });
+}
+
+function formatCrewSeguimientoProgress(crew: PuntoCoronaCrewSummary) {
+  const visitados = Number(crew.seguimientoVisitados || 0);
+  const clientes = Number(crew.seguimientoClientes || 0);
+  const progress = Number(crew.seguimientoProgress || 0);
+
+  if (!clientes) return "Sin dato";
+  return `${visitados}/${clientes} ${progress.toFixed(1)}%`;
+}
+
+function getReportModulationStats(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[]) {
+  return getModulationStats(report.rows, getReportModulationKeys(report, modulaciones));
+}
+
+function getCrewModulationStats(report: PuntoCoronaRouteReport, crew: PuntoCoronaCrewSummary, modulaciones: ModulacionRegistro[]) {
+  return getModulationStats(
+    report.rows.filter(
+      (row) =>
+        row.dt === crew.dt &&
+        row.driverName === crew.driverName &&
+        row.truckLicensePlate === crew.truckLicensePlate,
+    ),
+    getReportModulationKeys(report, modulaciones),
+  );
+}
+
+function getModulationStats(rows: PuntoCoronaRouteRow[], modulationKeys: Set<string>) {
+  const startedRows = rows.filter((row) => row.status !== NOT_STARTED);
+  const modulated = new Set(startedRows.map(getRouteModulationKey).filter((key) => key && modulationKeys.has(key))).size;
+  const rejectedRows = startedRows.filter((row) => isRejectedForModulation(row.status) && !modulationKeys.has(getRouteModulationKey(row)));
+  const rejected = rejectedRows.length;
+  const open = startedRows.length - modulated - rejected;
+
+  return {
+    modulated,
+    rejected,
+    causes: getCauseCounts(rejectedRows),
+    open,
+    percent: getRealModulationPercent(modulated, rejected),
+  };
+}
+
+function isRejectedForModulation(status: string) {
+  return status === RETURNED || status === WAITING_MODULATION || status === PARTIAL_DELIVERY;
+}
+
+function getCauseCounts(rows: PuntoCoronaRouteRow[]) {
+  const counts = new Map<string, number>();
+
+  rows.forEach((row) => {
+    const label = getPendingCauseLabel(row);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+}
+
+function getPendingCauseLabel(row: PuntoCoronaRouteRow) {
+  if (row.status === WAITING_MODULATION) return "Esperando mod.";
+  if (row.status === PARTIAL_DELIVERY) return "Visita parcial";
+
+  const causal = (row.skippedReason || row.outOfRadiusReason || "").trim();
+  return causal || "Devuelta";
+}
+
+function formatCauseCounts(causes: Array<{ label: string; value: number }>) {
+  return causes.length ? causes.map((cause) => `${cause.label}: ${cause.value}`).join(" / ") : "-";
+}
+
+function getReportModulationKeys(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[]) {
+  const routeKeys = new Set(report.rows.map(getRouteModulationKey).filter(Boolean));
+  const keys = new Set<string>();
+
+  modulaciones.forEach((record) => {
+    if (record.contratista && report.contractor && record.contratista !== report.contractor) return;
+    if (getDispatchDateKey(record) !== report.operationalDate) return;
+
+    const key = getRecordModulationKey(record);
+    if (key && routeKeys.has(key)) keys.add(key);
+  });
+
+  return keys;
+}
+
+function getRouteModulationKey(row: Pick<PuntoCoronaRouteRow, "dt" | "pocExternalId">) {
+  const dt = normalizeDt(row.dt);
+  const cliente = normalizeClienteCode(row.pocExternalId);
+  return dt && cliente ? `${dt}:${cliente}` : "";
+}
+
+function getRecordModulationKey(record: Pick<ModulacionRegistro, "dt" | "codigoCliente">) {
+  const dt = normalizeDt(record.dt);
+  const cliente = normalizeClienteCode(record.codigoCliente);
+  return dt && cliente ? `${dt}:${cliente}` : "";
+}
+
+function normalizeClienteCode(value: string | number | undefined) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function getRealModulationPercent(modulated: number, rejected: number) {
+  const totalWithResult = modulated + rejected;
+  return totalWithResult ? Number(((modulated / totalWithResult) * 100).toFixed(2)) : 0;
 }
 
 function getReportStatusLabel(report: PuntoCoronaRouteReport) {

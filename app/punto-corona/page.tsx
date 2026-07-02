@@ -5,36 +5,47 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
-  Clock3,
   FileDown,
   FileSpreadsheet,
   LockKeyhole,
   MapPinCheck,
   RotateCcw,
   Save,
+  Truck,
   Upload,
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
-  getPuntoCoronaClosureReportId,
-  getPuntoCoronaCurrentReportId,
-  PUNTO_CORONA_CONTRACTOR,
+  getDispatchDateKey,
+  MODULACION_STORAGE_KEY,
+  normalizeDt,
+  readModulacionRegistros,
+  type ModulacionRegistro,
+} from "../lib/modulacionStorage";
+import {
   PUNTO_CORONA_ROUTES_STORAGE_KEY,
   readPuntoCoronaRouteReports,
   savePuntoCoronaRouteReports,
   type PuntoCoronaCrewSummary,
   type PuntoCoronaRouteReport,
+  type PuntoCoronaRouteRow,
 } from "../lib/puntoCoronaRoutesStorage";
 import { refreshRemoteRecords } from "../lib/remoteStore";
 import { SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
+import { CONTRACTORS } from "../lib/contractors";
 import { loadSeguimientoVehiculos } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
 import { createClosureReport, parsePuntoCoronaRouteFile } from "./routeReportService";
 
 const DATA_REFRESH_MS = 30_000;
+const ALLOWED_CONTRACTORS = new Set<string>(CONTRACTORS);
+const NOT_STARTED = "NOT_STARTED";
+const RETURNED = "DEFINITELY_RETURNED";
+const WAITING_MODULATION = "WAITING_MODULATION";
+const PARTIAL_DELIVERY = "PARTIAL_DELIVERY";
 
 type AccessState = "checking" | "allowed" | "denied";
 
@@ -51,6 +62,11 @@ export default function PuntoCoronaPage() {
     loadSeguimientoVehiculos,
     [],
   );
+  const modulaciones = useStorageSnapshot<ModulacionRegistro[]>(
+    [MODULACION_STORAGE_KEY],
+    readModulacionRegistros,
+    [],
+  );
   const [access, setAccess] = useState<AccessState>("checking");
   const [message, setMessage] = useState("");
   const [downloadError, setDownloadError] = useState("");
@@ -58,13 +74,16 @@ export default function PuntoCoronaPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
+  const [contractor, setContractor] = useState("");
 
   useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
+    fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((body) => {
         const session = body?.session;
-        setAccess(session?.contractor === PUNTO_CORONA_CONTRACTOR && !session?.isAdmin ? "allowed" : "denied");
+        const sessionContractor = session?.contractor || "";
+        setContractor(sessionContractor);
+        setAccess(!session?.isAdmin && ALLOWED_CONTRACTORS.has(sessionContractor) ? "allowed" : "denied");
       })
       .catch(() => setAccess("denied"));
   }, []);
@@ -72,18 +91,20 @@ export default function PuntoCoronaPage() {
   useEffect(() => {
     void refreshRemoteRecords("/api/seguimiento");
     void refreshRemoteRecords("/api/punto-corona-routes");
+    void refreshRemoteRecords("/api/modulaciones");
 
     const interval = window.setInterval(() => {
       void refreshRemoteRecords("/api/seguimiento");
       void refreshRemoteRecords("/api/punto-corona-routes");
+      void refreshRemoteRecords("/api/modulaciones");
     }, DATA_REFRESH_MS);
 
     return () => window.clearInterval(interval);
   }, []);
 
   const availableDates = useMemo(() => {
-    return Array.from(new Set(reports.map((report) => report.operationalDate).filter(Boolean))).sort().reverse();
-  }, [reports]);
+    return Array.from(new Set(reports.filter((report) => report.contractor === contractor).map((report) => report.operationalDate).filter(Boolean))).sort().reverse();
+  }, [contractor, reports]);
 
   useEffect(() => {
     if (selectedDate || !availableDates.length) return;
@@ -92,25 +113,27 @@ export default function PuntoCoronaPage() {
 
   const activeDate = selectedDate || availableDates[0] || "";
   const currentReport = useMemo(
-    () => reports.find((report) => report.id === getPuntoCoronaCurrentReportId(activeDate)),
-    [activeDate, reports],
+    () => reports.find((report) => report.contractor === contractor && report.operationalDate === activeDate && report.kind === "current") ?? null,
+    [activeDate, contractor, reports],
   );
   const closureReport = useMemo(
-    () => reports.find((report) => report.id === getPuntoCoronaClosureReportId(activeDate)),
-    [activeDate, reports],
+    () => reports.find((report) => report.contractor === contractor && report.operationalDate === activeDate && report.kind === "closure") ?? null,
+    [activeDate, contractor, reports],
   );
   const visibleReport = closureReport ?? currentReport ?? null;
-  const seguimientoPuntoCorona = useMemo(
-    () => seguimientoVehicles.filter((vehicle) => vehicle.transportista === PUNTO_CORONA_CONTRACTOR),
-    [seguimientoVehicles],
-  );
-
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!seguimientoPuntoCorona.length) {
-      setMessage("Primero debe estar cargado el seguimiento de Punto Corona para cruzar los DT.");
+
+    let seguimientoContratista = seguimientoVehicles;
+    if (!seguimientoContratista.length) {
+      await refreshRemoteRecords("/api/seguimiento", { force: true });
+      seguimientoContratista = loadSeguimientoVehiculos();
+    }
+
+    if (!seguimientoContratista.length) {
+      setMessage(`Primero debe estar cargado el seguimiento de ${contractor} para cruzar los DT.`);
       return;
     }
 
@@ -118,7 +141,7 @@ export default function PuntoCoronaPage() {
     setMessage("");
 
     try {
-      const report = await parsePuntoCoronaRouteFile(file, seguimientoPuntoCorona);
+      const report = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
       await savePuntoCoronaRouteReports([report]);
       setSelectedDate(report.operationalDate);
       setMessage(`Archivo cargado. Se tomaron ${report.summary.matchedDts} DT del seguimiento actual.`);
@@ -170,7 +193,7 @@ export default function PuntoCoronaPage() {
     setDownloadError("");
 
     try {
-      await downloadPuntoCoronaPdf(visibleReport);
+      await downloadPuntoCoronaPdf(visibleReport, modulaciones);
     } catch {
       setDownloadError("No se pudo generar el PDF. Intenta nuevamente.");
     } finally {
@@ -189,8 +212,8 @@ export default function PuntoCoronaPage() {
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-md bg-emerald-50 text-emerald-700">
             <LockKeyhole className="h-5 w-5" />
           </div>
-          <h1 className="mt-4 text-xl font-semibold text-[#10223d]">Modulo Punto Corona</h1>
-          <p className="mt-2 text-sm text-slate-500">Este modulo solo esta disponible para la sesion de Punto Corona.</p>
+          <h1 className="mt-4 text-xl font-semibold text-[#10223d]">Modulo Rango</h1>
+          <p className="mt-2 text-sm text-slate-500">Este modulo solo esta disponible para sesiones de contratistas.</p>
           <button
             className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#10223d] px-4 py-2 text-sm font-semibold text-white"
             onClick={() => router.push("/")}
@@ -218,8 +241,8 @@ export default function PuntoCoronaPage() {
               <ArrowLeft className="h-4 w-4" />
             </button>
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Punto Corona</p>
-              <h1 className="truncate text-2xl font-semibold text-[#10223d]">Entrega en rango y modulacion</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">{contractor || "Contratista"}</p>
+              <h1 className="truncate text-2xl font-semibold text-[#10223d]">Rango</h1>
             </div>
           </div>
 
@@ -300,10 +323,10 @@ export default function PuntoCoronaPage() {
 
         {visibleReport ? (
           <>
-            <SummaryGrid report={visibleReport} />
-            <Charts report={visibleReport} />
-            <StatusCharts report={visibleReport} />
-            <CrewTable crews={visibleReport.summary.crews} />
+            <SummaryGrid modulaciones={modulaciones} report={visibleReport} />
+            <Charts modulaciones={modulaciones} report={visibleReport} />
+            <StatusCharts modulaciones={modulaciones} report={visibleReport} />
+            <CrewTable modulaciones={modulaciones} report={visibleReport} />
           </>
         ) : (
           <EmptyState onUpload={() => fileInputRef.current?.click()} />
@@ -313,22 +336,26 @@ export default function PuntoCoronaPage() {
   );
 }
 
-function StatusCharts({ report }: { report: PuntoCoronaRouteReport }) {
+function StatusCharts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const summary = report.summary;
+  const modulationStats = getReportModulationStats(report, modulaciones);
   const deliveryItems = [
-    { color: "bg-emerald-500", label: "En rango", value: summary.inRange },
-    { color: "bg-red-500", label: "Fuera de rango", value: summary.outOfRange },
-    { color: "bg-slate-300", label: "Abiertas sin validar", value: Math.max(summary.startedRows - summary.inRange - summary.outOfRange, 0) },
+    { color: "bg-emerald-500", label: "Visitas iniciadas en rango", value: summary.inRange },
+    { color: "bg-red-500", label: "Visitas iniciadas fuera de rango", value: summary.outOfRange },
+    { color: "bg-slate-300", label: "Visitas iniciadas sin validacion", value: Math.max(summary.startedRows - summary.inRange - summary.outOfRange, 0) },
   ];
   const modulationItems = [
-    { color: "bg-[#1264ff]", label: "Concluidos", value: summary.concluded },
-    { color: "bg-red-500", label: "Rechazados", value: summary.returned },
-    { color: "bg-amber-400", label: "Abiertos", value: summary.openRows },
+    { color: "bg-[#1264ff]", label: "Visitas moduladas", value: modulationStats.modulated },
+    ...modulationStats.causes.map((cause) => ({
+      color: getCauseColor(cause.label),
+      label: cause.label,
+      value: cause.value,
+    })),
   ];
 
   return (
     <div className="mb-5 grid gap-4 lg:grid-cols-2">
-      <StackedChart title="Distribucion de entrega" total={summary.startedRows} items={deliveryItems} />
+      <StackedChart title="Distribucion de entrega en rango" total={summary.startedRows} items={deliveryItems} />
       <StackedChart title="Distribucion de modulacion" total={summary.startedRows} items={modulationItems} />
     </div>
   );
@@ -379,21 +406,23 @@ function StackedChart({
   );
 }
 
-function SummaryGrid({ report }: { report: PuntoCoronaRouteReport }) {
+function SummaryGrid({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const summary = report.summary;
+  const modulationStats = getReportModulationStats(report, modulaciones);
 
   return (
     <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Metric icon={<MapPinCheck />} label="% entrega en rango" value={`${summary.deliveryRangePercent.toFixed(2)}%`} tone="emerald" />
-      <Metric icon={<CheckCircle2 />} label="% modulacion" value={`${summary.modulationPercent.toFixed(2)}%`} tone="blue" />
+      <Metric icon={<CheckCircle2 />} label="% modulacion real" value={`${modulationStats.percent.toFixed(2)}%`} tone="blue" />
+      <Metric icon={<CheckCircle2 />} label="Moduladas" value={modulationStats.modulated} tone="blue" />
       <Metric icon={<XCircle />} label="Fuera de rango" value={summary.outOfRange} tone="red" />
-      <Metric icon={<Clock3 />} label="Visitas abiertas" value={summary.openRows} tone="amber" />
     </div>
   );
 }
 
-function Charts({ report }: { report: PuntoCoronaRouteReport }) {
+function Charts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const summary = report.summary;
+  const modulationStats = getReportModulationStats(report, modulaciones);
 
   return (
     <div className="mb-5 grid gap-4 xl:grid-cols-[380px_1fr]">
@@ -401,13 +430,14 @@ function Charts({ report }: { report: PuntoCoronaRouteReport }) {
         <h2 className="text-base font-semibold text-[#10223d]">Resumen del archivo</h2>
         <div className="mt-5 space-y-4">
           <ProgressBar label="Entrega en rango" value={summary.deliveryRangePercent} color="bg-emerald-500" />
-          <ProgressBar label="Modulacion" value={summary.modulationPercent} color="bg-[#1264ff]" />
+          <ProgressBar label="Modulacion real" value={modulationStats.percent} color="bg-[#1264ff]" />
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <SmallStat label="Visitados" value={summary.startedRows} />
-          <SmallStat label="No iniciados" value={summary.ignoredNotStarted} />
-          <SmallStat label="Concluidos" value={summary.concluded} />
-          <SmallStat label="Rechazados" value={summary.returned} />
+          <SmallStat label="Visitas iniciadas" value={summary.startedRows} />
+          <SmallStat label="Moduladas" value={modulationStats.modulated} />
+          {modulationStats.causes.slice(0, 2).map((cause) => (
+            <SmallStat key={cause.label} label={cause.label} value={cause.value} />
+          ))}
         </div>
       </div>
 
@@ -416,7 +446,7 @@ function Charts({ report }: { report: PuntoCoronaRouteReport }) {
           <h2 className="text-base font-semibold text-[#10223d]">Graficas del reporte</h2>
           <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{summary.startedRows} visitas</span>
         </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="mt-5 grid gap-4">
           <DonutChart
             color="#10b981"
             label="Entrega en rango"
@@ -425,9 +455,9 @@ function Charts({ report }: { report: PuntoCoronaRouteReport }) {
           />
           <DonutChart
             color="#1264ff"
-            label="Modulacion"
-            total={summary.concluded + summary.returned}
-            value={summary.concluded}
+            label="Modulacion real"
+            total={modulationStats.modulated + modulationStats.rejected}
+            value={modulationStats.modulated}
           />
         </div>
       </div>
@@ -435,40 +465,68 @@ function Charts({ report }: { report: PuntoCoronaRouteReport }) {
   );
 }
 
-function CrewTable({ crews }: { crews: PuntoCoronaCrewSummary[] }) {
+function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
+  const crews = report.summary.crews;
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-        <h2 className="text-base font-semibold text-[#10223d]">Detalle por tripulacion</h2>
-        <span className="text-sm font-medium text-slate-500">{crews.length} registros</span>
+    <div className="data-shell rounded-lg">
+      <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/78 px-4 py-3 backdrop-blur">
+        <div>
+          <h2 className="text-base font-semibold text-[#10223d]">Detalle por tripulacion</h2>
+          <p className="text-xs text-slate-500">Resumen por placa del reporte de rango.</p>
+        </div>
+        <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{crews.length} registros</span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-100 text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.12em] text-slate-500">
+      <div className="max-h-[620px] overflow-auto">
+        <table className="data-table w-full min-w-[980px] table-fixed text-[10px]">
+          <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
             <tr>
-              <th className="px-4 py-3">DT</th>
-              <th className="px-4 py-3">Tripulacion</th>
-              <th className="px-4 py-3">Placa</th>
-              <th className="px-4 py-3 text-right">Visitados</th>
-              <th className="px-4 py-3 text-right">En rango</th>
-              <th className="px-4 py-3 text-right">Fuera</th>
-              <th className="px-4 py-3 text-right">% rango</th>
-              <th className="px-4 py-3 text-right">% modulacion</th>
+              <th className="w-28 px-2 py-1.5 text-left">Placa</th>
+              <th className="w-44 px-2 py-1.5 text-left">Tripulacion</th>
+              <th className="w-20 px-2 py-1.5 text-right">Iniciadas</th>
+              <th className="w-20 px-2 py-1.5 text-right">En rango</th>
+              <th className="w-20 px-2 py-1.5 text-right">Fuera</th>
+              <th className="w-24 px-2 py-1.5 text-right">% entrega</th>
+              <th className="w-24 px-2 py-1.5 text-right">Moduladas</th>
+              <th className="w-36 px-2 py-1.5 text-right">Causales</th>
+              <th className="w-24 px-2 py-1.5 text-right">% mod.</th>
+              <th className="w-32 px-2 py-1.5 text-right">Avance seg.</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
-            {crews.map((crew) => (
-              <tr className="hover:bg-slate-50/70" key={crew.key}>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#10223d]">{crew.dt}</td>
-                <td className="min-w-56 px-4 py-3 text-slate-700">{crew.driverName}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-500">{crew.truckLicensePlate}</td>
-                <td className="px-4 py-3 text-right font-medium">{crew.totalStarted}</td>
-                <td className="px-4 py-3 text-right text-emerald-700">{crew.inRange}</td>
-                <td className="px-4 py-3 text-right text-red-700">{crew.outOfRange}</td>
-                <td className="px-4 py-3 text-right font-semibold">{crew.deliveryRangePercent.toFixed(2)}%</td>
-                <td className="px-4 py-3 text-right font-semibold">{crew.modulationPercent.toFixed(2)}%</td>
-              </tr>
-            ))}
+          <tbody>
+            {crews.map((crew) => {
+              const modulationStats = getCrewModulationStats(report, crew, modulaciones);
+
+              return (
+                <tr key={crew.key}>
+                  <td className="px-2 py-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
+                        <Truck size={13} />
+                      </span>
+                      <span className="truncate font-semibold text-[#10223d]" title={crew.truckLicensePlate}>
+                        {crew.truckLicensePlate}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-1">
+                    <span className="block truncate rounded bg-white/62 px-1.5 py-1 text-[10px] font-semibold text-[#10223d]" title={crew.driverName}>
+                      {crew.driverName}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1 text-right"><span className="number-pill">{crew.totalStarted}</span></td>
+                  <td className="px-2 py-1 text-right text-emerald-700"><span className="number-pill border-emerald-100 bg-emerald-50">{crew.inRange}</span></td>
+                  <td className="px-2 py-1 text-right text-red-700"><span className="number-pill border-red-100 bg-red-50">{crew.outOfRange}</span></td>
+                  <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{crew.deliveryRangePercent.toFixed(2)}%</td>
+                  <td className="px-2 py-1 text-right text-[#07556b]"><span className="number-pill border-cyan-100 bg-cyan-50">{modulationStats.modulated}</span></td>
+                  <td className="px-2 py-1 text-right">
+                    <CausePills causes={modulationStats.causes} />
+                  </td>
+                  <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{modulationStats.percent.toFixed(2)}%</td>
+                  <td className="px-2 py-1 text-right font-semibold text-slate-700">{formatSeguimientoProgress(crew)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -562,6 +620,131 @@ function SmallStat({ label, value }: { label: string; value: string | number }) 
       <p className="mt-1 text-lg font-semibold text-[#10223d]">{value}</p>
     </div>
   );
+}
+
+function CausePills({ causes }: { causes: Array<{ label: string; value: number }> }) {
+  if (!causes.length) {
+    return <span className="text-[10px] font-semibold text-slate-400">-</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      {causes.map((cause) => (
+        <span className="number-pill min-w-0 border-amber-100 bg-amber-50 text-[10px] text-amber-700" key={cause.label} title={cause.label}>
+          {cause.label}: {cause.value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function formatSeguimientoProgress(crew: PuntoCoronaCrewSummary) {
+  const visitados = Number(crew.seguimientoVisitados || 0);
+  const clientes = Number(crew.seguimientoClientes || 0);
+  const progress = Number(crew.seguimientoProgress || 0);
+
+  if (!clientes) return "Sin dato";
+  return `${visitados}/${clientes} (${progress.toFixed(2)}%)`;
+}
+
+function getReportModulationStats(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[]) {
+  return getModulationStats(report.rows, getReportModulationKeys(report, modulaciones));
+}
+
+function getCrewModulationStats(report: PuntoCoronaRouteReport, crew: PuntoCoronaCrewSummary, modulaciones: ModulacionRegistro[]) {
+  return getModulationStats(
+    report.rows.filter(
+      (row) =>
+        row.dt === crew.dt &&
+        row.driverName === crew.driverName &&
+        row.truckLicensePlate === crew.truckLicensePlate,
+    ),
+    getReportModulationKeys(report, modulaciones),
+  );
+}
+
+function getModulationStats(rows: PuntoCoronaRouteRow[], modulationKeys: Set<string>) {
+  const startedRows = rows.filter((row) => row.status !== NOT_STARTED);
+  const modulated = new Set(startedRows.map(getRouteModulationKey).filter((key) => key && modulationKeys.has(key))).size;
+  const rejectedRows = startedRows.filter((row) => isRejectedForModulation(row.status) && !modulationKeys.has(getRouteModulationKey(row)));
+  const rejected = rejectedRows.length;
+  const open = startedRows.length - modulated - rejected;
+
+  return {
+    modulated,
+    rejected,
+    causes: getCauseCounts(rejectedRows),
+    open,
+    percent: getRealModulationPercent(modulated, rejected),
+  };
+}
+
+function isRejectedForModulation(status: string) {
+  return status === RETURNED || status === WAITING_MODULATION || status === PARTIAL_DELIVERY;
+}
+
+function getCauseCounts(rows: PuntoCoronaRouteRow[]) {
+  const counts = new Map<string, number>();
+
+  rows.forEach((row) => {
+    const label = getPendingCauseLabel(row);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+}
+
+function getPendingCauseLabel(row: PuntoCoronaRouteRow) {
+  if (row.status === WAITING_MODULATION) return "Esperando mod.";
+  if (row.status === PARTIAL_DELIVERY) return "Visita parcial";
+
+  const causal = (row.skippedReason || row.outOfRadiusReason || "").trim();
+  return causal || "Devuelta";
+}
+
+function getCauseColor(label: string) {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("parcial")) return "bg-amber-400";
+  if (normalized.includes("esperando")) return "bg-cyan-500";
+  return "bg-red-500";
+}
+
+function getReportModulationKeys(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[]) {
+  const routeKeys = new Set(report.rows.map(getRouteModulationKey).filter(Boolean));
+  const keys = new Set<string>();
+
+  modulaciones.forEach((record) => {
+    if (record.contratista && report.contractor && record.contratista !== report.contractor) return;
+    if (getDispatchDateKey(record) !== report.operationalDate) return;
+
+    const key = getRecordModulationKey(record);
+    if (key && routeKeys.has(key)) keys.add(key);
+  });
+
+  return keys;
+}
+
+function getRouteModulationKey(row: Pick<PuntoCoronaRouteRow, "dt" | "pocExternalId">) {
+  const dt = normalizeDt(row.dt);
+  const cliente = normalizeClienteCode(row.pocExternalId);
+  return dt && cliente ? `${dt}:${cliente}` : "";
+}
+
+function getRecordModulationKey(record: Pick<ModulacionRegistro, "dt" | "codigoCliente">) {
+  const dt = normalizeDt(record.dt);
+  const cliente = normalizeClienteCode(record.codigoCliente);
+  return dt && cliente ? `${dt}:${cliente}` : "";
+}
+
+function normalizeClienteCode(value: string | number | undefined) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function getRealModulationPercent(modulated: number, rejected: number) {
+  const totalWithResult = modulated + rejected;
+  return totalWithResult ? Number(((modulated / totalWithResult) * 100).toFixed(2)) : 0;
 }
 
 function EmptyState({ onUpload }: { onUpload: () => void }) {

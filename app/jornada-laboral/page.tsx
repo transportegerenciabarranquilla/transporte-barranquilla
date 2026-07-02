@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
+import { isLogisticosContractor } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
-import { getVehicleUiKey, hasTimeValue, toDateKey } from "../seguimiento/utils";
+import { getStatus, getVehicleUiKey, hasTimeValue, toDateKey } from "../seguimiento/utils";
 
 const META_RELEVO_MINUTES = 10 * 60 + 30;
 const SIF_ALERT_MINUTES = 13 * 60;
+const META_RELEVO_SECONDS = META_RELEVO_MINUTES * 60;
+const SIF_ALERT_SECONDS = SIF_ALERT_MINUTES * 60;
 const CAUSALES_DESVIO = [
   "Demora en atencion del cliente",
   "Factores climaticos",
@@ -35,10 +38,12 @@ export default function JornadaLaboralPage() {
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores, setRelevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
+  const finishedElapsedSecondsRef = useRef(new Map<string, number>());
   const vehiculos = draftVehiculos ?? storedVehiculos;
+  const jornadaVehiculos = useMemo(() => vehiculos.filter(isLogisticosVehicle), [vehiculos]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 60000);
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -47,21 +52,21 @@ export default function JornadaLaboralPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
+    fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((body) => {
         const session = body?.session;
-        setCanAccessJornada(Boolean(session?.isAdmin || session?.contractor === "Logisticos"));
+        setCanAccessJornada(Boolean(session?.isAdmin || isLogisticosContractor(session?.contractor)));
       })
       .catch(() => setCanAccessJornada(false));
   }, []);
 
   const rows = useMemo(() => {
-    return vehiculos
+    return jornadaVehiculos
       .filter((vehicle) => toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === selectedDate)
-      .map((vehicle) => buildJornadaRow(vehicle, now))
+      .map((vehicle) => buildJornadaRow(vehicle, now, finishedElapsedSecondsRef.current))
       .sort((a, b) => getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true }));
-  }, [now, selectedDate, vehiculos]);
+  }, [jornadaVehiculos, now, selectedDate]);
 
   const resumen = useMemo(
     () => ({
@@ -87,8 +92,8 @@ export default function JornadaLaboralPage() {
   }, [classificationFilter, rows, search, stateFilter]);
   const selectedVehicle = useMemo(() => {
     if (!selectedVehicleKey) return null;
-    return vehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
-  }, [selectedVehicleKey, vehiculos]);
+    return jornadaVehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
+  }, [jornadaVehiculos, selectedVehicleKey]);
 
   function updateVehicle(recordKey: string, changes: Partial<Vehiculo>) {
     const next = prepareSeguimientoVehicles(
@@ -98,7 +103,7 @@ export default function JornadaLaboralPage() {
         const updated = { ...vehicle, ...changes };
         const metaRelevo = calculateMetaRelevo(updated.horaSalida);
         const clasificacion = classifyRelevo(updated.horaSalida, updated.horaInicioRelevo);
-        const hasSifAlert = hasSifPotential(updated.horaSalida, updated.horaInicioRelevo, now);
+        const hasSifAlert = hasSifPotential(updated, now);
 
         return {
           ...updated,
@@ -270,11 +275,11 @@ export default function JornadaLaboralPage() {
                   <HeaderCell width="w-[88px]" title="Placa" detail="Vehiculo" />
                   <HeaderCell width="w-[64px]" title="Fecha" detail="Despacho" />
                   <HeaderCell width="w-[72px]" title="Salida" detail="Hora ruta" />
-                  <HeaderCell width="w-[76px]" title="Tiempo" detail="Desde salida" />
+                  <HeaderCell width="w-[88px]" title="Tiempo" detail="Desde salida" />
                   <HeaderCell align="center" width="w-[58px]" title="Clientes" detail="Prog." />
                   <HeaderCell align="center" width="w-[58px]" title="Visitados" detail="Aten." />
                   <HeaderCell width="w-[78px]" title="Meta" detail="+10:30" />
-                  <HeaderCell width="w-[116px]" title="Inicio relevo" detail="Editable" />
+                  <HeaderCell width="w-[132px]" title="Inicio relevo" detail="Editable" />
                   <HeaderCell width="w-[148px]" title="Relevador" detail="Asignado" />
                   <HeaderCell width="w-[90px]" title="Resultado" detail="Efectivo/no" />
                   <HeaderCell width="w-[130px]" title="Causal" detail="Desvio" />
@@ -293,7 +298,7 @@ export default function JornadaLaboralPage() {
                         <td className="truncate px-1 py-0.5 text-[11px] font-semibold text-[#10223d]" title={row.vehicle.vehiculo}>{row.vehicle.vehiculo}</td>
                         <td className="px-1 py-0.5 text-[11px] text-slate-700">{formatCompactDate(row.vehicle.fechaDespacho || row.vehicle.fechaDt)}</td>
                         <td className="px-1 py-0.5">
-                          <span className="inline-flex h-6 w-12 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-[#10223d]">
+                          <span className="inline-flex h-6 w-16 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 font-mono text-[11px] font-semibold text-[#10223d]">
                             {timeInputValue(row.vehicle.horaSalida) || "-"}
                           </span>
                         </td>
@@ -427,13 +432,17 @@ function HeaderCell({
 
 function TimeInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
   return (
-    <input
-      className="h-6 w-[76px] rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
-      onChange={(event) => onChange(event.target.value)}
-      onClick={(event) => event.stopPropagation()}
-      type="time"
-      value={value}
-    />
+    <label className="relative block">
+      <Clock3 className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+      <input
+        className="h-7 w-[92px] rounded-md border border-slate-200 bg-white pl-2 pr-5 font-mono text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19] focus:ring-2 focus:ring-[#f5bd19]/20"
+        onChange={(event) => onChange(event.target.value)}
+        onClick={(event) => event.stopPropagation()}
+        step={1}
+        type="time"
+        value={value}
+      />
+    </label>
   );
 }
 
@@ -633,15 +642,22 @@ function ProgressCell({ value }: { value: number }) {
   );
 }
 
-function buildJornadaRow(vehicle: Vehiculo, now: Date) {
-  const salidaMinutes = parseTimeToMinutes(vehicle.horaSalida);
-  const relevoMinutes = parseTimeToMinutes(vehicle.horaInicioRelevo);
+function isLogisticosVehicle(vehicle: Vehiculo) {
+  return isLogisticosContractor(vehicle.transportista);
+}
+
+function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: Map<string, number>) {
+  const salidaSeconds = parseTimeToSeconds(vehicle.horaSalida);
+  const relevoSeconds = parseTimeToSeconds(vehicle.horaInicioRelevo);
   const metaRelevo = calculateMetaRelevo(vehicle.horaSalida);
   const clasificacion = classifyRelevo(vehicle.horaSalida, vehicle.horaInicioRelevo);
-  const hasRelevo = relevoMinutes !== null;
+  const hasRelevo = relevoSeconds !== null;
   const avance = vehicle.clientes ? Math.min(100, Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100)) : 0;
+  const isFinished = getStatus(avance, vehicle) === "Finalizado";
+  const vehicleKey = getVehicleUiKey(vehicle);
 
-  if (salidaMinutes === null) {
+  if (salidaSeconds === null) {
+    finishedElapsedSeconds.delete(vehicleKey);
     return {
       alertaSif: false,
       avance,
@@ -654,14 +670,16 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
     };
   }
 
-  const elapsedMinutes = hasRelevo ? diffFromStart(salidaMinutes, relevoMinutes) : diffFromStart(salidaMinutes, now.getHours() * 60 + now.getMinutes());
-  const alertaSif = elapsedMinutes >= SIF_ALERT_MINUTES;
-  const state: JornadaState = hasRelevo ? (alertaSif ? "lateDone" : "done") : alertaSif ? "danger" : elapsedMinutes >= META_RELEVO_MINUTES ? "warn" : "ok";
+  const elapsedSeconds = getJornadaElapsedSeconds(vehicle, salidaSeconds, relevoSeconds, isFinished, now, finishedElapsedSeconds);
+  const alertaSif = elapsedSeconds >= SIF_ALERT_SECONDS;
+  const state: JornadaState = hasRelevo ? (alertaSif ? "lateDone" : "done") : alertaSif ? "danger" : elapsedSeconds >= META_RELEVO_SECONDS ? "warn" : "ok";
   const statusLabel = hasRelevo
     ? "Relevo realizado"
+    : isFinished
+      ? "Ruta finalizada"
     : alertaSif
       ? "Alerta SIF potencial"
-      : elapsedMinutes >= META_RELEVO_MINUTES
+      : elapsedSeconds >= META_RELEVO_SECONDS
         ? "Pendiente relevo"
         : "En jornada";
 
@@ -669,7 +687,7 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
     alertaSif,
     avance,
     clasificacion,
-    elapsedLabel: formatDuration(elapsedMinutes),
+    elapsedLabel: formatDuration(elapsedSeconds),
     metaRelevo,
     state,
     statusLabel,
@@ -690,18 +708,65 @@ function classifyRelevo(horaSalida: string | undefined, horaInicioRelevo: string
   return diffFromStart(salidaMinutes, relevoMinutes) <= META_RELEVO_MINUTES ? "Efectivo" : "No efectivo";
 }
 
-function hasSifPotential(horaSalida: string | undefined, horaInicioRelevo: string | undefined, now: Date) {
-  const salidaMinutes = parseTimeToMinutes(horaSalida);
-  if (salidaMinutes === null) return false;
+function hasSifPotential(vehicle: Vehiculo, now: Date) {
+  const salidaSeconds = parseTimeToSeconds(vehicle.horaSalida);
+  if (salidaSeconds === null) return false;
 
-  const relevoMinutes = parseTimeToMinutes(horaInicioRelevo);
-  const endMinutes = relevoMinutes ?? now.getHours() * 60 + now.getMinutes();
-  return diffFromStart(salidaMinutes, endMinutes) >= SIF_ALERT_MINUTES;
+  const relevoSeconds = parseTimeToSeconds(vehicle.horaInicioRelevo);
+  const progress = vehicle.clientes ? Math.min(100, Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100)) : 0;
+  const elapsedSeconds = getJornadaElapsedSeconds(vehicle, salidaSeconds, relevoSeconds, getStatus(progress, vehicle) === "Finalizado", now);
+  return elapsedSeconds >= SIF_ALERT_SECONDS;
+}
+
+function getJornadaElapsedSeconds(
+  vehicle: Vehiculo,
+  salidaSeconds: number,
+  relevoSeconds: number | null,
+  isFinished: boolean,
+  now: Date,
+  finishedElapsedSeconds?: Map<string, number>,
+) {
+  const vehicleKey = getVehicleUiKey(vehicle);
+
+  if (!isFinished) finishedElapsedSeconds?.delete(vehicleKey);
+  if (relevoSeconds !== null) {
+    finishedElapsedSeconds?.delete(vehicleKey);
+    return diffSecondsFromStart(salidaSeconds, relevoSeconds);
+  }
+
+  const arrivalSeconds = parseTimeToSeconds(vehicle.horaLlegada);
+  if (isFinished && arrivalSeconds !== null) {
+    finishedElapsedSeconds?.delete(vehicleKey);
+    return diffSecondsFromStart(salidaSeconds, arrivalSeconds);
+  }
+
+  const savedRouteSeconds = parseDurationToSeconds(vehicle.tiempoRuta);
+  if (isFinished && savedRouteSeconds !== null) {
+    finishedElapsedSeconds?.delete(vehicleKey);
+    return savedRouteSeconds;
+  }
+
+  const nowSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  const currentElapsedSeconds = diffSecondsFromStart(salidaSeconds, nowSeconds);
+
+  if (!isFinished) return currentElapsedSeconds;
+
+  const frozenElapsedSeconds = finishedElapsedSeconds?.get(vehicleKey);
+  if (frozenElapsedSeconds !== undefined) return frozenElapsedSeconds;
+
+  finishedElapsedSeconds?.set(vehicleKey, currentElapsedSeconds);
+  return currentElapsedSeconds;
 }
 
 function diffFromStart(startMinutes: number, endMinutes: number) {
   let diff = endMinutes - startMinutes;
   if (diff < 0) diff += 24 * 60;
+  return diff;
+}
+
+function diffSecondsFromStart(startSeconds: number, endSeconds: number) {
+  let diff = endSeconds - startSeconds;
+  if (diff < 0) diff += 24 * 3600;
   return diff;
 }
 
@@ -715,21 +780,45 @@ function parseTimeToMinutes(value: string | undefined) {
   return hours * 60 + minutes;
 }
 
+function parseTimeToSeconds(value: string | undefined) {
+  if (!hasTimeValue(value)) return null;
+  const match = value?.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] ?? 0);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function parseDurationToSeconds(value: string | undefined) {
+  if (!hasTimeValue(value)) return null;
+  const match = value?.match(/^(\d+):([0-5]\d)(?::([0-5]\d))?$/);
+  if (!match) return null;
+
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0);
+}
+
 function formatTime(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function formatDuration(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+function formatDuration(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function timeInputValue(value: string | undefined) {
-  const minutes = parseTimeToMinutes(value);
-  return minutes === null ? "" : formatTime(minutes);
+  const seconds = parseTimeToSeconds(value);
+  if (seconds === null) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainderSeconds = seconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainderSeconds).padStart(2, "0")}`;
 }
 
 function normalizeSelectValue(value: string | undefined) {

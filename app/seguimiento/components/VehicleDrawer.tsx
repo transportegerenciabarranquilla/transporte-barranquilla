@@ -1,8 +1,18 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { Boxes, CalendarDays, Clock3, MapPin, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, Boxes, CalendarDays, Clock3, MapPin, MessageSquareText, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, hasRecargueValue } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, hasRecargueValue, isLateDepartureTime, isRouteClockBlockedStatus } from "../utils";
 import { StatusBadge } from "./StatusBadge";
+
+const LATE_DEPARTURE_CAUSES = [
+  "Novedad de cargue",
+  "Novedad de flota",
+  "Ausentismo",
+  "Llegada tarde personal",
+  "Descanso efectivo",
+  "Sincronizacion",
+  "Otros",
+];
 
 export function VehicleDrawer({
   canEditResponsibleManual,
@@ -10,6 +20,7 @@ export function VehicleDrawer({
   now,
   onClose,
   onDeleteVehicle,
+  onSaveLateDeparture,
   onUpdateVehicle,
   recordKey,
 }: {
@@ -18,6 +29,7 @@ export function VehicleDrawer({
   now: Date;
   onClose: () => void;
   onDeleteVehicle: (recordKey: string) => void;
+  onSaveLateDeparture: (recordKey: string, changes: Pick<Vehiculo, "causalSalidaTardia" | "comentarioSalidaTardia">) => Promise<void>;
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   recordKey: string;
 }) {
@@ -25,8 +37,11 @@ export function VehicleDrawer({
   const capacity = vehicle.capacidad ? Math.round((vehicle.peso / vehicle.capacidad) * 100) : 0;
   const routeTime = calculateRouteTime(vehicle, now);
   const status = getStatus(progress, vehicle);
+  const departureValue = isRouteClockBlockedStatus(status) ? "Pendiente" : vehicle.horaSalida;
   const onTimeClassification = getOnTimeClassification(vehicle.fechaDt, vehicle.fechaDespacho);
   const hasRecargue = hasRecargueValue(vehicle.recargue);
+  const requiresLateDepartureDetail = isLateDepartureTime(vehicle.horaSalida);
+  const hasLateDepartureDetail = Boolean(vehicle.causalSalidaTardia && vehicle.comentarioSalidaTardia?.trim());
   const onUpdateVehicleRef = useRef(onUpdateVehicle);
 
   useEffect(() => {
@@ -136,7 +151,7 @@ export function VehicleDrawer({
               <div className="grid gap-3 sm:grid-cols-2">
                 <EditableTime
                   label="Hora salida"
-                  value={vehicle.horaSalida}
+                  value={departureValue}
                   onChange={(value) =>
                     updateVehicle({
                       horaSalida: value || "Pendiente",
@@ -155,6 +170,15 @@ export function VehicleDrawer({
                   }
                 />
               </div>
+
+              {requiresLateDepartureDetail && !hasLateDepartureDetail ? (
+                <LateDepartureDetails
+                  comentario={vehicle.comentarioSalidaTardia || ""}
+                  causal={vehicle.causalSalidaTardia || ""}
+                  recordKey={recordKey}
+                  onSave={(changes) => onSaveLateDeparture(recordKey, changes)}
+                />
+              ) : null}
 
               <div className="rounded-md bg-slate-100 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Tiempo en ruta</p>
@@ -226,6 +250,7 @@ export function VehicleDrawer({
             <EditableInfo icon={<Route size={18} />} label="Bloque" value={vehicle.bloque} onChange={(value) => updateVehicle({ bloque: String(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Clientes" type="number" value={vehicle.clientes} onChange={(value) => updateVehicle({ clientes: Number(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Visitados" type="number" value={vehicle.visitados} onChange={(value) => updateVehicle({ visitados: Number(value) })} />
+            <EditableInfo icon={<Clock3 size={18} />} label="Tiempo planeado" value={vehicle.tiempoPlaneado || ""} onChange={(value) => updateVehicle({ tiempoPlaneado: String(value) })} />
             <EditableInfo icon={<PackageCheck size={18} />} label="HL" type="number" value={vehicle.hl} onChange={(value) => updateVehicle({ hl: Number(value) })} />
             <EditableInfo icon={<Boxes size={18} />} label="Cajas" type="number" value={vehicle.cajas} onChange={(value) => updateVehicle({ cajas: Number(value) })} />
             <Info icon={<Boxes size={18} />} label="Cajas rechazadas" value={vehicle.cajasRechazadas || 0} />
@@ -278,6 +303,111 @@ function EditableTime({ label, value, onChange }: { label: string; value: string
         value={value === "Pendiente" || value === "-" ? "" : value}
       />
     </label>
+  );
+}
+
+function LateDepartureDetails({
+  causal,
+  comentario,
+  onSave,
+  recordKey,
+}: {
+  causal: string;
+  comentario: string;
+  onSave: (changes: Pick<Vehiculo, "causalSalidaTardia" | "comentarioSalidaTardia">) => Promise<void>;
+  recordKey: string;
+}) {
+  const [causeDraft, setCauseDraft] = useState(causal);
+  const [commentDraft, setCommentDraft] = useState(comentario);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const recordKeyRef = useRef(recordKey);
+
+  useEffect(() => {
+    if (recordKeyRef.current === recordKey) return;
+    recordKeyRef.current = recordKey;
+    setCauseDraft(causal);
+    setCommentDraft(comentario);
+  }, [causal, comentario, recordKey]);
+
+  async function saveDetails() {
+    if (!causeDraft || !commentDraft.trim()) return;
+    setSaving(true);
+    setError("");
+
+    try {
+      await onSave({
+        causalSalidaTardia: causeDraft,
+        comentarioSalidaTardia: commentDraft.trim(),
+      });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No se pudo guardar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const missingLateDepartureCause = !causeDraft;
+  const missingLateDepartureComment = !commentDraft.trim();
+  const canSave = !missingLateDepartureCause && !missingLateDepartureComment;
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <div className="mb-3 flex items-start gap-2 text-amber-900">
+        <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-semibold">Salida despues de 7:00</p>
+          <p className="mt-0.5 text-xs font-medium text-amber-800">Selecciona la causal y deja un comentario.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <label className="grid gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-900">Causal</span>
+          <select
+            className={`h-11 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-[#f5bd19] ${
+              missingLateDepartureCause ? "border-red-300" : "border-amber-200"
+            }`}
+            onChange={(event) => setCauseDraft(event.target.value)}
+            required
+            value={causeDraft}
+          >
+            <option value="">Seleccionar causal</option>
+            {LATE_DEPARTURE_CAUSES.map((cause) => (
+              <option key={cause} value={cause}>
+                {cause}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1">
+          <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-amber-900">
+            <MessageSquareText size={14} />
+            Comentario
+          </span>
+          <textarea
+            className={`min-h-24 resize-y rounded-md border bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-[#f5bd19] ${
+              missingLateDepartureComment ? "border-red-300" : "border-amber-200"
+            }`}
+            onChange={(event) => setCommentDraft(event.target.value)}
+            placeholder="Escribe el detalle de la salida tardia"
+            required
+            value={commentDraft}
+          />
+        </label>
+
+        <button
+          className="h-10 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white transition hover:bg-[#0b684a] disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={!canSave || saving}
+          onClick={saveDetails}
+          type="button"
+        >
+          {saving ? "Guardando..." : "Guardar"}
+        </button>
+        {error ? <p className="text-xs font-semibold text-red-700">{error}</p> : null}
+      </div>
+    </div>
   );
 }
 

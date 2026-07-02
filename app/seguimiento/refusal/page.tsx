@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, ClipboardList, Package, TrendingDown, Users, XCircle } from "lucide-react";
-import { AnalyticsDateFilter } from "../components/AnalyticsDateFilter";
+import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
@@ -26,14 +26,18 @@ const EMPTY_CHECKINS: CheckinCajasRegistro[] = [];
 export default function SeguimientoRefusalPage() {
   const router = useRouter();
   const brand = useContractorBrand();
-  const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [dateRange, setDateRange] = useState(() => {
+    const today = todayKey();
+    return { from: today, to: today };
+  });
   const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
   const allModulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, EMPTY_MODULACIONES);
   const checkins = useStorageSnapshot<CheckinCajasRegistro[]>([CHECKIN_STORAGE_KEY], readCheckinCajasRegistros, EMPTY_CHECKINS);
 
   useEffect(() => {
-    const fecha = new URLSearchParams(window.location.search).get("fecha") || todayKey();
-    setSelectedDate(fecha);
+    const params = new URLSearchParams(window.location.search);
+    const fecha = params.get("fecha") || todayKey();
+    setDateRange(normalizeDateRange(params.get("desde") || fecha, params.get("hasta") || fecha));
   }, []);
 
   const activeVehiculos = useMemo(() => {
@@ -41,23 +45,24 @@ export default function SeguimientoRefusalPage() {
     return loaded.length ? loaded : vehicles;
   }, [vehicles]);
 
-  const todayVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [activeVehiculos, selectedDate]);
+  const rangeVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleInRange(vehicle, dateRange)), [activeVehiculos, dateRange]);
   const seguimientoDts = useMemo(() => new Set(activeVehiculos.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean)), [activeVehiculos]);
   const modulaciones = useMemo(
-    () => allModulaciones.filter((registro) => getModulacionDateKey(registro) === selectedDate && seguimientoDts.has(normalizeDt(registro.dt))),
-    [allModulaciones, selectedDate, seguimientoDts],
+    () => allModulaciones.filter((registro) => isDateInRange(getModulacionDateKey(registro), dateRange) && seguimientoDts.has(normalizeDt(registro.dt))),
+    [allModulaciones, dateRange, seguimientoDts],
   );
 
   const refusalData = useMemo(() => {
-    const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
-    const seguimientoDts = new Set(todayVehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
-    const byVehicle = todayVehicles.map((vehicle) => {
-      const registrosDt = modulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
+    const totalCajasSeguimiento = normalizeCajasTotal(rangeVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
+    const seguimientoKeys = new Set(rangeVehicles.map((vehicle) => `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`).filter(Boolean));
+    const byVehicle = rangeVehicles.map((vehicle) => {
+      const vehicleKey = `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`;
+      const registrosDt = modulaciones.filter((registro) => `${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}` === vehicleKey);
       const checkin = getCheckinByDt(checkins, vehicle.transporte);
 
       return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
     });
-    const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoDts.has(normalizeDt(registro.dt)));
+    const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoKeys.has(`${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}`));
     const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
     const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0) + resumenSinSeguimiento.cajasRechazadas;
     const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0) + resumenSinSeguimiento.cajasGestionadas;
@@ -73,12 +78,12 @@ export default function SeguimientoRefusalPage() {
       topeMaximo: Math.floor(totalCajasSeguimiento / 100) || 1,
       porcentaje: totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
     };
-  }, [checkins, modulaciones, todayVehicles]);
+  }, [checkins, modulaciones, rangeVehicles]);
 
   const modulationRows = useMemo(() => {
     const rows = modulaciones
       .map((modulacion) => {
-        const vehicle = findVehicleForModulacion(modulacion, todayVehicles, activeVehiculos);
+        const vehicle = findVehicleForModulacion(modulacion, rangeVehicles, activeVehiculos);
         const checkin = getCheckinByDt(checkins, modulacion.dt);
         const tieneCheckin = typeof checkin?.totalCajas === "number";
 
@@ -94,7 +99,7 @@ export default function SeguimientoRefusalPage() {
       });
 
     return groupModulationRowsByVehicle(rows).sort((a, b) => b.cajasRechazo - a.cajasRechazo);
-  }, [activeVehiculos, checkins, modulaciones, todayVehicles]);
+  }, [activeVehiculos, checkins, modulaciones, rangeVehicles]);
 
   const refusalTone = getRefusalTone(refusalData.porcentaje);
 
@@ -106,7 +111,7 @@ export default function SeguimientoRefusalPage() {
             <button
               aria-label="Volver a seguimiento"
               className="grid h-10 w-10 place-items-center rounded-md text-[#10223d] transition hover:bg-slate-100"
-              onClick={() => router.push(selectedDate ? `/seguimiento?fecha=${encodeURIComponent(selectedDate)}` : "/seguimiento")}
+              onClick={() => router.push(dateRange.to ? `/seguimiento?fecha=${encodeURIComponent(dateRange.to)}` : "/seguimiento")}
               type="button"
             >
               <ArrowLeft size={19} />
@@ -117,7 +122,7 @@ export default function SeguimientoRefusalPage() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
+            <AnalyticsDateRangeFilter value={dateRange} onChange={setDateRange} />
             <AnalyticsViewToggle active="refusal" />
           </div>
         </div>
@@ -276,12 +281,12 @@ function getBloque(vehicle: Vehiculo | undefined, modulacion: ModulacionRegistro
   return value || "Sin bloque";
 }
 
-function findVehicleForModulacion(modulacion: ModulacionRegistro, todayVehicles: Vehiculo[], allVehicles: Vehiculo[]) {
+function findVehicleForModulacion(modulacion: ModulacionRegistro, rangeVehicles: Vehiculo[], allVehicles: Vehiculo[]) {
   const targetDt = normalizeDt(modulacion.dt);
   if (!targetDt) return undefined;
 
   return (
-    todayVehicles.find((vehicle) => normalizeDt(vehicle.transporte) === targetDt) ||
+    rangeVehicles.find((vehicle) => normalizeDt(vehicle.transporte) === targetDt && getVehicleDateKey(vehicle) === getModulacionDateKey(modulacion)) ||
     allVehicles.find((vehicle) => normalizeDt(vehicle.transporte) === targetDt)
   );
 }
@@ -326,12 +331,21 @@ function todayKey() {
   return getLocalDateKey();
 }
 
-function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
+function isVehicleInRange(vehicle: Vehiculo, range: { from: string; to: string }) {
+  return isDateInRange(getVehicleDateKey(vehicle), range);
 }
 
 function getModulacionDateKey(registro: ModulacionRegistro) {
   return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
+}
+
+function getVehicleDateKey(vehicle: Vehiculo) {
+  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+}
+
+function isDateInRange(dateKey: string, range: { from: string; to: string }) {
+  if (!dateKey) return false;
+  return dateKey >= range.from && dateKey <= range.to;
 }
 
 function toDateKey(value: string | undefined) {
