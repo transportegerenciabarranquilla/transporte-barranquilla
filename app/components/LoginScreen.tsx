@@ -75,7 +75,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                 <Icon name="building" />
               </div>
               <div>
-                <p className="text-lg font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Bavaria</p>
+                <p className="text-lg font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">transport Barranquilla</p>
                 <p className="text-sm text-white/68">Torre Control</p>
               </div>
             </div>
@@ -110,7 +110,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                 <Icon name="building" />
               </div>
               <div>
-                <p className="text-base font-semibold uppercase tracking-[0.16em] text-[#10223d]">Bavaria</p>
+                <p className="text-base font-semibold uppercase tracking-[0.16em] text-[#10223d]">Transport</p>
                 <p className="text-sm text-slate-500">Torre Control</p>
               </div>
             </div>
@@ -203,7 +203,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
               </form>
             </div>
 
-            <p className="mt-6 text-center text-xs leading-5 text-slate-500">Bavaria S.A.</p>
+            <p className="mt-6 text-center text-xs leading-5 text-slate-500">Transport S.A.</p>
           </div>
         </section>
       </section>

@@ -16,9 +16,9 @@ export function WelcomeCharacter() {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ delay: 0.2, duration: 0.45, ease: "easeOut" }}
       >
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#0f7c58]">Asistente Bavaria</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#0f7c58]">Asistente </p>
         <p className="mt-1 text-lg font-semibold leading-snug text-[#10223d]">
-          Hola, bienvenido a tu portal web Bavaria
+          Hola, bienvenido a tu portal web de seguimiento de vehiculos
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500">Estoy aqui para guiarte por tus modulos.</p>
         <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-slate-200 bg-white" />

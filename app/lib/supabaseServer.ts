@@ -32,6 +32,10 @@ export function supabaseUserHeaders(accessToken: string, extra?: Record<string, 
   return supabaseHeaders({ Authorization: `Bearer ${accessToken}`, ...extra });
 }
 
+export function supabaseReadHeaders(accessToken: string, extra?: Record<string, string>) {
+  return supabaseAdminHeaders(extra) ?? supabaseUserHeaders(accessToken, extra);
+}
+
 export function supabaseAdminHeaders(extra?: Record<string, string>) {
   if (!SUPABASE_SERVICE_ROLE_KEY) return null;
 

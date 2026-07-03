@@ -27,6 +27,25 @@ export function prepareSeguimientoVehicles(records: Vehiculo[]) {
   return prepareVehicles(records);
 }
 
+export function removeDuplicateDtRecords(records: Vehiculo[]) {
+  const recordsByRoute = new Map<string, Vehiculo>();
+  const recordsWithoutRoute: Vehiculo[] = [];
+
+  records.forEach((vehicle) => {
+    const routeKey = getVehicleRecordKey(vehicle);
+    if (!routeKey || routeKey.endsWith("-sin-fecha")) {
+      recordsWithoutRoute.push(vehicle);
+      return;
+    }
+
+    const current = recordsByRoute.get(routeKey);
+    recordsByRoute.delete(routeKey);
+    recordsByRoute.set(routeKey, current ? mergeDuplicateVehicle(current, vehicle) : vehicle);
+  });
+
+  return [...recordsWithoutRoute, ...recordsByRoute.values()];
+}
+
 export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {
   const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
@@ -97,7 +116,8 @@ export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones
 }
 
 function prepareVehicles(records: Vehiculo[]) {
-  const withIds = ensureVehicleRecordIds(records);
+  const withoutDuplicates = removeDuplicateDtRecords(records);
+  const withIds = ensureVehicleRecordIds(withoutDuplicates);
   const withNumericBoxes = normalizeVehicleBoxes(withIds);
   const withAttendance = applyAttendanceToVehicles(withNumericBoxes);
   return enrichVehiclesWithModulacion(withAttendance, readModulacionRegistros());
@@ -114,7 +134,8 @@ function ensureVehicleRecordIds(records: Vehiculo[]) {
   const usedIds = new Set<string>();
 
   return records.map((vehicle, index) => {
-    const baseId = vehicle.recordId || `vehiculo-${getVehicleRecordKey(vehicle)}-${index}`;
+    const routeKey = getVehicleRecordKey(vehicle);
+    const baseId = vehicle.recordId || (routeKey && !routeKey.endsWith("-sin-fecha") ? `vehiculo-${routeKey}` : `vehiculo-${routeKey}-${index}`);
     const recordId = getUniqueRecordId(baseId, usedIds);
 
     return {
@@ -137,13 +158,28 @@ function getUniqueRecordId(baseId: string, usedIds: Set<string>) {
   return recordId;
 }
 
+function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
+  const clientes = next.clientes > 0 ? next.clientes : current.clientes;
+  const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
+
+  return {
+    ...current,
+    ...next,
+    clientes,
+    visitados: Math.min(visitados, clientes || visitados),
+  };
+}
+
 function applyAttendanceToVehicles(records: Vehiculo[]) {
-  const attendanceByDt = readAttendanceByDt();
-  if (!attendanceByDt.size) return records;
+  const attendanceIndex = readAttendanceIndex();
+  if (!attendanceIndex.byDtAndDate.size && !attendanceIndex.latestByDt.size) return records;
 
   return records.map((vehicle) => {
-    const attendance = attendanceByDt.get(normalizeDt(vehicle.transporte));
+    const dt = normalizeDt(vehicle.transporte);
+    const dispatchDate = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    const attendance = attendanceIndex.byDtAndDate.get(`${dt}:${dispatchDate}`) || attendanceIndex.latestByDt.get(dt);
     if (!attendance) return vehicle;
+    const attendanceResponsible = attendance.nombreResponsable || (attendance.cedulaResponsable ? `CC ${attendance.cedulaResponsable}` : "");
 
     return {
       ...vehicle,
@@ -153,37 +189,52 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
       nombreResponsable: attendance.nombreResponsable || vehicle.nombreResponsable,
       nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
       nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
-      responsable: shouldFillResponsible(vehicle.responsable)
-        ? attendance.nombreResponsable || vehicle.responsable
-        : vehicle.responsable,
+      responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
     };
   });
 }
 
-function readAttendanceByDt() {
-  const records = new Map<string, AsistenciaRegistro>();
-  if (typeof window === "undefined") return records;
+function readAttendanceIndex() {
+  const byDtAndDate = new Map<string, AsistenciaRegistro>();
+  const latestByDt = new Map<string, AsistenciaRegistro>();
+  if (typeof window === "undefined") return { byDtAndDate, latestByDt };
 
   try {
     readAsistenciaRegistros().forEach((registro) => {
       const dt = normalizeDt(registro.dt);
       if (!dt) return;
 
-      const existing = records.get(dt);
-      if (!existing || new Date(registro.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-        records.set(dt, registro);
+      const createdDate = dateValue(registro.createdAt);
+      const dateKey = createdDate ? `${dt}:${createdDate}` : "";
+      const existingForDate = dateKey ? byDtAndDate.get(dateKey) : undefined;
+      if (dateKey && (!existingForDate || isNewerRecord(registro, existingForDate))) {
+        byDtAndDate.set(dateKey, registro);
+      }
+
+      const existing = latestByDt.get(dt);
+      if (!existing || isNewerRecord(registro, existing)) {
+        latestByDt.set(dt, registro);
       }
     });
   } catch {
-    return records;
+    return { byDtAndDate, latestByDt };
   }
 
-  return records;
+  return { byDtAndDate, latestByDt };
+}
+
+function isNewerRecord(next: AsistenciaRegistro, current: AsistenciaRegistro) {
+  return new Date(next.createdAt).getTime() > new Date(current.createdAt).getTime();
 }
 
 function shouldFillResponsible(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return !normalized || normalized === "pendiente" || normalized === "sin responsable";
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return !normalized || ["0", "-", "n/a", "na", "pendiente", "sin responsable", "sinresponsable"].includes(normalized);
 }
 
 function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map<string, number>) {

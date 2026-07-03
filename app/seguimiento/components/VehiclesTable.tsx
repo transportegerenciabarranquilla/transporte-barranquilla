@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleUiKey, progressColor } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, progressColor } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
@@ -24,7 +24,7 @@ export function VehiclesTable({
   const duplicatedDt = useMemo(() => {
     const counts = new Map<string, number>();
     vehicles.forEach((vehicle) => {
-      const key = normalizeDt(vehicle.transporte);
+      const key = getVehicleRecordKey(vehicle);
       if (!key) return;
       counts.set(key, (counts.get(key) || 0) + 1);
     });
@@ -103,7 +103,7 @@ export function VehiclesTable({
               const progress = getProgress(item);
               const status = getStatus(progress, item);
               const recordKey = getVehicleUiKey(item);
-              const isDuplicatedDt = duplicatedDt.has(normalizeDt(item.transporte));
+              const isDuplicatedDt = duplicatedDt.has(getVehicleRecordKey(item));
               const plannedProgress = getPlannedProgress(item, now);
               const isBehindPlan = plannedProgress.isBehind;
               const plannedTimeValue = getPlannedTimeInputValue(item.tiempoPlaneado);
@@ -298,13 +298,6 @@ function cleanNumberInput(value: string, allowDecimal: boolean) {
 
   const [integer = "", ...decimals] = cleanValue.split(".");
   return decimals.length ? `${integer}.${decimals.join("")}` : integer;
-}
-
-function normalizeDt(value: string | number | undefined) {
-  return String(value ?? "")
-    .replace(/^DT-?/i, "")
-    .replace(/[^a-z0-9]/gi, "")
-    .toLowerCase();
 }
 
 function sortVehicleKeys(vehicles: Vehiculo[], order: "desc" | "asc") {

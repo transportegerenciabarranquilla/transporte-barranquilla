@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "checkins_cajas";
 type CheckinWithContractor = CheckinCajasRegistro & { contratista?: string };
@@ -16,7 +16,7 @@ export async function GET() {
         ? { select: "contractor,data", order: "updated_at.desc" }
         : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const rows = (await response.json()) as { contractor?: string; data: CheckinWithContractor }[];
     return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });

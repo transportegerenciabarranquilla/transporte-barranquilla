@@ -29,7 +29,7 @@ function getAssistantAnswer(question: string) {
     return "Este ingreso es una simulacion visual. Mas adelante puedes conectarlo a autenticacion, roles, sesiones y base de datos.";
   }
 
-  return "Este portal esta pensado para centralizar herramientas de Bavaria. Puedes empezar por Seguimiento y luego activar nuevos modulos segun lo que necesite el equipo.";
+  return "Este portal esta pensado para centralizar herramientas de  Puedes empezar por Seguimiento y luego activar nuevos modulos segun lo que necesite el equipo.";
 }
 
 function AssistantAvatar() {
@@ -59,7 +59,7 @@ export function AssistantWidget() {
     {
       id: 1,
       role: "assistant",
-      text: "Hola, soy tu asistente Bavaria. Preguntame sobre el portal, los modulos o el acceso.",
+      text: "Hola, soy tu asistente Preguntame sobre el portal, los modulos o el acceso.",
     },
   ]);
 
@@ -97,7 +97,7 @@ export function AssistantWidget() {
             <div className="flex items-center gap-3 px-4 pt-4">
               <AssistantAvatar />
               <div>
-                <p className="text-sm font-semibold text-[#10223d]">Asistente Bavaria</p>
+                <p className="text-sm font-semibold text-[#10223d]">Asistente</p>
                 <p className="text-xs text-slate-500">Chat de ayuda rapida</p>
               </div>
             </div>

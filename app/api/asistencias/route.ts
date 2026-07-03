@@ -3,7 +3,7 @@ import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "asistencias_ruta";
 
@@ -11,11 +11,14 @@ export async function GET() {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
-    const params = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" });
+    const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const rows = (await response.json()) as { data: AsistenciaRegistro }[];
-    return NextResponse.json({ records: rows.map((row) => row.data) });
+    const rows = (await response.json()) as { contractor?: string; data: AsistenciaRegistro }[];
+    const records = rows
+      .map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista }))
+      .filter((record) => normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor));
+    return NextResponse.json({ records });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando asistencias." }, { status: 500 });
   }
@@ -41,7 +44,7 @@ export async function PUT(request: Request) {
       data: { ...record, contratista: contractor },
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=attendance_key"), {
+    const response = await fetch(supabaseRest(TABLE, "?on_conflict=attendance_key"), {
       method: "POST",
       headers: getWriteHeaders(session?.accessToken, isPublicSubmission),
       body: JSON.stringify(rows),
@@ -91,5 +94,8 @@ function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: bo
     return supabaseUserHeaders(accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
   }
 
-  return supabaseAdminHeaders({ Prefer: "return=minimal" }) || supabaseHeaders({ Prefer: "return=minimal" });
+  return (
+    supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ||
+    supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" })
+  );
 }

@@ -3,7 +3,7 @@ import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "modulaciones_ruta";
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
@@ -21,7 +21,7 @@ export async function GET() {
         : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
+      headers: supabaseReadHeaders(session.accessToken),
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });

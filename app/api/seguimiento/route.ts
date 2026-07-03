@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import type { Vehiculo } from "../../seguimiento/types";
+import { getVehicleRecordKey } from "../../seguimiento/utils";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
-import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
@@ -36,14 +38,15 @@ export async function GET(request: Request) {
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: session ? supabaseUserHeaders(session.accessToken) : supabaseHeaders(),
+      headers: session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
     const rows = (await response.json()) as { contractor?: string; data: Vehiculo }[];
-    const records = rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista }));
-    return NextResponse.json({ records: await applyDatabaseCapacities(records, session?.accessToken) });
+    const records = removeDuplicateDtRecords(rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista })));
+    const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
+    return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando seguimiento." }, { status: 500 });
   }
@@ -57,18 +60,24 @@ export async function PUT(request: Request) {
     const { records } = (await request.json()) as { records: Vehiculo[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
-    const scopedRecords = await applyDatabaseCapacities(
-      records.map((record) => ({
-        ...record,
-        transportista: session.contractor,
-      })),
+    const scopedRecords = await applyAttendanceToVehicles(
+      removeDuplicateDtRecords(
+        await applyDatabaseCapacities(
+          records.map((record) => ({
+            ...record,
+            transportista: session.contractor,
+          })),
+          session.accessToken,
+        ),
+      ),
       session.accessToken,
+      session.contractor,
     );
 
     const rows = scopedRecords.map((record, index) => ({
-      record_id: record.recordId || `${record.transporte}-${record.fechaDespacho || record.fechaDt}-${index}`,
+      record_id: getSeguimientoRecordId(record, session.contractor, index),
       contractor: session.contractor,
-      data: record,
+      data: { ...record, recordId: getSeguimientoRecordId(record, session.contractor, index) },
       updated_at: new Date().toISOString(),
     }));
     if (rows.length) {
@@ -81,24 +90,8 @@ export async function PUT(request: Request) {
       if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
     }
 
-    const keepIds = new Set(rows.map((row) => row.record_id));
-    const currentParams = new URLSearchParams({ select: "record_id", contractor: `eq.${session.contractor}` });
-    const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
-      cache: "no-store",
-    });
-    if (currentResponse.ok) {
-      const current = (await currentResponse.json()) as { record_id: string }[];
-      const removed = current.map((row) => row.record_id).filter((id) => !keepIds.has(id));
-      if (removed.length) {
-        const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
-        await fetch(supabaseRest(TABLE, `?record_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`), {
-          method: "DELETE",
-          headers: supabaseUserHeaders(session.accessToken),
-          cache: "no-store",
-        });
-      }
-    }
+    const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken);
+    if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
 
     const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
     const savedResponse = await fetch(supabaseRest(TABLE, `?${savedParams.toString()}`), {
@@ -120,10 +113,184 @@ export async function PUT(request: Request) {
       request,
       session,
     });
-    return NextResponse.json({ records: await applyDatabaseCapacities(savedRows.map((row) => row.data), session.accessToken) });
+    const savedRecords = await applyDatabaseCapacities(removeDuplicateDtRecords(savedRows.map((row) => row.data)), session.accessToken);
+    return NextResponse.json({ records: await applyAttendanceToVehicles(savedRecords, session.accessToken, session.contractor) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
   }
+}
+
+async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string) {
+  const currentParams = new URLSearchParams({ select: "record_id", contractor: `eq.${contractor}` });
+  const headers = getWriteHeaders(accessToken);
+  const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
+    headers,
+    cache: "no-store",
+  });
+  if (!currentResponse.ok) return await supabaseError(currentResponse);
+
+  const current = (await currentResponse.json()) as { record_id: string }[];
+  const keep = new Set(keepIds);
+  const removed = current.map((row) => row.record_id).filter((id) => !keep.has(id));
+  if (!removed.length) return "";
+
+  for (const recordId of removed) {
+    const params = new URLSearchParams({
+      contractor: `eq.${contractor}`,
+      record_id: `eq.${recordId}`,
+    });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) return await supabaseError(response);
+  }
+
+  return "";
+}
+
+function getWriteHeaders(accessToken: string) {
+  return supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+}
+
+function removeDuplicateDtRecords(records: Vehiculo[]) {
+  const recordsByRoute = new Map<string, Vehiculo>();
+  const recordsWithoutRoute: Vehiculo[] = [];
+
+  records.forEach((record) => {
+    const routeKey = getVehicleRecordKey(record);
+    if (!routeKey || routeKey.endsWith("-sin-fecha")) {
+      recordsWithoutRoute.push(record);
+      return;
+    }
+
+    const contractorKey = normalizeContractorName(record.transportista);
+    const uniqueKey = `${contractorKey}:${routeKey}`;
+    const current = recordsByRoute.get(uniqueKey);
+    recordsByRoute.delete(uniqueKey);
+    recordsByRoute.set(uniqueKey, current ? mergeDuplicateVehicle(current, record) : record);
+  });
+
+  return [...recordsWithoutRoute, ...recordsByRoute.values()];
+}
+
+function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: number) {
+  const routeKey = getVehicleRecordKey(record);
+  const contractorKey = normalizeContractorName(contractor);
+
+  if (routeKey && !routeKey.endsWith("-sin-fecha")) return `seguimiento:${contractorKey}:${routeKey}`;
+  return record.recordId || `seguimiento:${contractorKey}:${routeKey || "sin-ruta"}:${index}`;
+}
+
+function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
+  const clientes = next.clientes > 0 ? next.clientes : current.clientes;
+  const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
+
+  return {
+    ...current,
+    ...next,
+    clientes,
+    visitados: Math.min(visitados, clientes || visitados),
+  };
+}
+
+async function applyAttendanceToVehicles(records: Vehiculo[], accessToken: string | undefined, contractor?: string) {
+  if (!records.length) return records;
+
+  const attendanceIndex = await readAttendanceIndex(accessToken, contractor);
+  if (!attendanceIndex.byContractorDtAndDate.size && !attendanceIndex.latestByContractorDt.size) return records;
+
+  return records.map((vehicle) => {
+    const contractorKey = normalizeContractorName(vehicle.transportista || contractor);
+    const dt = normalizeDt(vehicle.transporte);
+    if (!contractorKey || !dt) return vehicle;
+
+    const dispatchDate = routeDateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    const attendance =
+      attendanceIndex.byContractorDtAndDate.get(`${contractorKey}:${dt}:${dispatchDate}`) ||
+      attendanceIndex.latestByContractorDt.get(`${contractorKey}:${dt}`);
+    if (!attendance) return vehicle;
+
+    const attendanceResponsible = attendance.nombreResponsable || (attendance.cedulaResponsable ? `CC ${attendance.cedulaResponsable}` : "");
+
+    return {
+      ...vehicle,
+      cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
+      cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
+      cedulaAuxiliar2: attendance.cedulaAuxiliar2 || vehicle.cedulaAuxiliar2,
+      nombreResponsable: attendance.nombreResponsable || vehicle.nombreResponsable,
+      nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
+      nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
+      responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
+    };
+  });
+}
+
+async function readAttendanceIndex(accessToken: string | undefined, contractor?: string) {
+  const byContractorDtAndDate = new Map<string, AsistenciaRegistro>();
+  const latestByContractorDt = new Map<string, AsistenciaRegistro>();
+  const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
+  if (contractor) params.set("contractor", `eq.${contractor}`);
+
+  const response = await fetch(supabaseRest("asistencias_ruta", `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? (accessToken ? supabaseReadHeaders(accessToken) : supabaseHeaders()),
+    cache: "no-store",
+  });
+  if (!response.ok) return { byContractorDtAndDate, latestByContractorDt };
+
+  const rows = (await response.json().catch(() => [])) as { contractor?: string; data: AsistenciaRegistro }[];
+  rows.forEach((row) => {
+    const record = { ...row.data, contratista: row.contractor || row.data.contratista };
+    const contractorKey = normalizeContractorName(record.contratista);
+    const dt = normalizeDt(record.dt);
+    if (!contractorKey || !dt) return;
+
+    const createdDate = routeDateValue(record.createdAt);
+    const dateKey = createdDate ? `${contractorKey}:${dt}:${createdDate}` : "";
+    const existingForDate = dateKey ? byContractorDtAndDate.get(dateKey) : undefined;
+    if (dateKey && (!existingForDate || isNewerAttendance(record, existingForDate))) {
+      byContractorDtAndDate.set(dateKey, record);
+    }
+
+    const latestKey = `${contractorKey}:${dt}`;
+    const existing = latestByContractorDt.get(latestKey);
+    if (!existing || isNewerAttendance(record, existing)) {
+      latestByContractorDt.set(latestKey, record);
+    }
+  });
+
+  return { byContractorDtAndDate, latestByContractorDt };
+}
+
+function isNewerAttendance(next: AsistenciaRegistro, current: AsistenciaRegistro) {
+  return new Date(next.createdAt).getTime() > new Date(current.createdAt).getTime();
+}
+
+function shouldFillResponsible(value: string | undefined) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return !normalized || ["0", "-", "n/a", "na", "pendiente", "sin responsable", "sinresponsable"].includes(normalized);
+}
+
+function routeDateValue(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if ([day, month, year].every(Number.isFinite)) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 async function applyDatabaseCapacities(records: Vehiculo[], accessToken?: string) {

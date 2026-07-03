@@ -345,20 +345,37 @@ export default function SeguimientoPage() {
     setDeleteCandidateKey(recordKey);
   }
 
-  function confirmDeleteVehicle() {
+  async function confirmDeleteVehicle() {
     if (!deleteCandidateKey) return;
     const vehicle = vehiculos.find((item) => getVehicleUiKey(item) === deleteCandidateKey);
     if (vehicle) removeStaleRouteData(vehicle, true);
 
+    const previousVehicles = vehiculos;
     const prepared = prepareSeguimientoVehicles(vehiculos.filter((item) => getVehicleUiKey(item) !== deleteCandidateKey));
     setVehiculos(prepared);
-    scheduleSeguimientoSave(prepared);
+    pendingLocalSaveRef.current = true;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
 
     if (vehiculoSeleccionadoKey === deleteCandidateKey) {
       setVehiculoSeleccionado(null);
       setVehiculoSeleccionadoKey(null);
     }
     setDeleteCandidateKey(null);
+    setImportMessage("Borrando DT en Supabase...");
+
+    try {
+      const savedRecords = await saveSeguimientoVehiculos(prepared);
+      setVehiculos(savedRecords);
+      setImportMessage("DT borrado correctamente.");
+    } catch (error) {
+      setVehiculos(previousVehicles);
+      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el DT.");
+    } finally {
+      pendingLocalSaveRef.current = false;
+    }
   }
 
   async function borrarTodoSeguimiento() {
@@ -476,6 +493,12 @@ export default function SeguimientoPage() {
         DT: vehicle.transporte,
         Placa: vehicle.vehiculo,
         Responsable: vehicle.responsable,
+        "Nombre RR": vehicle.nombreResponsable || vehicle.responsable || "",
+        "Cedula RR": vehicle.cedulaResponsable || "",
+        "Nombre conductor / auxiliar 1": vehicle.nombreAuxiliar1 || "",
+        "Cedula conductor / auxiliar 1": vehicle.cedulaAuxiliar1 || "",
+        "Nombre auxiliar 2": vehicle.nombreAuxiliar2 || "",
+        "Cedula auxiliar 2": vehicle.cedulaAuxiliar2 || "",
         "Fecha despacho": vehicle.fechaDespacho,
         "Fecha DT": vehicle.fechaDt,
         Estado: vehicle.status,

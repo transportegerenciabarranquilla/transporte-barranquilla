@@ -27,8 +27,9 @@ export function normalizeContractor(value: string) {
   return value.toUpperCase().replace(/\s+/g, "-");
 }
 
-export function createAttendanceKey(contratista: string, dt: string) {
-  return `${normalizeContractor(contratista)}-${dt}`;
+export function createAttendanceKey(contratista: string, dt: string, dateKey?: string) {
+  const normalizedDt = String(dt ?? "").replace(/^DT-?/i, "").replace(/\D/g, "");
+  return [normalizeContractor(contratista), normalizedDt, dateKey].filter(Boolean).join("-");
 }
 
 export function removeAsistenciaByDt(dt: string | number | undefined) {

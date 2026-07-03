@@ -106,6 +106,8 @@ export default function AsistenciaPage() {
 
     setSaving(true);
     setSaveError("");
+    const createdAt = new Date().toISOString();
+    const attendanceDate = getLocalDateKey();
 
     const nextRecord: AsistenciaRegistro = {
       id: crypto.randomUUID(),
@@ -117,8 +119,8 @@ export default function AsistenciaPage() {
       nombreResponsable: personas.cedulaResponsable?.NOMBRE,
       nombreAuxiliar1: personas.cedulaAuxiliar1?.NOMBRE,
       nombreAuxiliar2: personas.cedulaAuxiliar2?.NOMBRE,
-      llave: createAttendanceKey(form.contratista, form.dt),
-      createdAt: new Date().toISOString(),
+      llave: createAttendanceKey(form.contratista, form.dt, attendanceDate),
+      createdAt,
     };
 
     try {
@@ -232,7 +234,7 @@ export default function AsistenciaPage() {
             <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
               <p className="font-semibold">Asistencia guardada en Supabase.</p>
               <p className="mt-1">
-                Llave: <strong>{createAttendanceKey(submitted.contratista, submitted.dt)}</strong>
+                Llave: <strong>{createAttendanceKey(submitted.contratista, submitted.dt, getLocalDateKey())}</strong>
               </p>
               <p className="mt-1">
                 Cedulas guardadas: <strong>{personFields.map((field) => submitted[field]).filter(Boolean).join(", ")}</strong>
@@ -285,4 +287,8 @@ function NumericField({
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
     </label>
   );
+}
+
+function getLocalDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
