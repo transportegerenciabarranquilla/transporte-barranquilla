@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Clock3, Trash2, Truck } from "lucide-react";
+import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, progressColor } from "../utils";
 import { StatusBadge } from "./StatusBadge";
@@ -60,17 +60,21 @@ export function VehiclesTable({
 
   return (
     <div className="data-shell rounded-lg">
-      <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/78 px-4 py-3 backdrop-blur">
+      <div className="flex flex-col gap-3 border-b border-slate-200/70 bg-white/86 px-4 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-[#10223d]">Vehículos en ruta</h2>
           <p className="text-xs text-slate-500">Selecciona una fila para ver el detalle.</p>
         </div>
-        <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{vehicles.length} rutas</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{vehicles.length} rutas</span>
+          <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">Click para detalle</span>
+        </div>
       </div>
 
-      <div className="max-h-[620px] overflow-auto">
-        <table className="data-table w-full min-w-[980px] table-fixed text-[10px]">
-          <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
+      {sortedVehicles.length ? (
+      <div className="max-h-[650px] overflow-auto">
+        <table className="data-table w-full min-w-[1040px] table-fixed text-[11px]">
+          <thead className="sticky top-0 z-10 text-[10px] uppercase tracking-[0.08em]">
             <tr>
               <th className="w-28 px-2 py-1.5 text-left">Vehículo</th>
               <th className="w-20 px-2 py-1.5 text-left">DT</th>
@@ -114,9 +118,9 @@ export function VehiclesTable({
                   key={recordKey}
                   onClick={() => onSelectVehicle(item)}
                 >
-                  <td className="px-2 py-1">
+                  <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
                         <Truck size={13} />
                       </span>
                       <EditableText value={item.vehiculo} onChange={(value) => onUpdateVehicle(recordKey, { vehiculo: value })} strong />
@@ -131,7 +135,7 @@ export function VehiclesTable({
                     />
                   </td>
                   <td className="px-2 py-1">
-                    <span className="block truncate rounded bg-white/62 px-1.5 py-1 text-[10px] font-semibold text-[#10223d]" title={item.responsable}>
+                    <span className="block truncate rounded-md border border-slate-100 bg-white/78 px-2 py-1 text-[11px] font-semibold text-[#10223d]" title={item.responsable}>
                       {item.responsable || "Sin responsable"}
                     </span>
                   </td>
@@ -144,7 +148,7 @@ export function VehiclesTable({
                   <td className="px-2 py-1">
                     <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
                       <EditableNumber
-                        className="h-6 w-12 rounded border border-slate-200 px-1.5 text-[10px] outline-none focus:border-[#0f7c58]"
+                        className="h-7 w-12 rounded border border-slate-200 px-1.5 text-[11px] outline-none focus:border-[#0f7c58]"
                         value={item.visitados}
                         onChange={(value) => onUpdateVisited(recordKey, value)}
                       />
@@ -152,11 +156,11 @@ export function VehiclesTable({
                       <div className="h-2 min-w-12 flex-1 overflow-hidden rounded-full bg-slate-200">
                         <div className={`h-2 rounded-full ${progressColor(progress)} shadow-[0_0_12px_rgba(0,184,217,0.22)]`} style={{ width: `${progress}%` }} />
                       </div>
-                      <span className="number-pill w-10 text-[10px] text-slate-700">{formatPercent(progress)}</span>
+                      <span className="number-pill w-11 text-[10px] text-slate-700">{formatPercent(progress)}</span>
                     </div>
                   </td>
                   <td className="px-2 py-1">
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-cyan-100 bg-cyan-50 px-1.5 py-1 font-mono text-[10px] font-semibold text-[#07556b]">
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-cyan-100 bg-cyan-50 px-2 py-1 font-mono text-[11px] font-semibold text-[#07556b]">
                       <Clock3 size={11} className="text-[#0f7c58]" />
                       {calculateRouteTime(item, now)}
                     </span>
@@ -200,6 +204,17 @@ export function VehiclesTable({
           </tbody>
         </table>
       </div>
+      ) : (
+        <div className="grid min-h-56 place-items-center px-4 py-10 text-center">
+          <div>
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
+              <SearchX size={22} />
+            </span>
+            <h3 className="mt-3 text-base font-semibold text-[#10223d]">Sin rutas para mostrar</h3>
+            <p className="mt-1 max-w-sm text-sm leading-6 text-slate-500">Ajusta los filtros o carga el seguimiento diario para ver la tabla operativa.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -240,7 +255,7 @@ function EditableText({
 }) {
   return (
     <input
-      className={`h-6 w-full min-w-0 truncate rounded border border-transparent bg-transparent px-1 text-[10px] outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white ${
+      className={`h-7 w-full min-w-0 truncate rounded border border-transparent bg-transparent px-1 text-[11px] outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white ${
         strong ? "font-semibold text-[#10223d]" : "text-slate-700"
       } ${className || ""}`}
       onChange={(event) => onChange(event.target.value)}
@@ -255,7 +270,7 @@ function EditableText({
 function EditableDate({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <input
-      className="h-6 w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 text-[10px] text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"
+      className="h-7 w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 text-[11px] text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"
       onChange={(event) => onChange(event.target.value)}
       type="date"
       value={/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ""}
@@ -273,7 +288,7 @@ function EditableNumber({ allowDecimal = false, className, value, onChange }: { 
 
   return (
     <input
-      className={className || "h-6 w-full min-w-0 rounded border border-transparent bg-transparent px-1 text-[10px] font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"}
+      className={className || "h-7 w-full min-w-0 rounded border border-transparent bg-transparent px-1 text-[11px] font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"}
       min={0}
       onBlur={() => {
         if (!draft) onChange(0);

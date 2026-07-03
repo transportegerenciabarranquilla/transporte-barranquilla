@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
-import { normalizeCajasTotal } from "../seguimiento/utils";
+import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import { useStorageSnapshot } from "../lib/storageEvents";
 
@@ -57,6 +57,9 @@ type VehiclePerson = PersonSummary & {
   role: string;
 };
 
+type AdminTab = "resumen" | "detalle" | "errores" | "exportar";
+type AdminIssueKind = "sin-responsable" | "sin-asistencia" | "salida-tardia" | "bajo-avance" | "modulacion-pendiente" | "sin-fecha" | "sin-salida";
+
 export default function AdminPage() {
   const router = useRouter();
   const canEditResponsibleManual = useStorageSnapshot<boolean>(
@@ -71,8 +74,34 @@ export default function AdminPage() {
   const [selectedContractor, setSelectedContractor] = useState("Todas");
   const [selectedDate, setSelectedDate] = useState("");
   const [dtSearch, setDtSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<AdminTab>("resumen");
+  const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const tab = searchParams.get("tab");
+    const date = searchParams.get("fecha") || searchParams.get("date") || "";
+    const dt = searchParams.get("dt") || searchParams.get("q") || "";
+    const contractor = searchParams.get("contratista") || "";
+    const issue = searchParams.get("alerta") || "";
+
+    if (!tab && !date && !dt && !contractor && !issue) return;
+
+    const timeout = window.setTimeout(() => {
+      if (isAdminTab(tab)) setActiveTab(tab);
+      if (date) setSelectedDate(date);
+      if (dt) setDtSearch(dt);
+      if (contractor) setSelectedContractor(contractor);
+      if (isAdminIssueKind(issue)) {
+        setActiveIssueFilter(issue);
+        setActiveTab("errores");
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -149,6 +178,11 @@ export default function AdminPage() {
   }, [dateRecords, selectedContractor]);
   const allPeople = useMemo(() => peopleGroups.flatMap((group) => group.people), [peopleGroups]);
   const selectedVehiclePeople = useMemo(() => (selectedRecord ? getVehiclePeople(selectedRecord, allPeople) : []), [allPeople, selectedRecord]);
+  const allAdminIssues = useMemo(() => buildAdminIssues(filteredRecords), [filteredRecords]);
+  const adminIssues = useMemo(
+    () => (activeIssueFilter ? allAdminIssues.filter((issue) => issue.kind === activeIssueFilter) : allAdminIssues),
+    [activeIssueFilter, allAdminIssues],
+  );
 
   function toggleResponsibleManualEdit() {
     const nextValue = !canEditResponsibleManual;
@@ -188,42 +222,43 @@ export default function AdminPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
-        <div className="mb-6">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Vista global</p>
           <h1 className="mt-2 text-3xl font-semibold text-[#10223d]">Seguimiento de transportistas</h1>
           <p className="mt-2 text-sm text-slate-500">Total general e información individual de Logisticos, Punto Corona y Surti Cervezas.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#0b684a] hover:shadow-md"
+              onClick={goToAdminGraficas}
+              type="button"
+            >
+              <BarChart3 size={16} />
+              Graficas
+            </button>
+            <button
+              className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
+              onClick={() => router.push("/admin/auditoria")}
+              type="button"
+            >
+              <History size={16} />
+              Ver auditoria
+            </button>
+          </div>
         </div>
 
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando panel...</div> : null}
 
-        <div className="mb-5 flex flex-wrap justify-end gap-2">
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
-            onClick={goToAdminGraficas}
-            type="button"
-          >
-            <BarChart3 size={16} />
-            Graficas
-          </button>
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
-            onClick={() => router.push("/admin/auditoria")}
-            type="button"
-          >
-            <History size={16} />
-            Ver auditoria
-          </button>
-        </div>
-
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_1fr_auto] lg:items-end">
           <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
             <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
               <CalendarDays size={16} />
               Filtrar por día
             </span>
             <input
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
+              className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:bg-white focus:ring-2 focus:ring-[#0f7c58]/15"
               onChange={(event) => setSelectedDate(event.target.value)}
               type="date"
               value={selectedDate}
@@ -235,7 +270,7 @@ export default function AdminPage() {
               Buscar por DT
             </span>
             <input
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
+              className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58] focus:bg-white focus:ring-2 focus:ring-[#0f7c58]/15"
               inputMode="numeric"
               onChange={(event) => setDtSearch(event.target.value)}
               placeholder="Ej: 123456"
@@ -244,12 +279,13 @@ export default function AdminPage() {
             />
           </label>
           <button
-            className="flex h-10 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!selectedDate && !dtSearch && selectedContractor === "Todas"}
+            className="flex h-12 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!selectedDate && !dtSearch && selectedContractor === "Todas" && !activeIssueFilter}
             onClick={() => {
               setSelectedDate("");
               setDtSearch("");
               setSelectedContractor("Todas");
+              setActiveIssueFilter("");
             }}
             type="button"
           >
@@ -258,14 +294,29 @@ export default function AdminPage() {
           </button>
         </div>
 
+        <AdminTabs activeTab={activeTab} issueCount={adminIssues.length} onChange={setActiveTab} recordCount={filteredRecords.length} />
+
+        {activeTab === "resumen" ? (
+          <>
         <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Control admin</p>
-              <p className="mt-1 text-sm font-semibold text-[#10223d]">Edicion manual de responsable (detalle de vehiculo)</p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${canEditResponsibleManual ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                <ShieldAlert size={20} />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Control admin</p>
+                <p className="mt-1 text-sm font-semibold text-[#10223d]">Edicion manual de responsable (detalle de vehiculo)</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Estado actual:{" "}
+                  <span className={`font-semibold ${canEditResponsibleManual ? "text-[#0f7c58]" : "text-red-700"}`}>
+                    {canEditResponsibleManual ? "Habilitado por admin" : "Bloqueado"}
+                  </span>
+                </p>
+              </div>
             </div>
             <button
-              className={`h-10 rounded-md px-4 text-sm font-semibold text-white transition ${
+              className={`h-11 rounded-md px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                 canEditResponsibleManual ? "bg-red-600 hover:bg-red-700" : "bg-[#0f7c58] hover:bg-[#0b684a]"
               }`}
               onClick={toggleResponsibleManualEdit}
@@ -274,41 +325,49 @@ export default function AdminPage() {
               {canEditResponsibleManual ? "Bloquear edicion manual" : "Habilitar con OK"}
             </button>
           </div>
-          <p className="mt-2 text-sm text-slate-600">
-            Estado actual:{" "}
-            <span className={`font-semibold ${canEditResponsibleManual ? "text-[#0f7c58]" : "text-red-700"}`}>
-              {canEditResponsibleManual ? "Habilitado por admin" : "Bloqueado"}
-            </span>
-          </p>
         </section>
 
         <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric icon={<Boxes size={21} />} label="Cajas totales" value={totals.cajas.toLocaleString("es-CO")} />
-          <Metric icon={<PackageCheck size={21} />} label="Refusal final" value={`${totals.refusalFinal.toLocaleString("es-CO")} cajas`} />
-          <Metric icon={<Truck size={21} />} label="% refusal total" value={`${totals.refusal.toLocaleString("es-CO")}%`} />
-          <Metric icon={<Users size={21} />} label="Clientes" value={totals.clientes.toLocaleString("es-CO")} />
+          <Metric icon={<Boxes size={21} />} label="Cajas totales" tone="blue" value={totals.cajas.toLocaleString("es-CO")} />
+          <Metric icon={<PackageCheck size={21} />} label="Refusal final" tone="red" value={`${totals.refusalFinal.toLocaleString("es-CO")} cajas`} />
+          <Metric icon={<Truck size={21} />} label="% refusal total" tone="amber" value={`${totals.refusal.toLocaleString("es-CO")}%`} />
+          <Metric icon={<Users size={21} />} label="Clientes" tone="green" value={totals.clientes.toLocaleString("es-CO")} />
         </div>
 
         <div className="mb-5 grid gap-3 md:grid-cols-3">
           {visibleSummaries.map((summary) => (
             <button
-              className={`rounded-lg border bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 ${
+              className={`rounded-lg border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                 selectedContractor === summary.contractor ? "border-[#f5bd19] ring-2 ring-[#f5bd19]/25" : "border-slate-200"
               }`}
               key={summary.contractor}
               onClick={() => setSelectedContractor(summary.contractor)}
               type="button"
             >
-              <p className="text-sm font-semibold text-[#10223d]">{summary.contractor}</p>
-              <p className="mt-2 text-2xl font-semibold text-[#0f7c58]">{summary.cajas.toLocaleString("es-CO")}</p>
-              <p className="mt-2 text-xs font-semibold text-red-700">
-                Refusal: {summary.refusalFinal.toLocaleString("es-CO")} cajas - {summary.refusal.toLocaleString("es-CO")}%
-              </p>
-              <p className="mt-1 text-xs text-slate-500">cajas · {summary.rutas} rutas · {summary.visitados}/{summary.clientes} clientes</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#10223d]">{summary.contractor}</p>
+                  <p className="mt-2 text-2xl font-semibold text-[#0f7c58]">{summary.cajas.toLocaleString("es-CO")}</p>
+                </div>
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">{summary.rutas} rutas</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <span className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700">
+                  {summary.refusalFinal.toLocaleString("es-CO")} cajas refusal
+                </span>
+                <span className="rounded-md bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700">
+                  {summary.refusal.toLocaleString("es-CO")}% final
+                </span>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">{summary.visitados}/{summary.clientes} clientes visitados</p>
             </button>
           ))}
         </div>
+          </>
+        ) : null}
 
+        {activeTab === "detalle" ? (
+          <>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-[#10223d]">Seguimiento individual ({filteredRecords.length})</h2>
           <button
@@ -368,6 +427,45 @@ export default function AdminPage() {
             </table>
           </div>
         </section>
+          </>
+        ) : null}
+
+        {activeTab === "errores" ? (
+          <AdminIssuesPanel
+            activeIssueFilter={activeIssueFilter}
+            issues={adminIssues}
+            onClearIssueFilter={() => setActiveIssueFilter("")}
+            onSelectRecord={setSelectedRecord}
+          />
+        ) : null}
+
+        {activeTab === "exportar" ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Exportar y revisar</p>
+            <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Salidas de informacion</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              Usa los filtros actuales para abrir graficas o auditoria con el mismo contexto operativo.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+                onClick={goToAdminGraficas}
+                type="button"
+              >
+                <BarChart3 size={16} />
+                Abrir graficas filtradas
+              </button>
+              <button
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
+                onClick={() => router.push("/admin/auditoria")}
+                type="button"
+              >
+                <History size={16} />
+                Ver auditoria
+              </button>
+            </div>
+          </section>
+        ) : null}
       </section>
 
       {selectedRecord ? (
@@ -378,6 +476,178 @@ export default function AdminPage() {
         />
       ) : null}
     </main>
+  );
+}
+
+function AdminTabs({
+  activeTab,
+  issueCount,
+  onChange,
+  recordCount,
+}: {
+  activeTab: AdminTab;
+  issueCount: number;
+  onChange: (tab: AdminTab) => void;
+  recordCount: number;
+}) {
+  const tabs: Array<{ id: AdminTab; label: string; detail: string }> = [
+    { id: "resumen", label: "Resumen", detail: "Totales y contratistas" },
+    { id: "detalle", label: "Detalle", detail: `${recordCount} registros` },
+    { id: "errores", label: "Errores", detail: `${issueCount} alertas` },
+    { id: "exportar", label: "Exportar", detail: "Graficas y auditoria" },
+  ];
+
+  return (
+    <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-4">
+      {tabs.map((tab) => (
+        <button
+          className={`rounded-md px-3 py-2 text-left transition ${
+            activeTab === tab.id ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-slate-50 hover:text-[#10223d]"
+          }`}
+          key={tab.id}
+          onClick={() => onChange(tab.id)}
+          type="button"
+        >
+          <span className="block text-sm font-semibold">{tab.label}</span>
+          <span className={`mt-0.5 block text-[11px] ${activeTab === tab.id ? "text-white/70" : "text-slate-400"}`}>{tab.detail}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type AdminIssue = {
+  detail: string;
+  kind: AdminIssueKind;
+  record: Vehiculo;
+  title: string;
+  tone: "amber" | "red" | "slate";
+};
+
+function AdminIssuesPanel({
+  activeIssueFilter,
+  issues,
+  onClearIssueFilter,
+  onSelectRecord,
+}: {
+  activeIssueFilter: AdminIssueKind | "";
+  issues: AdminIssue[];
+  onClearIssueFilter: () => void;
+  onSelectRecord: (record: Vehiculo) => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Errores operativos</p>
+          <h2 className="mt-1 text-lg font-semibold text-[#10223d]">{issues.length} alerta{issues.length === 1 ? "" : "s"} en el filtro actual</h2>
+        </div>
+        {activeIssueFilter ? (
+          <button
+            className="inline-flex h-9 items-center gap-2 self-start rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 sm:self-auto"
+            onClick={onClearIssueFilter}
+            type="button"
+          >
+            {issueLabel(activeIssueFilter)}
+            <X size={15} />
+          </button>
+        ) : null}
+      </div>
+      {issues.length ? (
+        <div className="divide-y divide-slate-100">
+          {issues.map((issue, index) => (
+            <button
+              className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50"
+              key={`${issue.record.recordId || issue.record.transporte}-${issue.title}-${index}`}
+              onClick={() => onSelectRecord(issue.record)}
+              type="button"
+            >
+              <div>
+                <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${issueToneClass(issue.tone)}`}>{issue.title}</span>
+                <p className="mt-2 text-sm font-semibold text-[#10223d]">DT {issue.record.transporte || "-"} · {issue.record.vehiculo || "Sin vehiculo"}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{issue.detail}</p>
+              </div>
+              <span className="shrink-0 text-xs font-semibold text-slate-400">{issue.record.transportista || "-"}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="px-4 py-10 text-center text-sm font-medium text-slate-500">No hay errores para este filtro.</div>
+      )}
+    </section>
+  );
+}
+
+function issueToneClass(tone: AdminIssue["tone"]) {
+  if (tone === "red") return "bg-red-50 text-red-700";
+  if (tone === "amber") return "bg-amber-50 text-amber-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function buildAdminIssues(records: Vehiculo[]): AdminIssue[] {
+  return records.flatMap((record) => {
+    const issues: AdminIssue[] = [];
+    const responsible = String(record.responsable || record.nombreResponsable || "").trim();
+    const date = getRecordDate(record);
+    const salida = String(record.horaSalida || "").trim().toLowerCase();
+    const progress = getProgress(record);
+    const status = getStatus(progress, record);
+    const rejectedBoxes = Math.max(Number(record.cajasRechazadas || 0), Number(record.cajasRefusalFinal || 0));
+    const managedBoxes = Number(record.cajasGestionadas || 0);
+
+    if (!responsible || ["-", "pendiente", "sin responsable"].includes(responsible.toLowerCase())) {
+      issues.push({ detail: "El vehiculo no tiene responsable claro para auditoria y People.", kind: "sin-responsable", record, title: "Sin responsable", tone: "red" });
+    }
+    if (!record.cedulaResponsable?.trim() && !record.nombreResponsable?.trim()) {
+      issues.push({ detail: "No se encontro asistencia asociada con cedula o nombre del responsable.", kind: "sin-asistencia", record, title: "Sin asistencia", tone: "amber" });
+    }
+    if (!date) {
+      issues.push({ detail: "No se encontro fecha de despacho, fecha DT ni fecha de carga.", kind: "sin-fecha", record, title: "Sin fecha", tone: "red" });
+    }
+    if (!salida || salida === "-" || salida === "pendiente") {
+      issues.push({ detail: "La ruta no tiene hora de salida registrada.", kind: "sin-salida", record, title: "Sin salida", tone: "amber" });
+    }
+    if (record.causalSalidaTardia || isLateDepartureTime(record.horaSalida)) {
+      issues.push({ detail: "La ruta registra salida tardia o una causal asociada.", kind: "salida-tardia", record, title: "Salida tardia", tone: "amber" });
+    }
+    if (!["Finalizado", "Pernoctado", "Cambio de fecha"].includes(status) && progress < 50) {
+      issues.push({ detail: `La ruta esta en ${progress}% de avance y continua activa.`, kind: "bajo-avance", record, title: "Bajo avance", tone: "amber" });
+    }
+    if (rejectedBoxes > managedBoxes) {
+      issues.push({ detail: "Tiene cajas rechazadas pendientes de gestion completa.", kind: "modulacion-pendiente", record, title: "Modulacion pendiente", tone: "amber" });
+    }
+
+    return issues;
+  });
+}
+
+function issueLabel(kind: AdminIssueKind) {
+  const labels: Record<AdminIssueKind, string> = {
+    "bajo-avance": "Bajo avance",
+    "modulacion-pendiente": "Modulacion pendiente",
+    "salida-tardia": "Salida tardia",
+    "sin-asistencia": "Sin asistencia",
+    "sin-fecha": "Sin fecha",
+    "sin-responsable": "Sin responsable",
+    "sin-salida": "Sin salida",
+  };
+
+  return labels[kind];
+}
+
+function isAdminTab(value: string | null): value is AdminTab {
+  return value === "resumen" || value === "detalle" || value === "errores" || value === "exportar";
+}
+
+function isAdminIssueKind(value: string | null): value is AdminIssueKind {
+  return (
+    value === "sin-responsable" ||
+    value === "sin-asistencia" ||
+    value === "salida-tardia" ||
+    value === "bajo-avance" ||
+    value === "modulacion-pendiente" ||
+    value === "sin-fecha" ||
+    value === "sin-salida"
   );
 }
 
@@ -398,10 +668,17 @@ function getRecordDate(record: Vehiculo) {
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 }
 
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function Metric({ icon, label, tone = "blue", value }: { icon: ReactNode; label: string; tone?: "amber" | "blue" | "green" | "red"; value: string }) {
+  const styles = {
+    amber: "bg-amber-50 text-amber-700",
+    blue: "bg-[#e9f3ff] text-[#10223d]",
+    green: "bg-emerald-50 text-emerald-700",
+    red: "bg-red-50 text-red-700",
+  };
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 inline-grid h-10 w-10 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">{icon}</div>
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className={`mb-3 inline-grid h-10 w-10 place-items-center rounded-md ${styles[tone]}`}>{icon}</div>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-[#10223d]">{value}</p>
     </div>

@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Download, Eye, PackageCheck, Search, UsersRound, X } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
 import {
+  deleteModulacionRegistro,
   getLocalDateKey,
   MODULACION_STORAGE_KEY,
   normalizeDt,
@@ -16,6 +17,7 @@ import { refreshRemoteRecords } from "../lib/remoteStore";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
+import { causales } from "./constants";
 import type { Vehiculo } from "../seguimiento/types";
 
 const MODULACION_REFRESH_MS = 30_000;
@@ -25,7 +27,9 @@ export default function ModulacionPage() {
   const registros = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const seguimientoVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
+  const [editingRegistroId, setEditingRegistroId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
+  const [selectedContractor, setSelectedContractor] = useState("");
   const [search, setSearch] = useState("");
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
   const [telefonosJefeComercial, setTelefonosJefeComercial] = useState<Record<string, string>>({});
@@ -47,8 +51,23 @@ export default function ModulacionPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  const contractorOptions = useMemo(() => {
+    return Array.from(new Set(registros.map((registro) => registro.contratista?.trim()).filter(Boolean) as string[])).sort();
+  }, [registros]);
+
+  useEffect(() => {
+    if (!contractorOptions.length) {
+      if (selectedContractor) setSelectedContractor("");
+      return;
+    }
+    if (!selectedContractor || !contractorOptions.includes(selectedContractor)) {
+      setSelectedContractor(contractorOptions[0]);
+    }
+  }, [contractorOptions, selectedContractor]);
+
   const registrosFiltrados = useMemo(() => {
     return registros
+      .filter((registro) => !selectedContractor || registro.contratista === selectedContractor)
       .filter((registro) => !selectedDate || getLocalDateKey(new Date(registro.createdAt)) === selectedDate)
       .filter((registro) => {
         const term = search.trim().toLowerCase();
@@ -59,11 +78,15 @@ export default function ModulacionPage() {
           .includes(term);
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [registros, search, selectedDate]);
+  }, [registros, search, selectedContractor, selectedDate]);
 
   const registroSeleccionado = useMemo(
     () => registros.find((registro) => registro.id === selectedRegistroId) ?? null,
     [registros, selectedRegistroId],
+  );
+  const registroEditando = useMemo(
+    () => registros.find((registro) => registro.id === editingRegistroId) ?? null,
+    [editingRegistroId, registros],
   );
 
   const vehiculoSeleccionado = useMemo(() => {
@@ -134,6 +157,19 @@ export default function ModulacionPage() {
     saveModulacionRegistro({ ...nextRecord, comentarioModulador: value });
   }
 
+  async function deleteRegistro(registro: ModulacionRegistro) {
+    const label = `${registro.codigoCliente || "sin cliente"} / DT ${registro.dt || "-"}`;
+    if (!window.confirm(`Eliminar esta modulacion (${label})? Esta accion no se puede deshacer.`)) return;
+
+    try {
+      await deleteModulacionRegistro(registro.id);
+      if (selectedRegistroId === registro.id) setSelectedRegistroId(null);
+      if (editingRegistroId === registro.id) setEditingRegistroId(null);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No se pudo eliminar la modulacion.");
+    }
+  }
+
   async function exportarModulacionesExcel() {
     if (!registrosFiltrados.length) return;
 
@@ -187,7 +223,7 @@ export default function ModulacionPage() {
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Modulaciones");
-    XLSX.writeFile(workbook, `modulaciones-${selectedDate || "todas"}.xlsx`);
+    XLSX.writeFile(workbook, `modulaciones-${selectedContractor || "contratista"}-${selectedDate || "todas"}.xlsx`);
   }
 
   return (
@@ -211,7 +247,20 @@ export default function ModulacionPage() {
         </div>
 
         <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto] lg:items-center">
+          <div className="grid gap-3 lg:grid-cols-[220px_1fr_220px_auto] lg:items-center">
+            <select
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+              onChange={(event) => setSelectedContractor(event.target.value)}
+              value={selectedContractor}
+            >
+              {!contractorOptions.length ? <option value="">Sin contratistas</option> : null}
+              {contractorOptions.map((contractor) => (
+                <option key={contractor} value={contractor}>
+                  {contractor}
+                </option>
+              ))}
+            </select>
+
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
@@ -258,7 +307,7 @@ export default function ModulacionPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[#10223d]">Tabla de modulaciones</h2>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  {selectedDate ? `Mostrando registros del ${selectedDate}` : "Mostrando todos los dias"}
+                  {selectedContractor || "Sin contratista"} - {selectedDate ? `registros del ${selectedDate}` : "todos los dias"}
                 </p>
               </div>
             </div>
@@ -288,7 +337,7 @@ export default function ModulacionPage() {
                   <th className="w-[90px] px-3 py-2 text-center">Rechaz.</th>
                   <th className="w-[135px] px-3 py-2 text-center">Gestion.</th>
                   <th className="px-3 py-2 text-left">Comentario</th>
-                  <th className="w-[95px] px-3 py-2 text-right">Detalle</th>
+                  <th className="w-[180px] px-3 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -339,7 +388,8 @@ export default function ModulacionPage() {
                       <td className="px-3 py-2">
                         <p className="truncate text-xs text-slate-600" title={registro.comentario || "-"}>{registro.comentario || "-"}</p>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-1.5">
                         <button
                           className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50 px-2 text-[11px] font-semibold text-[#07556b] transition hover:border-[#00b8d9] hover:bg-white"
                           onClick={() => setSelectedRegistroId(registro.id)}
@@ -348,6 +398,23 @@ export default function ModulacionPage() {
                           <Eye size={13} />
                           Ver
                         </button>
+                        <button
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 text-[11px] font-semibold text-blue-800 transition hover:border-blue-200 hover:bg-white"
+                          onClick={() => setEditingRegistroId(registro.id)}
+                          type="button"
+                        >
+                          <Pencil size={13} />
+                          Editar
+                        </button>
+                        <button
+                          aria-label={`Eliminar modulacion ${registro.codigoCliente}`}
+                          className="inline-grid h-7 w-7 place-items-center rounded-md border border-red-100 bg-red-50 text-red-700 transition hover:border-red-200 hover:bg-white"
+                          onClick={() => void deleteRegistro(registro)}
+                          type="button"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        </div>
                       </td>
                     </tr>
                     );
@@ -379,8 +446,306 @@ export default function ModulacionPage() {
             preventistaNombre={registroSeleccionado.preventistaNombre || nombresPreventista[registroSeleccionado.codigoCliente] || ""}
           />
         ) : null}
+
+        {registroEditando ? (
+          <EditModulacionModal
+            onClose={() => setEditingRegistroId(null)}
+            onSave={async (record) => {
+              await saveModulacionRegistro(record);
+              setEditingRegistroId(null);
+            }}
+            registro={registroEditando}
+          />
+        ) : null}
       </section>
     </main>
+  );
+}
+
+function EditModulacionModal({
+  onClose,
+  onSave,
+  registro,
+}: {
+  onClose: () => void;
+  onSave: (record: ModulacionRegistro) => Promise<void>;
+  registro: ModulacionRegistro;
+}) {
+  const [draft, setDraft] = useState(registro);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [clienteError, setClienteError] = useState("");
+  const [loadingCliente, setLoadingCliente] = useState(false);
+
+  useEffect(() => {
+    setDraft(registro);
+    setError("");
+    setClienteError("");
+    setLoadingCliente(false);
+  }, [registro]);
+
+  useEffect(() => {
+    const codigo = draft.codigoCliente.replace(/\D/g, "").trim();
+    if (!codigo) {
+      const timeout = window.setTimeout(() => {
+        setClienteError("");
+        setLoadingCliente(false);
+        setDraft((current) => ({
+          ...current,
+          nombreCliente: "",
+          telefonoCliente: "",
+          com: "",
+          jefeComercial: "",
+          telefonoJefeComercial: "",
+          preventista: "",
+          preventistaNombre: "",
+          telefonoPreventista: "",
+        }));
+      }, 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setLoadingCliente(true);
+      setClienteError("");
+
+      fetch(`/api/clientes?codigo=${encodeURIComponent(codigo)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(body.error || "No se pudo buscar el cliente.");
+
+          const cliente = body.cliente;
+          if (!cliente) {
+            setClienteError("Cliente no encontrado.");
+            setDraft((current) =>
+              current.codigoCliente.replace(/\D/g, "").trim() === codigo
+                ? {
+                    ...current,
+                    nombreCliente: "",
+                    telefonoCliente: "",
+                    com: "",
+                    jefeComercial: "",
+                    telefonoJefeComercial: "",
+                    preventista: "",
+                    preventistaNombre: "",
+                    telefonoPreventista: "",
+                  }
+                : current,
+            );
+            return;
+          }
+
+          setDraft((current) =>
+            current.codigoCliente.replace(/\D/g, "").trim() === codigo
+              ? {
+                  ...current,
+                  nombreCliente: cliente.nombre || "",
+                  telefonoCliente: cliente.telefono || "",
+                  com: cliente.com || "",
+                  jefeComercial: cliente.jefeComercial || "",
+                  telefonoJefeComercial: cliente.telefonoJefeComercial || "",
+                  preventista: cliente.preventista || "",
+                  preventistaNombre: cliente.preventistaNombre || "",
+                  telefonoPreventista: cliente.telefonoPreventista || "",
+                }
+              : current,
+          );
+        })
+        .catch((lookupError) => {
+          if (lookupError instanceof DOMException && lookupError.name === "AbortError") return;
+          setClienteError(lookupError instanceof Error ? lookupError.message : "No se pudo buscar el cliente.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoadingCliente(false);
+        });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [draft.codigoCliente]);
+
+  function updateField<K extends keyof ModulacionRegistro>(field: K, value: ModulacionRegistro[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSave() {
+    if (!draft.dt.trim() || !draft.codigoCliente.trim() || !draft.totalCajas.trim() || !draft.causal.trim()) {
+      setError("DT, codigo cliente, cajas rechazadas y causal son obligatorios.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({
+        ...draft,
+        dt: normalizeDt(draft.dt),
+        codigoCliente: draft.codigoCliente.trim(),
+        nombreCliente: draft.nombreCliente?.trim(),
+        totalCajas: draft.totalCajas.replace(/\D/g, ""),
+        cajasGestionadas: String(draft.cajasGestionadas || "").replace(/\D/g, ""),
+        persona: draft.persona.trim(),
+        personaNombre: draft.personaNombre?.trim(),
+        causal: draft.causal.trim(),
+        comentario: draft.comentario.trim(),
+      });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No se pudo guardar la modulacion.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-[#10223d]/55 px-3 py-4 backdrop-blur-sm">
+      <section className="max-h-[90vh] w-full max-w-xl overflow-hidden rounded-lg border border-white/60 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-3 bg-[#10223d] px-4 py-3 text-white">
+          <div className="flex items-start gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#f5bd19] text-[#10223d]">
+              <Pencil size={19} />
+            </span>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f5bd19]">Editar modulacion</p>
+              <h2 className="mt-0.5 text-base font-semibold">Corregir registro</h2>
+              <p className="mt-0.5 text-xs text-white/65">Codigo, cajas, causal o comentario.</p>
+            </div>
+          </div>
+          <button
+            aria-label="Cerrar edicion"
+            className="grid h-8 w-8 place-items-center rounded-md text-white/70 transition hover:bg-white/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(90vh-126px)] overflow-y-auto p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <EditField label="DT" value={draft.dt} onChange={(value) => updateField("dt", value)} />
+            <EditField label="Codigo cliente" value={draft.codigoCliente} onChange={(value) => updateField("codigoCliente", value.replace(/\D/g, ""))} />
+            <EditField
+              helper={loadingCliente ? "Buscando cliente..." : clienteError}
+              helperTone={clienteError ? "warning" : "info"}
+              label="Nombre cliente"
+              value={draft.nombreCliente || ""}
+              onChange={(value) => updateField("nombreCliente", value)}
+            />
+            <EditField label="Cajas rechazadas" inputMode="numeric" value={draft.totalCajas} onChange={(value) => updateField("totalCajas", value.replace(/\D/g, ""))} />
+            <EditField label="Cajas gestionadas" inputMode="numeric" value={draft.cajasGestionadas || ""} onChange={(value) => updateField("cajasGestionadas", value.replace(/\D/g, ""))} />
+            <EditField label="Cedula RR" value={draft.persona} onChange={(value) => updateField("persona", value)} />
+            <EditField label="Nombre RR" value={draft.personaNombre || ""} onChange={(value) => updateField("personaNombre", value)} />
+          </div>
+
+          <label className="mt-3 block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Causal</span>
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-blue-100 bg-blue-50/40 px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
+              onChange={(event) => updateField("causal", event.target.value)}
+              value={draft.causal}
+            >
+              <option value="">Selecciona una causal</option>
+              {causales.map((causal) => (
+                <option key={causal} value={causal}>
+                  {causal}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Comentario RR</span>
+            <textarea
+              className="mt-1 min-h-16 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
+              onChange={(event) => updateField("comentario", event.target.value)}
+              value={draft.comentario}
+            />
+          </label>
+
+          <details className="mt-3 rounded-md border border-slate-200 bg-slate-50">
+            <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+              Datos opcionales
+            </summary>
+            <div className="grid gap-3 border-t border-slate-200 p-3 sm:grid-cols-2">
+              <EditField label="Telefono cliente" value={draft.telefonoCliente || ""} onChange={(value) => updateField("telefonoCliente", value)} />
+              <EditField label="COM" value={draft.com || ""} onChange={(value) => updateField("com", value)} />
+              <EditField label="Jefe comercial" value={draft.jefeComercial || ""} onChange={(value) => updateField("jefeComercial", value)} />
+              <EditField label="Preventista" value={draft.preventista || ""} onChange={(value) => updateField("preventista", value)} />
+              <label className="block sm:col-span-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Nota modulador</span>
+                <textarea
+                  className="mt-1 min-h-16 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
+                  onChange={(event) => updateField("comentarioModulador", event.target.value)}
+                  value={draft.comentarioModulador || ""}
+                />
+              </label>
+            </div>
+          </details>
+
+          {error ? <p className="mt-3 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-end">
+          <button
+            className="h-10 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+            disabled={saving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#1264ff] px-4 text-sm font-semibold text-white shadow-sm shadow-blue-500/20 transition hover:bg-[#0b55df] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving}
+            onClick={() => void handleSave()}
+            type="button"
+          >
+            <Save size={16} />
+            {saving ? "Guardando..." : "Guardar cambios"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EditField({
+  helper,
+  helperTone = "info",
+  inputMode,
+  label,
+  onChange,
+  value,
+}: {
+  helper?: string;
+  helperTone?: "info" | "warning";
+  inputMode?: "numeric";
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <input
+        className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
+        inputMode={inputMode}
+        onChange={(event) => onChange(event.target.value)}
+        type="text"
+        value={value}
+      />
+      {helper ? (
+        <span className={`mt-1 block text-xs font-semibold ${helperTone === "warning" ? "text-amber-700" : "text-blue-700"}`}>
+          {helper}
+        </span>
+      ) : null}
+    </label>
   );
 }
 

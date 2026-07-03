@@ -309,27 +309,29 @@ export default function PeoplePage() {
               />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="overflow-hidden rounded-lg border border-slate-200">
               {visiblePeople.map((person) => (
                 <button
-                  className={`rounded-lg border p-4 text-left transition hover:border-[#7c3aed]/50 ${
-                    selectedPerson?.cc === person.cc ? "border-[#7c3aed] bg-[#f5f3ff]" : "border-slate-200 bg-white"
+                  className={`flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[#f8f7ff] ${
+                    selectedPerson?.cc === person.cc ? "bg-[#f5f3ff] ring-1 ring-inset ring-[#7c3aed]" : "bg-white"
                   }`}
                   key={personKey(person)}
                   onClick={() => setSelectedCc(person.cc)}
                   type="button"
                 >
-                  <div className="flex items-center gap-3">
-                    <Avatar image={photos[personKey(person)]} name={person.nombre} />
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-[#10223d]">{person.nombre}</p>
-                      <p className="truncate text-xs text-slate-500">{person.cargo || "Sin cargo"}</p>
-                    </div>
+                  <Avatar image={photos[personKey(person)]} name={person.nombre} compact />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#10223d]">{person.nombre}</p>
+                    <p className="truncate text-xs text-slate-500">CC {person.cc || "-"} - {person.cargo || "Sin cargo"}</p>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <MiniStat label="HL" value={formatHl(hlMoved(person))} />
-                    <MiniStat label="En rango" value={person.stats.enRango || 0} />
-                    <MiniStat label="Tiempo" value={person.stats.tiempoPromedioRuta || "Sin dato"} />
+                  <div className="hidden min-w-[300px] grid-cols-3 gap-2 text-center md:grid">
+                    <ListStat label="HL" value={formatHl(hlMoved(person))} />
+                    <ListStat label="Rango" value={person.stats.enRango || 0} />
+                    <ListStat label="Tiempo" value={person.stats.tiempoPromedioRuta || "Sin dato"} />
+                  </div>
+                  <div className="text-right md:hidden">
+                    <p className="text-xs font-semibold text-[#10223d]">{formatHl(hlMoved(person))} HL</p>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-400">Rango {person.stats.enRango || 0}</p>
                   </div>
                 </button>
               ))}
@@ -426,8 +428,8 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Avatar({ image, name, large = false }: { image?: string; name: string; large?: boolean }) {
-  const size = large ? "h-20 w-20 text-2xl" : "h-12 w-12 text-base";
+function Avatar({ compact = false, image, name, large = false }: { compact?: boolean; image?: string; name: string; large?: boolean }) {
+  const size = large ? "h-20 w-20 text-2xl" : compact ? "h-9 w-9 text-sm" : "h-12 w-12 text-base";
   return image ? (
     <img alt={name} className={`${size} shrink-0 rounded-lg object-cover ring-1 ring-slate-200`} src={image} />
   ) : (
@@ -442,6 +444,15 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
     <div className="rounded-md bg-slate-50 px-2 py-2">
       <p className="text-sm font-semibold text-[#10223d]">{value}</p>
       <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">{label}</p>
+    </div>
+  );
+}
+
+function ListStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <p className="truncate text-xs font-semibold text-[#10223d]">{value}</p>
+      <p className="text-[9px] uppercase tracking-[0.1em] text-slate-400">{label}</p>
     </div>
   );
 }

@@ -11,6 +11,7 @@ type AdminRefusalComRow = {
   com: string;
   date: string;
   dt: string;
+  jefeVentas: string;
   preventista: string;
   reportadas: number;
   gestionadas: number;
@@ -19,6 +20,7 @@ type AdminRefusalComRow = {
 
 type RefusalComSummary = {
   contractor: string;
+  label: string;
   preventista: string;
   reportadas: number;
   gestionadas: number;
@@ -100,7 +102,36 @@ export default function AdminGraficasPage() {
       const key = `${row.contractor}:${preventista}`;
       const current = groups.get(key) || {
         contractor: row.contractor,
+        label: preventista,
         preventista,
+        reportadas: 0,
+        gestionadas: 0,
+        refusalFinal: 0,
+        registros: 0,
+        refusal: 0,
+      };
+
+      current.reportadas += Number(row.reportadas || 0);
+      current.gestionadas += Number(row.gestionadas || 0);
+      current.refusalFinal += Number(row.refusalFinal || 0);
+      current.registros += 1;
+      current.refusal = current.reportadas ? Number(((current.refusalFinal / current.reportadas) * 100).toFixed(2)) : 0;
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => b.refusalFinal - a.refusalFinal);
+  }, [visibleRefusalRows]);
+
+  const refusalByJefeVentas = useMemo(() => {
+    const groups = new Map<string, RefusalComSummary>();
+
+    visibleRefusalRows.forEach((row) => {
+      const jefeVentas = row.jefeVentas?.trim() || "Sin asignacion";
+      const key = `${row.contractor}:${jefeVentas}`;
+      const current = groups.get(key) || {
+        contractor: row.contractor,
+        label: jefeVentas,
+        preventista: jefeVentas,
         reportadas: 0,
         gestionadas: 0,
         refusalFinal: 0,
@@ -309,9 +340,12 @@ export default function AdminGraficasPage() {
           <Metric icon={<Table2 size={20} />} label="Rutas filtradas" value={totals.rutas.toLocaleString("es-CO")} tone="blue" />
         </div>
 
-        <div className="mb-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="mb-5 grid gap-4 xl:grid-cols-[1fr_1fr_0.75fr]">
           <ChartPanel icon={<BarChart3 size={16} />} title="Refusal por preventista">
-            <RefusalComBars data={refusalByCom.slice(0, 12)} />
+            <RefusalComBars data={refusalByCom.slice(0, 12)} emptyText="Sin datos de refusal por preventista para este filtro." />
+          </ChartPanel>
+          <ChartPanel icon={<ShieldAlert size={16} />} title="Refusal por jefe de ventas">
+            <RefusalComBars data={refusalByJefeVentas.slice(0, 12)} emptyText="Sin datos de refusal por jefe de ventas para este filtro." />
           </ChartPanel>
           <ChartPanel icon={<ShieldAlert size={16} />} title="Resumen refusal">
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
@@ -380,16 +414,16 @@ function ChartPanel({ children, icon, title }: { children: ReactNode; icon: Reac
   );
 }
 
-function RefusalComBars({ data }: { data: RefusalComSummary[] }) {
+function RefusalComBars({ data, emptyText }: { data: RefusalComSummary[]; emptyText: string }) {
   const max = Math.max(...data.map((item) => item.refusalFinal), 1);
-  if (!data.length) return <EmptyState text="Sin datos de refusal por COM para este filtro." />;
+  if (!data.length) return <EmptyState text={emptyText} />;
 
   return (
     <div className="space-y-2">
       {data.map((item, index) => (
-        <div className="grid grid-cols-[minmax(142px,220px)_1fr_64px] items-center gap-2" key={`${item.contractor}-${item.preventista}`}>
+        <div className="grid grid-cols-[minmax(142px,220px)_1fr_64px] items-center gap-2" key={`${item.contractor}-${item.label}`}>
           <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.preventista}>{item.preventista}</p>
+            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.label}>{item.label}</p>
             <p className="truncate text-[10px] text-slate-500" title={item.contractor}>{item.contractor}</p>
           </div>
           <div className="h-7 overflow-hidden rounded-sm bg-slate-100">

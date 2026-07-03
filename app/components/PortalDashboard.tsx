@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Icon } from "./Icon";
+import { GlobalOperationsSearch } from "./GlobalOperationsSearch";
+import { OperationalAlerts } from "./OperationalAlerts";
 import { getPortalHeroCopy, getPortalSessionLabel, getVisiblePortalModules } from "./portalModules";
 
 export function PortalDashboard({
@@ -69,6 +71,9 @@ export function PortalDashboard({
             </div>
           </div>
         </motion.div>
+
+        <GlobalOperationsSearch isAdmin={isAdmin} />
+        <OperationalAlerts isAdmin={isAdmin} isPeople={isPeople} />
 
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>

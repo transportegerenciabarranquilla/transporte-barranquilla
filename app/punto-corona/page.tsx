@@ -665,8 +665,9 @@ function getCrewModulationStats(report: PuntoCoronaRouteReport, crew: PuntoCoron
 
 function getModulationStats(rows: PuntoCoronaRouteRow[], modulationKeys: Set<string>) {
   const startedRows = rows.filter((row) => row.status !== NOT_STARTED);
-  const modulated = new Set(startedRows.map(getRouteModulationKey).filter((key) => key && modulationKeys.has(key))).size;
-  const rejectedRows = startedRows.filter((row) => isRejectedForModulation(row.status) && !modulationKeys.has(getRouteModulationKey(row)));
+  const rejectedCandidateRows = startedRows.filter((row) => isRejectedForModulation(row.status));
+  const modulated = new Set(rejectedCandidateRows.map(getRouteModulationKey).filter((key) => key && modulationKeys.has(key))).size;
+  const rejectedRows = rejectedCandidateRows.filter((row) => !modulationKeys.has(getRouteModulationKey(row)));
   const rejected = rejectedRows.length;
   const open = startedRows.length - modulated - rejected;
 

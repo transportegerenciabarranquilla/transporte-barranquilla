@@ -6,6 +6,7 @@ export type AuditAction =
   | "checkin_guardado"
   | "cierre_punto_corona"
   | "cierre_punto_corona_quitado"
+  | "modulacion_eliminada"
   | "modulacion_guardada"
   | "punto_corona_archivo_subido"
   | "seguimiento_guardado";

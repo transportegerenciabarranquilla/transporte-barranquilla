@@ -1,4 +1,4 @@
-import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
+import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 
 export const MODULACION_STORAGE_KEY = "bavaria.modulacion.registros";
 
@@ -118,6 +118,10 @@ export function saveModulacionRegistros(records: ModulacionRegistro[]) {
 
 export function saveModulacionRegistro(record: ModulacionRegistro) {
   return saveRemoteRecords("/api/modulaciones", [record], { mergeByKey: (item) => item.id });
+}
+
+export function deleteModulacionRegistro(id: string) {
+  return deleteRemoteRecords<ModulacionRegistro>("/api/modulaciones", [id], { getKey: (item) => item.id });
 }
 
 export function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined) {

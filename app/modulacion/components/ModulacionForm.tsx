@@ -40,6 +40,10 @@ export function ModulacionForm({
   vehiclesError?: string;
   vehiculosSeguimiento: Vehiculo[];
 }) {
+  const hasTypedDt = Boolean(form.contratista && normalizeDt(form.dt));
+  const hasValidatedDt = hasTypedDt && vehiculosSeguimiento.some((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(form.dt));
+  const submitDisabled = saving || loadingVehicles || (hasTypedDt && !hasValidatedDt);
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
       <form className="space-y-6" onSubmit={onSubmit} noValidate>
@@ -193,13 +197,16 @@ export function ModulacionForm({
         </FormSection>
 
         <button
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-5 text-sm font-semibold text-white transition hover:bg-[#0b684a]"
-          disabled={saving}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-5 text-sm font-semibold text-white transition hover:bg-[#0b684a] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+          disabled={submitDisabled}
           type="submit"
         >
           <BadgeCheck size={18} />
-          {saving ? "Guardando..." : "Enviar modulacion"}
+          {saving ? "Guardando..." : loadingVehicles ? "Validando DT..." : "Enviar modulacion"}
         </button>
+        {hasTypedDt && !loadingVehicles && !hasValidatedDt ? (
+          <p className="-mt-3 text-sm font-medium text-amber-700">Valida un DT cargado y correcto antes de enviar la modulacion.</p>
+        ) : null}
       </form>
 
       {saveError ? <p className="mt-4 text-sm font-medium text-red-600">{saveError}</p> : null}

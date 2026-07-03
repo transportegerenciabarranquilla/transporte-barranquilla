@@ -17,6 +17,8 @@ type VehicleRow = {
   fechaDespacho?: string;
   fechaDt?: string;
   hl?: string;
+  clientes?: string;
+  visitados?: string;
   responsable?: string;
   tiempoRuta?: string;
   status?: string;
@@ -59,7 +61,7 @@ type PuntoCoronaRouteReport = {
 
 const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
 const VEHICLE_SELECT =
-  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
+  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 
@@ -191,6 +193,7 @@ function buildPersonSummary(
 
   const routeMinutes = personVehicles.map((vehicle) => parseRouteMinutes(vehicle.tiempoRuta)).filter((value) => Number.isFinite(value));
   const hectolitros = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.hl), 0);
+  const seguimientoVisitados = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.visitados), 0);
   const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports);
   const managedBoxes = personModulations.reduce((total, modulation) => total + numberValue(modulation.cajasGestionadas), 0);
   const history = [
@@ -220,7 +223,7 @@ function buildPersonSummary(
       modulaciones: personModulations.length,
       gestionadas: managedBoxes,
       hectolitros: Number(hectolitros.toFixed(1)),
-      visitasRango: rangeStats.totalStarted,
+      visitasRango: seguimientoVisitados || rangeStats.totalStarted,
       enRango: rangeStats.inRange,
       fueraRango: rangeStats.outOfRange,
       porcentajeRango: percentage(rangeStats.inRange, rangeStats.totalStarted),
@@ -271,6 +274,8 @@ function normalizeVehicle(row: VehicleRow): Required<VehicleRow> {
     fechaDespacho: readString(row.fechaDespacho),
     fechaDt: readString(row.fechaDt),
     hl: readString(row.hl),
+    clientes: readString(row.clientes),
+    visitados: readString(row.visitados),
     responsable: readString(row.responsable),
     tiempoRuta: readString(row.tiempoRuta),
     status: readString(row.status),
@@ -312,6 +317,7 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
   });
 
   const crewByDateDt = new Map<string, PuntoCoronaCrewSummary>();
+  const crewByContractorDt = new Map<string, PuntoCoronaCrewSummary>();
   reportByDate.forEach((report) => {
     const date = report.operationalDate || "";
     const contractor = normalizeContractorName(report.contractor);
@@ -319,6 +325,9 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
       const dt = normalizeId(crew.dt);
       if (!dt) return;
       crewByDateDt.set(`${contractor}:${date}:${dt}`, crew);
+      if (!crewByContractorDt.has(`${contractor}:${dt}`)) {
+        crewByContractorDt.set(`${contractor}:${dt}`, crew);
+      }
     });
   });
 
@@ -326,7 +335,8 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
     (totals, vehicle) => {
       const date = vehicle.fechaDespacho || vehicle.fechaDt;
       const dt = normalizeId(vehicle.transporte);
-      const crew = crewByDateDt.get(`${normalizeContractorName(vehicle.contractor)}:${date}:${dt}`);
+      const contractor = normalizeContractorName(vehicle.contractor);
+      const crew = crewByDateDt.get(`${contractor}:${date}:${dt}`) || crewByContractorDt.get(`${contractor}:${dt}`);
       if (!crew) return totals;
 
       return {

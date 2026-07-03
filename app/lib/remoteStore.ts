@@ -109,6 +109,44 @@ export async function saveRemoteRecords<T>(
   }
 }
 
+export async function deleteRemoteRecords<T>(
+  endpoint: string,
+  ids: string[],
+  options: { getKey?: (record: T) => string } = {},
+) {
+  const previousRecords = cache.get(endpoint) as T[] | undefined;
+  const idSet = new Set(ids);
+  const getKey = options.getKey ?? ((record: T) => String((record as { id?: string }).id ?? ""));
+
+  if (previousRecords) {
+    cache.set(endpoint, previousRecords.filter((record) => !idSet.has(getKey(record))));
+    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+      cache: "no-store",
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
+      throw new Error(body.error || "No se pudieron eliminar los datos en Supabase.");
+    }
+
+    fetchedAt.set(endpoint, Date.now());
+    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+  } catch (error) {
+    if (previousRecords) cache.set(endpoint, previousRecords);
+    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+    throw error;
+  }
+}
+
 function mergeCachedRecords<T>(previousRecords: T[] | undefined, records: T[], getKey: (record: T) => string) {
   const merged = new Map((previousRecords ?? []).map((record) => [getKey(record), record]));
 

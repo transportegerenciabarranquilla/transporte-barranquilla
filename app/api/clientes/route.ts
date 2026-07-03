@@ -138,15 +138,26 @@ const PREVENTISTA_PHONE_KEYS = [
 ];
 const PREVENTISTA_PHONE_HINTS = ["telefonopreventista", "celularpreventista", "movilpreventista", "phonepreventista", "telefonovendedor", "celularvendedor"];
 const SCAN_PAGE_SIZE = 1000;
-const MAX_SCAN_PAGES = 200;
+const MAX_SCAN_PAGES = 20;
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const clienteCache = new Map<string, { expiresAt: number; value: ReturnType<typeof normalizeCliente> | null }>();
+let discoveredCodeColumns: string[] | null = null;
+let discoveryPromise: Promise<string[]> | null = null;
 
 export async function GET(request: Request) {
   try {
     const codigo = new URL(request.url).searchParams.get("codigo")?.replace(/\D/g, "").trim();
     if (!codigo) return NextResponse.json({ cliente: null });
 
+    const cached = clienteCache.get(codigo);
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json({ cliente: cached.value });
+    }
+
     const row = await findClienteByCodigo(codigo);
-    return NextResponse.json({ cliente: row ? normalizeCliente(row, codigo) : null });
+    const cliente = row ? normalizeCliente(row, codigo) : null;
+    clienteCache.set(codigo, { expiresAt: Date.now() + CACHE_TTL_MS, value: cliente });
+    return NextResponse.json({ cliente });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error buscando el cliente." },
@@ -163,23 +174,55 @@ async function findClienteByCodigo(codigo: string) {
 }
 
 async function findByKnownColumns(codigo: string) {
-  for (const column of CODE_COLUMNS) {
-    const params = new URLSearchParams({
-      select: "*",
-      [column]: `eq.${codigo}`,
-      limit: "1",
-    });
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-      cache: "no-store",
-    });
-
-    const body = await response.json().catch(() => null);
-    if (!response.ok) continue;
-    if (Array.isArray(body) && body[0]) return body[0] as ClienteRow;
-  }
+  const columns = await getExistingCodeColumns();
+  const matches = await Promise.all(columns.map((column) => findByColumn(column, codigo)));
+  const match = matches.find(Boolean);
+  if (match) return match;
 
   return null;
+}
+
+async function findByColumn(column: string, codigo: string) {
+  const params = new URLSearchParams({
+    select: "*",
+    [column]: `eq.${codigo}`,
+    limit: "1",
+  });
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+    cache: "no-store",
+  });
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok) return null;
+  return Array.isArray(body) && body[0] ? body[0] as ClienteRow : null;
+}
+
+async function getExistingCodeColumns() {
+  if (discoveredCodeColumns) return discoveredCodeColumns;
+  if (discoveryPromise) return discoveryPromise;
+
+  discoveryPromise = discoverCodeColumns().finally(() => {
+    discoveryPromise = null;
+  });
+  return discoveryPromise;
+}
+
+async function discoverCodeColumns() {
+  const params = new URLSearchParams({ select: "*", limit: "1" });
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => null);
+  const row = response.ok && Array.isArray(body) ? body[0] as ClienteRow | undefined : undefined;
+  const actualColumns = new Set(Object.keys(row ?? {}));
+  const exactMatches = CODE_COLUMNS.filter((column) => actualColumns.has(column));
+  const hintedMatches = Array.from(actualColumns).filter(isCodeKey);
+  const columns = Array.from(new Set([...exactMatches, ...hintedMatches]));
+
+  discoveredCodeColumns = columns.length ? columns : ["codigo", "codigo_cliente", "CODIGO", "CODIGO_CLIENTE"];
+  return discoveredCodeColumns;
 }
 
 async function findByScanningRows(codigo: string) {

@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, BarChart3, Boxes, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, PackageCheck, Trash2, Truck, Users, X } from "lucide-react";
-import { MetricCard } from "./components/MetricCard";
+import { AlertTriangle, ArrowLeft, BarChart3, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, Trash2, Truck, X } from "lucide-react";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
 import { SeguimientoHero } from "./components/SeguimientoHero";
@@ -528,11 +527,11 @@ export default function SeguimientoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <main className="tech-grid min-h-screen bg-[#f4f7fb] text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-white/60 bg-white/82 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button
-            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-[#10223d] transition hover:bg-slate-100"
+            className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
             onClick={() => {
               router.push("/");
             }}
@@ -542,7 +541,7 @@ export default function SeguimientoPage() {
             Portal
           </button>
 
-          <div className="flex items-center gap-3 rounded-md bg-[#e9f3ff] px-3 py-2 text-sm font-medium text-[#10223d]">
+          <div className="flex items-center gap-3 rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm font-semibold text-[#07556b]">
             <CalendarDays size={18} />
             {dateLabel}
           </div>
@@ -552,21 +551,14 @@ export default function SeguimientoPage() {
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
         <SeguimientoHero resumen={resumen} brand={brand} />
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={<Truck size={22} />} label="Vehiculos activos" value={resumen.vehiculos} detail="Rutas en monitoreo" />
-          <MetricCard icon={<Boxes size={22} />} label="Cajas" value={resumen.cajas} detail="Carga programada" />
-          <MetricCard icon={<PackageCheck size={22} />} label="HL movidos" value={resumen.hl} detail="Volumen total" />
-          <MetricCard icon={<Users size={22} />} label="Visitados" value={resumen.visitados} detail="Clientes atendidos" />
-        </div>
-
         <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_auto]">
-          <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-4 shadow-sm transition hover:border-[#f5bd19] hover:bg-[#fff8e6]">
-            <span className="grid h-11 w-11 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
+        <div className="mb-6 grid gap-4 rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
+          <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 transition hover:border-amber-300 hover:bg-amber-50/45">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-[#10223d] text-white shadow-lg shadow-blue-500/15">
               <FileSpreadsheet size={22} />
             </span>
-            <span>
+            <span className="min-w-0">
               <span className="block text-sm font-semibold text-[#10223d]">Subir seguimiento diario</span>
               <span className="mt-1 block text-sm text-slate-500">Acepta Excel o CSV con DT, vehiculo, responsable, tiempo planeado y demas columnas.</span>
               {importMessage ? <span className="mt-2 block text-xs font-medium text-[#0f7c58]">{importMessage}</span> : null}
@@ -579,9 +571,9 @@ export default function SeguimientoPage() {
             />
           </label>
 
-          <div className="relative flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="relative flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-2">
             <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-[#f5bd19] hover:bg-[#fff8e6]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-amber-200 hover:bg-amber-50"
               onClick={() => setActionsOpen((current) => !current)}
               type="button"
             >
@@ -589,7 +581,7 @@ export default function SeguimientoPage() {
               <ChevronDown size={16} />
             </button>
             <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white transition hover:bg-[#0b684a]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
               onClick={goToGraficas}
               type="button"
             >
@@ -597,7 +589,7 @@ export default function SeguimientoPage() {
               Graficas
             </button>
             <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#f5bd19] px-3 text-xs font-semibold text-[#10223d] transition hover:bg-[#e6a400]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#f5bd19] px-3 text-xs font-semibold text-[#10223d] shadow-sm transition hover:bg-[#e6a400]"
               onClick={() => router.push("/seguimiento/checkin")}
               type="button"
             >
@@ -606,7 +598,7 @@ export default function SeguimientoPage() {
             </button>
 
             {actionsOpen ? (
-              <div className="absolute right-2 top-12 z-20 min-w-52 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl">
+              <div className="absolute right-2 top-12 z-20 min-w-56 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl">
                 <button
                   className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
                   onClick={() => {

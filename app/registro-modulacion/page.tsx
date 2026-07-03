@@ -47,13 +47,14 @@ export default function RegistroModulacionPage() {
     const timeout = window.setTimeout(() => {
       setLoadingVehicles(true);
       setVehiclesError("");
+      const todayKey = getTodayKey();
 
       Promise.all([
-        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(getTodayKey())}`, {
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(todayKey)}`, {
           cache: "no-store",
           signal: controller.signal,
         }),
-        fetch(`/api/asistencias/buscar?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}`, {
+        fetch(`/api/asistencias/buscar?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(todayKey)}`, {
           cache: "no-store",
           signal: controller.signal,
         }),
@@ -252,6 +253,11 @@ export default function RegistroModulacionPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validateModulacion(form);
+    if (loadingVehicles) {
+      nextErrors.dt = "Espera a que termine la validacion del DT.";
+    } else if (!selectedVehicle) {
+      nextErrors.dt = vehiclesError || "El DT no esta validado o no esta cargado para hoy.";
+    }
     if (form.persona.trim() && !form.personaNombre.trim()) {
       nextErrors.persona = moduladorError || "Busca una cédula válida del modulador.";
     }

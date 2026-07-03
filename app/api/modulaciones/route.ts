@@ -6,6 +6,7 @@ import { normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "modulaciones_ruta";
+const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
 const LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
@@ -49,6 +50,10 @@ export async function PUT(request: Request) {
     }
     if (records.some((record) => record.contratista && normalizeContractorName(record.contratista) !== normalizeContractorName(contractor))) {
       return NextResponse.json({ error: `Solo puedes guardar modulaciones de ${contractor}.` }, { status: 403 });
+    }
+    if (isPublicSubmission) {
+      const dtValidationError = await validatePublicDt(contractor, records[0]);
+      if (dtValidationError) return NextResponse.json({ error: dtValidationError }, { status: 400 });
     }
 
     const existingById = !isPublicSubmission && session
@@ -100,6 +105,43 @@ export async function PUT(request: Request) {
     return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando modulaciones." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta las modulaciones globales." }, { status: 403 });
+
+    const { ids } = (await request.json()) as { ids?: string[] };
+    const cleanIds = Array.from(new Set((ids ?? []).map((id) => String(id ?? "").trim()).filter(Boolean)));
+    if (!cleanIds.length) return NextResponse.json({ error: "Debes enviar al menos una modulacion para eliminar." }, { status: 400 });
+
+    const idFilter = cleanIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+    const params = new URLSearchParams({ contractor: `eq.${session.contractor}` });
+    params.set("modulation_id", `in.(${idFilter})`);
+
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      method: "DELETE",
+      headers: supabaseUserHeaders(session.accessToken, { Prefer: "return=minimal" }),
+      cache: "no-store",
+    });
+    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+
+    await writeAuditLog({
+      action: "modulacion_eliminada",
+      contractor: session.contractor,
+      details: { ids: cleanIds },
+      module: "modulacion",
+      recordId: cleanIds.slice(0, 5).join(","),
+      request,
+      session,
+    });
+
+    return NextResponse.json({ ok: true, ids: cleanIds });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando modulaciones." }, { status: 500 });
   }
 }
 
@@ -165,6 +207,45 @@ function fromListRow(row: ModulacionListRow): ModulacionRegistro {
 
 function readString(value: unknown) {
   return String(value ?? "").trim();
+}
+
+async function validatePublicDt(contractor: string, record: ModulacionRegistro | undefined) {
+  const dt = normalizeDt(record?.dt);
+  if (!dt) return "Ingresa un DT valido.";
+
+  const params = new URLSearchParams({
+    select: "data",
+    contractor: `eq.${contractor}`,
+    "data->>transporte": `eq.${dt}`,
+    "data->>fechaDespacho": `eq.${getTodayKey()}`,
+    limit: "1",
+  });
+  const response = await fetch(supabaseRest(SEGUIMIENTO_TABLE, `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+    cache: "no-store",
+  });
+  if (!response.ok) return "No se pudo validar el DT antes de guardar.";
+
+  const rows = (await response.json().catch(() => [])) as { data?: { transporte?: string | number } }[];
+  const hasValidDt = rows.some((row) => normalizeDt(row.data?.transporte) === dt);
+  return hasValidDt ? "" : "El DT no esta validado o no esta cargado para hoy.";
+}
+
+function normalizeDt(value: string | number | undefined) {
+  return String(value ?? "")
+    .replace(/^DT-?/i, "")
+    .replace(/\D/g, "");
+}
+
+function getTodayKey() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Bogota",
+    year: "numeric",
+  }).formatToParts(new Date());
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
 }
 
 function restoreExistingImage(record: ModulacionRegistro, existing: ModulacionRegistro | undefined) {
