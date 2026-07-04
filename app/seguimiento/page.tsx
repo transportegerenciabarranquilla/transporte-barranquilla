@@ -554,7 +554,7 @@ export default function SeguimientoPage() {
 
         <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
 
-        <div className="relative z-40 mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
+        <div className="relative z-[70] mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
           <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 transition hover:border-amber-300 hover:bg-amber-50/45">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-[#10223d] text-white shadow-lg shadow-blue-500/15">
               <FileSpreadsheet size={22} />
