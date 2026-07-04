@@ -256,10 +256,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
   const visitados = roundedNumberValue(value(["visitados", "clientes visitados"]), 0);
   const importedCapacity = numberValue(value(["capacidad", "capacidad peso", "capacidad vehiculo"]), 1);
   const createdAt = new Date(`${fechaDespacho}T00:00:00`).toISOString();
-  const status = stringValue(value(["status", "estado"])) || "Cargando";
-  const horaSalida = timeValue(value(["hora salida", "salida"]));
-  const horaLlegada = timeValue(value(["hora llegada", "llegada"]));
-  const shouldUseImportedDeparture = isStartedStatus(status) || Boolean(horaLlegada);
+  const status = "Pendiente por salir";
 
   return {
     cajasGestionadas: roundedNumberValue(value(["cajas gestionadas", "gestionadas"]), 0),
@@ -284,7 +281,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     hl: numberValue(value(["hl", "hectolitros"]), 0),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
-    horaSalida: shouldUseImportedDeparture ? horaSalida || "Pendiente" : "Pendiente",
+    horaSalida: "Pendiente",
     causalSalidaTardia: stringValue(value(["causal salida tardia", "causal salida tarde", "motivo salida tardia"])),
     comentarioSalidaTardia: stringValue(value(["comentario salida tardia", "comentario salida tarde", "observacion salida tardia"])),
     peso: numberValue(value(["peso", "peso dt"]), 0),
@@ -292,8 +289,8 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     validadorPeso: stringValue(value(["validador peso", "validador"])) || "Pendiente",
     avanceRuta: stringValue(value(["avance ruta", "avance"])) || "0%",
     status,
-    horaLlegada: horaLlegada || "Pendiente",
-    tiempoRuta: durationValue(value(["tiempo ruta", "tiempo en ruta"])) || "Pendiente",
+    horaLlegada: "Pendiente",
+    tiempoRuta: "Pendiente",
     tiempoPlaneado: durationValue(value(["tiempo planeado", "tiempo plan", "tiempo planificado", "tiempo estimado", "duracion planeada", "duracion planificada"])),
     metaRelevo: stringValue(value(["meta relevo"])) || "Pendiente",
     horaInicioRelevo: stringValue(value(["hora inicio relevo"])) || "Pendiente",
@@ -307,16 +304,6 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     cedulaAuxiliar1: stringValue(value(["cedula auxiliar 1", "cedula conductor"])),
     cedulaAuxiliar2: stringValue(value(["cedula auxiliar 2"])),
   };
-}
-
-function isStartedStatus(value: string) {
-  const normalized = value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-
-  return ["en ruta", "retornando", "recargue", "finalizado"].includes(normalized);
 }
 
 function getOnTimeClassification(fechaDt: string | undefined, fechaDespacho: string | undefined) {
@@ -381,11 +368,6 @@ function normalizeHeader(value: string) {
 
 function stringValue(value: unknown) {
   if (value instanceof Date) return getLocalDateKey(value);
-  return String(value ?? "").trim();
-}
-
-function timeValue(value: unknown) {
-  if (value instanceof Date) return formatTimeFromDate(value);
   return String(value ?? "").trim();
 }
 

@@ -21,7 +21,7 @@ export function SeguimientoFilters({
   onStatusChange: (value: string[]) => void;
 }) {
   return (
-    <div className="mb-5 rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
+    <div className="relative z-50 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Filtros</p>
@@ -88,7 +88,7 @@ export function SeguimientoFilters({
           >
             Sin responsable
           </button>
-          <details className="group relative w-full sm:w-56">
+          <details className="group relative z-50 w-full sm:w-56">
             <summary className="flex h-11 cursor-pointer list-none items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition hover:border-[#1264ff]">
               <span className="truncate">
                 {statusFilters.length === 0
@@ -99,7 +99,7 @@ export function SeguimientoFilters({
               </span>
               <ChevronDown className="shrink-0 text-slate-400 transition group-open:rotate-180" size={17} />
             </summary>
-            <div className="absolute right-0 z-30 mt-2 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white p-2 shadow-xl">
+            <div className="absolute right-0 z-[100] mt-2 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white p-2 shadow-xl">
               <button
                 className="mb-1 flex w-full items-center rounded px-2 py-2 text-left text-xs font-semibold text-[#10223d] hover:bg-slate-50"
                 onClick={() => onStatusChange([])}
