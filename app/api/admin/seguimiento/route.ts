@@ -15,6 +15,7 @@ type AdminRefusalComRow = {
   com: string;
   date: string;
   dt: string;
+  jefeVentas: string;
   preventista: string;
   reportadas: number;
   gestionadas: number;
@@ -196,6 +197,7 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
       com: getCom(record, vehicle),
       date,
       dt: normalizeDt(record.dt),
+      jefeVentas: getJefeVentas(record, vehicle),
       preventista: getPreventista(record),
       reportadas,
       gestionadas,
@@ -217,6 +219,12 @@ function getCom(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
 
 function getPreventista(record: ModulacionRegistro) {
   return record.preventistaNombre?.trim() || record.preventista?.trim() || "Sin preventista";
+}
+
+function getJefeVentas(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
+  if (record.jefeComercial?.trim()) return record.jefeComercial.trim();
+
+  return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
 }
 
 function getRecordDate(record: ModulacionRegistro) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { isLogisticosContractor } from "../lib/contractors";
@@ -35,6 +35,7 @@ export default function JornadaLaboralPage() {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [classificationFilter, setClassificationFilter] = useState("");
+  const [routeTimeSort, setRouteTimeSort] = useState<"desc" | "asc">("desc");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores, setRelevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
@@ -78,10 +79,11 @@ export default function JornadaLaboralPage() {
     [rows],
   );
   const sifRows = useMemo(() => rows.filter((row) => row.alertaSif), [rows]);
+  const relevoRows = useMemo(() => rows.filter((row) => row.requiereRelevo), [rows]);
   const filteredRows = useMemo(() => {
     const searchTerm = search.trim().toLowerCase();
 
-    return rows.filter((row) => {
+    const filtered = rows.filter((row) => {
       const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio} ${row.vehicle.relevador}`.toLowerCase();
       const matchesSearch = !searchTerm || searchable.includes(searchTerm);
       const matchesState = !stateFilter || row.state === stateFilter || (stateFilter === "done" && row.state === "lateDone");
@@ -89,7 +91,13 @@ export default function JornadaLaboralPage() {
 
       return matchesSearch && matchesState && matchesClassification;
     });
-  }, [classificationFilter, rows, search, stateFilter]);
+
+    return [...filtered].sort((a, b) => {
+      const elapsedDiff = routeTimeSort === "desc" ? b.elapsedSeconds - a.elapsedSeconds : a.elapsedSeconds - b.elapsedSeconds;
+      if (elapsedDiff !== 0) return elapsedDiff;
+      return getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true });
+    });
+  }, [classificationFilter, routeTimeSort, rows, search, stateFilter]);
   const selectedVehicle = useMemo(() => {
     if (!selectedVehicleKey) return null;
     return jornadaVehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
@@ -124,6 +132,10 @@ export default function JornadaLaboralPage() {
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
       });
+  }
+
+  function toggleRouteTimeSort() {
+    setRouteTimeSort((current) => (current === "desc" ? "asc" : "desc"));
   }
 
   if (canAccessJornada === null) {
@@ -265,6 +277,26 @@ export default function JornadaLaboralPage() {
               <LegendItem tone="warn" label="Pendiente relevo" detail="Supero 10h 30m y no tiene inicio de relevo." />
               <LegendItem tone="danger" label="Alerta SIF" detail="Supero 13h de jornada laboral." />
             </div>
+            {relevoRows.length ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+                <span className="inline-flex items-center gap-1 font-bold">
+                  <Clock3 size={13} />
+                  Relevar ahora
+                </span>
+                {relevoRows.slice(0, 6).map((row) => (
+                  <button
+                    className="rounded-md bg-white px-2 py-1 font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
+                    key={getVehicleUiKey(row.vehicle)}
+                    onClick={() => setSelectedVehicleKey(getVehicleUiKey(row.vehicle))}
+                    title={`DT ${row.vehicle.transporte} - ${row.elapsedLabel}`}
+                    type="button"
+                  >
+                    {row.vehicle.vehiculo || "Sin placa"} - {row.elapsedLabel}
+                  </button>
+                ))}
+                {relevoRows.length > 6 ? <span className="font-semibold">+{relevoRows.length - 6} mas</span> : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto">
@@ -275,7 +307,26 @@ export default function JornadaLaboralPage() {
                   <HeaderCell width="w-[88px]" title="Placa" detail="Vehiculo" />
                   <HeaderCell width="w-[64px]" title="Fecha" detail="Despacho" />
                   <HeaderCell width="w-[72px]" title="Salida" detail="Hora ruta" />
-                  <HeaderCell width="w-[88px]" title="Tiempo" detail="Desde salida" />
+                  <th className="w-[116px] px-1.5 py-1.5 text-left">
+                    <div className="flex items-center gap-1">
+                      <div className="min-w-0">
+                        <span className="block text-[9px] font-bold uppercase tracking-[0.08em] text-[#10223d]">Tiempo</span>
+                        <span className="mt-0.5 block truncate text-[8px] font-medium normal-case tracking-normal text-slate-500">Desde salida</span>
+                      </div>
+                      <button
+                        aria-label="Ordenar por tiempo en ruta"
+                        className="inline-grid h-5 w-5 place-items-center rounded bg-[#10223d]/10 text-[#10223d] transition hover:bg-[#10223d]/15 hover:text-[#0f7c58]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleRouteTimeSort();
+                        }}
+                        title={routeTimeSort === "desc" ? "Mayor tiempo primero" : "Menor tiempo primero"}
+                        type="button"
+                      >
+                        <ArrowUpDown size={11} />
+                      </button>
+                    </div>
+                  </th>
                   <HeaderCell align="center" width="w-[58px]" title="Clientes" detail="Prog." />
                   <HeaderCell align="center" width="w-[58px]" title="Visitados" detail="Aten." />
                   <HeaderCell width="w-[78px]" title="Meta" detail="+10:30" />
@@ -662,8 +713,10 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: M
       alertaSif: false,
       avance,
       clasificacion,
+      elapsedSeconds: 0,
       elapsedLabel: "Sin hora",
       metaRelevo,
+      requiereRelevo: false,
       state: "empty" as JornadaState,
       statusLabel: "Sin hora salida",
       vehicle,
@@ -687,8 +740,10 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: M
     alertaSif,
     avance,
     clasificacion,
+    elapsedSeconds,
     elapsedLabel: formatDuration(elapsedSeconds),
     metaRelevo,
+    requiereRelevo: !hasRelevo && !isFinished && elapsedSeconds >= META_RELEVO_SECONDS,
     state,
     statusLabel,
     vehicle,

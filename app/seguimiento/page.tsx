@@ -490,6 +490,7 @@ export default function SeguimientoPage() {
       const XLSX = await import("xlsx");
       const exportRows = vehiclesForDate.map((vehicle) => ({
         DT: vehicle.transporte,
+        Viaje: vehicle.viaje,
         Placa: vehicle.vehiculo,
         Responsable: vehicle.responsable,
         "Nombre RR": vehicle.nombreResponsable || vehicle.responsable || "",
@@ -553,7 +554,7 @@ export default function SeguimientoPage() {
 
         <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
 
-        <div className="mb-6 grid gap-4 rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
+        <div className="relative z-40 mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
           <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 transition hover:border-amber-300 hover:bg-amber-50/45">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-[#10223d] text-white shadow-lg shadow-blue-500/15">
               <FileSpreadsheet size={22} />
@@ -571,17 +572,55 @@ export default function SeguimientoPage() {
             />
           </label>
 
-          <div className="relative flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-2">
+          <div className="relative z-30 flex flex-wrap items-center justify-end gap-2 overflow-visible rounded-md border border-slate-200 bg-white p-2 shadow-sm">
+            <div className="relative z-50">
+              <button
+                className="inline-flex h-10 min-w-[132px] items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] transition hover:border-amber-200 hover:bg-amber-50"
+                onClick={() => setActionsOpen((current) => !current)}
+                type="button"
+              >
+                Acciones
+                <ChevronDown size={16} />
+              </button>
+
+              {actionsOpen ? (
+                <div className="absolute left-0 top-full z-[90] mt-2 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.18)]">
+                  <button
+                    className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                    onClick={() => {
+                      handleMarkFilteredInRoute();
+                      setActionsOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <Truck size={17} />
+                    Filtrados en ruta
+                  </button>
+                  <button
+                    className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                    onClick={() => {
+                      void handleExportDailyVehicles();
+                      setActionsOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <FileDown size={17} />
+                    Exportar dia
+                  </button>
+                  <a
+                    className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
+                    download="plantilla-seguimiento.xlsx"
+                    href="/plantilla-seguimiento.xlsx"
+                    onClick={() => setActionsOpen(false)}
+                  >
+                    <FileDown size={17} />
+                    Plantilla
+                  </a>
+                </div>
+              ) : null}
+            </div>
             <button
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold text-[#10223d] transition hover:border-amber-200 hover:bg-amber-50"
-              onClick={() => setActionsOpen((current) => !current)}
-              type="button"
-            >
-              Acciones
-              <ChevronDown size={16} />
-            </button>
-            <button
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#0f7c58] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+              className="inline-flex h-10 min-w-[132px] items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[#0f7c58] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
               onClick={goToGraficas}
               type="button"
             >
@@ -589,49 +628,13 @@ export default function SeguimientoPage() {
               Graficas
             </button>
             <button
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#f5bd19] px-3 text-xs font-semibold text-[#10223d] shadow-sm transition hover:bg-[#e6a400]"
+              className="inline-flex h-10 min-w-[158px] items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[#f5bd19] px-3 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-[#e6a400]"
               onClick={() => router.push("/seguimiento/checkin")}
               type="button"
             >
               <ClipboardCheck size={18} />
               Cajas checkin
             </button>
-
-            {actionsOpen ? (
-              <div className="absolute right-2 top-12 z-20 min-w-56 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl">
-                <button
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
-                  onClick={() => {
-                    handleMarkFilteredInRoute();
-                    setActionsOpen(false);
-                  }}
-                  type="button"
-                >
-                  <Truck size={15} />
-                  Filtrados en ruta
-                </button>
-                <button
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
-                  onClick={() => {
-                    void handleExportDailyVehicles();
-                    setActionsOpen(false);
-                  }}
-                  type="button"
-                >
-                  <FileDown size={15} />
-                  Exportar dia
-                </button>
-                <a
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-semibold text-[#10223d] transition hover:bg-[#fff8e6]"
-                  download="plantilla-seguimiento.xlsx"
-                  href="/plantilla-seguimiento.xlsx"
-                  onClick={() => setActionsOpen(false)}
-                >
-                  <FileDown size={15} />
-                  Plantilla
-                </a>
-              </div>
-            ) : null}
           </div>
         </div>
 
