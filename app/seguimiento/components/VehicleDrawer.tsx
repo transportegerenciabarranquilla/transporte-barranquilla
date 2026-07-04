@@ -82,7 +82,7 @@ export function VehicleDrawer({
   }, [vehicle.vehiculo, vehicle.capacidad, recordKey]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
       <aside className="h-full w-full max-w-md overflow-y-auto bg-white shadow-[0_0_70px_rgba(16,34,61,0.24)]">
         <div className="sticky top-0 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-4">

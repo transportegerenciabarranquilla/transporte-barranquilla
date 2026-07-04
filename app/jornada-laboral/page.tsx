@@ -579,7 +579,7 @@ function RelevadorSelect({
         value={draft}
       />
       {open ? (
-        <div className="absolute left-0 right-0 top-7 z-40 max-h-48 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-xl">
+        <div className="absolute left-0 right-0 top-7 z-[80] max-h-48 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-xl">
           <button
             className="block w-full px-2 py-1.5 text-left text-[10px] font-medium text-slate-500 hover:bg-slate-50"
             onMouseDown={(event) => {
@@ -622,7 +622,7 @@ function VehiclePeopleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose:
   const people = getVehiclePeople(vehicle);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
       <aside className="h-full w-full max-w-md overflow-y-auto bg-white shadow-[0_0_70px_rgba(16,34,61,0.24)]">
         <div className="sticky top-0 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-4">
