@@ -31,7 +31,7 @@ type PeopleGroup = {
   people: PersonSummary[];
 };
 
-type AttendanceStatus = "bien" | "regular" | "mal" | "fuera" | "sin-marca";
+type AttendanceStatus = "bien" | "regular" | "mal" | "sin-marca";
 
 type AttendanceRow = {
   apellidos: string;
@@ -62,7 +62,6 @@ type AttendanceSummary = {
   bien: number;
   regular: number;
   mal: number;
-  fuera: number;
   sinMarca: number;
 };
 
@@ -332,12 +331,11 @@ export default function AsistenciaPersonasPage() {
           </button>
         </div>
 
-        <div className="mb-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="mb-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-5">
           <MiniMetric label="Personas" tone="blue" value={groupedRows.length} />
           <MiniMetric label="Bien" tone="green" value={totals.bien} />
           <MiniMetric label="Regular" tone="amber" value={totals.regular} />
           <MiniMetric label="Mal" tone="red" value={totals.mal} />
-          <MiniMetric label="Fuera" tone="slate" value={totals.fuera} />
           <MiniMetric label="Sin marca" tone="cyan" value={totals.sinMarca} />
         </div>
 
@@ -407,7 +405,7 @@ export default function AsistenciaPersonasPage() {
                 {!topOffenders.length ? (
                   <tr>
                     <td className="px-3 py-4 text-center text-xs text-slate-500" colSpan={6}>
-                      No hay llegadas tarde entre 6:31 y 7:00 para este filtro.
+                      No hay llegadas tarde despues de las 6:30 para este filtro.
                     </td>
                   </tr>
                 ) : null}
@@ -476,42 +474,48 @@ export default function AsistenciaPersonasPage() {
         ) : null}
 
         {activeTable === "resumen" ? (
-        <section className="mb-3 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
+        <section className="mb-2 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-2 py-1">
             <div>
-              <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Resumen</p>
-              <h2 className="text-xs font-semibold text-[#10223d]">Rangos por contratista</h2>
+              <p className="text-[8px] font-semibold uppercase tracking-[0.1em] text-slate-500">Resumen</p>
+              <h2 className="text-[11px] font-semibold leading-tight text-[#10223d]">Rangos por contratista</h2>
             </div>
-            <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{summary.length} contratistas</span>
+            <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">{summary.length} contratistas</span>
           </div>
           <div className="overflow-auto">
-            <table className="w-full min-w-[680px] text-[11px]">
-              <thead className="bg-white text-[9px] uppercase tracking-[0.07em] text-slate-500">
+            <table className="w-full min-w-[640px] text-[10px]">
+              <thead className="bg-white text-[8px] uppercase tracking-[0.05em] text-slate-500">
                 <tr>
-                  <th className="px-2.5 py-1.5 text-left">Contratista</th>
-                  <th className="px-2 py-1.5 text-right">Bien</th>
-                  <th className="px-2 py-1.5 text-right">Regular</th>
-                  <th className="px-2 py-1.5 text-right">Mal</th>
-                  <th className="px-2 py-1.5 text-right">Fuera</th>
-                  <th className="px-2 py-1.5 text-right">Sin marca</th>
-                  <th className="px-2.5 py-1.5 text-right">Total</th>
+                  <th className="px-2 py-1 text-left">Contratista</th>
+                  <th className="px-1.5 py-1 text-right">
+                    <TableHeadRange label="Bien" range="5:45-6:00" />
+                  </th>
+                  <th className="px-1.5 py-1 text-right">
+                    <TableHeadRange label="Regular" range="6:01-6:30" />
+                  </th>
+                  <th className="px-1.5 py-1 text-right">
+                    <TableHeadRange label="Mal" range=">6:30" />
+                  </th>
+                  <th className="px-1.5 py-1 text-right">
+                    <TableHeadRange label="Sin marca" range="Sin hora" />
+                  </th>
+                  <th className="px-2 py-1 text-right">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {summary.map((item) => (
                   <tr key={item.contractor}>
-                    <td className="px-2.5 py-1 font-semibold text-[#10223d]">{item.contractor}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-emerald-700">{item.bien}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-amber-700">{item.regular}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-red-700">{item.mal}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-slate-500">{item.fuera}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-[#07556b]">{item.sinMarca}</td>
-                    <td className="px-2.5 py-1 text-right font-semibold text-slate-900">{item.total}</td>
+                    <td className="px-2 py-0.5 font-semibold text-[#10223d]">{item.contractor}</td>
+                    <td className="px-1.5 py-0.5 text-right font-semibold text-emerald-700">{item.bien}</td>
+                    <td className="px-1.5 py-0.5 text-right font-semibold text-amber-700">{item.regular}</td>
+                    <td className="px-1.5 py-0.5 text-right font-semibold text-red-700">{item.mal}</td>
+                    <td className="px-1.5 py-0.5 text-right font-semibold text-[#07556b]">{item.sinMarca}</td>
+                    <td className="px-2 py-0.5 text-right font-semibold text-slate-900">{item.total}</td>
                   </tr>
                 ))}
                 {!summary.length ? (
                   <tr>
-                    <td className="px-3 py-4 text-center text-xs text-slate-500" colSpan={7}>
+                    <td className="px-3 py-3 text-center text-xs text-slate-500" colSpan={6}>
                       Sube un Excel para ver el resumen.
                     </td>
                   </tr>
@@ -552,7 +556,7 @@ export default function AsistenciaPersonasPage() {
                 Limpiar
               </button>
               <span className="h-8 rounded bg-white px-1.5 py-2 text-[10px] font-semibold leading-none text-slate-500 ring-1 ring-slate-200">
-                Bien 5:45-6:00 | Regular 6:01-6:30 | Mal 6:31-7:00
+                Bien hasta 6:00 | Regular 6:01-6:30 | Mal despues de 6:30
               </span>
             </div>
           </div>
@@ -630,17 +634,24 @@ function MiniMetric({ label, tone, value }: { label: string; tone: "amber" | "bl
   );
 }
 
+function TableHeadRange({ label, range }: { label: string; range: string }) {
+  return (
+    <span className="inline-flex items-baseline justify-end gap-1 leading-none">
+      <span>{label}</span>
+      <span className="text-[7px] font-semibold normal-case tracking-normal text-slate-400">{range}</span>
+    </span>
+  );
+}
+
 function StatusChip({ status }: { status: AttendanceStatus }) {
   const labels: Record<AttendanceStatus, string> = {
     bien: "Bien",
-    fuera: "Fuera",
     mal: "Mal",
     regular: "Regular",
     "sin-marca": "Sin marca",
   };
   const styles: Record<AttendanceStatus, string> = {
     bien: "border-emerald-100 bg-emerald-50 text-emerald-700",
-    fuera: "border-slate-200 bg-slate-50 text-slate-600",
     mal: "border-red-100 bg-red-50 text-red-700",
     regular: "border-amber-100 bg-amber-50 text-amber-700",
     "sin-marca": "border-cyan-100 bg-cyan-50 text-[#07556b]",
@@ -734,7 +745,6 @@ function worstArrivalStatus(a: AttendanceStatus, b: AttendanceStatus): Attendanc
     regular: 4,
     bien: 3,
     "sin-marca": 2,
-    fuera: 1,
   };
   return rank[b] > rank[a] ? b : a;
 }
@@ -749,12 +759,11 @@ function buildAttendanceSummary(rows: AttendanceRow[]): AttendanceSummary[] {
 
   rows.forEach((row) => {
     const contractor = row.contratista || "Sin contratista";
-    const current = groups.get(contractor) || { bien: 0, contractor, fuera: 0, mal: 0, regular: 0, sinMarca: 0, total: 0 };
+    const current = groups.get(contractor) || { bien: 0, contractor, mal: 0, regular: 0, sinMarca: 0, total: 0 };
     current.total += 1;
     if (row.estadoLlegada === "bien") current.bien += 1;
     if (row.estadoLlegada === "regular") current.regular += 1;
     if (row.estadoLlegada === "mal") current.mal += 1;
-    if (row.estadoLlegada === "fuera") current.fuera += 1;
     if (row.estadoLlegada === "sin-marca") current.sinMarca += 1;
     groups.set(contractor, current);
   });
@@ -766,13 +775,12 @@ function buildAttendanceTotals(summary: AttendanceSummary[]) {
   return summary.reduce(
     (acc, item) => ({
       bien: acc.bien + item.bien,
-      fuera: acc.fuera + item.fuera,
       mal: acc.mal + item.mal,
       regular: acc.regular + item.regular,
       sinMarca: acc.sinMarca + item.sinMarca,
       total: acc.total + item.total,
     }),
-    { bien: 0, fuera: 0, mal: 0, regular: 0, sinMarca: 0, total: 0 },
+    { bien: 0, mal: 0, regular: 0, sinMarca: 0, total: 0 },
   );
 }
 
@@ -805,16 +813,15 @@ function buildTopOffenders(rows: AttendanceRow[]): TopOffender[] {
 
 function isLateArrival(row: AttendanceRow) {
   const minutes = timeToMinutes(row.entrada);
-  return minutes !== null && minutes > 6 * 60 + 30 && minutes <= 7 * 60;
+  return minutes !== null && minutes > 6 * 60 + 30;
 }
 
 function arrivalRangeLabel(value: string) {
   const minutes = timeToMinutes(value);
   if (minutes === null) return "Sin marca";
-  if (minutes >= 5 * 60 + 45 && minutes <= 6 * 60) return "5:45-6:00";
+  if (minutes <= 6 * 60) return "Hasta 6:00";
   if (minutes > 6 * 60 && minutes <= 6 * 60 + 30) return "6:01-6:30";
-  if (minutes > 6 * 60 + 30 && minutes <= 7 * 60) return "6:31-7:00";
-  return "Fuera de rango";
+  return ">6:30";
 }
 
 function isNewerAttendanceRow(row: AttendanceRow, currentDate: string, currentTime: string) {
@@ -871,11 +878,9 @@ function normalizeTimeValue(value: string) {
 function classifyArrival(value: string): AttendanceStatus {
   const minutes = timeToMinutes(value);
   if (minutes === null) return "sin-marca";
-  if (minutes < 5 * 60 + 45) return "fuera";
   if (minutes <= 6 * 60) return "bien";
   if (minutes <= 6 * 60 + 30) return "regular";
-  if (minutes <= 7 * 60) return "mal";
-  return "fuera";
+  return "mal";
 }
 
 function timeToMinutes(value: string) {
