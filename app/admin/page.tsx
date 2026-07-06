@@ -53,25 +53,6 @@ type PeopleGroup = {
   people: PersonSummary[];
 };
 
-type AdminRefusalRow = {
-  causal: string;
-  contractor: string;
-  date: string;
-  dt: string;
-  gestionadas: number;
-  refusalFinal: number;
-  reportadas: number;
-};
-
-type RefusalCauseSummary = {
-  causal: string;
-  contractor: string;
-  gestionadas: number;
-  pendientes: number;
-  registros: number;
-  reportadas: number;
-};
-
 type VehiclePerson = PersonSummary & {
   role: string;
 };
@@ -88,7 +69,6 @@ export default function AdminPage() {
   );
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
-  const [refusalRows, setRefusalRows] = useState<AdminRefusalRow[]>([]);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
@@ -133,7 +113,6 @@ export default function AdminPage() {
         if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
         setSummaries(adminBody.summaries || []);
         setRecords(adminBody.records || []);
-        setRefusalRows(adminBody.refusalByComRows || []);
 
         if (peopleResponse.ok) {
           const peopleBody = await peopleResponse.json().catch(() => ({}));
@@ -197,21 +176,6 @@ export default function AdminPage() {
     if (selectedContractor === "Todas") return dateRecords;
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
-  const dateDtRefusalRows = useMemo(() => {
-    const targetDt = normalizeDt(dtSearch);
-
-    return refusalRows.filter((row) => {
-      const matchesDate = !selectedDate || row.date === selectedDate;
-      const matchesDt = !targetDt || normalizeDt(row.dt).includes(targetDt);
-      return matchesDate && matchesDt;
-    });
-  }, [dtSearch, refusalRows, selectedDate]);
-  const filteredRefusalRows = useMemo(() => {
-    if (selectedContractor === "Todas") return dateDtRefusalRows;
-    return dateDtRefusalRows.filter((row) => row.contractor === selectedContractor);
-  }, [dateDtRefusalRows, selectedContractor]);
-  const globalCauseRows = useMemo(() => buildRefusalCauseRows(dateDtRefusalRows, false), [dateDtRefusalRows]);
-  const contractorCauseRows = useMemo(() => buildRefusalCauseRows(filteredRefusalRows, true), [filteredRefusalRows]);
   const allPeople = useMemo(() => peopleGroups.flatMap((group) => group.people), [peopleGroups]);
   const selectedVehiclePeople = useMemo(() => (selectedRecord ? getVehiclePeople(selectedRecord, allPeople) : []), [allPeople, selectedRecord]);
   const allAdminIssues = useMemo(() => buildAdminIssues(filteredRecords), [filteredRecords]);
@@ -366,7 +330,12 @@ export default function AdminPage() {
           </button>
         </div>
 
-        <AdminTabs activeTab={activeTab} issueCount={adminIssues.length} onChange={setActiveTab} recordCount={filteredRecords.length} />
+        <AdminTabs
+          activeTab={activeTab}
+          issueCount={adminIssues.length}
+          onChange={setActiveTab}
+          recordCount={filteredRecords.length}
+        />
 
         {activeTab === "resumen" ? (
           <>
@@ -405,12 +374,6 @@ export default function AdminPage() {
           <Metric icon={<Truck size={21} />} label="% refusal total" tone="amber" value={`${totals.refusal.toLocaleString("es-CO")}%`} />
           <Metric icon={<Users size={21} />} label="Clientes" tone="green" value={totals.clientes.toLocaleString("es-CO")} />
         </div>
-
-        <RefusalCausesPanel
-          contractorRows={contractorCauseRows}
-          globalRows={globalCauseRows}
-          selectedContractor={selectedContractor}
-        />
 
         <div className="mb-5 grid gap-3 md:grid-cols-3">
           {visibleSummaries.map((summary) => (
@@ -666,109 +629,6 @@ function AdminTabs({
   );
 }
 
-function RefusalCausesPanel({
-  contractorRows,
-  globalRows,
-  selectedContractor,
-}: {
-  contractorRows: RefusalCauseSummary[];
-  globalRows: RefusalCauseSummary[];
-  selectedContractor: string;
-}) {
-  const hasRows = globalRows.length || contractorRows.length;
-
-  return (
-    <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white/92 shadow-[0_14px_36px_rgba(15,23,42,0.06)] backdrop-blur">
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Causales de rechazo</p>
-          <h2 className="mt-1 text-lg font-semibold text-[#10223d]">Motivos globales y por contratista</h2>
-        </div>
-        <span className="self-start rounded-md border border-red-100 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 sm:self-auto">
-          {selectedContractor === "Todas" ? "Vista global" : selectedContractor}
-        </span>
-      </div>
-
-      {hasRows ? (
-        <div className="grid gap-0 lg:grid-cols-[0.95fr_1.25fr]">
-          <CauseTable
-            emptyText="No hay causales globales para este filtro."
-            rows={globalRows.slice(0, 8)}
-            showContractor={false}
-            title="Global"
-          />
-          <CauseTable
-            emptyText="No hay causales por contratista para este filtro."
-            rows={contractorRows.slice(0, 10)}
-            showContractor
-            title={selectedContractor === "Todas" ? "Por contratista" : `Detalle ${selectedContractor}`}
-          />
-        </div>
-      ) : (
-        <div className="px-4 py-10 text-center text-sm font-medium text-slate-500">
-          No hay modulaciones con causales de rechazo para el filtro actual.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function CauseTable({
-  emptyText,
-  rows,
-  showContractor,
-  title,
-}: {
-  emptyText: string;
-  rows: RefusalCauseSummary[];
-  showContractor: boolean;
-  title: string;
-}) {
-  return (
-    <div className="border-b border-slate-200 p-4 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-[#10223d]">{title}</h3>
-        <span className="text-xs font-semibold text-slate-400">{rows.length} causal{rows.length === 1 ? "" : "es"}</span>
-      </div>
-      {rows.length ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200">
-          <table className="w-full min-w-[520px] text-xs">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
-              <tr>
-                {showContractor ? <th className="px-3 py-2 text-left">Contratista</th> : null}
-                <th className="px-3 py-2 text-left">Causal</th>
-                <th className="px-3 py-2 text-right">Reportadas</th>
-                <th className="px-3 py-2 text-right">Gestionadas</th>
-                <th className="px-3 py-2 text-right">Pendientes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {rows.map((row) => (
-                <tr className="hover:bg-red-50/35" key={`${row.contractor}-${row.causal}`}>
-                  {showContractor ? <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-600">{row.contractor}</td> : null}
-                  <td className="max-w-[260px] px-3 py-2 font-semibold text-[#10223d]" title={row.causal}>
-                    <span className="line-clamp-2">{row.causal}</span>
-                    <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                      {row.registros} registro{row.registros === 1 ? "" : "s"}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">{row.reportadas.toLocaleString("es-CO")}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-[#0f7c58]">{row.gestionadas.toLocaleString("es-CO")}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-red-700">{row.pendientes.toLocaleString("es-CO")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm text-slate-500">
-          {emptyText}
-        </div>
-      )}
-    </div>
-  );
-}
-
 type AdminIssue = {
   detail: string;
   kind: AdminIssueKind;
@@ -902,34 +762,6 @@ function isAdminIssueKind(value: string | null): value is AdminIssueKind {
     value === "sin-fecha" ||
     value === "sin-salida"
   );
-}
-
-function buildRefusalCauseRows(rows: AdminRefusalRow[], includeContractor: boolean): RefusalCauseSummary[] {
-  const groups = new Map<string, RefusalCauseSummary>();
-
-  rows.forEach((row) => {
-    const causal = row.causal?.trim() || "Sin causal";
-    const contractor = includeContractor ? row.contractor || "Sin contratista" : "Global";
-    const key = `${contractor}:${causal}`;
-    const current = groups.get(key) || {
-      causal,
-      contractor,
-      gestionadas: 0,
-      pendientes: 0,
-      registros: 0,
-      reportadas: 0,
-    };
-    const reportadas = Number(row.reportadas || 0);
-    const gestionadas = Number(row.gestionadas || 0);
-
-    current.reportadas += reportadas;
-    current.gestionadas += gestionadas;
-    current.pendientes += Number.isFinite(row.refusalFinal) ? Number(row.refusalFinal || 0) : Math.max(reportadas - gestionadas, 0);
-    current.registros += 1;
-    groups.set(key, current);
-  });
-
-  return Array.from(groups.values()).sort((a, b) => b.pendientes - a.pendientes || b.reportadas - a.reportadas || a.causal.localeCompare(b.causal));
 }
 
 function getRecordDate(record: Vehiculo) {

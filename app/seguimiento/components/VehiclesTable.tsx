@@ -173,7 +173,7 @@ export function VehiclesTable({
                         onChange={(value) => onUpdateVehicle(recordKey, { tiempoPlaneado: value })}
                       />
                       <p className="mt-0.5 text-[9px] font-semibold">
-                        Esperado {plannedProgress.expectedVisited}/{item.clientes} ({plannedProgress.label})
+                        Esperado {plannedProgress.label}
                       </p>
                     </div>
                   </td>

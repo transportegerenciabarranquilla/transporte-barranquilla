@@ -52,15 +52,15 @@ export function getPlannedProgress(
     };
   }
 
-  const secondsPerClient = plannedSeconds / clientes;
-  const expectedVisited = Math.min(clientes, Math.floor(elapsedSeconds / secondsPerClient));
-  const expected = Number(((expectedVisited / clientes) * 100).toFixed(1));
+  const expected = Math.min(100, Number(((elapsedSeconds / plannedSeconds) * 100).toFixed(1)));
+  const expectedVisited = Math.min(clientes, Math.ceil((expected / 100) * clientes));
   const visitados = Number(vehicle.visitados || 0);
+  const progress = Math.min(100, (visitados / clientes) * 100);
 
   return {
     expected,
     expectedVisited,
-    isBehind: visitados < expectedVisited,
+    isBehind: progress < expected,
     label: `${expected.toFixed(1)}%`,
   };
 }

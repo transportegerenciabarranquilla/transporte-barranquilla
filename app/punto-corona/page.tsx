@@ -32,10 +32,10 @@ import {
   type PuntoCoronaRouteRow,
 } from "../lib/puntoCoronaRoutesStorage";
 import { refreshRemoteRecords } from "../lib/remoteStore";
-import { SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
 import { CONTRACTORS } from "../lib/contractors";
-import { loadSeguimientoVehiculos } from "../seguimiento/services/vehicleRecords";
+import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
 import { createClosureReport, parsePuntoCoronaRouteFile } from "./routeReportService";
@@ -143,8 +143,11 @@ export default function PuntoCoronaPage() {
     try {
       const report = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
       await savePuntoCoronaRouteReports([report]);
+      const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, report);
       setSelectedDate(report.operationalDate);
-      setMessage(`Archivo cargado. Se tomaron ${report.summary.matchedDts} DT del seguimiento actual.`);
+      setMessage(
+        `Archivo cargado. Se tomaron ${report.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo cargar el archivo.");
     } finally {
@@ -741,6 +744,78 @@ function getRecordModulationKey(record: Pick<ModulacionRegistro, "dt" | "codigoC
 
 function normalizeClienteCode(value: string | number | undefined) {
   return String(value ?? "").replace(/\D/g, "");
+}
+
+async function updateSeguimientoClientsFromBees(vehicles: Vehiculo[], report: PuntoCoronaRouteReport) {
+  const statsByDt = getBeesClientStatsByDt(report);
+  if (!statsByDt.size) return { updated: 0 };
+
+  const exactDateDts = new Set(
+    vehicles
+      .filter((vehicle) => getVehicleDateKey(vehicle) === report.operationalDate)
+      .map((vehicle) => normalizeDt(vehicle.transporte))
+      .filter(Boolean),
+  );
+  let updated = 0;
+
+  const nextVehicles = vehicles.map((vehicle) => {
+    const dt = normalizeDt(vehicle.transporte);
+    const stats = statsByDt.get(dt);
+    if (!dt || !stats) return vehicle;
+    if (exactDateDts.has(dt) && getVehicleDateKey(vehicle) !== report.operationalDate) return vehicle;
+
+    updated += 1;
+    return {
+      ...vehicle,
+      clientes: stats.clientes,
+      visitados: Math.min(stats.visitados, stats.clientes),
+    };
+  });
+
+  if (updated) {
+    await saveSeguimientoVehiculos(prepareSeguimientoVehicles(nextVehicles));
+  }
+
+  return { updated };
+}
+
+function getBeesClientStatsByDt(report: PuntoCoronaRouteReport) {
+  const statsByDt = new Map<string, { clientes: Set<string>; visitados: Set<string> }>();
+
+  report.rows.forEach((row) => {
+    const dt = normalizeDt(row.dt);
+    const clientKey = normalizeClienteCode(row.pocExternalId) || row.id;
+    if (!dt || !clientKey) return;
+
+    const stats = statsByDt.get(dt) || { clientes: new Set<string>(), visitados: new Set<string>() };
+    stats.clientes.add(clientKey);
+    if (row.status !== NOT_STARTED) stats.visitados.add(clientKey);
+    statsByDt.set(dt, stats);
+  });
+
+  return new Map(
+    Array.from(statsByDt.entries()).map(([dt, stats]) => [
+      dt,
+      {
+        clientes: stats.clientes.size,
+        visitados: stats.visitados.size,
+      },
+    ]),
+  );
+}
+
+function getVehicleDateKey(vehicle: Pick<Vehiculo, "fechaDespacho" | "date" | "createdAt">) {
+  const value = vehicle.fechaDespacho || vehicle.date || vehicle.createdAt;
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value.includes("/")) {
+    const [day, month, year] = value.split("/").map(Number);
+    if (day && month && year) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 function getRealModulationPercent(modulated: number, rejected: number) {
