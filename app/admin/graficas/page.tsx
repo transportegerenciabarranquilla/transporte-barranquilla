@@ -9,10 +9,12 @@ import { normalizeCajasTotal } from "../../seguimiento/utils";
 type AdminRefusalComRow = {
   causal: string;
   contractor: string;
+  codigoCliente: string;
   com: string;
   date: string;
   dt: string;
   jefeVentas: string;
+  nombreCliente: string;
   preventista: string;
   reportadas: number;
   gestionadas: number;
@@ -34,6 +36,17 @@ type RefusalCausePreventistaSummary = {
   causal: string;
   contractor: string;
   gestionadas: number;
+  pendientes: number;
+  registros: number;
+  reportadas: number;
+};
+
+type RefusalClientSummary = {
+  causal: string;
+  codigoCliente: string;
+  contractor: string;
+  gestionadas: number;
+  nombreCliente: string;
   pendientes: number;
   registros: number;
   reportadas: number;
@@ -189,6 +202,41 @@ export default function AdminGraficasPage() {
 
     return Array.from(groups.values()).sort(
       (a, b) => b.pendientes - a.pendientes || b.reportadas - a.reportadas || a.causal.localeCompare(b.causal),
+    );
+  }, [visibleRefusalRows]);
+
+  const topRefusalClients = useMemo(() => {
+    const groups = new Map<string, RefusalClientSummary>();
+
+    visibleRefusalRows.forEach((row) => {
+      const codigoCliente = row.codigoCliente?.trim() || "Sin codigo";
+      const nombreCliente = row.nombreCliente?.trim() || "Cliente sin nombre";
+      const causal = row.causal?.trim() || "Sin causal";
+      const contractor = row.contractor || "Sin contratista";
+      const key = `${codigoCliente}:${normalizeTextKey(nombreCliente)}:${causal}`;
+      const current = groups.get(key) || {
+        causal,
+        codigoCliente,
+        contractor: "",
+        gestionadas: 0,
+        nombreCliente,
+        pendientes: 0,
+        registros: 0,
+        reportadas: 0,
+      };
+      const reportadas = Number(row.reportadas || 0);
+      const gestionadas = Number(row.gestionadas || 0);
+
+      current.reportadas += reportadas;
+      current.gestionadas += gestionadas;
+      current.pendientes += Number.isFinite(row.refusalFinal) ? Number(row.refusalFinal || 0) : Math.max(reportadas - gestionadas, 0);
+      current.registros += 1;
+      current.contractor = addUniqueLabel(current.contractor, contractor);
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values()).sort(
+      (a, b) => b.reportadas - a.reportadas || b.pendientes - a.pendientes || a.nombreCliente.localeCompare(b.nombreCliente),
     );
   }, [visibleRefusalRows]);
 
@@ -401,8 +449,47 @@ export default function AdminGraficasPage() {
           <MiniStat label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
         </div>
 
+        <TopRefusalClientsTable data={topRefusalClients.slice(0, 15)} />
+
       </section>
     </main>
+  );
+}
+
+function TopRefusalClientsTable({ data }: { data: RefusalClientSummary[] }) {
+  return (
+    <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex items-center gap-2 text-[#10223d]">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white">
+            <Table2 size={15} />
+          </span>
+          <h2 className="text-xs font-semibold">Top 15 clientes que mas rechazan</h2>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Por cajas reportadas</span>
+      </div>
+      {data.length ? (
+        <div className="grid gap-1.5 p-3 md:grid-cols-2 xl:grid-cols-3">
+          {data.map((row, index) => (
+            <div className="grid grid-cols-[24px_minmax(0,1fr)_78px] items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-100" key={`${row.codigoCliente}-${row.causal}-${index}`}>
+              <span className="text-center text-[10px] font-bold text-slate-400">{index + 1}</span>
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-semibold leading-4 text-[#10223d]" title={row.nombreCliente}>{row.nombreCliente}</p>
+                <p className="truncate text-[9px] leading-3 text-slate-500" title={`${row.codigoCliente} - ${row.causal}`}>
+                  {row.codigoCliente} - {row.causal}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] font-bold leading-4 text-red-700">{row.reportadas.toLocaleString("es-CO")}</p>
+                <p className="text-[8px] font-semibold uppercase tracking-[0.06em] text-slate-400">cajas</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState text="Sin clientes con rechazo para este filtro." />
+      )}
+    </section>
   );
 }
 
@@ -539,6 +626,14 @@ function normalizeJefeVentas(value: string | undefined) {
   const cleanValue = String(value || "").trim();
   if (!cleanValue || /^rr\b/i.test(cleanValue) || /^rr[-\s]?\d+/i.test(cleanValue)) return "Sin jefe de ventas";
   return cleanValue;
+}
+
+function normalizeTextKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function BarStat({ label, tone = "slate", value }: { label: string; tone?: "green" | "red" | "slate"; value: number }) {

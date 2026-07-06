@@ -13,10 +13,12 @@ type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { 
 type AdminRefusalComRow = {
   causal: string;
   contractor: string;
+  codigoCliente: string;
   com: string;
   date: string;
   dt: string;
   jefeVentas: string;
+  nombreCliente: string;
   preventista: string;
   reportadas: number;
   gestionadas: number;
@@ -196,10 +198,12 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
     return {
       causal: record.causal?.trim() || "Sin causal",
       contractor,
+      codigoCliente: record.codigoCliente?.trim() || "Sin codigo",
       com: getCom(record, vehicle),
       date,
       dt: normalizeDt(record.dt),
       jefeVentas: getJefeVentas(record, vehicle),
+      nombreCliente: record.nombreCliente?.trim() || "Cliente sin nombre",
       preventista: getPreventista(record),
       reportadas,
       gestionadas,
