@@ -11,6 +11,7 @@ type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
 type AdminCheckin = CheckinCajasRegistro & { contratista?: string };
 type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
 type AdminRefusalComRow = {
+  causal: string;
   contractor: string;
   com: string;
   date: string;
@@ -193,6 +194,7 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
     const gestionadas = Number(record.cajasGestionadas || 0);
 
     return {
+      causal: record.causal?.trim() || "Sin causal",
       contractor,
       com: getCom(record, vehicle),
       date,

@@ -79,7 +79,7 @@ export default function AsistenciaPage() {
     });
 
     return () => timers.forEach((timer) => timer && window.clearTimeout(timer));
-  }, [form.cedulaAuxiliar1, form.cedulaAuxiliar2, form.cedulaResponsable, form.contratista]);
+  }, [form]);
 
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));

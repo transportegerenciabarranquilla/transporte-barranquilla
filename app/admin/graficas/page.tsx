@@ -7,6 +7,7 @@ import type { Vehiculo } from "../../seguimiento/types";
 import { normalizeCajasTotal } from "../../seguimiento/utils";
 
 type AdminRefusalComRow = {
+  causal: string;
   contractor: string;
   com: string;
   date: string;
@@ -27,6 +28,15 @@ type RefusalComSummary = {
   refusalFinal: number;
   registros: number;
   refusal: number;
+};
+
+type RefusalCausePreventistaSummary = {
+  causal: string;
+  contractor: string;
+  gestionadas: number;
+  pendientes: number;
+  registros: number;
+  reportadas: number;
 };
 
 type LateCauseSummary = {
@@ -126,10 +136,10 @@ export default function AdminGraficasPage() {
     const groups = new Map<string, RefusalComSummary>();
 
     visibleRefusalRows.forEach((row) => {
-      const jefeVentas = row.jefeVentas?.trim() || "Sin asignacion";
-      const key = `${row.contractor}:${jefeVentas}`;
+      const jefeVentas = normalizeJefeVentas(row.jefeVentas);
+      const key = jefeVentas;
       const current = groups.get(key) || {
-        contractor: row.contractor,
+        contractor: "",
         label: jefeVentas,
         preventista: jefeVentas,
         reportadas: 0,
@@ -143,11 +153,43 @@ export default function AdminGraficasPage() {
       current.gestionadas += Number(row.gestionadas || 0);
       current.refusalFinal += Number(row.refusalFinal || 0);
       current.registros += 1;
+      current.contractor = addUniqueLabel(current.contractor, row.contractor || "Sin contratista");
       current.refusal = current.reportadas ? Number(((current.refusalFinal / current.reportadas) * 100).toFixed(2)) : 0;
       groups.set(key, current);
     });
 
     return Array.from(groups.values()).sort((a, b) => b.refusalFinal - a.refusalFinal);
+  }, [visibleRefusalRows]);
+
+  const refusalCauseByPreventista = useMemo(() => {
+    const groups = new Map<string, RefusalCausePreventistaSummary>();
+
+    visibleRefusalRows.forEach((row) => {
+      const causal = row.causal?.trim() || "Sin causal";
+      const contractor = row.contractor || "Sin contratista";
+      const key = causal;
+      const current = groups.get(key) || {
+        causal,
+        contractor: "",
+        gestionadas: 0,
+        pendientes: 0,
+        registros: 0,
+        reportadas: 0,
+      };
+      const reportadas = Number(row.reportadas || 0);
+      const gestionadas = Number(row.gestionadas || 0);
+
+      current.reportadas += reportadas;
+      current.gestionadas += gestionadas;
+      current.pendientes += Number.isFinite(row.refusalFinal) ? Number(row.refusalFinal || 0) : Math.max(reportadas - gestionadas, 0);
+      current.registros += 1;
+      current.contractor = addUniqueLabel(current.contractor, contractor);
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values()).sort(
+      (a, b) => b.pendientes - a.pendientes || b.reportadas - a.reportadas || a.causal.localeCompare(b.causal),
+    );
   }, [visibleRefusalRows]);
 
   const lateCauseRows = useMemo(() => {
@@ -189,19 +231,20 @@ export default function AdminGraficasPage() {
 
   const totals = useMemo(() => {
     const cajasSeguimiento = normalizeCajasTotal(visibleRecords.reduce((total, record) => total + Number(record.cajas || 0), 0));
-    const gestionadas = visibleRecords.reduce((total, record) => total + Number(record.cajasGestionadas || 0), 0);
-    const refusalFinal = visibleRecords.reduce((total, record) => total + Number(record.cajasRefusalFinal || 0), 0);
+    const reportadas = visibleRefusalRows.reduce((total, row) => total + Number(row.reportadas || 0), 0);
+    const gestionadas = visibleRefusalRows.reduce((total, row) => total + Number(row.gestionadas || 0), 0);
+    const refusalFinal = refusalCauseByPreventista.reduce((total, row) => total + Number(row.pendientes || 0), 0);
 
     return {
-      causales: lateCauseRows.length,
+      causales: refusalCauseByPreventista.length,
       comentarios: lateComments.length,
       gestionadas,
       refusal: cajasSeguimiento ? Number(((refusalFinal / cajasSeguimiento) * 100).toFixed(2)) : 0,
       refusalFinal,
-      reportadas: cajasSeguimiento,
+      reportadas,
       rutas: visibleRecords.length,
     };
-  }, [lateCauseRows.length, lateComments.length, visibleRecords]);
+  }, [lateComments.length, refusalCauseByPreventista, visibleRecords, visibleRefusalRows]);
 
   function updateDateRange(nextValue: { from: string; to: string }) {
     setAutoDateRange(false);
@@ -335,25 +378,27 @@ export default function AdminGraficasPage() {
 
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<ShieldAlert size={20} />} label="% refusal" value={`${totals.refusal.toLocaleString("es-CO")}%`} tone="red" />
-          <Metric icon={<BarChart3 size={20} />} label="Refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
+          <Metric icon={<BarChart3 size={20} />} label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
           <Metric icon={<MessageSquareText size={20} />} label="Causales" value={totals.causales.toLocaleString("es-CO")} tone="amber" />
           <Metric icon={<Table2 size={20} />} label="Rutas filtradas" value={totals.rutas.toLocaleString("es-CO")} tone="blue" />
         </div>
 
-        <div className="mb-5 grid gap-4 xl:grid-cols-[1fr_1fr_0.75fr]">
+        <div className="mb-4 grid gap-3 xl:grid-cols-3">
           <ChartPanel icon={<BarChart3 size={16} />} title="Refusal por preventista">
-            <RefusalComBars data={refusalByCom.slice(0, 12)} emptyText="Sin datos de refusal por preventista para este filtro." />
+            <RefusalComBars data={refusalByCom.slice(0, 8)} emptyText="Sin datos de refusal por preventista para este filtro." />
           </ChartPanel>
           <ChartPanel icon={<ShieldAlert size={16} />} title="Refusal por jefe de ventas">
-            <RefusalComBars data={refusalByJefeVentas.slice(0, 12)} emptyText="Sin datos de refusal por jefe de ventas para este filtro." />
+            <RefusalComBars data={refusalByJefeVentas.slice(0, 8)} emptyText="Sin datos de refusal por jefe de ventas para este filtro." />
           </ChartPanel>
-          <ChartPanel icon={<ShieldAlert size={16} />} title="Resumen refusal">
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              <MiniStat label="Cajas seguimiento" value={totals.reportadas.toLocaleString("es-CO")} />
-              <MiniStat label="Gestionadas" value={totals.gestionadas.toLocaleString("es-CO")} tone="green" />
-              <MiniStat label="Final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
-            </div>
+          <ChartPanel icon={<MessageSquareText size={16} />} title="Causales">
+            <RefusalCausePreventistaBars data={refusalCauseByPreventista.slice(0, 8)} />
           </ChartPanel>
+        </div>
+
+        <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-3">
+          <MiniStat label="Cajas reportadas" value={totals.reportadas.toLocaleString("es-CO")} />
+          <MiniStat label="Gestionadas" value={totals.gestionadas.toLocaleString("es-CO")} tone="green" />
+          <MiniStat label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
         </div>
 
       </section>
@@ -395,9 +440,9 @@ function MiniStat({ label, value, tone = "slate" }: { label: string; value: stri
   }[tone];
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-xl font-semibold ${toneClass}`}>{value}</p>
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className={`mt-0.5 text-lg font-semibold leading-none ${toneClass}`}>{value}</p>
     </div>
   );
 }
@@ -405,11 +450,11 @@ function MiniStat({ label, value, tone = "slate" }: { label: string; value: stri
 function ChartPanel({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[#10223d]">
-        <span className="grid h-8 w-8 place-items-center rounded-md bg-[#10223d] text-white">{icon}</span>
-        <h2 className="text-sm font-semibold">{title}</h2>
+      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[#10223d]">
+        <span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white">{icon}</span>
+        <h2 className="text-xs font-semibold">{title}</h2>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-3">{children}</div>
     </section>
   );
 }
@@ -419,23 +464,94 @@ function RefusalComBars({ data, emptyText }: { data: RefusalComSummary[]; emptyT
   if (!data.length) return <EmptyState text={emptyText} />;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {data.map((item, index) => (
-        <div className="grid grid-cols-[minmax(142px,220px)_1fr_64px] items-center gap-2" key={`${item.contractor}-${item.label}`}>
+        <div className="grid grid-cols-[minmax(112px,170px)_1fr_52px] items-center gap-2" key={`${item.contractor}-${item.label}`}>
           <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-[#10223d]" title={item.label}>{item.label}</p>
-            <p className="truncate text-[10px] text-slate-500" title={item.contractor}>{item.contractor}</p>
+            <p className="truncate text-[11px] font-semibold leading-4 text-[#10223d]" title={item.label}>{item.label}</p>
+            <p className="truncate text-[9px] leading-3 text-slate-500" title={item.contractor}>{item.contractor}</p>
           </div>
-          <div className="h-7 overflow-hidden rounded-sm bg-slate-100">
+          <div className="h-5 overflow-hidden rounded-sm bg-slate-100">
             <div
-              className={index === 0 ? "h-7 rounded-sm bg-gradient-to-r from-red-600 to-orange-400" : "h-7 rounded-sm bg-red-500/65"}
+              className={index === 0 ? "h-5 rounded-sm bg-gradient-to-r from-red-600 to-orange-400" : "h-5 rounded-sm bg-red-500/65"}
               style={{ width: `${Math.max(6, (item.refusalFinal / max) * 100)}%` }}
               title={`${item.refusalFinal} cajas - ${item.refusal}%`}
             />
           </div>
-          <span className="text-right text-xs font-bold text-red-700">{item.refusalFinal.toLocaleString("es-CO")}</span>
+          <span className="text-right text-[11px] font-bold text-red-700">{item.refusalFinal.toLocaleString("es-CO")}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function RefusalCausePreventistaBars({ data }: { data: RefusalCausePreventistaSummary[] }) {
+  const max = Math.max(...data.map((item) => item.reportadas), 1);
+  if (!data.length) return <EmptyState text="Sin causales por preventista para este filtro." />;
+
+  return (
+    <div className="space-y-1.5">
+      {data.map((item, index) => {
+        const managedWidth = item.reportadas ? (item.gestionadas / item.reportadas) * 100 : 0;
+        const pendingWidth = item.reportadas ? (item.pendientes / item.reportadas) * 100 : 0;
+
+        return (
+          <div className="grid grid-cols-[minmax(108px,150px)_1fr_96px] items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-100" key={item.causal}>
+            <div className="min-w-0">
+              <p className="truncate text-[11px] font-semibold leading-4 text-[#10223d]" title={item.causal}>{item.causal}</p>
+              <p className="truncate text-[9px] leading-3 text-slate-400" title={item.contractor}>
+                {item.contractor || "Sin contratista"} - {item.registros} registro{item.registros === 1 ? "" : "s"}
+              </p>
+            </div>
+            <div className="h-4 overflow-hidden rounded-sm bg-white ring-1 ring-slate-200">
+              <div className="flex h-4" style={{ width: `${Math.max(6, (item.reportadas / max) * 100)}%` }}>
+                <div
+                  className={index === 0 ? "h-4 bg-[#0f7c58]" : "h-4 bg-[#0f7c58]/70"}
+                  style={{ width: `${managedWidth}%` }}
+                  title={`${item.gestionadas.toLocaleString("es-CO")} gestionadas`}
+                />
+                <div
+                  className={index === 0 ? "h-4 bg-red-600" : "h-4 bg-red-500/75"}
+                  style={{ width: `${pendingWidth}%` }}
+                  title={`${item.pendientes.toLocaleString("es-CO")} pendientes`}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1 text-right">
+              <BarStat label="R" value={item.reportadas} />
+              <BarStat label="G" tone="green" value={item.gestionadas} />
+              <BarStat label="P" tone="red" value={item.pendientes} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function addUniqueLabel(current: string, next: string) {
+  if (!next) return current;
+  const values = current ? current.split(", ") : [];
+  return values.includes(next) ? current : [...values, next].join(", ");
+}
+
+function normalizeJefeVentas(value: string | undefined) {
+  const cleanValue = String(value || "").trim();
+  if (!cleanValue || /^rr\b/i.test(cleanValue) || /^rr[-\s]?\d+/i.test(cleanValue)) return "Sin jefe de ventas";
+  return cleanValue;
+}
+
+function BarStat({ label, tone = "slate", value }: { label: string; tone?: "green" | "red" | "slate"; value: number }) {
+  const toneClass = {
+    green: "text-[#0f7c58]",
+    red: "text-red-700",
+    slate: "text-[#10223d]",
+  }[tone];
+
+  return (
+    <div>
+      <p className={`text-[11px] font-bold leading-4 ${toneClass}`}>{value.toLocaleString("es-CO")}</p>
+      <p className="text-[8px] font-semibold uppercase tracking-[0.06em] text-slate-400">{label}</p>
     </div>
   );
 }

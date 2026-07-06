@@ -287,7 +287,7 @@ export default function SeguimientoPage() {
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
     };
-    let shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
+    const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);
 
@@ -372,42 +372,6 @@ export default function SeguimientoPage() {
     } catch (error) {
       setVehiculos(previousVehicles);
       setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el DT.");
-    } finally {
-      pendingLocalSaveRef.current = false;
-    }
-  }
-
-  async function borrarTodoSeguimiento() {
-    const todayKey = getLocalDateKey();
-    const todayVehicles = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) === todayKey);
-    const remainingVehicles = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) !== todayKey);
-
-    if (!todayVehicles.length) {
-      setImportMessage("No hay seguimiento de hoy para borrar.");
-      return;
-    }
-
-    if (!window.confirm(`Quieres borrar solo el seguimiento de hoy? Se eliminaran ${todayVehicles.length} vehiculos de hoy y sus checkins/asistencias asociados.`)) return;
-
-    const previousVehicles = vehiculos;
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-
-    todayVehicles.forEach((vehicle) => removeStaleRouteData(vehicle, true));
-    pendingLocalSaveRef.current = true;
-    setVehiculos(remainingVehicles);
-    setVehiculoSeleccionado(null);
-    setVehiculoSeleccionadoKey(null);
-    setImportMessage("Borrando seguimiento de hoy en Supabase...");
-
-    try {
-      await saveSeguimientoVehiculos(remainingVehicles);
-      setImportMessage("Seguimiento de hoy borrado correctamente.");
-    } catch (error) {
-      setVehiculos(previousVehicles);
-      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el seguimiento de hoy.");
     } finally {
       pendingLocalSaveRef.current = false;
     }

@@ -46,7 +46,7 @@ export default function RefusalComPage() {
     const from = params.get("desde") || fecha;
     const to = params.get("hasta") || fecha;
     setDateRange(normalizeDateRange(from, to));
-  }, []);
+  }, [todayKey]);
 
   const activeVehiculos = useMemo(() => {
     const loaded = loadSeguimientoVehiculos();

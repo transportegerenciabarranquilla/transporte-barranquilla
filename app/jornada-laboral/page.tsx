@@ -37,19 +37,14 @@ export default function JornadaLaboralPage() {
   const [classificationFilter, setClassificationFilter] = useState("");
   const [routeTimeSort, setRouteTimeSort] = useState<"desc" | "asc">("desc");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
-  const [relevadores, setRelevadores] = useState<Persona[]>([]);
+  const [relevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
-  const finishedElapsedSecondsRef = useRef(new Map<string, number>());
   const vehiculos = draftVehiculos ?? storedVehiculos;
   const jornadaVehiculos = useMemo(() => vehiculos.filter(isLogisticosVehicle), [vehiculos]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setRelevadores([]);
   }, []);
 
   useEffect(() => {
@@ -65,7 +60,7 @@ export default function JornadaLaboralPage() {
   const rows = useMemo(() => {
     return jornadaVehiculos
       .filter((vehicle) => toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === selectedDate)
-      .map((vehicle) => buildJornadaRow(vehicle, now, finishedElapsedSecondsRef.current))
+      .map((vehicle) => buildJornadaRow(vehicle, now))
       .sort((a, b) => getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true }));
   }, [jornadaVehiculos, now, selectedDate]);
 
@@ -680,24 +675,11 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
   return <span className={`inline-flex max-w-20 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
 }
 
-function ProgressCell({ value }: { value: number }) {
-  const color = value >= 80 ? "bg-emerald-600" : value >= 45 ? "bg-[#f5bd19]" : "bg-red-500";
-
-  return (
-    <div className="flex min-w-20 items-center gap-1">
-      <div className="h-1.5 flex-1 rounded-full bg-slate-200">
-        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-      </div>
-      <span className="w-7 text-right text-[11px] font-semibold text-[#10223d]">{value}%</span>
-    </div>
-  );
-}
-
 function isLogisticosVehicle(vehicle: Vehiculo) {
   return isLogisticosContractor(vehicle.transportista);
 }
 
-function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: Map<string, number>) {
+function buildJornadaRow(vehicle: Vehiculo, now: Date) {
   const salidaSeconds = parseTimeToSeconds(vehicle.horaSalida);
   const relevoSeconds = parseTimeToSeconds(vehicle.horaInicioRelevo);
   const metaRelevo = calculateMetaRelevo(vehicle.horaSalida);
@@ -705,10 +687,8 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: M
   const hasRelevo = relevoSeconds !== null;
   const avance = vehicle.clientes ? Math.min(100, Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100)) : 0;
   const isFinished = getStatus(avance, vehicle) === "Finalizado";
-  const vehicleKey = getVehicleUiKey(vehicle);
 
   if (salidaSeconds === null) {
-    finishedElapsedSeconds.delete(vehicleKey);
     return {
       alertaSif: false,
       avance,
@@ -723,7 +703,7 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date, finishedElapsedSeconds: M
     };
   }
 
-  const elapsedSeconds = getJornadaElapsedSeconds(vehicle, salidaSeconds, relevoSeconds, isFinished, now, finishedElapsedSeconds);
+  const elapsedSeconds = getJornadaElapsedSeconds(vehicle, salidaSeconds, relevoSeconds, isFinished, now);
   const alertaSif = elapsedSeconds >= SIF_ALERT_SECONDS;
   const state: JornadaState = hasRelevo ? (alertaSif ? "lateDone" : "done") : alertaSif ? "danger" : elapsedSeconds >= META_RELEVO_SECONDS ? "warn" : "ok";
   const statusLabel = hasRelevo

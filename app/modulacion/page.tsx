@@ -603,7 +603,7 @@ function EditModulacionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-[#10223d]/55 px-3 py-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[130] grid place-items-center bg-[#10223d]/55 px-3 py-4 backdrop-blur-sm">
       <section className="max-h-[90vh] w-full max-w-xl overflow-hidden rounded-lg border border-white/60 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 bg-[#10223d] px-4 py-3 text-white">
           <div className="flex items-start gap-3">
@@ -780,7 +780,7 @@ function ModulacionDetailModal({
 
   useEffect(() => {
     setComentarioModuladorDraft(registro.comentarioModulador || "");
-  }, [registro.id]);
+  }, [registro.id, registro.comentarioModulador]);
 
   function persistComentarioModulador() {
     if ((registro.comentarioModulador || "") === comentarioModuladorDraft) return;
@@ -794,7 +794,7 @@ function ModulacionDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] grid place-items-center bg-[#10223d]/50 px-4 py-6 backdrop-blur-sm">
       <section className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
         <div className="relative border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-start gap-3 pr-12">

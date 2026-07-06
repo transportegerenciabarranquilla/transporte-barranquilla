@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Icon } from "../components/Icon";
 
 type PersonHistory = {
@@ -57,9 +58,6 @@ type PeopleProfile = {
 };
 
 const CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
-const PHOTO_KEY = "people.photos.v1";
-const LOCAL_PEOPLE_KEY = "people.local.v1";
-const REMOVED_PEOPLE_KEY = "people.removed.v1";
 const PAGE_SIZE = 10;
 
 const emptyDraft: DraftPerson = {
@@ -351,52 +349,62 @@ export default function PeoplePage() {
 
           <aside className="space-y-4">
             {selectedPerson ? (
-              <section className="rounded-lg border border-white/70 bg-white/90 p-5 shadow-sm backdrop-blur">
-                <div className="flex items-start gap-4">
-                  <Avatar image={photos[personKey(selectedPerson)]} name={selectedPerson.nombre} large />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7c3aed]">{selectedPerson.contratista}</p>
-                    <h2 className="mt-1 text-xl font-semibold text-[#10223d]">{selectedPerson.nombre}</h2>
-                    <p className="text-sm text-slate-500">CC {selectedPerson.cc || "Sin cedula"} · {selectedPerson.cargo || "Sin cargo"}</p>
+              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.13)]">
+                <div className="relative bg-[#10223d] px-4 pb-4 pt-3 text-white">
+                  <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#f5bd19] via-[#7c3aed] to-[#0f7c58]" />
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-white/58"></p>
+                      <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#f5bd19]">{selectedPerson.contratista}</p>
+                    </div>
+                    <div className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-right">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/50">Rutas</p>
+                      <p className="text-lg font-black leading-none">{selectedPerson.stats.rutas}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-[84px_1fr] sm:items-end">
+                    <Avatar image={photos[personKey(selectedPerson)]} name={selectedPerson.nombre} sticker />
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-xl font-black leading-tight text-white">{selectedPerson.nombre}</h2>
+                      <p className="mt-1 text-xs font-semibold leading-5 text-white/68">CC {selectedPerson.cc || "Sin cedula"} - {selectedPerson.cargo || "Sin cargo"}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <StickerPill label="HL" value={formatHl(hlMoved(selectedPerson))} />
+                        <StickerPill label="Rango" value={formatPercent(selectedPerson.stats.porcentajeRango)} />
+                        <StickerPill label="DT" value={selectedPerson.stats.ultimoDt || "-"} />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <DetailStat label="HL movidos" value={formatHl(hlMoved(selectedPerson))} />
-                  <DetailStat label="Visitados" value={selectedPerson.stats.visitasRango || 0} />
-                  <DetailStat label="En rango" value={selectedPerson.stats.enRango || 0} />
-                  <DetailStat label="Fuera rango" value={selectedPerson.stats.fueraRango || 0} />
-                  <DetailStat label="% rango" value={formatPercent(selectedPerson.stats.porcentajeRango)} />
-                  <DetailStat label="Tiempo ruta prom." value={selectedPerson.stats.tiempoPromedioRuta || "Sin dato"} />
-                  <DetailStat label="Rutas" value={selectedPerson.stats.rutas} />
-                  <DetailStat label="Ultimo DT" value={selectedPerson.stats.ultimoDt || "-"} />
-                  <DetailStat label="Gestionadas" value={managedCount(selectedPerson)} />
-                </div>
+                <div className="bg-gradient-to-b from-white to-slate-50 p-4">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <StickerStat label="HL movidos" value={formatHl(hlMoved(selectedPerson))} />
+                    <StickerStat label="Visitados" value={selectedPerson.stats.visitasRango || 0} />
+                    <StickerStat label="En rango" value={selectedPerson.stats.enRango || 0} tone="green" />
+                    <StickerStat label="Fuera rango" value={selectedPerson.stats.fueraRango || 0} tone="red" />
+                    <StickerStat label="% rango" value={formatPercent(selectedPerson.stats.porcentajeRango)} tone="violet" />
+                    <StickerStat label="Tiempo prom." value={selectedPerson.stats.tiempoPromedioRuta || "Sin dato"} />
+                    <StickerStat label="Ultimo DT" value={selectedPerson.stats.ultimoDt || "-"} />
+                    <StickerStat label="Gestionadas" value={managedCount(selectedPerson)} tone="amber" />
+                  </div>
 
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <label className="cursor-pointer rounded-md border border-[#7c3aed]/25 bg-[#f5f3ff] px-3 py-2 text-sm font-semibold text-[#5b21b6]">
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <label className="cursor-pointer rounded-md border border-[#7c3aed]/25 bg-[#f5f3ff] px-3 py-1.5 text-xs font-semibold text-[#5b21b6] transition hover:bg-[#ede9fe]">
                     Subir foto
                     <input accept="image/*" className="hidden" onChange={(event) => handlePhoto(selectedPerson, event.target.files?.[0] || null)} type="file" />
                   </label>
-                  <button className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => removePerson(selectedPerson)} type="button">
+                  <button className="rounded-md border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100" onClick={() => removePerson(selectedPerson)} type="button">
                     Quitar
                   </button>
-                </div>
-
-                <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Resumen operativo</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Ha movido <span className="font-semibold text-[#10223d]">{formatHl(hlMoved(selectedPerson))} HL</span>, tiene{" "}
-                    <span className="font-semibold text-[#10223d]">{selectedPerson.stats.enRango || 0}</span> entregas en rango y su tiempo promedio en ruta es{" "}
-                    <span className="font-semibold text-[#10223d]">{selectedPerson.stats.tiempoPromedioRuta || "Sin dato"}</span>.
-                  </p>
+                  </div>
                 </div>
               </section>
             ) : null}
-
+            
             <form className="rounded-lg border border-white/70 bg-white/90 p-5 shadow-sm backdrop-blur" onSubmit={handleAddPerson}>
               <h2 className="text-lg font-semibold text-[#10223d]">Nueva persona</h2>
               <div className="mt-4 space-y-3">
+                <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cc: event.target.value })} placeholder="Cedula" value={draft.cc} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cc: event.target.value })} placeholder="Cedula" value={draft.cc} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, nombre: event.target.value })} placeholder="Nombre completo" value={draft.nombre} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cargo: event.target.value })} placeholder="Cargo" value={draft.cargo} />
@@ -428,22 +436,16 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Avatar({ compact = false, image, name, large = false }: { compact?: boolean; image?: string; name: string; large?: boolean }) {
-  const size = large ? "h-20 w-20 text-2xl" : compact ? "h-9 w-9 text-sm" : "h-12 w-12 text-base";
-  return image ? (
-    <img alt={name} className={`${size} shrink-0 rounded-lg object-cover ring-1 ring-slate-200`} src={image} />
-  ) : (
-    <div className={`${size} grid shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#10223d] to-[#7c3aed] font-semibold text-white`}>
-      {initials(name)}
-    </div>
-  );
-}
+function Avatar({ compact = false, image, name, large = false, sticker = false }: { compact?: boolean; image?: string; name: string; large?: boolean; sticker?: boolean }) {
+  const size = sticker ? "h-20 w-20 text-3xl" : large ? "h-20 w-20 text-2xl" : compact ? "h-9 w-9 text-sm" : "h-12 w-12 text-base";
+  const pixels = sticker ? 80 : large ? 80 : compact ? 36 : 48;
+  const frame = sticker ? "rounded-lg ring-[3px] ring-white/90 shadow-[0_12px_26px_rgba(0,0,0,0.24)]" : "rounded-lg ring-1 ring-slate-200";
 
-function MiniStat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md bg-slate-50 px-2 py-2">
-      <p className="text-sm font-semibold text-[#10223d]">{value}</p>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">{label}</p>
+  return image ? (
+    <Image alt={name} className={`${size} ${frame} shrink-0 object-cover`} height={pixels} src={image} width={pixels} />
+  ) : (
+    <div className={`${size} ${frame} grid shrink-0 place-items-center bg-gradient-to-br from-[#10223d] to-[#7c3aed] font-black text-white`}>
+      {initials(name)}
     </div>
   );
 }
@@ -473,11 +475,28 @@ function formatPercent(value: number | undefined) {
   return `${Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
 }
 
-function DetailStat({ label, value }: { label: string; value: string | number }) {
+function StickerPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 font-semibold text-[#10223d]">{value}</p>
+    <span className="inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/82">
+      <span className="text-white/48">{label}</span>
+      <span className="text-white">{value}</span>
+    </span>
+  );
+}
+
+function StickerStat({ label, tone = "slate", value }: { label: string; tone?: "amber" | "green" | "red" | "slate" | "violet"; value: string | number }) {
+  const styles = {
+    amber: "border-amber-100 bg-amber-50 text-amber-700",
+    green: "border-emerald-100 bg-emerald-50 text-emerald-700",
+    red: "border-red-100 bg-red-50 text-red-700",
+    slate: "border-slate-200 bg-white text-[#10223d]",
+    violet: "border-violet-100 bg-violet-50 text-violet-700",
+  };
+
+  return (
+    <div className={`min-h-16 rounded-md border p-2.5 ${styles[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] opacity-60">{label}</p>
+      <p className="mt-1 break-words text-lg font-black leading-tight">{value}</p>
     </div>
   );
 }

@@ -53,6 +53,25 @@ type PeopleGroup = {
   people: PersonSummary[];
 };
 
+type AdminRefusalRow = {
+  causal: string;
+  contractor: string;
+  date: string;
+  dt: string;
+  gestionadas: number;
+  refusalFinal: number;
+  reportadas: number;
+};
+
+type RefusalCauseSummary = {
+  causal: string;
+  contractor: string;
+  gestionadas: number;
+  pendientes: number;
+  registros: number;
+  reportadas: number;
+};
+
 type VehiclePerson = PersonSummary & {
   role: string;
 };
@@ -69,6 +88,7 @@ export default function AdminPage() {
   );
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
+  const [refusalRows, setRefusalRows] = useState<AdminRefusalRow[]>([]);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
@@ -113,6 +133,7 @@ export default function AdminPage() {
         if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
         setSummaries(adminBody.summaries || []);
         setRecords(adminBody.records || []);
+        setRefusalRows(adminBody.refusalByComRows || []);
 
         if (peopleResponse.ok) {
           const peopleBody = await peopleResponse.json().catch(() => ({}));
@@ -176,6 +197,21 @@ export default function AdminPage() {
     if (selectedContractor === "Todas") return dateRecords;
     return dateRecords.filter((record) => record.transportista === selectedContractor);
   }, [dateRecords, selectedContractor]);
+  const dateDtRefusalRows = useMemo(() => {
+    const targetDt = normalizeDt(dtSearch);
+
+    return refusalRows.filter((row) => {
+      const matchesDate = !selectedDate || row.date === selectedDate;
+      const matchesDt = !targetDt || normalizeDt(row.dt).includes(targetDt);
+      return matchesDate && matchesDt;
+    });
+  }, [dtSearch, refusalRows, selectedDate]);
+  const filteredRefusalRows = useMemo(() => {
+    if (selectedContractor === "Todas") return dateDtRefusalRows;
+    return dateDtRefusalRows.filter((row) => row.contractor === selectedContractor);
+  }, [dateDtRefusalRows, selectedContractor]);
+  const globalCauseRows = useMemo(() => buildRefusalCauseRows(dateDtRefusalRows, false), [dateDtRefusalRows]);
+  const contractorCauseRows = useMemo(() => buildRefusalCauseRows(filteredRefusalRows, true), [filteredRefusalRows]);
   const allPeople = useMemo(() => peopleGroups.flatMap((group) => group.people), [peopleGroups]);
   const selectedVehiclePeople = useMemo(() => (selectedRecord ? getVehiclePeople(selectedRecord, allPeople) : []), [allPeople, selectedRecord]);
   const allAdminIssues = useMemo(() => buildAdminIssues(filteredRecords), [filteredRecords]);
@@ -206,59 +242,77 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
+    <main className="tech-grid min-h-screen bg-[#f4f7fb] text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-white/60 bg-white/82 shadow-sm backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button
-            className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#10223d] transition hover:bg-slate-100"
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
             onClick={() => router.push("/")}
             type="button"
           >
             <ArrowLeft size={18} />
             Portal
           </button>
-          <span className="rounded-md bg-[#10223d] px-3 py-2 text-sm font-semibold text-white">Administrador</span>
+          <span className="rounded-md bg-[#10223d] px-3 py-2 text-sm font-semibold text-white shadow-sm">Administrador</span>
         </div>
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
-        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Vista global</p>
-          <h1 className="mt-2 text-3xl font-semibold text-[#10223d]">Seguimiento de transportistas</h1>
-          <p className="mt-2 text-sm text-slate-500">Total general e información individual de Logisticos, Punto Corona y Surti Cervezas.</p>
+        <section className="mb-5 overflow-hidden rounded-lg bg-[#091525] text-white shadow-[0_28px_90px_rgba(9,21,37,0.24)]">
+          <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_420px] lg:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Vista global</p>
+              <h1 className="mt-2 text-3xl font-semibold leading-tight">Seguimiento de transportistas</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/68">
+                Control operativo de rutas, refusal, alertas y tripulacion para Logisticos, Punto Corona y Surti Cervezas.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+                  onClick={goToAdminGraficas}
+                  type="button"
+                >
+                  <BarChart3 size={16} />
+                  Graficas
+                </button>
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/15"
+                  onClick={() => router.push("/admin/auditoria")}
+                  type="button"
+                >
+                  <History size={16} />
+                  Auditoria
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <HeroStat label="Registros" value={filteredRecords.length.toLocaleString("es-CO")} />
+              <HeroStat label="Alertas" tone={adminIssues.length ? "amber" : "green"} value={adminIssues.length.toLocaleString("es-CO")} />
+              <HeroStat label="Cajas" value={totals.cajas.toLocaleString("es-CO")} />
+              <HeroStat label="Refusal" tone={totals.refusal ? "red" : "green"} value={`${totals.refusal.toLocaleString("es-CO")}%`} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#0b684a] hover:shadow-md"
-              onClick={goToAdminGraficas}
-              type="button"
-            >
-              <BarChart3 size={16} />
-              Graficas
-            </button>
-            <button
-              className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
-              onClick={() => router.push("/admin/auditoria")}
-              type="button"
-            >
-              <History size={16} />
-              Ver auditoria
-            </button>
+          <div className="border-t border-white/10 bg-white/[0.04] px-5 py-3 sm:px-6">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/58">
+              <span className="rounded-md bg-white/10 px-2.5 py-1 text-white">Filtro {selectedDate || "Todas las fechas"}</span>
+              <span>{selectedContractor === "Todas" ? "Todos los transportistas" : selectedContractor}</span>
+              {dtSearch ? <span>DT contiene {dtSearch}</span> : null}
+            </div>
           </div>
-        </div>
+        </section>
 
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando panel...</div> : null}
 
-        <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+        <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_1fr_240px_auto] lg:items-end">
           <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
             <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
               <CalendarDays size={16} />
-              Filtrar por día
+              Filtrar por dia
             </span>
             <input
-              className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:bg-white focus:ring-2 focus:ring-[#0f7c58]/15"
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
               onChange={(event) => setSelectedDate(event.target.value)}
               type="date"
               value={selectedDate}
@@ -270,7 +324,7 @@ export default function AdminPage() {
               Buscar por DT
             </span>
             <input
-              className="h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58] focus:bg-white focus:ring-2 focus:ring-[#0f7c58]/15"
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
               inputMode="numeric"
               onChange={(event) => setDtSearch(event.target.value)}
               placeholder="Ej: 123456"
@@ -278,8 +332,26 @@ export default function AdminPage() {
               value={dtSearch}
             />
           </label>
+          <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
+            <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
+              <Truck size={16} />
+              Transportista
+            </span>
+            <select
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
+              onChange={(event) => setSelectedContractor(event.target.value)}
+              value={selectedContractor}
+            >
+              <option value="Todas">Todas</option>
+              {visibleSummaries.map((summary) => (
+                <option key={summary.contractor} value={summary.contractor}>
+                  {summary.contractor}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
-            className="flex h-12 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex h-11 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={!selectedDate && !dtSearch && selectedContractor === "Todas" && !activeIssueFilter}
             onClick={() => {
               setSelectedDate("");
@@ -298,15 +370,15 @@ export default function AdminPage() {
 
         {activeTab === "resumen" ? (
           <>
-        <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="mb-5 rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.06)] backdrop-blur">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">
-              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${canEditResponsibleManual ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${canEditResponsibleManual ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100" : "bg-red-50 text-red-700 ring-1 ring-red-100"}`}>
                 <ShieldAlert size={20} />
               </span>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Control admin</p>
-                <p className="mt-1 text-sm font-semibold text-[#10223d]">Edicion manual de responsable (detalle de vehiculo)</p>
+                <p className="mt-1 text-sm font-semibold text-[#10223d]">Edicion manual de responsable</p>
                 <p className="mt-1 text-sm text-slate-600">
                   Estado actual:{" "}
                   <span className={`font-semibold ${canEditResponsibleManual ? "text-[#0f7c58]" : "text-red-700"}`}>
@@ -316,7 +388,7 @@ export default function AdminPage() {
               </div>
             </div>
             <button
-              className={`h-11 rounded-md px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+              className={`h-10 rounded-md px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                 canEditResponsibleManual ? "bg-red-600 hover:bg-red-700" : "bg-[#0f7c58] hover:bg-[#0b684a]"
               }`}
               onClick={toggleResponsibleManualEdit}
@@ -334,11 +406,17 @@ export default function AdminPage() {
           <Metric icon={<Users size={21} />} label="Clientes" tone="green" value={totals.clientes.toLocaleString("es-CO")} />
         </div>
 
+        <RefusalCausesPanel
+          contractorRows={contractorCauseRows}
+          globalRows={globalCauseRows}
+          selectedContractor={selectedContractor}
+        />
+
         <div className="mb-5 grid gap-3 md:grid-cols-3">
           {visibleSummaries.map((summary) => (
             <button
-              className={`rounded-lg border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                selectedContractor === summary.contractor ? "border-[#f5bd19] ring-2 ring-[#f5bd19]/25" : "border-slate-200"
+              className={`group rounded-lg border bg-white/94 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(15,23,42,0.1)] ${
+                selectedContractor === summary.contractor ? "border-[#f5bd19] ring-2 ring-[#f5bd19]/25" : "border-slate-200 hover:border-slate-300"
               }`}
               key={summary.contractor}
               onClick={() => setSelectedContractor(summary.contractor)}
@@ -347,9 +425,10 @@ export default function AdminPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-[#10223d]">{summary.contractor}</p>
-                  <p className="mt-2 text-2xl font-semibold text-[#0f7c58]">{summary.cajas.toLocaleString("es-CO")}</p>
+                  <p className="mt-2 text-3xl font-semibold leading-none text-[#0f7c58]">{summary.cajas.toLocaleString("es-CO")}</p>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">cajas</p>
                 </div>
-                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">{summary.rutas} rutas</span>
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600 transition group-hover:bg-white">{summary.rutas} rutas</span>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <span className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700">
@@ -359,7 +438,15 @@ export default function AdminPage() {
                   {summary.refusal.toLocaleString("es-CO")}% final
                 </span>
               </div>
-              <p className="mt-3 text-xs text-slate-500">{summary.visitados}/{summary.clientes} clientes visitados</p>
+              <div className="mt-3">
+                <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span>Clientes visitados</span>
+                  <span>{summary.visitados}/{summary.clientes}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-[#0f7c58]" style={{ width: `${summary.clientes ? Math.min(100, (summary.visitados / summary.clientes) * 100) : 0}%` }} />
+                </div>
+              </div>
             </button>
           ))}
         </div>
@@ -369,56 +456,84 @@ export default function AdminPage() {
         {activeTab === "detalle" ? (
           <>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-[#10223d]">Seguimiento individual ({filteredRecords.length})</h2>
-          <button
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-            onClick={() => setSelectedContractor("Todas")}
-            type="button"
-          >
-            Ver todas
-          </button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Tabla operativa</p>
+            <h2 className="mt-1 text-lg font-semibold text-[#10223d]">Seguimiento individual ({filteredRecords.length})</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-[#07556b]">
+              {selectedContractor === "Todas" ? "Todos" : selectedContractor}
+            </span>
+            <button
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              onClick={() => setSelectedContractor("Todas")}
+              type="button"
+            >
+              Ver todas
+            </button>
+          </div>
         </div>
 
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <section className="data-shell rounded-lg">
           <div className="max-h-[62vh] overflow-auto">
-            <table className="w-full min-w-[1120px]">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-[0.08em] text-slate-500 shadow-[0_1px_0_0_rgba(226,232,240,1)]">
+            <table className="data-table w-full min-w-[1240px]">
+              <thead className="sticky top-0 z-10 text-[10px] uppercase tracking-[0.08em]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Transportista</th>
+                  <th className="w-44 px-3 py-2 text-left">Transportista</th>
                   <th className="px-3 py-2 text-left">DT</th>
-                  <th className="px-3 py-2 text-left">Vehículo</th>
+                  <th className="px-3 py-2 text-left">Vehiculo</th>
                   <th className="px-3 py-2 text-left">Responsable</th>
                   <th className="px-3 py-2 text-center">Cajas</th>
                   <th className="px-3 py-2 text-center">Refusal final</th>
                   <th className="px-3 py-2 text-center">% Refusal</th>
                   <th className="px-3 py-2 text-center">Clientes</th>
                   <th className="px-3 py-2 text-center">Visitados</th>
+                  <th className="px-3 py-2 text-left">Estado</th>
                   <th className="px-3 py-2 text-left">Fecha</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRecords.map((record, index) => (
-                  <tr
-                    className="cursor-pointer text-xs transition hover:bg-[#f5f3ff]"
-                    key={`${record.transportista}-${record.transporte}-${record.recordId || index}`}
-                    onClick={() => setSelectedRecord(record)}
-                    tabIndex={0}
-                  >
-                    <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#10223d]">{record.transportista}</td>
-                    <td className="whitespace-nowrap px-3 py-2">DT {record.transporte}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{record.vehiculo}</td>
-                    <td className="max-w-[190px] truncate px-3 py-2" title={record.responsable}>{record.responsable}</td>
-                    <td className="px-3 py-2 text-center font-semibold">{record.cajas}</td>
-                    <td className="px-3 py-2 text-center font-semibold text-red-700">{record.cajasRefusalFinal || 0}</td>
-                    <td className="px-3 py-2 text-center">{record.refusal || 0}%</td>
-                    <td className="px-3 py-2 text-center">{record.clientes}</td>
-                    <td className="px-3 py-2 text-center">{record.visitados}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{record.fechaDespacho || record.fechaDt || record.date || "-"}</td>
-                  </tr>
-                ))}
+                {filteredRecords.map((record, index) => {
+                  const progress = getProgress(record);
+                  const status = getStatus(progress, record);
+
+                  return (
+                    <tr
+                      className="cursor-pointer text-xs"
+                      key={`${record.transportista}-${record.transporte}-${record.recordId || index}`}
+                      onClick={() => setSelectedRecord(record)}
+                      tabIndex={0}
+                    >
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <span className="rounded-md border border-slate-200 bg-white/80 px-2 py-1 font-semibold text-[#10223d]">{record.transportista || "-"}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#10223d]">DT {record.transporte}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{record.vehiculo}</td>
+                      <td className="max-w-[190px] truncate px-3 py-2" title={record.responsable}>{record.responsable || "Sin responsable"}</td>
+                      <td className="px-3 py-2 text-center font-semibold">{record.cajas}</td>
+                      <td className="px-3 py-2 text-center font-semibold text-red-700">{record.cajasRefusalFinal || 0}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className="number-pill">{record.refusal || 0}%</span>
+                      </td>
+                      <td className="px-3 py-2 text-center">{record.clientes}</td>
+                      <td className="px-3 py-2">
+                        <div className="mx-auto flex max-w-28 items-center gap-2">
+                          <span className="w-10 text-right font-semibold text-[#10223d]">{record.visitados}</span>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+                            <div className="h-full rounded-full bg-[#0f7c58]" style={{ width: `${Math.min(100, progress)}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <StatusChip status={status} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2">{record.fechaDespacho || record.fechaDt || record.date || "-"}</td>
+                    </tr>
+                  );
+                })}
                 {!filteredRecords.length ? (
                   <tr>
-                    <td className="px-5 py-10 text-center text-sm text-slate-500" colSpan={10}>
+                    <td className="px-5 py-10 text-center text-sm text-slate-500" colSpan={11}>
                       No hay seguimiento para este filtro.
                     </td>
                   </tr>
@@ -440,7 +555,7 @@ export default function AdminPage() {
         ) : null}
 
         {activeTab === "exportar" ? (
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <section className="tech-card rounded-lg p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Exportar y revisar</p>
             <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Salidas de informacion</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
@@ -479,6 +594,41 @@ export default function AdminPage() {
   );
 }
 
+function HeroStat({ label, tone = "blue", value }: { label: string; tone?: "amber" | "blue" | "green" | "red"; value: string }) {
+  const styles = {
+    amber: "bg-amber-400/14 text-amber-100 ring-amber-200/20",
+    blue: "bg-white/10 text-white ring-white/10",
+    green: "bg-emerald-400/14 text-emerald-100 ring-emerald-200/20",
+    red: "bg-red-400/14 text-red-100 ring-red-200/20",
+  };
+
+  return (
+    <div className={`rounded-lg px-3 py-3 ring-1 ${styles[tone]}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">{label}</p>
+      <p className="mt-1 text-2xl font-semibold leading-none">{value}</p>
+    </div>
+  );
+}
+
+function StatusChip({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    "Cambio de fecha": "border-orange-100 bg-orange-50 text-orange-700",
+    Cargando: "border-amber-100 bg-amber-50 text-amber-700",
+    "En ruta": "border-emerald-100 bg-emerald-50 text-emerald-700",
+    Finalizado: "border-green-100 bg-green-50 text-green-700",
+    "Pendiente por salir": "border-slate-200 bg-slate-50 text-slate-600",
+    Pernoctado: "border-violet-100 bg-violet-50 text-violet-700",
+    Recargue: "border-sky-100 bg-sky-50 text-sky-700",
+    Retornando: "border-indigo-100 bg-indigo-50 text-indigo-700",
+  };
+
+  return (
+    <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-semibold ${styles[status] || "border-slate-200 bg-slate-50 text-slate-600"}`}>
+      {status}
+    </span>
+  );
+}
+
 function AdminTabs({
   activeTab,
   issueCount,
@@ -498,7 +648,7 @@ function AdminTabs({
   ];
 
   return (
-    <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-4">
+    <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white/92 p-2 shadow-sm backdrop-blur sm:grid-cols-4">
       {tabs.map((tab) => (
         <button
           className={`rounded-md px-3 py-2 text-left transition ${
@@ -512,6 +662,109 @@ function AdminTabs({
           <span className={`mt-0.5 block text-[11px] ${activeTab === tab.id ? "text-white/70" : "text-slate-400"}`}>{tab.detail}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+function RefusalCausesPanel({
+  contractorRows,
+  globalRows,
+  selectedContractor,
+}: {
+  contractorRows: RefusalCauseSummary[];
+  globalRows: RefusalCauseSummary[];
+  selectedContractor: string;
+}) {
+  const hasRows = globalRows.length || contractorRows.length;
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white/92 shadow-[0_14px_36px_rgba(15,23,42,0.06)] backdrop-blur">
+      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Causales de rechazo</p>
+          <h2 className="mt-1 text-lg font-semibold text-[#10223d]">Motivos globales y por contratista</h2>
+        </div>
+        <span className="self-start rounded-md border border-red-100 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 sm:self-auto">
+          {selectedContractor === "Todas" ? "Vista global" : selectedContractor}
+        </span>
+      </div>
+
+      {hasRows ? (
+        <div className="grid gap-0 lg:grid-cols-[0.95fr_1.25fr]">
+          <CauseTable
+            emptyText="No hay causales globales para este filtro."
+            rows={globalRows.slice(0, 8)}
+            showContractor={false}
+            title="Global"
+          />
+          <CauseTable
+            emptyText="No hay causales por contratista para este filtro."
+            rows={contractorRows.slice(0, 10)}
+            showContractor
+            title={selectedContractor === "Todas" ? "Por contratista" : `Detalle ${selectedContractor}`}
+          />
+        </div>
+      ) : (
+        <div className="px-4 py-10 text-center text-sm font-medium text-slate-500">
+          No hay modulaciones con causales de rechazo para el filtro actual.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CauseTable({
+  emptyText,
+  rows,
+  showContractor,
+  title,
+}: {
+  emptyText: string;
+  rows: RefusalCauseSummary[];
+  showContractor: boolean;
+  title: string;
+}) {
+  return (
+    <div className="border-b border-slate-200 p-4 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-[#10223d]">{title}</h3>
+        <span className="text-xs font-semibold text-slate-400">{rows.length} causal{rows.length === 1 ? "" : "es"}</span>
+      </div>
+      {rows.length ? (
+        <div className="overflow-hidden rounded-lg border border-slate-200">
+          <table className="w-full min-w-[520px] text-xs">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+              <tr>
+                {showContractor ? <th className="px-3 py-2 text-left">Contratista</th> : null}
+                <th className="px-3 py-2 text-left">Causal</th>
+                <th className="px-3 py-2 text-right">Reportadas</th>
+                <th className="px-3 py-2 text-right">Gestionadas</th>
+                <th className="px-3 py-2 text-right">Pendientes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {rows.map((row) => (
+                <tr className="hover:bg-red-50/35" key={`${row.contractor}-${row.causal}`}>
+                  {showContractor ? <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-600">{row.contractor}</td> : null}
+                  <td className="max-w-[260px] px-3 py-2 font-semibold text-[#10223d]" title={row.causal}>
+                    <span className="line-clamp-2">{row.causal}</span>
+                    <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                      {row.registros} registro{row.registros === 1 ? "" : "s"}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">{row.reportadas.toLocaleString("es-CO")}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-[#0f7c58]">{row.gestionadas.toLocaleString("es-CO")}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-red-700">{row.pendientes.toLocaleString("es-CO")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm text-slate-500">
+          {emptyText}
+        </div>
+      )}
     </div>
   );
 }
@@ -536,8 +789,8 @@ function AdminIssuesPanel({
   onSelectRecord: (record: Vehiculo) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="data-shell rounded-lg">
+      <div className="flex flex-col gap-3 border-b border-slate-200/70 bg-white/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Errores operativos</p>
           <h2 className="mt-1 text-lg font-semibold text-[#10223d]">{issues.length} alerta{issues.length === 1 ? "" : "s"} en el filtro actual</h2>
@@ -557,7 +810,7 @@ function AdminIssuesPanel({
         <div className="divide-y divide-slate-100">
           {issues.map((issue, index) => (
             <button
-              className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50"
+              className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition hover:bg-cyan-50/50"
               key={`${issue.record.recordId || issue.record.transporte}-${issue.title}-${index}`}
               onClick={() => onSelectRecord(issue.record)}
               type="button"
@@ -651,6 +904,34 @@ function isAdminIssueKind(value: string | null): value is AdminIssueKind {
   );
 }
 
+function buildRefusalCauseRows(rows: AdminRefusalRow[], includeContractor: boolean): RefusalCauseSummary[] {
+  const groups = new Map<string, RefusalCauseSummary>();
+
+  rows.forEach((row) => {
+    const causal = row.causal?.trim() || "Sin causal";
+    const contractor = includeContractor ? row.contractor || "Sin contratista" : "Global";
+    const key = `${contractor}:${causal}`;
+    const current = groups.get(key) || {
+      causal,
+      contractor,
+      gestionadas: 0,
+      pendientes: 0,
+      registros: 0,
+      reportadas: 0,
+    };
+    const reportadas = Number(row.reportadas || 0);
+    const gestionadas = Number(row.gestionadas || 0);
+
+    current.reportadas += reportadas;
+    current.gestionadas += gestionadas;
+    current.pendientes += Number.isFinite(row.refusalFinal) ? Number(row.refusalFinal || 0) : Math.max(reportadas - gestionadas, 0);
+    current.registros += 1;
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.values()).sort((a, b) => b.pendientes - a.pendientes || b.reportadas - a.reportadas || a.causal.localeCompare(b.causal));
+}
+
 function getRecordDate(record: Vehiculo) {
   const rawDate = record.fechaDespacho || record.fechaDt || record.date || record.createdAt;
   if (!rawDate) return "";
@@ -670,17 +951,17 @@ function getRecordDate(record: Vehiculo) {
 
 function Metric({ icon, label, tone = "blue", value }: { icon: ReactNode; label: string; tone?: "amber" | "blue" | "green" | "red"; value: string }) {
   const styles = {
-    amber: "bg-amber-50 text-amber-700",
-    blue: "bg-[#e9f3ff] text-[#10223d]",
-    green: "bg-emerald-50 text-emerald-700",
-    red: "bg-red-50 text-red-700",
+    amber: "bg-amber-50 text-amber-700 ring-amber-100",
+    blue: "bg-[#e9f3ff] text-[#10223d] ring-blue-100",
+    green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    red: "bg-red-50 text-red-700 ring-red-100",
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-      <div className={`mb-3 inline-grid h-10 w-10 place-items-center rounded-md ${styles[tone]}`}>{icon}</div>
+    <div className="tech-card rounded-lg p-4 transition hover:-translate-y-0.5">
+      <div className={`mb-3 inline-grid h-10 w-10 place-items-center rounded-md ring-1 ${styles[tone]}`}>{icon}</div>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-[#10223d]">{value}</p>
+      <p className="mt-2 text-2xl font-semibold leading-none text-[#10223d]">{value}</p>
     </div>
   );
 }
@@ -783,10 +1064,6 @@ function SmallStat({ label, value }: { label: string; value: string | number }) 
       <p className="text-[10px] uppercase tracking-[0.1em] text-slate-400">{label}</p>
     </div>
   );
-}
-
-function managedCount(person: PersonSummary) {
-  return Number(person.stats.gestionadas ?? person.stats.reubicaciones ?? 0);
 }
 
 function hlMoved(person: PersonSummary) {

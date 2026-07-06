@@ -185,7 +185,7 @@ function drawCrewTable(
 
   const drawHeader = () => {
     let x = layout.margin;
-    let y = layout.getY();
+    const y = layout.getY();
     pdf.setFillColor(226, 232, 240);
     pdf.setDrawColor(...BORDER);
     headers.forEach((header, index) => {
