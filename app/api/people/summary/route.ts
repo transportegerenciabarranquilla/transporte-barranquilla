@@ -82,7 +82,7 @@ const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 const NOT_STARTED = "NOT_STARTED";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
@@ -90,6 +90,7 @@ export async function GET() {
       return NextResponse.json({ error: "No tienes permiso para consultar personas." }, { status: 403 });
     }
 
+    const rangeDate = dateKey(new URL(request.url).searchParams.get("date"));
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
       readPeople(headers),
@@ -103,7 +104,7 @@ export async function GET() {
       return {
         name: contractor,
         total: people.length,
-        people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports)),
+        people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, rangeDate)),
       };
     });
 
@@ -187,6 +188,7 @@ function buildPersonSummary(
   vehicles: Required<VehicleRow>[],
   modulations: Required<ModulationRow>[],
   puntoCoronaReports: PuntoCoronaRouteReport[],
+  rangeDate: string,
 ) {
   const personCc = normalizeId(person.CC);
   const personName = normalizeText(person.NOMBRE);
@@ -211,7 +213,7 @@ function buildPersonSummary(
   const routeMinutes = personVehicles.map((vehicle) => parseRouteMinutes(vehicle.tiempoRuta)).filter((value) => Number.isFinite(value));
   const hectolitros = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.hl), 0);
   const seguimientoVisitados = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.visitados), 0);
-  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports);
+  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports, rangeDate);
   const managedBoxes = personModulations.reduce((total, modulation) => total + numberValue(modulation.cajasGestionadas), 0);
   const history = [
     ...personVehicles.slice(0, 5).map((vehicle) => ({
@@ -240,7 +242,7 @@ function buildPersonSummary(
       modulaciones: personModulations.length,
       gestionadas: managedBoxes,
       hectolitros: Number(hectolitros.toFixed(1)),
-      visitasRango: seguimientoVisitados || rangeStats.totalStarted,
+      visitasRango: rangeDate ? rangeStats.totalStarted : seguimientoVisitados || rangeStats.totalStarted,
       enRango: rangeStats.inRange,
       fueraRango: rangeStats.outOfRange,
       porcentajeRango: percentage(rangeStats.inRange, rangeStats.totalStarted),
@@ -321,11 +323,12 @@ function uniqueVehiclesByDt(vehicles: Required<VehicleRow>[]) {
   return Array.from(byDt.values());
 }
 
-function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[]) {
+function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[], rangeDate = "") {
   const reportByDate = new Map<string, PuntoCoronaRouteReport>();
 
   reports.forEach((report) => {
     const date = dateKey(report.operationalDate);
+    if (rangeDate && date !== rangeDate) return;
     const contractor = normalizeContractorName(report.contractor);
     const key = `${contractor}:${date}`;
     if (!date && !contractor) {
@@ -372,17 +375,22 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
   return vehicles.reduce(
     (totals, vehicle) => {
       const date = dateKey(vehicle.fechaDespacho || vehicle.fechaDt);
+      if (rangeDate && date !== rangeDate) return totals;
       const dt = normalizeId(vehicle.transporte);
       const contractor = normalizeContractorName(vehicle.contractor);
-      const crew =
-        rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
-        rowStatsByDateDt.get(`:${date}:${dt}`) ||
-        rowStatsByContractorDt.get(`${contractor}:${dt}`) ||
-        rowStatsByDt.get(dt) ||
-        crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
-        crewByDateDt.get(`:${date}:${dt}`) ||
-        crewByContractorDt.get(`${contractor}:${dt}`) ||
-        crewByDt.get(dt);
+      const crew = rangeDate
+        ? rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          rowStatsByDateDt.get(`:${date}:${dt}`) ||
+          crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          crewByDateDt.get(`:${date}:${dt}`)
+        : rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          rowStatsByDateDt.get(`:${date}:${dt}`) ||
+          rowStatsByContractorDt.get(`${contractor}:${dt}`) ||
+          rowStatsByDt.get(dt) ||
+          crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          crewByDateDt.get(`:${date}:${dt}`) ||
+          crewByContractorDt.get(`${contractor}:${dt}`) ||
+          crewByDt.get(dt);
       if (!crew) return totals;
 
       return {

@@ -77,6 +77,7 @@ export default function PeoplePage() {
   const [selectedContractor, setSelectedContractor] = useState("Logisticos");
   const [selectedCc, setSelectedCc] = useState("");
   const [query, setQuery] = useState("");
+  const [rangeDate, setRangeDate] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [draft, setDraft] = useState<DraftPerson>(emptyDraft);
   const [error, setError] = useState("");
@@ -90,8 +91,9 @@ export default function PeoplePage() {
         const allowed = Boolean(body?.session?.isPeople || body?.session?.isAdmin);
         setIsAllowed(allowed);
         if (!allowed) throw new Error("No tienes permiso para entrar a People.");
+        const summaryUrl = rangeDate ? `/api/people/summary?date=${encodeURIComponent(rangeDate)}` : "/api/people/summary";
         return Promise.all([
-          fetch("/api/people/summary", { cache: "no-store" }),
+          fetch(summaryUrl, { cache: "no-store" }),
           fetch("/api/people/profiles", { cache: "no-store" }),
         ]);
       })
@@ -106,7 +108,7 @@ export default function PeoplePage() {
       })
       .catch((caughtError) => setError(caughtError instanceof Error ? caughtError.message : "Error cargando People."))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [rangeDate]);
 
   const mergedGroups = useMemo(() => {
     const removed = new Set(removedPeople);
@@ -377,6 +379,31 @@ export default function PeoplePage() {
                 </div>
 
                 <div className="bg-gradient-to-b from-white to-slate-50 p-4">
+                  <div className="mb-3 rounded-md border border-slate-200 bg-white p-2.5">
+                    <div className="flex items-end gap-2">
+                      <label className="min-w-0 flex-1">
+                        <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Fecha rango</span>
+                        <input
+                          className="mt-1 h-9 w-full rounded-md border border-slate-200 px-2 text-sm font-semibold text-[#10223d] outline-none focus:border-[#7c3aed]"
+                          onChange={(event) => setRangeDate(event.target.value)}
+                          type="date"
+                          value={rangeDate}
+                        />
+                      </label>
+                      {rangeDate ? (
+                        <button
+                          className="h-9 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                          onClick={() => setRangeDate("")}
+                          type="button"
+                        >
+                          Historico
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                      {rangeDate ? "Mostrando rango solo de la fecha seleccionada." : "Mostrando historico completo de rango."}
+                    </p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <StickerStat label="HL movidos" value={formatHl(hlMoved(selectedPerson))} />
                     <StickerStat label="Visitados" value={selectedPerson.stats.visitasRango || 0} />
