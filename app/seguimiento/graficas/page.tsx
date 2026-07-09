@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ClipboardList, Clock3, PackageCheck, Route, Truck, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, CalendarDays, ClipboardList, Clock3, PackageCheck, Route, Truck, Users, X } from "lucide-react";
 import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY } from "../../lib/checkinStorage";
@@ -17,6 +17,8 @@ import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
   const brand = useContractorBrand();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyMode, setHistoryMode] = useState<HistoryMode>("day");
   const [dateRange, setDateRange] = useState(() => {
     const today = getTodayKey();
     return { from: today, to: today };
@@ -85,6 +87,8 @@ export default function SeguimientoGraficasPage() {
     }));
   }, [rangeVehicles]);
 
+  const historySummaries = useMemo(() => buildHistorySummaries(vehicles, historyMode), [historyMode, vehicles]);
+
   return (
     <main className="min-h-screen text-slate-900">
       <header className="sticky top-0 z-20 border-b border-white/50 bg-white/80 shadow-sm backdrop-blur-xl">
@@ -105,6 +109,14 @@ export default function SeguimientoGraficasPage() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <AnalyticsDateRangeFilter value={dateRange} onChange={setDateRange} />
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
+              onClick={() => setHistoryOpen(true)}
+              type="button"
+            >
+              <BarChart3 size={16} />
+              Histórico
+            </button>
             <AnalyticsViewToggle active="seguimiento" />
           </div>
         </div>
@@ -209,7 +221,218 @@ export default function SeguimientoGraficasPage() {
           </div>
         </div>
       </section>
+
+      {historyOpen ? (
+        <HistoryModal
+          mode={historyMode}
+          onClose={() => setHistoryOpen(false)}
+          onModeChange={setHistoryMode}
+          summaries={historySummaries}
+        />
+      ) : null}
     </main>
+  );
+}
+
+type HistoryMode = "day" | "week" | "month";
+
+type HistorySummary = {
+  key: string;
+  label: string;
+  rangeLabel: string;
+  vehiculos: number;
+  clientes: number;
+  visitados: number;
+  avance: number;
+  cajas: number;
+  hl: number;
+};
+
+function HistoryModal({
+  mode,
+  onClose,
+  onModeChange,
+  summaries,
+}: {
+  mode: HistoryMode;
+  onClose: () => void;
+  onModeChange: (mode: HistoryMode) => void;
+  summaries: HistorySummary[];
+}) {
+  const totalVehicles = summaries.reduce((total, summary) => total + summary.vehiculos, 0);
+  const totalClients = summaries.reduce((total, summary) => total + summary.clientes, 0);
+  const totalVisited = summaries.reduce((total, summary) => total + summary.visitados, 0);
+  const totalProgress = getVisitProgress(totalVisited, totalClients);
+  const totalBoxes = normalizeCajasTotal(summaries.reduce((total, summary) => total + summary.cajas, 0));
+  const totalHl = summaries.reduce((total, summary) => total + summary.hl, 0);
+  const modeLabel = getHistoryModeLabel(mode);
+  const topVolume = summaries.reduce<HistorySummary | null>((top, summary) => (!top || summary.vehiculos > top.vehiculos ? summary : top), null);
+  const topProgress = summaries.reduce<HistorySummary | null>(
+    (top, summary) => (!top || summary.avance > top.avance || (summary.avance === top.avance && summary.vehiculos > top.vehiculos) ? summary : top),
+    null,
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-3 py-5 backdrop-blur-sm">
+      <section className="max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-lg bg-white shadow-2xl shadow-slate-950/25">
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#1264ff]">
+              <CalendarDays size={19} />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Histórico de seguimiento</p>
+              <h2 className="text-lg font-semibold text-[#10223d]">Datos por día, semana y mes</h2>
+            </div>
+          </div>
+          <button
+            className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-[#10223d]"
+            onClick={onClose}
+            type="button"
+            aria-label="Cerrar histórico"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+            <HistoryModeButton active={mode === "day"} label="Día" onClick={() => onModeChange("day")} />
+            <HistoryModeButton active={mode === "week"} label="Semana" onClick={() => onModeChange("week")} />
+            <HistoryModeButton active={mode === "month"} label="Mes" onClick={() => onModeChange("month")} />
+          </div>
+          <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+            <HistoryKpi label="Rutas" value={formatNumber(totalVehicles)} detail={`${summaries.length} grupos`} />
+            <HistoryKpi label="Clientes" value={`${formatNumber(totalVisited)}/${formatNumber(totalClients)}`} detail="visitados/programados" />
+            <HistoryKpi label="Avance" value={formatPercent(totalProgress)} detail="cumplimiento global" />
+            <HistoryKpi label="Cajas / HL" value={`${formatNumber(totalBoxes)} / ${totalHl.toFixed(1)}`} detail="volumen reportado" />
+          </div>
+        </div>
+
+        <div className="max-h-[66vh] overflow-y-auto bg-slate-50/70 px-5 py-4">
+          {summaries.length ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(520px,0.9fr)]">
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <InsightCard
+                    label="Mayor volumen"
+                    title={topVolume?.label ?? "-"}
+                    detail={topVolume ? `${formatNumber(topVolume.vehiculos)} rutas y ${formatNumber(topVolume.clientes)} clientes programados` : "Sin datos"}
+                  />
+                  <InsightCard
+                    label="Mejor avance"
+                    title={topProgress?.label ?? "-"}
+                    detail={topProgress ? `${formatPercent(topProgress.avance)} con ${formatNumber(topProgress.visitados)} visitas` : "Sin datos"}
+                  />
+                </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#10223d]">Avance por {modeLabel.toLowerCase()}</h3>
+                    <p className="text-xs text-slate-500">Clientes visitados frente a clientes programados por periodo.</p>
+                  </div>
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{summaries.length} grupos</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {summaries.map((summary) => (
+                    <div key={summary.key} className="grid gap-2 py-2.5 sm:grid-cols-[150px_1fr_170px] sm:items-center">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold leading-5 text-[#10223d]">{summary.label}</p>
+                        <p className="truncate text-[11px] leading-4 text-slate-500">{summary.rangeLabel}</p>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-2 rounded-full bg-[#0f7c58]" style={{ width: `${Math.max(2, summary.avance)}%` }} />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-right text-xs font-semibold text-slate-600">
+                        <span>{formatNumber(summary.vehiculos)} rutas</span>
+                        <span>{formatNumber(summary.visitados)}/{formatNumber(summary.clientes)}</span>
+                        <span className="text-[#0f7c58]">{formatPercent(summary.avance)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <h3 className="text-sm font-semibold text-[#10223d]">Detalle numerico</h3>
+                  <p className="text-xs text-slate-500">Valores consolidados para auditoria y comparacion rapida.</p>
+                </div>
+                <table className="w-full min-w-[520px] text-xs">
+                  <thead className="bg-[#10223d] text-[10px] uppercase tracking-[0.08em] text-white">
+                    <tr>
+                      <th className="px-3 py-2 text-left">{getHistoryModeLabel(mode)}</th>
+                      <th className="px-3 py-2 text-right">Rutas</th>
+                      <th className="px-3 py-2 text-right">Clientes</th>
+                      <th className="px-3 py-2 text-right">Avance</th>
+                      <th className="px-3 py-2 text-right">Cajas</th>
+                      <th className="px-3 py-2 text-right">HL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaries.map((summary) => (
+                      <tr key={summary.key} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-2">
+                          <p className="font-semibold text-[#10223d]">{summary.label}</p>
+                          <p className="text-[11px] text-slate-500">{summary.rangeLabel}</p>
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.vehiculos)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-700">
+                          {formatNumber(summary.visitados)}/{formatNumber(summary.clientes)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-[#0f7c58]">{formatPercent(summary.avance)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.cajas)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{summary.hl.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+              No hay datos de seguimiento para construir el histórico.
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HistoryModeButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      className={`h-8 rounded-md px-4 text-sm font-semibold transition ${
+        active ? "bg-[#1264ff] text-white shadow-sm shadow-blue-500/20" : "text-[#10223d] hover:bg-slate-100"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function HistoryKpi({ label, value, detail }: { label: string; value: ReactNode; detail: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">{label}</p>
+      <p className="text-base font-semibold leading-5 text-[#10223d]">{value}</p>
+      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{detail}</p>
+    </div>
+  );
+}
+
+function InsightCard({ label, title, detail }: { label: string; title: string; detail: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#0f7c58]">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold text-[#10223d]">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
+    </div>
   );
 }
 
@@ -324,6 +547,82 @@ function getVehicleStatus(vehicle: Vehiculo) {
   return getStatus(progress, vehicle);
 }
 
+function buildHistorySummaries(vehicles: Vehiculo[], mode: HistoryMode) {
+  const groups = new Map<string, { label: string; rangeLabel: string; vehicles: Vehiculo[] }>();
+
+  vehicles.forEach((vehicle) => {
+    const dateKey = parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    if (!dateKey) return;
+
+    const group = getHistoryGroup(dateKey, mode);
+    const current = groups.get(group.key) ?? { label: group.label, rangeLabel: group.rangeLabel, vehicles: [] };
+    current.vehicles.push(vehicle);
+    groups.set(group.key, current);
+  });
+
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([key, group]) => summarizeHistoryGroup(key, group.label, group.rangeLabel, group.vehicles));
+}
+
+function summarizeHistoryGroup(key: string, label: string, rangeLabel: string, vehicles: Vehiculo[]): HistorySummary {
+  const clientes = vehicles.reduce((total, vehicle) => total + Number(vehicle.clientes || 0), 0);
+  const visitados = vehicles.reduce((total, vehicle) => total + Number(vehicle.visitados || 0), 0);
+  const cajas = normalizeCajasTotal(vehicles.reduce((total, vehicle) => total + Number(vehicle.cajas || 0), 0));
+  const hl = vehicles.reduce((total, vehicle) => total + Number(vehicle.hl || 0), 0);
+
+  return {
+    key,
+    label,
+    rangeLabel,
+    vehiculos: vehicles.length,
+    clientes,
+    visitados,
+    avance: getVisitProgress(visitados, clientes),
+    cajas,
+    hl,
+  };
+}
+
+function getHistoryGroup(dateKey: string, mode: HistoryMode) {
+  if (mode === "week") {
+    const start = getWeekStartKey(dateKey);
+    const end = addDaysKey(start, 6);
+
+    return {
+      key: start,
+      label: `Semana ${formatShortDate(start)}`,
+      rangeLabel: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+    };
+  }
+
+  if (mode === "month") {
+    const key = dateKey.slice(0, 7);
+
+    return {
+      key,
+      label: formatMonthLabel(key),
+      rangeLabel: key,
+    };
+  }
+
+  return {
+    key: dateKey,
+    label: formatShortDate(dateKey),
+    rangeLabel: formatLongDate(dateKey),
+  };
+}
+
+function getHistoryModeLabel(mode: HistoryMode) {
+  const labels: Record<HistoryMode, string> = {
+    day: "Día",
+    week: "Semana",
+    month: "Mes",
+  };
+
+  return labels[mode];
+}
+
 function getVisitProgress(visitados: number, clientes: number) {
   if (!clientes) return 0;
   return Math.min(100, Number(((visitados / clientes) * 100).toFixed(1)));
@@ -331,6 +630,10 @@ function getVisitProgress(visitados: number, clientes: number) {
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }).format(value);
 }
 
 function getStatusTone(status: string): StatusTone {
@@ -364,6 +667,55 @@ function parseDate(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function getWeekStartKey(dateKey: string) {
+  const date = dateFromKey(dateKey);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+
+  return dateToKey(date);
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const date = dateFromKey(dateKey);
+  date.setDate(date.getDate() + days);
+
+  return dateToKey(date);
+}
+
+function dateFromKey(dateKey: string) {
+  const [year = 0, month = 1, day = 1] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function dateToKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+const MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function formatShortDate(dateKey: string) {
+  const [year = 0, month = 1, day = 1] = dateKey.split("-").map(Number);
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
+}
+
+function formatLongDate(dateKey: string) {
+  const [year = 0, month = 1, day = 1] = dateKey.split("-").map(Number);
+  return `${day} de ${MONTH_NAMES[month - 1] ?? ""} de ${year}`;
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [year = "", month = "1"] = monthKey.split("-");
+  const monthIndex = Number(month) - 1;
+  const monthName = MONTH_NAMES[monthIndex] ?? monthKey;
+
+  return `${capitalize(monthName)} ${year}`;
+}
+
+function capitalize(value: string) {
+  return value ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : value;
 }
 
 function getTodayKey() {
