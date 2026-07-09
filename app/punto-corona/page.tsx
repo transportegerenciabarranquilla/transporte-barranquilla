@@ -48,6 +48,8 @@ const WAITING_MODULATION = "WAITING_MODULATION";
 const PARTIAL_DELIVERY = "PARTIAL_DELIVERY";
 
 type AccessState = "checking" | "allowed" | "denied";
+type RangeDetail = "inRange" | "outOfRange" | "unvalidated";
+type ModulationDetail = "modulated" | `cause:${string}`;
 
 export default function PuntoCoronaPage() {
   const router = useRouter();
@@ -73,6 +75,8 @@ export default function PuntoCoronaPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
+  const [selectedRangeDetail, setSelectedRangeDetail] = useState<RangeDetail | null>(null);
+  const [selectedModulationDetail, setSelectedModulationDetail] = useState<ModulationDetail | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [contractor, setContractor] = useState("");
 
@@ -121,6 +125,12 @@ export default function PuntoCoronaPage() {
     [activeDate, contractor, reports],
   );
   const visibleReport = closureReport ?? currentReport ?? null;
+
+  useEffect(() => {
+    setSelectedRangeDetail(null);
+    setSelectedModulationDetail(null);
+  }, [activeDate, visibleReport?.id]);
+
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -245,7 +255,12 @@ export default function PuntoCoronaPage() {
             </button>
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">{contractor || "Contratista"}</p>
-              <h1 className="truncate text-2xl font-semibold text-[#10223d]">Rango</h1>
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+                <h1 className="truncate text-2xl font-semibold text-[#10223d]">Rango</h1>
+                <p className="pb-0.5 text-xs font-semibold text-slate-500">
+                  Ultima carga: {visibleReport?.uploadedAt ? formatDateTime(visibleReport.uploadedAt) : "Sin archivo"}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -328,7 +343,26 @@ export default function PuntoCoronaPage() {
           <>
             <SummaryGrid modulaciones={modulaciones} report={visibleReport} />
             <Charts modulaciones={modulaciones} report={visibleReport} />
-            <StatusCharts modulaciones={modulaciones} report={visibleReport} />
+            <StatusCharts
+              modulaciones={modulaciones}
+              onSelectModulation={(detail) => {
+                setSelectedModulationDetail(detail);
+                setSelectedRangeDetail(null);
+              }}
+              onSelectRange={(range) => {
+                setSelectedRangeDetail(range);
+                setSelectedModulationDetail(null);
+              }}
+              report={visibleReport}
+              selectedModulation={selectedModulationDetail}
+              selectedRange={selectedRangeDetail}
+            />
+            {selectedRangeDetail ? (
+              <RangeClientDetail onClose={() => setSelectedRangeDetail(null)} range={selectedRangeDetail} report={visibleReport} />
+            ) : null}
+            {selectedModulationDetail ? (
+              <ModulationClientDetail detail={selectedModulationDetail} modulaciones={modulaciones} onClose={() => setSelectedModulationDetail(null)} report={visibleReport} />
+            ) : null}
             <CrewTable modulaciones={modulaciones} report={visibleReport} />
           </>
         ) : (
@@ -339,18 +373,33 @@ export default function PuntoCoronaPage() {
   );
 }
 
-function StatusCharts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
+function StatusCharts({
+  modulaciones,
+  onSelectModulation,
+  onSelectRange,
+  report,
+  selectedModulation,
+  selectedRange,
+}: {
+  modulaciones: ModulacionRegistro[];
+  onSelectModulation: (detail: ModulationDetail) => void;
+  onSelectRange: (range: RangeDetail) => void;
+  report: PuntoCoronaRouteReport;
+  selectedModulation: ModulationDetail | null;
+  selectedRange: RangeDetail | null;
+}) {
   const summary = report.summary;
   const modulationStats = getReportModulationStats(report, modulaciones);
   const deliveryItems = [
-    { color: "bg-emerald-500", label: "Visitas iniciadas en rango", value: summary.inRange },
-    { color: "bg-red-500", label: "Visitas iniciadas fuera de rango", value: summary.outOfRange },
-    { color: "bg-slate-300", label: "Visitas iniciadas sin validacion", value: Math.max(summary.startedRows - summary.inRange - summary.outOfRange, 0) },
+    { color: "bg-emerald-500", key: "inRange", label: "Visitas iniciadas en rango", value: summary.inRange },
+    { color: "bg-red-500", key: "outOfRange", label: "Visitas iniciadas fuera de rango", value: summary.outOfRange },
+    { color: "bg-slate-300", key: "unvalidated", label: "Visitas iniciadas sin validacion", value: Math.max(summary.startedRows - summary.inRange - summary.outOfRange, 0) },
   ];
   const modulationItems = [
-    { color: "bg-[#1264ff]", label: "Visitas moduladas", value: modulationStats.modulated },
+    { color: "bg-[#1264ff]", key: "modulated", label: "Visitas moduladas", value: modulationStats.modulated },
     ...modulationStats.causes.map((cause) => ({
       color: getCauseColor(cause.label),
+      key: `cause:${cause.label}`,
       label: cause.label,
       value: cause.value,
     })),
@@ -358,18 +407,34 @@ function StatusCharts({ modulaciones, report }: { modulaciones: ModulacionRegist
 
   return (
     <div className="mb-5 grid gap-4 lg:grid-cols-2">
-      <StackedChart title="Distribucion de entrega en rango" total={summary.startedRows} items={deliveryItems} />
-      <StackedChart title="Distribucion de modulacion" total={summary.startedRows} items={modulationItems} />
+      <StackedChart
+        items={deliveryItems}
+        onSelectItem={(key) => onSelectRange(key as RangeDetail)}
+        selectedKey={selectedRange ?? undefined}
+        title="Distribucion de entrega en rango"
+        total={summary.startedRows}
+      />
+      <StackedChart
+        items={modulationItems}
+        onSelectItem={(key) => onSelectModulation(key as ModulationDetail)}
+        selectedKey={selectedModulation ?? undefined}
+        title="Distribucion de modulacion"
+        total={summary.startedRows}
+      />
     </div>
   );
 }
 
 function StackedChart({
   items,
+  onSelectItem,
+  selectedKey,
   title,
   total,
 }: {
-  items: Array<{ color: string; label: string; value: number }>;
+  items: Array<{ color: string; key?: string; label: string; value: number }>;
+  onSelectItem?: (key: string) => void;
+  selectedKey?: string;
   title: string;
   total: number;
 }) {
@@ -382,18 +447,36 @@ function StackedChart({
         <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{total} visitas</span>
       </div>
       <div className="mt-5 flex h-5 overflow-hidden rounded-full bg-slate-100">
-        {items.map((item) => (
-          <div
-            className={`${item.color} min-w-0`}
-            key={item.label}
-            style={{ width: `${(item.value / safeTotal) * 100}%` }}
-            title={`${item.label}: ${item.value}`}
-          />
-        ))}
+        {items.map((item) => {
+          const isInteractive = Boolean(item.key && onSelectItem);
+          return (
+            <button
+              aria-label={`${item.label}: ${item.value}`}
+              className={`${item.color} min-w-0 transition ${isInteractive ? "cursor-pointer hover:brightness-95" : "cursor-default"}`}
+              disabled={!isInteractive}
+              key={item.label}
+              onClick={() => item.key && onSelectItem?.(item.key)}
+              style={{ width: `${(item.value / safeTotal) * 100}%` }}
+              title={`${item.label}: ${item.value}`}
+              type="button"
+            />
+          );
+        })}
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        {items.map((item) => (
-          <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2" key={item.label}>
+        {items.map((item) => {
+          const isInteractive = Boolean(item.key && onSelectItem);
+          const isSelected = item.key && item.key === selectedKey;
+          return (
+          <button
+            className={`rounded-md border bg-slate-50 px-3 py-2 text-left transition ${
+              isSelected ? "border-[#10223d] ring-2 ring-[#10223d]/10" : "border-slate-100"
+            } ${isInteractive ? "hover:border-[#10223d]/30 hover:bg-white" : "cursor-default"}`}
+            disabled={!isInteractive}
+            key={item.label}
+            onClick={() => item.key && onSelectItem?.(item.key)}
+            type="button"
+          >
             <div className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />
               <span className="truncate text-xs font-semibold text-slate-600">{item.label}</span>
@@ -402,10 +485,135 @@ function StackedChart({
               {item.value}
               <span className="ml-2 text-xs font-medium text-slate-500">{((item.value / safeTotal) * 100).toFixed(1)}%</span>
             </p>
-          </div>
-        ))}
+          </button>
+        );
+        })}
       </div>
     </div>
+  );
+}
+
+function RangeClientDetail({ onClose, range, report }: { onClose: () => void; range: RangeDetail; report: PuntoCoronaRouteReport }) {
+  const rows = getRowsForRange(report, range);
+  const title = getRangeTitle(range);
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-[#10223d]">{title}</h2>
+          <p className="text-xs text-slate-500">Clientes del archivo seleccionado para {formatDate(report.operationalDate)}.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{rows.length} clientes</span>
+          <button className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50" onClick={onClose} type="button">
+            Cerrar
+          </button>
+        </div>
+      </div>
+      <div className="max-h-72 overflow-auto">
+        <table className="w-full min-w-[760px] table-fixed text-xs">
+          <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+            <tr>
+              <th className="w-24 px-3 py-2 text-left">DT</th>
+              <th className="w-24 px-3 py-2 text-left">Placa</th>
+              <th className="w-44 px-3 py-2 text-left">Cliente</th>
+              <th className="w-48 px-3 py-2 text-left">Tripulacion</th>
+              <th className="px-3 py-2 text-left">Motivo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.length ? (
+              rows.map((row) => (
+                <tr className={range === "outOfRange" ? "bg-red-50/45" : "bg-white"} key={row.id}>
+                  <td className="px-3 py-2 font-semibold text-[#10223d]">{row.dt || "-"}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.truckLicensePlate || "-"}</td>
+                  <td className="px-3 py-2">
+                    <span className="block truncate font-semibold text-[#10223d]" title={row.pocName || row.pocExternalId}>{row.pocName || "Sin nombre"}</span>
+                    <span className="block truncate text-[10px] text-slate-500">{row.pocExternalId || "Sin codigo"}</span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{row.driverName || "-"}</td>
+                  <td className="px-3 py-2 text-slate-600">{getRangeReason(row, range)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="px-3 py-8 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                  No hay clientes para este grupo.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ModulationClientDetail({
+  detail,
+  modulaciones,
+  onClose,
+  report,
+}: {
+  detail: ModulationDetail;
+  modulaciones: ModulacionRegistro[];
+  onClose: () => void;
+  report: PuntoCoronaRouteReport;
+}) {
+  const rows = getRowsForModulationDetail(report, modulaciones, detail);
+  const title = getModulationDetailTitle(detail);
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-[#10223d]">{title}</h2>
+          <p className="text-xs text-slate-500">Clientes del archivo seleccionado para {formatDate(report.operationalDate)}.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{rows.length} clientes</span>
+          <button className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50" onClick={onClose} type="button">
+            Cerrar
+          </button>
+        </div>
+      </div>
+      <div className="max-h-72 overflow-auto">
+        <table className="w-full min-w-[760px] table-fixed text-xs">
+          <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+            <tr>
+              <th className="w-24 px-3 py-2 text-left">DT</th>
+              <th className="w-24 px-3 py-2 text-left">Placa</th>
+              <th className="w-44 px-3 py-2 text-left">Cliente</th>
+              <th className="w-48 px-3 py-2 text-left">Tripulacion</th>
+              <th className="px-3 py-2 text-left">Estado</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.length ? (
+              rows.map((row) => (
+                <tr className="bg-white" key={row.id}>
+                  <td className="px-3 py-2 font-semibold text-[#10223d]">{row.dt || "-"}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.truckLicensePlate || "-"}</td>
+                  <td className="px-3 py-2">
+                    <span className="block truncate font-semibold text-[#10223d]" title={row.pocName || row.pocExternalId}>{row.pocName || "Sin nombre"}</span>
+                    <span className="block truncate text-[10px] text-slate-500">{row.pocExternalId || "Sin codigo"}</span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{row.driverName || "-"}</td>
+                  <td className="px-3 py-2 text-slate-600">{getModulationDetailReason(row, detail)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="px-3 py-8 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                  No hay clientes para este grupo.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -535,6 +743,59 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
       </div>
     </div>
   );
+}
+
+function getRowsForRange(report: PuntoCoronaRouteReport, range: RangeDetail) {
+  return report.rows
+    .filter((row) => row.status !== NOT_STARTED)
+    .filter((row) => {
+      if (range === "inRange") return row.withinRadius === true;
+      if (range === "outOfRange") return row.withinRadius === false;
+      return row.withinRadius !== true && row.withinRadius !== false;
+    })
+    .sort((a, b) => a.dt.localeCompare(b.dt, "es-CO", { numeric: true }) || a.pocName.localeCompare(b.pocName, "es-CO"));
+}
+
+function getRowsForModulationDetail(report: PuntoCoronaRouteReport, modulaciones: ModulacionRegistro[], detail: ModulationDetail) {
+  const modulationKeys = getReportModulationKeys(report, modulaciones);
+  const candidateRows = report.rows.filter((row) => row.status !== NOT_STARTED && isRejectedForModulation(row.status));
+
+  return candidateRows
+    .filter((row) => {
+      const isModulated = modulationKeys.has(getRouteModulationKey(row));
+      if (detail === "modulated") return isModulated;
+
+      return !isModulated && getPendingCauseLabel(row) === getModulationDetailCause(detail);
+    })
+    .sort((a, b) => a.dt.localeCompare(b.dt, "es-CO", { numeric: true }) || a.pocName.localeCompare(b.pocName, "es-CO"));
+}
+
+function getRangeTitle(range: RangeDetail) {
+  if (range === "inRange") return "Clientes en rango";
+  if (range === "outOfRange") return "Clientes fuera de rango";
+  return "Clientes sin validacion de rango";
+}
+
+function getModulationDetailTitle(detail: ModulationDetail) {
+  if (detail === "modulated") return "Clientes modulados";
+  return `Clientes con ${getModulationDetailCause(detail)}`;
+}
+
+function getRangeReason(row: PuntoCoronaRouteRow, range: RangeDetail) {
+  if (range === "inRange") return "Visita iniciada en rango";
+  if (range === "unvalidated") return "Sin validacion de rango";
+
+  const reason = (row.outOfRadiusReason || row.skippedReason || "").trim();
+  return reason || "Fuera de rango";
+}
+
+function getModulationDetailReason(row: PuntoCoronaRouteRow, detail: ModulationDetail) {
+  if (detail === "modulated") return "Visita modulada";
+  return getPendingCauseLabel(row);
+}
+
+function getModulationDetailCause(detail: ModulationDetail) {
+  return detail.startsWith("cause:") ? detail.slice("cause:".length) : "";
 }
 
 function Metric({
@@ -854,6 +1115,19 @@ function formatDate(date: string) {
   if (!date) return "Sin fecha";
   return new Date(`${date}T00:00:00`).toLocaleDateString("es-CO", {
     day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin hora";
+
+  return date.toLocaleString("es-CO", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
