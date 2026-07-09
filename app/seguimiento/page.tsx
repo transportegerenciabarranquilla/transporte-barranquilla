@@ -414,7 +414,6 @@ export default function SeguimientoPage() {
         return {
           ...vehicle,
           status: "En ruta",
-          recargue: "No",
           horaSalida: hasTimeValue(vehicle.horaSalida) ? vehicle.horaSalida : nowTime,
           horaLlegada: "Pendiente",
           tiempoRuta: "Pendiente",

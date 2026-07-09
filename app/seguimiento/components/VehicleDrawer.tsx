@@ -270,7 +270,19 @@ export function VehicleDrawer({
             <Info icon={<Clock3 size={18} />} label="Clasificacion on time" value={onTimeClassification} />
             <RecargueToggle
               active={hasRecargue}
-              onToggle={() => updateVehicle(hasRecargue ? { recargue: "No", status: "En ruta" } : { recargue: "Si", status: "Recargue" })}
+              onToggle={() =>
+                updateVehicle(
+                  hasRecargue
+                    ? {
+                        recargue: "No",
+                        status: status === "Recargue" ? "En ruta" : vehicle.status,
+                      }
+                    : {
+                        recargue: "Si",
+                        status: status === "Pendiente por salir" || status === "Cargando" ? "En ruta" : vehicle.status,
+                      },
+                )
+              }
             />
           </div>
 

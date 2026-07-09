@@ -191,8 +191,8 @@ export default function RefusalComPage() {
             <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-1 text-[11px] font-semibold text-[#07556b]">{rows.length} registros</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="data-table w-full min-w-[1080px] table-fixed">
-              <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
+            <table className="data-table w-full min-w-[1020px] table-fixed text-[10px]">
+              <thead className="sticky top-0 z-10 text-[8px] uppercase tracking-[0.08em]">
                 <tr>
                   <th className="w-[210px] px-2 py-1.5 text-left">Establecimiento</th>
                   <th className="w-[180px] px-2 py-1.5 text-left">Causal</th>
@@ -209,20 +209,20 @@ export default function RefusalComPage() {
                   {rows.length ? (
                   rows.map((row, index) => (
                     <tr className={index % 2 === 0 ? "bg-white" : ""} key={row.registro.id}>
-                      <td className="truncate px-2 py-1 text-[11px] font-medium text-slate-700" title={row.establecimiento}>{row.establecimiento}</td>
-                      <td className="truncate px-2 py-1 text-[11px] font-semibold text-slate-700" title={row.causal}>{row.causal}</td>
-                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.rr}>{row.rr}</td>
-                      <td className="px-2 py-1" title={row.placa}><span className="rounded bg-[#e8f7ff] px-1.5 py-0.5 text-[11px] font-bold text-[#07556b]">{row.placa}</span></td>
-                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.preventista}>{row.preventista}</td>
-                      <td className="truncate px-2 py-1 text-[11px] text-slate-700" title={row.jefeVentas}>{row.jefeVentas}</td>
-                      <td className="px-2 py-1 text-right text-[11px] text-slate-700"><span className="number-pill">{row.reportadas}</span></td>
-                      <td className="px-2 py-1 text-right text-[11px] text-emerald-700"><span className="number-pill border-emerald-100 bg-emerald-50">{row.gestionadas}</span></td>
-                      <td className="px-2 py-1 text-right text-[11px] text-red-700"><span className="number-pill border-red-100 bg-red-50">{row.rechazadas}</span></td>
+                      <td className="truncate px-2 py-1 text-[10px] font-medium text-slate-700" title={row.establecimiento}>{row.establecimiento}</td>
+                      <td className="truncate px-2 py-1 text-[10px] font-semibold text-slate-700" title={row.causal}>{row.causal}</td>
+                      <td className="truncate px-2 py-1 text-[10px] text-slate-700" title={row.rr}>{row.rr}</td>
+                      <td className="px-2 py-1" title={row.placa}><span className="rounded bg-[#e8f7ff] px-1.5 py-0.5 text-[10px] font-bold text-[#07556b]">{row.placa}</span></td>
+                      <td className="truncate px-2 py-1 text-[10px] text-slate-700" title={row.preventista}>{row.preventista}</td>
+                      <td className="truncate px-2 py-1 text-[10px] text-slate-700" title={row.jefeVentas}>{row.jefeVentas}</td>
+                      <td className="px-2 py-1 text-right text-[10px] text-slate-700"><span className="number-pill">{row.reportadas}</span></td>
+                      <td className="px-2 py-1 text-right text-[10px] text-emerald-700"><span className="number-pill border-emerald-100 bg-emerald-50">{row.gestionadas}</span></td>
+                      <td className="px-2 py-1 text-right text-[10px] text-red-700"><span className="number-pill border-red-100 bg-red-50">{row.rechazadas}</span></td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="px-4 py-10 text-center text-sm font-medium text-slate-500" colSpan={9}>
+                    <td className="px-4 py-8 text-center text-xs font-medium text-slate-500" colSpan={9}>
                       No hay registros de refusal para el rango seleccionado.
                     </td>
                   </tr>

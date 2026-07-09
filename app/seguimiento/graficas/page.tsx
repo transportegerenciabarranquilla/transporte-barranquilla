@@ -356,35 +356,35 @@ function HistoryModal({
               </div>
 
               <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-200 px-4 py-3">
+                <div className="border-b border-slate-200 px-3 py-2.5">
                   <h3 className="text-sm font-semibold text-[#10223d]">Detalle numerico</h3>
                   <p className="text-xs text-slate-500">Valores consolidados para auditoria y comparacion rapida.</p>
                 </div>
-                <table className="w-full min-w-[520px] text-xs">
-                  <thead className="bg-[#10223d] text-[10px] uppercase tracking-[0.08em] text-white">
+                <table className="w-full min-w-[500px] table-fixed text-[11px]">
+                  <thead className="bg-slate-100 text-[9px] uppercase tracking-[0.08em] text-slate-500">
                     <tr>
-                      <th className="px-3 py-2 text-left">{getHistoryModeLabel(mode)}</th>
-                      <th className="px-3 py-2 text-right">Rutas</th>
-                      <th className="px-3 py-2 text-right">Clientes</th>
-                      <th className="px-3 py-2 text-right">Avance</th>
-                      <th className="px-3 py-2 text-right">Cajas</th>
-                      <th className="px-3 py-2 text-right">HL</th>
+                      <th className="w-[26%] px-2.5 py-2 text-left">{getHistoryModeLabel(mode)}</th>
+                      <th className="w-[12%] px-2 py-2 text-right">Rutas</th>
+                      <th className="w-[20%] px-2 py-2 text-right">Clientes</th>
+                      <th className="w-[14%] px-2 py-2 text-right">Avance</th>
+                      <th className="w-[14%] px-2 py-2 text-right">Cajas</th>
+                      <th className="w-[14%] px-2 py-2 text-right">HL</th>
                     </tr>
                   </thead>
                   <tbody>
                     {summaries.map((summary) => (
                       <tr key={summary.key} className="border-b border-slate-100 last:border-0">
-                        <td className="px-3 py-2">
-                          <p className="font-semibold text-[#10223d]">{summary.label}</p>
-                          <p className="text-[11px] text-slate-500">{summary.rangeLabel}</p>
+                        <td className="px-2.5 py-2">
+                          <p className="truncate font-semibold text-[#10223d]">{summary.label}</p>
+                          <p className="truncate text-[10px] text-slate-500">{summary.rangeLabel}</p>
                         </td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.vehiculos)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-700">
+                        <td className="px-2 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.vehiculos)}</td>
+                        <td className="px-2 py-2 text-right font-semibold text-slate-700">
                           {formatNumber(summary.visitados)}/{formatNumber(summary.clientes)}
                         </td>
-                        <td className="px-3 py-2 text-right font-semibold text-[#0f7c58]">{formatPercent(summary.avance)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.cajas)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{summary.hl.toFixed(1)}</td>
+                        <td className="px-2 py-2 text-right font-semibold text-[#0f7c58]">{formatPercent(summary.avance)}</td>
+                        <td className="px-2 py-2 text-right font-semibold text-slate-700">{formatNumber(summary.cajas)}</td>
+                        <td className="px-2 py-2 text-right font-semibold text-slate-700">{summary.hl.toFixed(1)}</td>
                       </tr>
                     ))}
                   </tbody>

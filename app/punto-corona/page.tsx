@@ -512,33 +512,33 @@ function RangeClientDetail({ onClose, range, report }: { onClose: () => void; ra
         </div>
       </div>
       <div className="max-h-72 overflow-auto">
-        <table className="w-full min-w-[760px] table-fixed text-xs">
-          <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+        <table className="w-full min-w-[700px] table-fixed text-[11px]">
+          <thead className="sticky top-0 bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
             <tr>
-              <th className="w-24 px-3 py-2 text-left">DT</th>
-              <th className="w-24 px-3 py-2 text-left">Placa</th>
-              <th className="w-44 px-3 py-2 text-left">Cliente</th>
-              <th className="w-48 px-3 py-2 text-left">Tripulacion</th>
-              <th className="px-3 py-2 text-left">Motivo</th>
+              <th className="w-20 px-2.5 py-1.5 text-left">DT</th>
+              <th className="w-20 px-2.5 py-1.5 text-left">Placa</th>
+              <th className="w-40 px-2.5 py-1.5 text-left">Cliente</th>
+              <th className="w-44 px-2.5 py-1.5 text-left">Tripulacion</th>
+              <th className="px-2.5 py-1.5 text-left">Motivo</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length ? (
               rows.map((row) => (
                 <tr className={range === "outOfRange" ? "bg-red-50/45" : "bg-white"} key={row.id}>
-                  <td className="px-3 py-2 font-semibold text-[#10223d]">{row.dt || "-"}</td>
-                  <td className="px-3 py-2 text-slate-700">{row.truckLicensePlate || "-"}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-2.5 py-1.5 font-semibold text-[#10223d]">{row.dt || "-"}</td>
+                  <td className="px-2.5 py-1.5 text-slate-700">{row.truckLicensePlate || "-"}</td>
+                  <td className="px-2.5 py-1.5">
                     <span className="block truncate font-semibold text-[#10223d]" title={row.pocName || row.pocExternalId}>{row.pocName || "Sin nombre"}</span>
                     <span className="block truncate text-[10px] text-slate-500">{row.pocExternalId || "Sin codigo"}</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-700">{row.driverName || "-"}</td>
-                  <td className="px-3 py-2 text-slate-600">{getRangeReason(row, range)}</td>
+                  <td className="px-2.5 py-1.5 text-slate-700">{row.driverName || "-"}</td>
+                  <td className="px-2.5 py-1.5 text-slate-600">{getRangeReason(row, range)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td className="px-3 py-8 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                <td className="px-3 py-6 text-center text-xs font-medium text-slate-500" colSpan={5}>
                   No hay clientes para este grupo.
                 </td>
               </tr>
@@ -579,33 +579,33 @@ function ModulationClientDetail({
         </div>
       </div>
       <div className="max-h-72 overflow-auto">
-        <table className="w-full min-w-[760px] table-fixed text-xs">
-          <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+        <table className="w-full min-w-[700px] table-fixed text-[11px]">
+          <thead className="sticky top-0 bg-slate-50 text-[9px] uppercase tracking-[0.08em] text-slate-500">
             <tr>
-              <th className="w-24 px-3 py-2 text-left">DT</th>
-              <th className="w-24 px-3 py-2 text-left">Placa</th>
-              <th className="w-44 px-3 py-2 text-left">Cliente</th>
-              <th className="w-48 px-3 py-2 text-left">Tripulacion</th>
-              <th className="px-3 py-2 text-left">Estado</th>
+              <th className="w-20 px-2.5 py-1.5 text-left">DT</th>
+              <th className="w-20 px-2.5 py-1.5 text-left">Placa</th>
+              <th className="w-40 px-2.5 py-1.5 text-left">Cliente</th>
+              <th className="w-44 px-2.5 py-1.5 text-left">Tripulacion</th>
+              <th className="px-2.5 py-1.5 text-left">Estado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length ? (
               rows.map((row) => (
                 <tr className="bg-white" key={row.id}>
-                  <td className="px-3 py-2 font-semibold text-[#10223d]">{row.dt || "-"}</td>
-                  <td className="px-3 py-2 text-slate-700">{row.truckLicensePlate || "-"}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-2.5 py-1.5 font-semibold text-[#10223d]">{row.dt || "-"}</td>
+                  <td className="px-2.5 py-1.5 text-slate-700">{row.truckLicensePlate || "-"}</td>
+                  <td className="px-2.5 py-1.5">
                     <span className="block truncate font-semibold text-[#10223d]" title={row.pocName || row.pocExternalId}>{row.pocName || "Sin nombre"}</span>
                     <span className="block truncate text-[10px] text-slate-500">{row.pocExternalId || "Sin codigo"}</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-700">{row.driverName || "-"}</td>
-                  <td className="px-3 py-2 text-slate-600">{getModulationDetailReason(row, detail)}</td>
+                  <td className="px-2.5 py-1.5 text-slate-700">{row.driverName || "-"}</td>
+                  <td className="px-2.5 py-1.5 text-slate-600">{getModulationDetailReason(row, detail)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td className="px-3 py-8 text-center text-sm font-medium text-slate-500" colSpan={5}>
+                <td className="px-3 py-6 text-center text-xs font-medium text-slate-500" colSpan={5}>
                   No hay clientes para este grupo.
                 </td>
               </tr>
