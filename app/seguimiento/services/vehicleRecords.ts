@@ -80,7 +80,7 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
     };
   }
 
-  const clientes = importedVehicle.clientes > 0 ? importedVehicle.clientes : currentRecord.clientes;
+  const clientes = Math.max(Number(currentRecord.clientes || 0), Number(importedVehicle.clientes || 0));
   const visitados = Math.max(Number(currentRecord.visitados || 0), Number(importedVehicle.visitados || 0));
 
   return {
@@ -159,7 +159,7 @@ function getUniqueRecordId(baseId: string, usedIds: Set<string>) {
 }
 
 function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
-  const clientes = next.clientes > 0 ? next.clientes : current.clientes;
+  const clientes = Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
   const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {

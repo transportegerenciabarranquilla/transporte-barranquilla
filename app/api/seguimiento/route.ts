@@ -57,7 +57,7 @@ export async function PUT(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
-    const { records } = (await request.json()) as { records: Vehiculo[] };
+    const { deleteMissing, records } = (await request.json()) as { deleteMissing?: boolean; records: Vehiculo[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
     const scopedRecords = await applyAttendanceToVehicles(
@@ -90,9 +90,11 @@ export async function PUT(request: Request) {
       if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
     }
 
-    const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
-    const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates);
-    if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
+    if (deleteMissing === true) {
+      const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
+      const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates);
+      if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
+    }
 
     const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
     const savedResponse = await fetch(supabaseRest(TABLE, `?${savedParams.toString()}`), {
@@ -191,7 +193,7 @@ function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: num
 }
 
 function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
-  const clientes = next.clientes > 0 ? next.clientes : current.clientes;
+  const clientes = Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
   const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {

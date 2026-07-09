@@ -764,11 +764,13 @@ async function updateSeguimientoClientsFromBees(vehicles: Vehiculo[], report: Pu
     if (!dt || !stats) return vehicle;
     if (exactDateDts.has(dt) && getVehicleDateKey(vehicle) !== report.operationalDate) return vehicle;
 
+    const clientes = Math.max(Number(vehicle.clientes || 0), stats.clientes);
+    const visitados = Math.max(Number(vehicle.visitados || 0), stats.visitados);
     updated += 1;
     return {
       ...vehicle,
-      clientes: stats.clientes,
-      visitados: Math.min(stats.visitados, stats.clientes),
+      clientes,
+      visitados: Math.min(visitados, clientes || visitados),
     };
   });
 

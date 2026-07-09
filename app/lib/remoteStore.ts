@@ -69,7 +69,7 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
 export async function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],
-  options: { mergeByKey?: (record: T) => string } = {},
+  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string } = {},
 ) {
   const previousRecords = cache.get(endpoint);
   cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
@@ -79,7 +79,7 @@ export async function saveRemoteRecords<T>(
     const response = await fetch(endpoint, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records }),
+      body: JSON.stringify({ records, ...options.extraBody }),
       cache: "no-store",
     });
 

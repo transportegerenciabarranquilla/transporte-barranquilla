@@ -366,7 +366,7 @@ export default function SeguimientoPage() {
     setImportMessage("Borrando DT en Supabase...");
 
     try {
-      const savedRecords = await saveSeguimientoVehiculos(prepared);
+      const savedRecords = await saveSeguimientoVehiculos(prepared, { deleteMissing: true });
       setVehiculos(savedRecords);
       setImportMessage("DT borrado correctamente.");
     } catch (error) {

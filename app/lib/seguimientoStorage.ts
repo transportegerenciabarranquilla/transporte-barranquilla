@@ -8,6 +8,6 @@ export function readSeguimientoVehiculos() {
   return readRemoteRecords<Vehiculo>("/api/seguimiento");
 }
 
-export function saveSeguimientoVehiculos(records: Vehiculo[]) {
-  return saveRemoteRecords("/api/seguimiento", records);
+export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteMissing?: boolean } = {}) {
+  return saveRemoteRecords("/api/seguimiento", records, { extraBody: { deleteMissing: options.deleteMissing === true } });
 }
