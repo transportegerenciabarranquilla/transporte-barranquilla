@@ -90,7 +90,8 @@ export async function PUT(request: Request) {
       if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
     }
 
-    const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken);
+    const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
+    const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates);
     if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
 
     const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
@@ -120,8 +121,10 @@ export async function PUT(request: Request) {
   }
 }
 
-async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string) {
-  const currentParams = new URLSearchParams({ select: "record_id", contractor: `eq.${contractor}` });
+async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string, submittedDates: Set<string>) {
+  if (!submittedDates.size) return "";
+
+  const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${contractor}` });
   const headers = getWriteHeaders(accessToken);
   const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
     headers,
@@ -129,9 +132,12 @@ async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: strin
   });
   if (!currentResponse.ok) return await supabaseError(currentResponse);
 
-  const current = (await currentResponse.json()) as { record_id: string }[];
+  const current = (await currentResponse.json()) as { record_id: string; data: Vehiculo }[];
   const keep = new Set(keepIds);
-  const removed = current.map((row) => row.record_id).filter((id) => !keep.has(id));
+  const removed = current
+    .filter((row) => submittedDates.has(routeDateValue(row.data?.fechaDespacho || row.data?.date || row.data?.createdAt)))
+    .map((row) => row.record_id)
+    .filter((id) => !keep.has(id));
   if (!removed.length) return "";
 
   for (const recordId of removed) {

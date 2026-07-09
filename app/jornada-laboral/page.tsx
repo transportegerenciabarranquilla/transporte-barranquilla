@@ -35,7 +35,7 @@ export default function JornadaLaboralPage() {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [classificationFilter, setClassificationFilter] = useState("");
-  const [routeTimeSort, setRouteTimeSort] = useState<"desc" | "asc">("desc");
+  const [routeTimeSort, setRouteTimeSort] = useState<"" | "desc" | "asc">("");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
@@ -70,6 +70,7 @@ export default function JornadaLaboralPage() {
       amarillas: rows.filter((row) => row.state === "warn").length,
       sif: rows.filter((row) => row.alertaSif).length,
       relevadas: rows.filter((row) => row.state === "done" || row.state === "lateDone").length,
+      noEfectivos: rows.filter((row) => row.clasificacion === "No efectivo").length,
     }),
     [rows],
   );
@@ -86,6 +87,10 @@ export default function JornadaLaboralPage() {
 
       return matchesSearch && matchesState && matchesClassification;
     });
+
+    if (!routeTimeSort) {
+      return filtered;
+    }
 
     return [...filtered].sort((a, b) => {
       const elapsedDiff = routeTimeSort === "desc" ? b.elapsedSeconds - a.elapsedSeconds : a.elapsedSeconds - b.elapsedSeconds;
@@ -193,11 +198,12 @@ export default function JornadaLaboralPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
-        <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Metric icon={<Truck size={20} />} label="Rutas" value={resumen.rutas} />
           <Metric icon={<Clock3 size={20} />} label="Entre 10:30 y 13h" value={resumen.amarillas} tone="warn" />
           <Metric icon={<ShieldAlert size={20} />} label="Alerta SIF" value={resumen.sif} tone="danger" />
           <Metric icon={<Save size={20} />} label="Relevadas" value={resumen.relevadas} tone="ok" />
+          <Metric icon={<X size={20} />} label="No efectivos" value={resumen.noEfectivos} tone="danger" />
         </div>
 
         {sifRows.length ? (
@@ -315,7 +321,7 @@ export default function JornadaLaboralPage() {
                           event.stopPropagation();
                           toggleRouteTimeSort();
                         }}
-                        title={routeTimeSort === "desc" ? "Mayor tiempo primero" : "Menor tiempo primero"}
+                        title={routeTimeSort === "desc" ? "Mayor tiempo primero" : routeTimeSort === "asc" ? "Menor tiempo primero" : "Ordenar por tiempo"}
                         type="button"
                       >
                         <ArrowUpDown size={11} />
@@ -477,16 +483,66 @@ function HeaderCell({
 }
 
 function TimeInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
+  const [draft, setDraft] = useState(value);
+  const [focused, setFocused] = useState(false);
+  const skipBlurCommitRef = useRef(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(value);
+  }, [focused, value]);
+
+  function commitDraft() {
+    const normalized = normalizeTypedTime(draft);
+    setFocused(false);
+
+    if (normalized === null) {
+      setDraft(value);
+      return;
+    }
+
+    setDraft(normalized);
+    if (normalized !== value) onChange(normalized);
+  }
+
   return (
-    <label className="relative block">
+    <label className="relative block h-7 w-[92px]">
       <Clock3 className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
       <input
         className="h-7 w-[92px] rounded-md border border-slate-200 bg-white pl-2 pr-5 font-mono text-[11px] font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19] focus:ring-2 focus:ring-[#f5bd19]/20"
-        onChange={(event) => onChange(event.target.value)}
+        inputMode="numeric"
+        maxLength={5}
+        onBlur={() => {
+          if (skipBlurCommitRef.current) {
+            skipBlurCommitRef.current = false;
+            return;
+          }
+
+          commitDraft();
+        }}
+        onChange={(event) => setDraft(formatTimeDraft(event.target.value))}
         onClick={(event) => event.stopPropagation()}
-        step={1}
-        type="time"
-        value={value}
+        onFocus={(event) => {
+          setFocused(true);
+          event.currentTarget.select();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commitDraft();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            skipBlurCommitRef.current = true;
+            setDraft(value);
+            setFocused(false);
+            event.currentTarget.blur();
+          }
+        }}
+        pattern="[0-9:]*"
+        placeholder="HH:MM"
+        type="text"
+        value={draft}
       />
     </label>
   );
@@ -852,8 +908,47 @@ function timeInputValue(value: string | undefined) {
   if (seconds === null) return "";
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  const remainderSeconds = seconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainderSeconds).padStart(2, "0")}`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatTimeDraft(value: string) {
+  const cleanValue = value.replace(/[^\d:]/g, "");
+  if (cleanValue.includes(":")) {
+    const [hours = "", minutes = ""] = cleanValue.split(":");
+    return `${hours.slice(0, 2)}:${minutes.slice(0, 2)}`.slice(0, 5);
+  }
+
+  return cleanValue.slice(0, 4);
+}
+
+function normalizeTypedTime(value: string) {
+  const draft = value.trim();
+  if (!draft) return "";
+
+  const digits = draft.replace(/\D/g, "");
+  let hoursText = "";
+  let minutesText = "";
+
+  if (draft.includes(":")) {
+    const [hours = "", minutes = ""] = draft.split(":");
+    hoursText = hours;
+    minutesText = minutes;
+  } else if (digits.length <= 2) {
+    hoursText = digits;
+    minutesText = "00";
+  } else if (digits.length === 3) {
+    hoursText = digits.slice(0, 1);
+    minutesText = digits.slice(1);
+  } else {
+    hoursText = digits.slice(0, 2);
+    minutesText = digits.slice(2, 4);
+  }
+
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText ? minutesText.padStart(2, "0") : "00");
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours > 23 || minutes > 59) return null;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function normalizeSelectValue(value: string | undefined) {
