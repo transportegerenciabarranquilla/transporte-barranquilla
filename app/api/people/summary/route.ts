@@ -50,13 +50,29 @@ type PuntoCoronaCrewSummary = {
   outOfRange?: number;
 };
 
+type PuntoCoronaRouteRow = {
+  dt?: string;
+  tourDisplayId?: string;
+  status?: string;
+  withinRadius?: boolean | string | number | null;
+  within_radius?: boolean | string | number | null;
+};
+
 type PuntoCoronaRouteReport = {
   contractor?: string;
   operationalDate?: string;
   kind?: "current" | "closure";
+  rows?: PuntoCoronaRouteRow[];
   summary?: {
     crews?: PuntoCoronaCrewSummary[];
   };
+};
+
+type PuntoCoronaReportRow = {
+  contractor?: string;
+  operational_date?: string;
+  kind?: "current" | "closure";
+  data?: PuntoCoronaRouteReport;
 };
 
 const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
@@ -64,8 +80,9 @@ const VEHICLE_SELECT =
   "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
+const NOT_STARTED = "NOT_STARTED";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
@@ -73,6 +90,7 @@ export async function GET() {
       return NextResponse.json({ error: "No tienes permiso para consultar personas." }, { status: 403 });
     }
 
+    const rangeDate = dateKey(new URL(request.url).searchParams.get("date"));
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
       readPeople(headers),
@@ -86,7 +104,7 @@ export async function GET() {
       return {
         name: contractor,
         total: people.length,
-        people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports)),
+        people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, rangeDate)),
       };
     });
 
@@ -151,7 +169,7 @@ async function readModulations(headers: Record<string, string>) {
 
 async function readPuntoCoronaRouteReports(headers: Record<string, string>) {
   const params = new URLSearchParams({
-    select: "data",
+    select: "contractor,operational_date,kind,data",
     order: "operational_date.desc,updated_at.desc",
     limit: "1200",
   });
@@ -161,8 +179,8 @@ async function readPuntoCoronaRouteReports(headers: Record<string, string>) {
   });
   if (!response.ok) return [];
 
-  const rows = (await response.json().catch(() => [])) as { data?: PuntoCoronaRouteReport }[];
-  return rows.map((row) => row.data).filter(Boolean) as PuntoCoronaRouteReport[];
+  const rows = (await response.json().catch(() => [])) as PuntoCoronaReportRow[];
+  return rows.map(normalizePuntoCoronaReport).filter(Boolean) as PuntoCoronaRouteReport[];
 }
 
 function buildPersonSummary(
@@ -170,6 +188,7 @@ function buildPersonSummary(
   vehicles: Required<VehicleRow>[],
   modulations: Required<ModulationRow>[],
   puntoCoronaReports: PuntoCoronaRouteReport[],
+  rangeDate: string,
 ) {
   const personCc = normalizeId(person.CC);
   const personName = normalizeText(person.NOMBRE);
@@ -194,7 +213,7 @@ function buildPersonSummary(
   const routeMinutes = personVehicles.map((vehicle) => parseRouteMinutes(vehicle.tiempoRuta)).filter((value) => Number.isFinite(value));
   const hectolitros = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.hl), 0);
   const seguimientoVisitados = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.visitados), 0);
-  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports);
+  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports, rangeDate);
   const managedBoxes = personModulations.reduce((total, modulation) => total + numberValue(modulation.cajasGestionadas), 0);
   const history = [
     ...personVehicles.slice(0, 5).map((vehicle) => ({
@@ -223,7 +242,7 @@ function buildPersonSummary(
       modulaciones: personModulations.length,
       gestionadas: managedBoxes,
       hectolitros: Number(hectolitros.toFixed(1)),
-      visitasRango: seguimientoVisitados || rangeStats.totalStarted,
+      visitasRango: rangeDate ? rangeStats.totalStarted : seguimientoVisitados || rangeStats.totalStarted,
       enRango: rangeStats.inRange,
       fueraRango: rangeStats.outOfRange,
       porcentajeRango: percentage(rangeStats.inRange, rangeStats.totalStarted),
@@ -304,39 +323,74 @@ function uniqueVehiclesByDt(vehicles: Required<VehicleRow>[]) {
   return Array.from(byDt.values());
 }
 
-function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[]) {
+function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[], rangeDate = "") {
   const reportByDate = new Map<string, PuntoCoronaRouteReport>();
 
   reports.forEach((report) => {
-    const date = report.operationalDate || "";
+    const date = dateKey(report.operationalDate);
+    if (rangeDate && date !== rangeDate) return;
     const contractor = normalizeContractorName(report.contractor);
-    if (!date || !contractor) return;
     const key = `${contractor}:${date}`;
+    if (!date && !contractor) {
+      reportByDate.set(`report:${reportByDate.size}`, report);
+      return;
+    }
+
     const current = reportByDate.get(key);
     if (!current || report.kind === "closure") reportByDate.set(key, report);
   });
 
   const crewByDateDt = new Map<string, PuntoCoronaCrewSummary>();
   const crewByContractorDt = new Map<string, PuntoCoronaCrewSummary>();
+  const crewByDt = new Map<string, PuntoCoronaCrewSummary>();
+  const rowStatsByDateDt = new Map<string, PuntoCoronaCrewSummary>();
+  const rowStatsByContractorDt = new Map<string, PuntoCoronaCrewSummary>();
+  const rowStatsByDt = new Map<string, PuntoCoronaCrewSummary>();
   reportByDate.forEach((report) => {
-    const date = report.operationalDate || "";
+    const date = dateKey(report.operationalDate);
     const contractor = normalizeContractorName(report.contractor);
+    const rowStats = summarizeRangeRowsByDt(report.rows || []);
+
+    rowStats.forEach((stats, dt) => {
+      if (contractor && date) rowStatsByDateDt.set(`${contractor}:${date}:${dt}`, stats);
+      if (contractor && !rowStatsByContractorDt.has(`${contractor}:${dt}`)) {
+        rowStatsByContractorDt.set(`${contractor}:${dt}`, stats);
+      }
+      if (!rowStatsByDateDt.has(`:${date}:${dt}`)) rowStatsByDateDt.set(`:${date}:${dt}`, stats);
+      if (!rowStatsByDt.has(dt)) rowStatsByDt.set(dt, stats);
+    });
+
     report.summary?.crews?.forEach((crew) => {
       const dt = normalizeId(crew.dt);
       if (!dt) return;
-      crewByDateDt.set(`${contractor}:${date}:${dt}`, crew);
-      if (!crewByContractorDt.has(`${contractor}:${dt}`)) {
+      if (contractor && date) crewByDateDt.set(`${contractor}:${date}:${dt}`, crew);
+      if (contractor && !crewByContractorDt.has(`${contractor}:${dt}`)) {
         crewByContractorDt.set(`${contractor}:${dt}`, crew);
       }
+      if (!crewByDateDt.has(`:${date}:${dt}`)) crewByDateDt.set(`:${date}:${dt}`, crew);
+      if (!crewByDt.has(dt)) crewByDt.set(dt, crew);
     });
   });
 
   return vehicles.reduce(
     (totals, vehicle) => {
-      const date = vehicle.fechaDespacho || vehicle.fechaDt;
+      const date = dateKey(vehicle.fechaDespacho || vehicle.fechaDt);
+      if (rangeDate && date !== rangeDate) return totals;
       const dt = normalizeId(vehicle.transporte);
       const contractor = normalizeContractorName(vehicle.contractor);
-      const crew = crewByDateDt.get(`${contractor}:${date}:${dt}`) || crewByContractorDt.get(`${contractor}:${dt}`);
+      const crew = rangeDate
+        ? rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          rowStatsByDateDt.get(`:${date}:${dt}`) ||
+          crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          crewByDateDt.get(`:${date}:${dt}`)
+        : rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          rowStatsByDateDt.get(`:${date}:${dt}`) ||
+          rowStatsByContractorDt.get(`${contractor}:${dt}`) ||
+          rowStatsByDt.get(dt) ||
+          crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
+          crewByDateDt.get(`:${date}:${dt}`) ||
+          crewByContractorDt.get(`${contractor}:${dt}`) ||
+          crewByDt.get(dt);
       if (!crew) return totals;
 
       return {
@@ -347,6 +401,36 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
     },
     { totalStarted: 0, inRange: 0, outOfRange: 0 },
   );
+}
+
+function summarizeRangeRowsByDt(rows: PuntoCoronaRouteRow[]) {
+  const byDt = new Map<string, PuntoCoronaCrewSummary>();
+
+  rows.forEach((row) => {
+    const dt = normalizeId(row.dt || row.tourDisplayId);
+    const status = readString(row.status).toUpperCase();
+    if (!dt || status === NOT_STARTED) return;
+
+    const current = byDt.get(dt) || { dt, inRange: 0, outOfRange: 0, totalStarted: 0 };
+    const withinRadius = readRangeBoolean(row.withinRadius ?? row.within_radius);
+    current.totalStarted = Number(current.totalStarted || 0) + 1;
+    if (withinRadius === true) current.inRange = Number(current.inRange || 0) + 1;
+    if (withinRadius === false) current.outOfRange = Number(current.outOfRange || 0) + 1;
+    byDt.set(dt, current);
+  });
+
+  return byDt;
+}
+
+function normalizePuntoCoronaReport(row: PuntoCoronaReportRow) {
+  if (!row.data) return null;
+
+  return {
+    ...row.data,
+    contractor: readString(row.data.contractor || row.contractor),
+    operationalDate: readString(row.data.operationalDate || row.operational_date),
+    kind: row.data.kind || row.kind,
+  } satisfies PuntoCoronaRouteReport;
 }
 
 function normalizeModulation(row: ModulationRow): Required<ModulationRow> {
@@ -375,6 +459,29 @@ function normalizeId(value: unknown) {
 function numberValue(value: unknown) {
   const parsed = Number(readString(value).replace(",", ".").replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readRangeBoolean(value: unknown) {
+  if (value === true || value === false) return value;
+
+  const normalized = readString(value).toLowerCase();
+  if (["true", "si", "sí", "yes", "1"].includes(normalized)) return true;
+  if (["false", "no", "0"].includes(normalized)) return false;
+  return null;
+}
+
+function dateKey(value: unknown) {
+  const text = readString(value);
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  if (text.includes("/")) {
+    const [day, month, year] = text.split("/").map(Number);
+    if (day && month && year) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 function normalizeText(value: unknown) {
