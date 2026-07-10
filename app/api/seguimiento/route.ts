@@ -32,11 +32,12 @@ export async function GET(request: Request) {
 
     if (!session && !publicContractor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
 
-    const contractor = session?.contractor || publicContractor;
+    const contractor = session?.isAdmin && publicContractor ? publicContractor : session?.contractor || publicContractor;
+    const isGlobalAdminQuery = session?.isAdmin && !publicContractor;
     const params = new URLSearchParams(
-      session?.isAdmin
+      isGlobalAdminQuery
         ? { select: "contractor,data", order: "updated_at.desc" }
-        : { select: "data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
+        : { select: "contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);

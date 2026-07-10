@@ -142,11 +142,6 @@ export default function PuntoCoronaPage() {
       seguimientoContratista = loadSeguimientoVehiculos();
     }
 
-    if (!seguimientoContratista.length) {
-      setMessage(`Primero debe estar cargado el seguimiento de ${contractor} para cruzar los DT.`);
-      return;
-    }
-
     setIsImporting(true);
     setMessage("");
 
@@ -155,9 +150,10 @@ export default function PuntoCoronaPage() {
       await savePuntoCoronaRouteReports([report]);
       const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, report);
       setSelectedDate(report.operationalDate);
-      setMessage(
-        `Archivo cargado. Se tomaron ${report.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`,
-      );
+      const syncMessage = seguimientoContratista.length
+        ? `Se cruzaron ${report.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`
+        : "No habia seguimiento cargado; se guardo el reporte sin cruce de clientes.";
+      setMessage(`Archivo cargado. ${syncMessage}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo cargar el archivo.");
     } finally {

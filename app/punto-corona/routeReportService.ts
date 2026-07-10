@@ -24,10 +24,11 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
       const routeRow = mapRouteRow(row);
       const routeDt = normalizeDt(routeRow.dt);
       const vehicle = seguimientoByDt.get(routeDt);
-      return vehicle ? mergeRouteWithSeguimiento(routeRow, vehicle, routeDt) : null;
+      return vehicle ? mergeRouteWithSeguimiento(routeRow, vehicle, routeDt) : { ...routeRow, dt: routeDt || routeRow.dt };
     })
-    .filter(Boolean) as PuntoCoronaRouteRow[];
-  const summary = summarizeRows(rows, seguimientoByDt.size, rawRows);
+    .filter((row) => normalizeDt(row.dt || row.tourDisplayId));
+  const matchedDts = new Set(rows.map((row) => normalizeDt(row.dt)).filter((dt) => dt && seguimientoByDt.has(dt))).size;
+  const summary = summarizeRows(rows, seguimientoByDt.size, matchedDts);
   const uploadedAt = new Date().toISOString();
 
   return {
@@ -165,8 +166,29 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
     withinRadius: readBoolean(read(["within_radius", "en rango"])),
     outOfRadiusReason: read(["out_of_radius_reason", "razon fuera de rango"]),
     skippedReason: read(["skipped_reason", "razon omitido"]),
-    deliveredVolume: readNumber(read(["total_delivered_vol", "volumen entregado"])),
-    refusedVolume: readNumber(read(["total_refused_vol", "volumen rechazado"])),
+    deliveredVolume: readNumber(
+      read([
+        "total_delivered_vol",
+        "total delivered vol",
+        "volumen entregado",
+        "vol entregado",
+        "cajas entregadas",
+        "cajas entrega",
+        "entregado",
+      ]),
+    ),
+    refusedVolume: readNumber(
+      read([
+        "total_refused_vol",
+        "total refused vol",
+        "volumen rechazado",
+        "vol rechazado",
+        "cajas rechazadas",
+        "cajas refusal",
+        "refusal",
+        "rechazado",
+      ]),
+    ),
   };
 }
 
@@ -192,7 +214,7 @@ function getVehicleCrewName(vehicle: Vehiculo) {
 function summarizeRows(
   rows: PuntoCoronaRouteRow[],
   seguimientoDtsCount: number,
-  rawRows: Record<string, unknown>[],
+  matchedDtsCount: number,
 ): PuntoCoronaRouteSummary {
   const startedRows = rows.filter((row) => row.status !== NOT_STARTED);
   const closedRows = rows.filter((row) => row.status === CONCLUDED || isRejectedForModulation(row.status));
@@ -206,8 +228,8 @@ function summarizeRows(
 
   return {
     seguimientoDts: seguimientoDtsCount,
-    csvDts: new Set(rawRows.map((row) => normalizeDt(String(row.tour_display_id ?? ""))).filter(Boolean)).size,
-    matchedDts: new Set(rows.map((row) => normalizeDt(row.dt)).filter(Boolean)).size,
+    csvDts: new Set(rows.map((row) => normalizeDt(row.dt || row.tourDisplayId)).filter(Boolean)).size,
+    matchedDts: matchedDtsCount,
     totalRows: rows.length,
     ignoredNotStarted: rows.filter((row) => row.status === NOT_STARTED).length,
     startedRows: startedRows.length,
@@ -301,8 +323,15 @@ function readBoolean(value: string) {
 }
 
 function readNumber(value: string) {
-  const parsed = Number(value.replace(",", ".").replace(/[^\d.-]/g, ""));
+  const parsed = Number(normalizeNumberText(value).replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeNumberText(value: string) {
+  const clean = value.replace(/\s/g, "");
+  if (clean.includes(",") && clean.includes(".")) return clean.replace(/\./g, "").replace(",", ".");
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return clean.replace(/\./g, "");
+  return clean.replace(",", ".");
 }
 
 function percentage(value: number, total: number) {

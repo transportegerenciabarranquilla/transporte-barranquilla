@@ -1,5 +1,4 @@
--- Performance indexes for the Transporte Barranquilla app.
--- Run this in the Supabase SQL Editor when the project is healthy again.
+
 
 create index if not exists idx_seguimiento_contractor_updated
   on public.seguimiento_vehiculos (contractor, updated_at desc);

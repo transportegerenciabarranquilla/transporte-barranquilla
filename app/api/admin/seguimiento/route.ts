@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { CONTRACTORS } from "../../../lib/contractors";
+import { CONTRACTORS, contractorLabel, isPuntoCoronaContractor } from "../../../lib/contractors";
+import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
-import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
@@ -11,6 +12,14 @@ type Row = { data: Vehiculo; contractor?: string };
 type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
 type AdminCheckin = CheckinCajasRegistro & { contratista?: string };
 type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
+type PuntoCoronaReportRow = {
+  contractor?: string;
+  operational_date?: string;
+  kind?: PuntoCoronaRouteReport["kind"];
+  data?: PuntoCoronaRouteReport;
+  updated_at?: string;
+};
+type AdminPuntoCoronaReport = PuntoCoronaRouteReport & { updatedAt?: string };
 type AdminRefusalComRow = {
   causal: string;
   contractor: string;
@@ -27,6 +36,8 @@ type AdminRefusalComRow = {
 };
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
+const PUNTO_CORONA_REPORT_SELECT = "contractor,operational_date,kind,data,updated_at";
+const ADMIN_CACHE_VERSION = "v4";
 const LIST_CACHE_TTL_MS = 30_000;
 
 export async function GET() {
@@ -34,67 +45,77 @@ export async function GET() {
     const session = await getAuthenticatedSession();
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
-    const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
-    const seguimientoParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc", limit: "2500" });
-    const modulacionesParams = new URLSearchParams({ select: MODULACION_LIST_SELECT, order: "updated_at.desc", limit: "2500" });
-    const relatedParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc", limit: "2500" });
-    const seguimientoUrl = supabaseRest("seguimiento_vehiculos", `?${seguimientoParams.toString()}`);
-    const modulacionesUrl = supabaseRest("modulaciones_ruta", `?${modulacionesParams.toString()}`);
-    const checkinsUrl = supabaseRest("checkins_cajas", `?${relatedParams.toString()}`);
-    const [rows, modulacionesRows, checkinRows] = await Promise.all([
-      cachedJsonFetch<Row[]>("supabase:admin-seguimiento:seguimiento", LIST_CACHE_TTL_MS, seguimientoUrl, { headers }),
-      cachedJsonFetch<ModulacionListRow[]>("supabase:admin-seguimiento:modulaciones", LIST_CACHE_TTL_MS, modulacionesUrl, { headers }),
-      cachedJsonFetch<CheckinRow[]>("supabase:admin-seguimiento:checkins", LIST_CACHE_TTL_MS, checkinsUrl, { headers }),
+    const adminHeaders = supabaseAdminHeaders();
+    const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
+    const publicHeaders = adminHeaders || supabaseHeaders();
+    const [rows, modulacionesRows, checkinRows, puntoCoronaRows] = await Promise.all([
+      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, publicHeaders, "seguimiento"),
+      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones"),
+      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "checkins").catch(() => []),
+      fetchAdminRowsByContractor<PuntoCoronaReportRow>(
+        "punto_corona_route_reports",
+        PUNTO_CORONA_REPORT_SELECT,
+        "operational_date.desc,updated_at.desc",
+        1200,
+        sessionHeaders,
+        "punto-corona",
+      ).catch(() => []),
     ]);
     const modulaciones = modulacionesRows.map((row) => {
       const record = fromModulacionListRow(row);
       return { ...record, contratista: contractorLabel(row.contractor || record.contratista) || record.contratista };
     });
-    const checkins = checkinRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor) }));
+    const checkins = checkinRows.map((row) => ({
+      ...row.data,
+      contratista: contractorLabel(row.contractor || (row.data as CheckinCajasRegistro & { contratista?: string }).contratista),
+    }));
     const modulacionesIndex = indexModulacionesByRoute(modulaciones);
     const checkinsIndex = indexCheckinsByRoute(checkins);
-    const records = rows.map((row) => {
+    const seguimientoRecords = rows.map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
+      const cajas = readVehicleBoxes(row.data);
       const routeDate = getVehicleDate(row.data);
       const routeKey = buildRouteKey(transportista, row.data.transporte, routeDate);
       const fallbackRouteKey = buildRouteKey(transportista, row.data.transporte);
       const registrosDt = modulacionesIndex.byDate.get(routeKey) || modulacionesIndex.byDt.get(fallbackRouteKey) || [];
       const checkin = checkinsIndex.byDate.get(routeKey) || checkinsIndex.byDt.get(fallbackRouteKey);
-      const refusal = summarizeRefusal(registrosDt, Number(row.data.cajas || 0), checkin?.totalCajas);
+      const refusal = summarizeRefusal(registrosDt, cajas, checkin?.totalCajas);
 
       return {
         ...row.data,
         transportista,
+        cajas,
         cajasRechazadas: refusal.cajasRechazadas,
         cajasGestionadas: refusal.cajasGestionadas,
         cajasRefusalFinal: refusal.cajasPendientes,
         refusal: refusal.refusal,
       };
     });
+    const records = appendPuntoCoronaReportRecords(seguimientoRecords, puntoCoronaRows);
     const refusalByComRows = buildRefusalByComRows(modulaciones, records);
     const totals = records.reduce(
       (acc, record) => ({
-        cajas: acc.cajas + Number(record.cajas || 0),
-        rechazadas: acc.rechazadas + Number(record.cajasRechazadas || 0),
-        gestionadas: acc.gestionadas + Number(record.cajasGestionadas || 0),
-        refusalFinal: acc.refusalFinal + Number(record.cajasRefusalFinal || 0),
+        cajas: acc.cajas + readNumber(record.cajas),
+        rechazadas: acc.rechazadas + readNumber(record.cajasRechazadas),
+        gestionadas: acc.gestionadas + readNumber(record.cajasGestionadas),
+        refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
       }),
       { cajas: 0, rechazadas: 0, gestionadas: 0, refusalFinal: 0 },
     );
     const totalRefusal = totals.cajas ? Number(((totals.refusalFinal / totals.cajas) * 100).toFixed(2)) : 0;
     const summaries = CONTRACTORS.map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
-      const cajas = contractorRecords.reduce((total, record) => total + Number(record.cajas || 0), 0);
-      const refusalFinal = contractorRecords.reduce((total, record) => total + Number(record.cajasRefusalFinal || 0), 0);
+      const cajas = contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0);
+      const refusalFinal = contractorRecords.reduce((total, record) => total + readNumber(record.cajasRefusalFinal), 0);
 
       return {
         contractor,
         rutas: contractorRecords.length,
         cajas,
-        clientes: contractorRecords.reduce((total, record) => total + Number(record.clientes || 0), 0),
-        visitados: contractorRecords.reduce((total, record) => total + Number(record.visitados || 0), 0),
-        rechazadas: contractorRecords.reduce((total, record) => total + Number(record.cajasRechazadas || 0), 0),
-        gestionadas: contractorRecords.reduce((total, record) => total + Number(record.cajasGestionadas || 0), 0),
+        clientes: contractorRecords.reduce((total, record) => total + readNumber(record.clientes), 0),
+        visitados: contractorRecords.reduce((total, record) => total + readNumber(record.visitados), 0),
+        rechazadas: contractorRecords.reduce((total, record) => total + readNumber(record.cajasRechazadas), 0),
+        gestionadas: contractorRecords.reduce((total, record) => total + readNumber(record.cajasGestionadas), 0),
         refusalFinal,
         refusal: cajas ? Number(((refusalFinal / cajas) * 100).toFixed(2)) : 0,
       };
@@ -113,6 +134,30 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando admin." }, { status: 500 });
   }
+}
+
+async function fetchAdminRowsByContractor<T>(
+  table: string,
+  select: string,
+  order: string,
+  limit: number,
+  headers: Record<string, string>,
+  cacheKey: string,
+) {
+  const groups = await Promise.all(
+    CONTRACTORS.map((contractor) => {
+      const params = new URLSearchParams({
+        select,
+        contractor: `eq.${contractor}`,
+        order,
+        limit: String(limit),
+      });
+      const url = supabaseRest(table, `?${params.toString()}`);
+      return cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
+    }),
+  );
+
+  return groups.flat();
 }
 
 function indexModulacionesByRoute(records: ModulacionRegistro[]) {
@@ -160,12 +205,12 @@ function buildRouteKey(contractor: string | undefined, dt: string | number | und
   return dateKey ? `${contractorKey}:${dtKey}:${dateKey}` : `${contractorKey}:${dtKey}`;
 }
 
-function summarizeRefusal(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: number) {
-  const cajasRechazadas = records.reduce((total, record) => total + Number(record.totalCajas || 0), 0);
-  const cajasGestionadas = records.reduce((total, record) => total + Number(record.cajasGestionadas || 0), 0);
+function summarizeRefusal(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: unknown) {
+  const cajasRechazadas = records.reduce((total, record) => total + readNumber(record.totalCajas), 0);
+  const cajasGestionadas = records.reduce((total, record) => total + readNumber(record.cajasGestionadas), 0);
   const pendientesModulacion = Math.max(cajasRechazadas - cajasGestionadas, 0);
-  const tieneCheckin = typeof cajasCheckin === "number" && Number.isFinite(cajasCheckin);
-  const cajasPendientes = tieneCheckin ? Math.max(cajasCheckin, 0) : pendientesModulacion;
+  const cajasCheckinFinal = readOptionalNumber(cajasCheckin);
+  const cajasPendientes = cajasCheckinFinal !== null ? Math.max(cajasCheckinFinal, 0) : pendientesModulacion;
 
   return {
     cajasRechazadas,
@@ -173,6 +218,52 @@ function summarizeRefusal(records: ModulacionRegistro[], totalCajasSalida = 0, c
     cajasPendientes,
     refusal: totalCajasSalida ? Number(((cajasPendientes / totalCajasSalida) * 100).toFixed(2)) : 0,
   };
+}
+
+function readVehicleBoxes(record: Vehiculo) {
+  const source = record as Vehiculo & Record<string, unknown>;
+  return firstPositiveNumber([
+    source.cajas,
+    source.cajasReportadas,
+    source.totalCajas,
+    source.total_cajas,
+    source.cajasProgramadas,
+    source.cajas_programadas,
+    source.cajasSalida,
+    source.cajas_salida,
+  ]);
+}
+
+function firstPositiveNumber(values: unknown[]) {
+  for (const value of values) {
+    const parsed = readNumber(value);
+    if (parsed > 0) return parsed;
+  }
+
+  return 0;
+}
+
+function readNumber(value: unknown) {
+  return readOptionalNumber(value) ?? 0;
+}
+
+function readOptionalNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  const normalized = normalizeNumberText(text);
+  const parsed = Number(normalized.replace(/[^\d.-]/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeNumberText(value: string) {
+  const clean = value.replace(/\s/g, "");
+  if (clean.includes(",") && clean.includes(".")) return clean.replace(/\./g, "").replace(",", ".");
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return clean.replace(/\./g, "");
+  return clean.replace(",", ".");
 }
 
 function normalizeDt(value: string | number | undefined) {
@@ -189,9 +280,183 @@ function normalizeContractor(value: string | undefined) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function contractorLabel(value: string | undefined) {
-  const normalized = normalizeContractor(value);
-  return CONTRACTORS.find((contractor) => normalizeContractor(contractor) === normalized);
+function appendPuntoCoronaReportRecords(records: Vehiculo[], rows: PuntoCoronaReportRow[]) {
+  const existingRouteKeys = new Set(records.map((record) => buildRouteKey(record.transportista, record.transporte, getVehicleDate(record))).filter(Boolean));
+  const additions: Vehiculo[] = [];
+
+  latestPuntoCoronaReports(rows).forEach((report) => {
+    if (!isPuntoCoronaContractor(report.contractor)) return;
+
+    const contractor = contractorLabel(report.contractor) || report.contractor;
+    const operationalDate = toDateKey(report.operationalDate);
+    if (!contractor || !operationalDate) return;
+
+    groupPuntoCoronaRowsByDt(report.rows || []).forEach((routeRows, dt) => {
+      const routeKey = buildRouteKey(contractor, dt, operationalDate);
+      if (!routeKey || existingRouteKeys.has(routeKey)) return;
+
+      additions.push(buildPuntoCoronaVehicleRecord(report, routeRows, dt, contractor, operationalDate));
+      existingRouteKeys.add(routeKey);
+    });
+  });
+
+  return additions.length ? [...records, ...additions] : records;
+}
+
+function latestPuntoCoronaReports(rows: PuntoCoronaReportRow[]) {
+  const reportsByDate = new Map<string, AdminPuntoCoronaReport>();
+
+  rows
+    .map(normalizePuntoCoronaReport)
+    .filter((report): report is AdminPuntoCoronaReport => Boolean(report))
+    .forEach((report) => {
+      const contractor = contractorLabel(report.contractor) || report.contractor;
+      const date = toDateKey(report.operationalDate);
+      const key = `${normalizeContractor(contractor)}:${date}`;
+      if (!key || key === ":") return;
+
+      const current = reportsByDate.get(key);
+      if (!current || isPreferredPuntoCoronaReport(report, current)) reportsByDate.set(key, report);
+    });
+
+  return Array.from(reportsByDate.values());
+}
+
+function normalizePuntoCoronaReport(row: PuntoCoronaReportRow): AdminPuntoCoronaReport | null {
+  if (!row.data) return null;
+
+  return {
+    ...row.data,
+    contractor: contractorLabel(row.data.contractor || row.contractor) || readString(row.data.contractor || row.contractor),
+    operationalDate: readString(row.data.operationalDate || row.operational_date),
+    kind: row.data.kind || row.kind || "current",
+    updatedAt: readString(row.updated_at),
+  };
+}
+
+function isPreferredPuntoCoronaReport(candidate: AdminPuntoCoronaReport, current: AdminPuntoCoronaReport) {
+  if (candidate.kind === "closure" && current.kind !== "closure") return true;
+  if (candidate.kind !== "closure" && current.kind === "closure") return false;
+
+  return readTimestamp(candidate.updatedAt || candidate.closedAt || candidate.uploadedAt) > readTimestamp(current.updatedAt || current.closedAt || current.uploadedAt);
+}
+
+function groupPuntoCoronaRowsByDt(rows: PuntoCoronaRouteRow[]) {
+  const byDt = new Map<string, PuntoCoronaRouteRow[]>();
+
+  rows.forEach((row) => {
+    const dt = normalizeDt(row.dt || row.tourDisplayId);
+    if (!dt) return;
+    addToGroup(byDt, dt, row);
+  });
+
+  return byDt;
+}
+
+function buildPuntoCoronaVehicleRecord(
+  report: AdminPuntoCoronaReport,
+  rows: PuntoCoronaRouteRow[],
+  dt: string,
+  contractor: string,
+  operationalDate: string,
+): Vehiculo {
+  const first = rows[0];
+  const startedRows = rows.filter((row) => readString(row.status).toUpperCase() !== "NOT_STARTED");
+  const cajasRechazadas = rows.reduce((total, row) => total + readPuntoCoronaRefusedBoxes(row), 0);
+  const cajasEntregadas = rows.reduce((total, row) => total + readPuntoCoronaDeliveredBoxes(row), 0);
+  const cajas = cajasEntregadas + cajasRechazadas;
+  const clientes = readPuntoCoronaSeguimientoValue(rows, "seguimientoClientes") || rows.length;
+  const visitados = readPuntoCoronaSeguimientoValue(rows, "seguimientoVisitados") || startedRows.length;
+  const status = clientes && visitados >= clientes ? "Finalizado" : startedRows.length ? "En ruta" : "Pendiente por salir";
+  const createdAt = report.closedAt || report.uploadedAt || report.updatedAt || `${operationalDate}T00:00:00.000Z`;
+
+  return {
+    recordId: `punto-corona:${normalizeContractor(contractor)}:${operationalDate}:${dt}`,
+    cajasGestionadas: 0,
+    cajasReportadas: cajasRechazadas,
+    createdAt,
+    date: operationalDate,
+    mes: "",
+    cd: "BAQ",
+    transportista: contractor,
+    llave: `punto-corona-${operationalDate}-${dt}`,
+    transporte: dt,
+    centro: "Punto Corona",
+    codTransportista: "",
+    fechaDt: operationalDate,
+    fechaDespacho: operationalDate,
+    vehiculo: first?.truckLicensePlate || "Sin placa",
+    responsable: first?.driverName || "Sin responsable",
+    territorio: "Punto Corona",
+    viaje: "Punto Corona",
+    bloque: "Punto Corona",
+    cajas,
+    hl: 0,
+    clientes,
+    visitados,
+    horaSalida: "Pendiente",
+    peso: 0,
+    capacidad: 0,
+    validadorPeso: "Pendiente",
+    avanceRuta: `${percentage(visitados, clientes)}%`,
+    status,
+    horaLlegada: "Pendiente",
+    tiempoRuta: "Pendiente",
+    metaRelevo: "Pendiente",
+    horaInicioRelevo: "Pendiente",
+    clasificacionRelevo: "Pendiente",
+    alertaSifPotencial: "Pendiente",
+    relevador: "-",
+    causalDesviado: "-",
+    clasificacionOnTime: "Pendiente",
+    recargue: "Pendiente",
+    cajasRechazadas,
+    cajasRefusalFinal: cajasRechazadas,
+    refusal: cajas ? Number(((cajasRechazadas / cajas) * 100).toFixed(2)) : 0,
+  };
+}
+
+function readPuntoCoronaSeguimientoValue(rows: PuntoCoronaRouteRow[], key: "seguimientoClientes" | "seguimientoVisitados") {
+  return firstPositiveNumber(rows.map((row) => row[key]));
+}
+
+function readPuntoCoronaDeliveredBoxes(row: PuntoCoronaRouteRow) {
+  const source = row as PuntoCoronaRouteRow & Record<string, unknown>;
+  return firstPositiveNumber([
+    source.deliveredVolume,
+    source.totalDeliveredVol,
+    source.total_delivered_vol,
+    source.volumenEntregado,
+    source["volumen entregado"],
+    source.cajasEntregadas,
+    source["cajas entregadas"],
+    source.entregado,
+  ]);
+}
+
+function readPuntoCoronaRefusedBoxes(row: PuntoCoronaRouteRow) {
+  const source = row as PuntoCoronaRouteRow & Record<string, unknown>;
+  return firstPositiveNumber([
+    source.refusedVolume,
+    source.totalRefusedVol,
+    source.total_refused_vol,
+    source.volumenRechazado,
+    source["volumen rechazado"],
+    source.cajasRechazadas,
+    source["cajas rechazadas"],
+    source.cajasRefusal,
+    source.refusal,
+    source.rechazado,
+  ]);
+}
+
+function readTimestamp(value: unknown) {
+  const parsed = new Date(readString(value)).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function percentage(value: number, total: number) {
+  return total ? Number(((value / total) * 100).toFixed(2)) : 0;
 }
 
 function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehiculo[]): AdminRefusalComRow[] {
@@ -208,8 +473,8 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
     const vehicle =
       vehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}:${date}`) ||
       fallbackVehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}`);
-    const reportadas = Number(record.totalCajas || 0);
-    const gestionadas = Number(record.cajasGestionadas || 0);
+    const reportadas = readNumber(record.totalCajas);
+    const gestionadas = readNumber(record.cajasGestionadas);
 
     return {
       causal: record.causal?.trim() || "Sin causal",

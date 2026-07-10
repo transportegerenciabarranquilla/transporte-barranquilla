@@ -62,6 +62,7 @@ export async function PUT(request: Request) {
       if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:people-summary:");
+      clearServerCache("supabase:admin-seguimiento:");
     }
 
     for (const record of records) {
@@ -108,6 +109,7 @@ export async function DELETE(request: Request) {
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     clearServerCache(`supabase:${TABLE}:`);
     clearServerCache("supabase:people-summary:");
+    clearServerCache("supabase:admin-seguimiento:");
 
     await writeAuditLog({
       action: "cierre_punto_corona_quitado",

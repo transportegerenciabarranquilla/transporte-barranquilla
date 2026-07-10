@@ -277,7 +277,23 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     territorio: stringValue(value(["territorio", "zona", "ruta"])) || "Pendiente",
     viaje: stringValue(value(["viaje"])) || "Pendiente",
     bloque: stringValue(value(["bloque"])) || "Pendiente",
-    cajas: numberValue(value(["cajas", "total cajas", "cajas programadas", "cajas salida"]), 0),
+    cajas: numberValue(
+      value([
+        "cajas",
+        "total cajas",
+        "cajas programadas",
+        "cajas salida",
+        "cajas fisicas",
+        "cajas físicas",
+        "cajas despacho",
+        "cajas despachadas",
+        "cajas entrega",
+        "cajas facturadas",
+        "cjs",
+        "total cjs",
+      ]),
+      0,
+    ),
     hl: numberValue(value(["hl", "hectolitros"]), 0),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
@@ -410,8 +426,15 @@ function padTime(value: number) {
 }
 
 function numberValue(value: unknown, fallback: number) {
-  const parsed = Number(String(value ?? "").replace(",", ".").replace(/[^\d.-]/g, ""));
+  const parsed = Number(normalizeNumberText(String(value ?? "")).replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeNumberText(value: string) {
+  const clean = value.trim().replace(/\s/g, "");
+  if (clean.includes(",") && clean.includes(".")) return clean.replace(/\./g, "").replace(",", ".");
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return clean.replace(/\./g, "");
+  return clean.replace(",", ".");
 }
 
 function roundedNumberValue(value: unknown, fallback: number) {

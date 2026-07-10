@@ -131,12 +131,13 @@ export function getModulacionesByDt(records: ModulacionRegistro[], dt: string | 
   return records.filter((record) => normalizeDt(record.dt) === targetDt);
 }
 
-export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: number) {
-  const cajasRechazadas = records.reduce((total, record) => total + Number(record.totalCajas || 0), 0);
-  const cajasGestionadas = records.reduce((total, record) => total + Number(record.cajasGestionadas || 0), 0);
+export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: unknown) {
+  const cajasRechazadas = records.reduce((total, record) => total + readNumber(record.totalCajas), 0);
+  const cajasGestionadas = records.reduce((total, record) => total + readNumber(record.cajasGestionadas), 0);
   const cajasPendientesModulacion = Math.max(cajasRechazadas - cajasGestionadas, 0);
-  const tieneCheckin = typeof cajasCheckin === "number" && Number.isFinite(cajasCheckin);
-  const cajasPendientes = tieneCheckin ? Math.max(cajasCheckin, 0) : cajasPendientesModulacion;
+  const cajasCheckinFinal = readOptionalNumber(cajasCheckin);
+  const tieneCheckin = cajasCheckinFinal !== null;
+  const cajasPendientes = tieneCheckin ? Math.max(cajasCheckinFinal, 0) : cajasPendientesModulacion;
   const moduladores = Array.from(new Set(records.map((record) => (record.personaNombre || record.persona)?.trim()).filter(Boolean))) as string[];
   const causales = Array.from(new Set(records.map((record) => record.causal).filter(Boolean)));
 
@@ -145,7 +146,7 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
     cajasGestionadas,
     cajasPendientes,
     cajasPendientesModulacion,
-    cajasCheckin: tieneCheckin ? Math.max(cajasCheckin, 0) : undefined,
+    cajasCheckin: tieneCheckin ? Math.max(cajasCheckinFinal, 0) : undefined,
     tieneCheckin,
     clientesRechazan: records.length,
     topeMaximoCajas: calculateCajaTope(totalCajasSalida),
@@ -153,6 +154,29 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
     moduladores,
     causales,
   };
+}
+
+function readNumber(value: unknown) {
+  return readOptionalNumber(value) ?? 0;
+}
+
+function readOptionalNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  const normalized = normalizeNumberText(text);
+  const parsed = Number(normalized.replace(/[^\d.-]/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeNumberText(value: string) {
+  const clean = value.replace(/\s/g, "");
+  if (clean.includes(",") && clean.includes(".")) return clean.replace(/\./g, "").replace(",", ".");
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return clean.replace(/\./g, "");
+  return clean.replace(",", ".");
 }
 
 function normalizeModulacionRecord(record: unknown): ModulacionRegistro {

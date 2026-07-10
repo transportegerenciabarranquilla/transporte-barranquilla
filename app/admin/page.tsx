@@ -136,17 +136,17 @@ export default function AdminPage() {
   const visibleSummaries = useMemo(() => {
     return summaries.map((summary) => {
       const contractorRecords = dateRecords.filter((record) => record.transportista === summary.contractor);
-      const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + Number(record.cajas || 0), 0));
-      const refusalFinal = contractorRecords.reduce((total, record) => total + Number(record.cajasRefusalFinal || 0), 0);
+      const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
+      const refusalFinal = contractorRecords.reduce((total, record) => total + readNumber(record.cajasRefusalFinal), 0);
 
       return {
         contractor: summary.contractor,
         rutas: contractorRecords.length,
         cajas,
-        clientes: contractorRecords.reduce((total, record) => total + Number(record.clientes || 0), 0),
-        visitados: contractorRecords.reduce((total, record) => total + Number(record.visitados || 0), 0),
-        rechazadas: contractorRecords.reduce((total, record) => total + Number(record.cajasRechazadas || 0), 0),
-        gestionadas: contractorRecords.reduce((total, record) => total + Number(record.cajasGestionadas || 0), 0),
+        clientes: contractorRecords.reduce((total, record) => total + readNumber(record.clientes), 0),
+        visitados: contractorRecords.reduce((total, record) => total + readNumber(record.visitados), 0),
+        rechazadas: contractorRecords.reduce((total, record) => total + readNumber(record.cajasRechazadas), 0),
+        gestionadas: contractorRecords.reduce((total, record) => total + readNumber(record.cajasGestionadas), 0),
         refusalFinal,
         refusal: cajas ? Number(((refusalFinal / cajas) * 100).toFixed(2)) : 0,
       };
@@ -156,9 +156,9 @@ export default function AdminPage() {
   const totals = useMemo(() => {
     const values = dateRecords.reduce(
       (acc, record) => ({
-        cajas: acc.cajas + Number(record.cajas || 0),
-        clientes: acc.clientes + Number(record.clientes || 0),
-        refusalFinal: acc.refusalFinal + Number(record.cajasRefusalFinal || 0),
+        cajas: acc.cajas + readNumber(record.cajas),
+        clientes: acc.clientes + readNumber(record.clientes),
+        refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
       }),
       { cajas: 0, clientes: 0, refusalFinal: 0 },
     );
@@ -981,6 +981,25 @@ function normalizeDt(value: unknown) {
   return String(value || "")
     .replace(/^DT-?/i, "")
     .replace(/\D/g, "");
+}
+
+function readNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+
+  const normalized = normalizeNumberText(text);
+  const parsed = Number(normalized.replace(/[^\d.-]/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeNumberText(value: string) {
+  const clean = value.replace(/\s/g, "");
+  if (clean.includes(",") && clean.includes(".")) return clean.replace(/\./g, "").replace(",", ".");
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return clean.replace(/\./g, "");
+  return clean.replace(",", ".");
 }
 
 function normalizeText(value: unknown) {
