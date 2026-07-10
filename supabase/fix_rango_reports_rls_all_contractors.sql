@@ -33,6 +33,16 @@ as $$
   end
 $$;
 
+create or replace function public.current_is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select lower(coalesce(auth.jwt()->>'email', '')) = 'admin@bavaria-seguimiento.com'
+$$;
+
 create table if not exists public.punto_corona_route_reports (
   report_id text primary key,
   contractor text not null,
@@ -46,15 +56,23 @@ alter table public.punto_corona_route_reports enable row level security;
 
 drop policy if exists "punto corona rutas acceso" on public.punto_corona_route_reports;
 drop policy if exists "rango rutas acceso" on public.punto_corona_route_reports;
-create policy "rango rutas acceso" on public.punto_corona_route_reports
+drop policy if exists "rango rutas contratista acceso" on public.punto_corona_route_reports;
+drop policy if exists "rango rutas lectura admin" on public.punto_corona_route_reports;
+
+create policy "rango rutas contratista acceso" on public.punto_corona_route_reports
 for all to authenticated
 using (public.normalize_contractor_label(contractor) = public.current_contractor())
 with check (public.normalize_contractor_label(contractor) = public.current_contractor());
+
+create policy "rango rutas lectura admin" on public.punto_corona_route_reports
+for select to authenticated
+using (public.current_is_admin());
 
 revoke all on public.punto_corona_route_reports from anon;
 grant usage on schema public to authenticated;
 grant execute on function public.normalize_contractor_label(text) to authenticated;
 grant execute on function public.current_contractor() to authenticated;
+grant execute on function public.current_is_admin() to authenticated;
 grant select, insert, update, delete on public.punto_corona_route_reports to authenticated;
 
 notify pgrst, 'reload schema';

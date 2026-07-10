@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   FileDown,
   FileSpreadsheet,
+  History,
   LockKeyhole,
   MapPinCheck,
   RotateCcw,
@@ -79,6 +80,7 @@ export default function PuntoCoronaPage() {
   const [selectedModulationDetail, setSelectedModulationDetail] = useState<ModulationDetail | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [contractor, setContractor] = useState("");
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
@@ -125,6 +127,10 @@ export default function PuntoCoronaPage() {
     [activeDate, contractor, reports],
   );
   const visibleReport = closureReport ?? currentReport ?? null;
+  const historyReports = useMemo(
+    () => getPreferredHistoryReports(reports.filter((report) => report.contractor === contractor)),
+    [contractor, reports],
+  );
 
   useEffect(() => {
     setSelectedRangeDetail(null);
@@ -338,6 +344,15 @@ export default function PuntoCoronaPage() {
         {visibleReport ? (
           <>
             <SummaryGrid modulaciones={modulaciones} report={visibleReport} />
+            <RangoHistory
+              activeDate={activeDate}
+              isOpen={isHistoryOpen}
+              modulaciones={modulaciones}
+              onClose={() => setIsHistoryOpen(false)}
+              onOpen={() => setIsHistoryOpen(true)}
+              onSelectDate={setSelectedDate}
+              reports={historyReports}
+            />
             <Charts modulaciones={modulaciones} report={visibleReport} />
             <StatusCharts
               modulaciones={modulaciones}
@@ -366,6 +381,121 @@ export default function PuntoCoronaPage() {
         )}
       </section>
     </main>
+  );
+}
+
+function RangoHistory({
+  activeDate,
+  isOpen,
+  modulaciones,
+  onClose,
+  onOpen,
+  onSelectDate,
+  reports,
+}: {
+  activeDate: string;
+  isOpen: boolean;
+  modulaciones: ModulacionRegistro[];
+  onClose: () => void;
+  onOpen: () => void;
+  onSelectDate: (date: string) => void;
+  reports: PuntoCoronaRouteReport[];
+}) {
+  return (
+    <>
+      <div className="mb-5 flex justify-end">
+        <button
+          className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          disabled={!reports.length}
+          onClick={onOpen}
+          type="button"
+        >
+          <History className="h-4 w-4" />
+          Ver historial
+          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+            {reports.length}
+          </span>
+        </button>
+      </div>
+
+      {isOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10223d]/45 px-4 py-6 backdrop-blur-sm">
+          <section className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-lg border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.26)]">
+            <header className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-[#10223d]">
+                <span className="grid h-8 w-8 place-items-center rounded-md bg-[#10223d] text-white">
+                  <History className="h-4 w-4" />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold">Historial de entrega en rango</h2>
+                  <p className="text-xs text-slate-500">Fechas cargadas para este contratista.</p>
+                </div>
+              </div>
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+                onClick={onClose}
+                type="button"
+              >
+                Cerrar
+              </button>
+            </header>
+
+            <div className="max-h-[calc(90vh-72px)] overflow-auto">
+              <table className="w-full min-w-[860px] text-left text-xs">
+                <thead className="sticky top-0 z-10 bg-white text-[10px] uppercase tracking-[0.1em] text-slate-500 shadow-sm">
+                  <tr>
+                    <th className="px-3 py-2">Fecha</th>
+                    <th className="px-3 py-2">Estado</th>
+                    <th className="px-3 py-2 text-right">Visitas</th>
+                    <th className="px-3 py-2 text-right">En rango</th>
+                    <th className="px-3 py-2 text-right">Fuera</th>
+                    <th className="px-3 py-2 text-right">% entrega</th>
+                    <th className="px-3 py-2 text-right">% mod.</th>
+                    <th className="px-3 py-2 text-right">Tripulaciones</th>
+                    <th className="px-3 py-2 text-right">Ultimo evento</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reports.map((report) => {
+                    const modulationStats = getReportModulationStats(report, modulaciones);
+                    const isActive = report.operationalDate === activeDate;
+
+                    return (
+                      <tr className={isActive ? "bg-emerald-50/70" : "bg-white hover:bg-slate-50"} key={report.id}>
+                        <td className="px-3 py-2">
+                          <button
+                            className="font-semibold text-[#10223d] underline-offset-2 hover:underline"
+                            onClick={() => {
+                              onSelectDate(report.operationalDate);
+                              onClose();
+                            }}
+                            type="button"
+                          >
+                            {formatDate(report.operationalDate)}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.kind === "closure" ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-700"}`}>
+                            {report.kind === "closure" ? "Cierre" : "Actual"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{report.summary.startedRows.toLocaleString("es-CO")}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-emerald-700">{report.summary.inRange.toLocaleString("es-CO")}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-red-700">{report.summary.outOfRange.toLocaleString("es-CO")}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-[#10223d]">{report.summary.deliveryRangePercent.toFixed(2)}%</td>
+                        <td className="px-3 py-2 text-right font-semibold text-[#07556b]">{modulationStats.percent.toFixed(2)}%</td>
+                        <td className="px-3 py-2 text-right text-slate-600">{report.summary.crews.length.toLocaleString("es-CO")}</td>
+                        <td className="px-3 py-2 text-right text-slate-500">{formatDateTime(report.closedAt || report.uploadedAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -764,6 +894,30 @@ function getRowsForModulationDetail(report: PuntoCoronaRouteReport, modulaciones
       return !isModulated && getPendingCauseLabel(row) === getModulationDetailCause(detail);
     })
     .sort((a, b) => a.dt.localeCompare(b.dt, "es-CO", { numeric: true }) || a.pocName.localeCompare(b.pocName, "es-CO"));
+}
+
+function getPreferredHistoryReports(reports: PuntoCoronaRouteReport[]) {
+  const byDate = new Map<string, PuntoCoronaRouteReport>();
+
+  reports.forEach((report) => {
+    if (!report.operationalDate) return;
+    const current = byDate.get(report.operationalDate);
+    if (!current || isPreferredReport(report, current)) byDate.set(report.operationalDate, report);
+  });
+
+  return Array.from(byDate.values()).sort((a, b) => b.operationalDate.localeCompare(a.operationalDate));
+}
+
+function isPreferredReport(candidate: PuntoCoronaRouteReport, current: PuntoCoronaRouteReport) {
+  if (candidate.kind === "closure" && current.kind !== "closure") return true;
+  if (candidate.kind !== "closure" && current.kind === "closure") return false;
+
+  return getReportTimestamp(candidate) > getReportTimestamp(current);
+}
+
+function getReportTimestamp(report: PuntoCoronaRouteReport) {
+  const parsed = new Date(report.closedAt || report.uploadedAt).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function getRangeTitle(range: RangeDetail) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
 import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
@@ -238,6 +238,14 @@ export default function AdminPage() {
                 >
                   <BarChart3 size={16} />
                   Graficas
+                </button>
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/15"
+                  onClick={() => router.push("/admin/rango")}
+                  type="button"
+                >
+                  <MapPinCheck size={16} />
+                  Entrega en rango
                 </button>
                 <button
                   className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/15"
