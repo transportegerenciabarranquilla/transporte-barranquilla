@@ -2,23 +2,29 @@ import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
+import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "checkins_cajas";
+const LIST_CACHE_TTL_MS = 45_000;
 type CheckinWithContractor = CheckinCajasRegistro & { contratista?: string };
 
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
-    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: "contractor,data", order: "updated_at.desc" }
         : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const rows = (await response.json()) as { contractor?: string; data: CheckinWithContractor }[];
+    const url = supabaseRest(TABLE, `?${params.toString()}`);
+    const rows = await cachedJsonFetch<{ contractor?: string; data: CheckinWithContractor }[]>(
+      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
+      LIST_CACHE_TTL_MS,
+      url,
+      { headers: supabaseReadHeaders(session.accessToken) },
+    );
     return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando check-in." }, { status: 500 });
@@ -28,7 +34,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const session = await getAuthenticatedSession();
-    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
     const { records } = (await request.json()) as { records: CheckinCajasRegistro[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
@@ -46,6 +52,8 @@ export async function PUT(request: Request) {
         cache: "no-store",
       });
       if (!upsertResponse.ok) return NextResponse.json({ error: await supabaseError(upsertResponse) }, { status: upsertResponse.status });
+      clearServerCache(`supabase:${TABLE}:`);
+      clearServerCache("supabase:admin-seguimiento:");
     }
 
     const keepIds = new Set(rows.map((row) => row.checkin_id));
@@ -67,6 +75,8 @@ export async function PUT(request: Request) {
             cache: "no-store",
           },
         );
+        clearServerCache(`supabase:${TABLE}:`);
+        clearServerCache("supabase:admin-seguimiento:");
       }
     }
 

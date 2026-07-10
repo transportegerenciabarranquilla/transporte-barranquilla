@@ -3,10 +3,12 @@ import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
+import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "modulaciones_ruta";
 const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
+const LIST_CACHE_TTL_MS = 45_000;
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
 const LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
@@ -21,13 +23,13 @@ export async function GET() {
         ? { select: LIST_SELECT, order: "updated_at.desc" }
         : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseReadHeaders(session.accessToken),
-      cache: "no-store",
-    });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-
-    const rows = (await response.json()) as ModulacionListRow[];
+    const url = supabaseRest(TABLE, `?${params.toString()}`);
+    const rows = await cachedJsonFetch<ModulacionListRow[]>(
+      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
+      LIST_CACHE_TTL_MS,
+      url,
+      { headers: supabaseReadHeaders(session.accessToken) },
+    );
     return NextResponse.json({
       records: rows.map((row) => fromListRow(row)),
     });
@@ -85,6 +87,9 @@ export async function PUT(request: Request) {
 
       return NextResponse.json({ error: errorMessage }, { status: response.status });
     }
+    clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:people-summary:");
+    clearServerCache("supabase:admin-seguimiento:");
 
     await writeAuditLog({
       action: "modulacion_guardada",
@@ -128,6 +133,9 @@ export async function DELETE(request: Request) {
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+    clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:people-summary:");
+    clearServerCache("supabase:admin-seguimiento:");
 
     await writeAuditLog({
       action: "modulacion_eliminada",

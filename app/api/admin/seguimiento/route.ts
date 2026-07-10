@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS } from "../../../lib/contractors";
-import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { cachedJsonFetch } from "../../../lib/serverCache";
+import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
@@ -26,6 +27,7 @@ type AdminRefusalComRow = {
 };
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
+const LIST_CACHE_TTL_MS = 30_000;
 
 export async function GET() {
   try {
@@ -33,39 +35,31 @@ export async function GET() {
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
-    const seguimientoParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-    const modulacionesParams = new URLSearchParams({ select: MODULACION_LIST_SELECT, order: "updated_at.desc" });
-    const relatedParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-    const [response, modulacionesResponse, checkinsResponse] = await Promise.all([
-      fetch(supabaseRest("seguimiento_vehiculos", `?${seguimientoParams.toString()}`), {
-        headers,
-        cache: "no-store",
-      }),
-      fetch(supabaseRest("modulaciones_ruta", `?${modulacionesParams.toString()}`), {
-        headers,
-        cache: "no-store",
-      }),
-      fetch(supabaseRest("checkins_cajas", `?${relatedParams.toString()}`), {
-        headers,
-        cache: "no-store",
-      }),
+    const seguimientoParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc", limit: "2500" });
+    const modulacionesParams = new URLSearchParams({ select: MODULACION_LIST_SELECT, order: "updated_at.desc", limit: "2500" });
+    const relatedParams = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc", limit: "2500" });
+    const seguimientoUrl = supabaseRest("seguimiento_vehiculos", `?${seguimientoParams.toString()}`);
+    const modulacionesUrl = supabaseRest("modulaciones_ruta", `?${modulacionesParams.toString()}`);
+    const checkinsUrl = supabaseRest("checkins_cajas", `?${relatedParams.toString()}`);
+    const [rows, modulacionesRows, checkinRows] = await Promise.all([
+      cachedJsonFetch<Row[]>("supabase:admin-seguimiento:seguimiento", LIST_CACHE_TTL_MS, seguimientoUrl, { headers }),
+      cachedJsonFetch<ModulacionListRow[]>("supabase:admin-seguimiento:modulaciones", LIST_CACHE_TTL_MS, modulacionesUrl, { headers }),
+      cachedJsonFetch<CheckinRow[]>("supabase:admin-seguimiento:checkins", LIST_CACHE_TTL_MS, checkinsUrl, { headers }),
     ]);
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    if (!modulacionesResponse.ok) return NextResponse.json({ error: await supabaseError(modulacionesResponse) }, { status: modulacionesResponse.status });
-    if (!checkinsResponse.ok) return NextResponse.json({ error: await supabaseError(checkinsResponse) }, { status: checkinsResponse.status });
-
-    const rows = (await response.json()) as Row[];
-    const modulacionesRows = (await modulacionesResponse.json()) as ModulacionListRow[];
-    const checkinRows = (await checkinsResponse.json()) as CheckinRow[];
     const modulaciones = modulacionesRows.map((row) => {
       const record = fromModulacionListRow(row);
       return { ...record, contratista: contractorLabel(row.contractor || record.contratista) || record.contratista };
     });
     const checkins = checkinRows.map((row) => ({ ...row.data, contratista: contractorLabel(row.contractor) }));
+    const modulacionesIndex = indexModulacionesByRoute(modulaciones);
+    const checkinsIndex = indexCheckinsByRoute(checkins);
     const records = rows.map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
-      const registrosDt = getModulacionesByDt(modulaciones, row.data.transporte, transportista, getVehicleDate(row.data));
-      const checkin = getCheckinByDt(checkins, row.data.transporte, transportista);
+      const routeDate = getVehicleDate(row.data);
+      const routeKey = buildRouteKey(transportista, row.data.transporte, routeDate);
+      const fallbackRouteKey = buildRouteKey(transportista, row.data.transporte);
+      const registrosDt = modulacionesIndex.byDate.get(routeKey) || modulacionesIndex.byDt.get(fallbackRouteKey) || [];
+      const checkin = checkinsIndex.byDate.get(routeKey) || checkinsIndex.byDt.get(fallbackRouteKey);
       const refusal = summarizeRefusal(registrosDt, Number(row.data.cajas || 0), checkin?.totalCajas);
 
       return {
@@ -121,27 +115,49 @@ export async function GET() {
   }
 }
 
-function getModulacionesByDt(records: ModulacionRegistro[], dt: string | number | undefined, contractor?: string, dateKey?: string) {
-  const targetDt = normalizeDt(dt);
-  const targetContractor = normalizeContractor(contractor);
+function indexModulacionesByRoute(records: ModulacionRegistro[]) {
+  const byDate = new Map<string, ModulacionRegistro[]>();
+  const byDt = new Map<string, ModulacionRegistro[]>();
 
-  return records.filter((record) => {
-    const sameDt = normalizeDt(record.dt) === targetDt;
-    const sameContractor = !targetContractor || normalizeContractor(record.contratista) === targetContractor;
-    const sameDate = !dateKey || getRecordDate(record) === dateKey;
-    return sameDt && sameContractor && sameDate;
+  records.forEach((record) => {
+    addToGroup(byDate, buildRouteKey(record.contratista, record.dt, getRecordDate(record)), record);
+    addToGroup(byDt, buildRouteKey(record.contratista, record.dt), record);
   });
+
+  return { byDate, byDt };
 }
 
-function getCheckinByDt(records: AdminCheckin[], dt: string | number | undefined, contractor?: string) {
-  const targetDt = normalizeDt(dt);
-  const targetContractor = normalizeContractor(contractor);
+function indexCheckinsByRoute(records: AdminCheckin[]) {
+  const byDate = new Map<string, AdminCheckin>();
+  const byDt = new Map<string, AdminCheckin>();
 
-  return records.find((record) => {
-    const sameDt = normalizeDt(record.dt) === targetDt;
-    const sameContractor = !targetContractor || normalizeContractor(record.contratista) === targetContractor;
-    return sameDt && sameContractor;
+  records.forEach((record) => {
+    const date = toDateKey(record.createdAt);
+    const dateKey = buildRouteKey(record.contratista, record.dt, date);
+    const dtKey = buildRouteKey(record.contratista, record.dt);
+    if (dateKey && !byDate.has(dateKey)) byDate.set(dateKey, record);
+    if (dtKey && !byDt.has(dtKey)) byDt.set(dtKey, record);
   });
+
+  return { byDate, byDt };
+}
+
+function addToGroup<T>(groups: Map<string, T[]>, key: string, value: T) {
+  if (!key) return;
+  const current = groups.get(key);
+  if (current) {
+    current.push(value);
+    return;
+  }
+
+  groups.set(key, [value]);
+}
+
+function buildRouteKey(contractor: string | undefined, dt: string | number | undefined, dateKey = "") {
+  const contractorKey = normalizeContractor(contractor);
+  const dtKey = normalizeDt(dt);
+  if (!contractorKey || !dtKey) return "";
+  return dateKey ? `${contractorKey}:${dtKey}:${dateKey}` : `${contractorKey}:${dtKey}`;
 }
 
 function summarizeRefusal(records: ModulacionRegistro[], totalCajasSalida = 0, cajasCheckin?: number) {

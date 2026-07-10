@@ -5,10 +5,13 @@ import { getVehicleRecordKey } from "../../seguimiento/utils";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
+import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
+const LIST_CACHE_TTL_MS = 30_000;
+const RELATED_CACHE_TTL_MS = 60_000;
 const PUBLIC_CONTRACTORS: Record<string, string> = {
   logisticos: "Logisticos",
   puntocorona: "Punto Corona",
@@ -37,13 +40,13 @@ export async function GET(request: Request) {
     );
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
-      cache: "no-store",
-    });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-
-    const rows = (await response.json()) as { contractor?: string; data: Vehiculo }[];
+    const url = supabaseRest(TABLE, `?${params.toString()}`);
+    const rows = await cachedJsonFetch<{ contractor?: string; data: Vehiculo }[]>(
+      `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}:${url}`,
+      LIST_CACHE_TTL_MS,
+      url,
+      { headers: session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders() },
+    );
     const records = removeDuplicateDtRecords(rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista })));
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
     return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });
@@ -88,6 +91,9 @@ export async function PUT(request: Request) {
         cache: "no-store",
       });
       if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
+      clearServerCache(`supabase:${TABLE}:`);
+      clearServerCache("supabase:people-summary:");
+      clearServerCache("supabase:admin-seguimiento:");
     }
 
     if (deleteMissing === true) {
@@ -140,7 +146,7 @@ async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: strin
     .filter((row) => submittedDates.has(routeDateValue(row.data?.fechaDespacho || row.data?.date || row.data?.createdAt)))
     .map((row) => row.record_id)
     .filter((id) => !keep.has(id));
-  if (!removed.length) return "";
+    if (!removed.length) return "";
 
   for (const recordId of removed) {
     const params = new URLSearchParams({
@@ -155,6 +161,9 @@ async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: strin
 
     if (!response.ok) return await supabaseError(response);
   }
+  clearServerCache(`supabase:${TABLE}:`);
+  clearServerCache("supabase:people-summary:");
+  clearServerCache("supabase:admin-seguimiento:");
 
   return "";
 }
@@ -242,13 +251,13 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
   if (contractor) params.set("contractor", `eq.${contractor}`);
 
-  const response = await fetch(supabaseRest("asistencias_ruta", `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? (accessToken ? supabaseReadHeaders(accessToken) : supabaseHeaders()),
-    cache: "no-store",
-  });
-  if (!response.ok) return { byContractorDtAndDate, latestByContractorDt };
-
-  const rows = (await response.json().catch(() => [])) as { contractor?: string; data: AsistenciaRegistro }[];
+  const url = supabaseRest("asistencias_ruta", `?${params.toString()}`);
+  const rows = await cachedJsonFetch<{ contractor?: string; data: AsistenciaRegistro }[]>(
+    `supabase:asistencias_ruta:index:${contractor || "all"}:${url}`,
+    RELATED_CACHE_TTL_MS,
+    url,
+    { headers: supabaseAdminHeaders() ?? (accessToken ? supabaseReadHeaders(accessToken) : supabaseHeaders()) },
+  ).catch(() => []);
   rows.forEach((row) => {
     const record = { ...row.data, contratista: row.contractor || row.data.contratista };
     const contractorKey = normalizeContractorName(record.contratista);
@@ -315,13 +324,13 @@ async function applyDatabaseCapacities(records: Vehiculo[], accessToken?: string
 
 async function readCapacityByPlate(accessToken?: string) {
   const params = new URLSearchParams({ select: "*" });
-  const response = await fetch(supabaseRest(CAPACITY_TABLE, `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? (accessToken ? supabaseUserHeaders(accessToken) : supabaseHeaders()),
-    cache: "no-store",
-  });
-  if (!response.ok) return new Map<string, number>();
-
-  const rows = (await response.json().catch(() => [])) as Record<string, unknown>[];
+  const url = supabaseRest(CAPACITY_TABLE, `?${params.toString()}`);
+  const rows = await cachedJsonFetch<Record<string, unknown>[]>(
+    `supabase:${CAPACITY_TABLE}:all:${url}`,
+    10 * 60 * 1000,
+    url,
+    { headers: supabaseAdminHeaders() ?? (accessToken ? supabaseUserHeaders(accessToken) : supabaseHeaders()) },
+  ).catch(() => []);
   const capacities = new Map<string, number>();
 
   rows.forEach((row) => {

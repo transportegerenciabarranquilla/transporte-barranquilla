@@ -5,7 +5,7 @@ import { notifyStorageChange } from "./storageEvents";
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
 const fetchedAt = new Map<string, number>();
-const REMOTE_CACHE_TTL_MS = 30_000;
+const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
   "/api/asistencias": "bavaria.asistencia.registros",

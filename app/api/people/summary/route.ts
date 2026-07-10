@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS, normalizeContractorName } from "../../../lib/contractors";
+import { readServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type PersonRow = {
@@ -81,6 +82,7 @@ const VEHICLE_SELECT =
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 const NOT_STARTED = "NOT_STARTED";
+const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000;
 
 export async function GET(request: Request) {
   try {
@@ -91,24 +93,29 @@ export async function GET(request: Request) {
     }
 
     const rangeDate = dateKey(new URL(request.url).searchParams.get("date"));
-    const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
-      readPeople(headers),
-      readVehicles(headers),
-      readModulations(headers),
-      readPuntoCoronaRouteReports(headers),
-    ]);
+    const cacheKey = `supabase:people-summary:${session.isAdmin ? "admin" : session.contractor}:${rangeDate || "all"}`;
+    const body = await readServerCache(cacheKey, SUMMARY_CACHE_TTL_MS, async () => {
+      const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+      const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
+        readPeople(headers),
+        readVehicles(headers),
+        readModulations(headers),
+        readPuntoCoronaRouteReports(headers),
+      ]);
 
-    const response = CONTRACTORS.map((contractor) => {
-      const people = peopleByContractor.get(contractor) || [];
-      return {
-        name: contractor,
-        total: people.length,
-        people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, rangeDate)),
-      };
+      const contractors = CONTRACTORS.map((contractor) => {
+        const people = peopleByContractor.get(contractor) || [];
+        return {
+          name: contractor,
+          total: people.length,
+          people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, rangeDate)),
+        };
+      });
+
+      return { contractors, generatedAt: new Date().toISOString() };
     });
 
-    return NextResponse.json({ contractors: response, generatedAt: new Date().toISOString() });
+    return NextResponse.json(body);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando personas." }, { status: 500 });
   }

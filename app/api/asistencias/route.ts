@@ -3,21 +3,31 @@ import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { normalizeContractorName } from "../../lib/contractors";
+import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "asistencias_ruta";
+const LIST_CACHE_TTL_MS = 45_000;
 
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
-    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
+
     const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const rows = (await response.json()) as { contractor?: string; data: AsistenciaRegistro }[];
+    if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
+
+    const url = supabaseRest(TABLE, `?${params.toString()}`);
+    const rows = await cachedJsonFetch<{ contractor?: string; data: AsistenciaRegistro }[]>(
+      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
+      LIST_CACHE_TTL_MS,
+      url,
+      { headers: supabaseReadHeaders(session.accessToken) },
+    );
     const records = rows
       .map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista }))
-      .filter((record) => normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor));
+      .filter((record) => session.isAdmin || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor));
+
     return NextResponse.json({ records });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando asistencias." }, { status: 500 });
@@ -33,7 +43,7 @@ export async function PUT(request: Request) {
     const isPublicSubmission = records.length === 1 && Boolean(records[0]?.contratista);
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
     if (!contractor || !publicContractors.includes(normalizeContractorName(contractor))) {
-      return NextResponse.json({ error: "Contratista no válido." }, { status: 400 });
+      return NextResponse.json({ error: "Contratista no valido." }, { status: 400 });
     }
     if (records.some((record) => normalizeContractorName(record.contratista) !== normalizeContractorName(contractor))) {
       return NextResponse.json({ error: `Solo puedes guardar asistencia de ${contractor}.` }, { status: 403 });
@@ -51,6 +61,8 @@ export async function PUT(request: Request) {
       cache: "no-store",
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+    clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:seguimiento:");
 
     await writeAuditLog({
       action: "asistencia_guardada",
@@ -81,6 +93,8 @@ export async function PUT(request: Request) {
           headers: supabaseUserHeaders(session.accessToken),
           cache: "no-store",
         });
+        clearServerCache(`supabase:${TABLE}:`);
+        clearServerCache("supabase:seguimiento:");
       }
     }
     return NextResponse.json({ records });

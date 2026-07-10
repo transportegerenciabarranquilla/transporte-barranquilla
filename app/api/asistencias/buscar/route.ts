@@ -22,7 +22,12 @@ export async function GET(request: Request) {
     const direct = await findByAttendanceKey(contractor, dt, headers, date);
     if (direct) return NextResponse.json({ records: [direct] });
 
-    const params = new URLSearchParams({ select: "data", order: "updated_at.desc", limit: "2000" });
+    const params = new URLSearchParams({
+      select: "data",
+      contractor: `eq.${contractor}`,
+      order: "updated_at.desc",
+      limit: "200",
+    });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       headers,
       cache: "no-store",

@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
+import { cachedJsonFetch } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
+
+const PEOPLE_CACHE_TTL_MS = 10 * 60 * 1000;
+const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
+
+type PersonaRow = {
+  CC?: string | number;
+  NOMBRE?: string;
+  CARGO?: string;
+  CONTRATISTA?: string;
+};
 
 export async function GET(request: Request) {
   try {
@@ -19,44 +30,18 @@ export async function GET(request: Request) {
     }
 
     const params = new URLSearchParams({
-      select: "CC,NOMBRE,CARGO,CONTRATISTA",
+      select: PEOPLE_SELECT,
       CC: `eq.${cc}`,
       limit: "1",
     });
     if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
-    const response = await fetch(
-      supabaseRest("transporte_barranquilla", `?${params.toString()}`),
-      {
-        headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-        cache: "no-store",
-      }
-    );
-    const body = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      return NextResponse.json(
-        {
-          error:
-            body?.message ||
-            body?.error ||
-            `Supabase respondió ${response.status}.`,
-        },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json({
-      persona: Array.isArray(body) ? body[0] ?? null : null,
-    });
+    const rows = await readPersonas(params);
+    return NextResponse.json({ persona: rows[0] ?? null });
   } catch (error) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Error buscando la persona.",
-      },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Error buscando la persona." },
+      { status: 500 },
     );
   }
 }
@@ -68,71 +53,31 @@ async function searchPersonas(query: string, contractor: string | undefined) {
   if (cleanDigits) orFilters.push(`CC.ilike.*${cleanDigits}*`);
 
   const params = new URLSearchParams({
-    select: "CC,NOMBRE,CARGO,CONTRATISTA",
+    select: PEOPLE_SELECT,
     or: `(${orFilters.join(",")})`,
     order: "NOMBRE.asc",
     limit: "30",
   });
   if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
 
-  const response = await fetch(supabaseRest("transporte_barranquilla", `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-    cache: "no-store",
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        error:
-          body?.message ||
-          body?.error ||
-          `Supabase respondiÃ³ ${response.status}.`,
-      },
-      { status: response.status },
-    );
-  }
-
-  return NextResponse.json({ personas: Array.isArray(body) ? body : [] });
+  return NextResponse.json({ personas: await readPersonas(params) });
 }
 
 async function listPersonas(contractor: string | undefined) {
   const params = new URLSearchParams({
-    select: "CC,NOMBRE,CARGO,CONTRATISTA",
+    select: PEOPLE_SELECT,
     order: "NOMBRE.asc",
     limit: "100",
   });
   if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
 
-  const response = await fetch(supabaseRest("transporte_barranquilla", `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-    cache: "no-store",
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        error:
-          body?.message ||
-          body?.error ||
-          `Supabase respondiÃ³ ${response.status}.`,
-      },
-      { status: response.status },
-    );
-  }
-
-  return NextResponse.json({ personas: Array.isArray(body) ? body : [] });
+  return NextResponse.json({ personas: await readPersonas(params) });
 }
 
 async function listPersonasByCargo(cargo: string, contractor: string | undefined) {
-  const normalizedCargo = cargo
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  const normalizedCargo = normalizeText(cargo);
   const params = new URLSearchParams({
-    select: "CC,NOMBRE,CARGO,CONTRATISTA",
+    select: PEOPLE_SELECT,
     order: "NOMBRE.asc",
     limit: "100",
   });
@@ -140,29 +85,11 @@ async function listPersonasByCargo(cargo: string, contractor: string | undefined
   if (shouldFilterJornadaLocally) {
     params.set("or", "(CARGO.ilike.*jornada*,CARGO.ilike.*relev*)");
   } else {
-    params.set("CARGO", `ilike.*${cargo}*`);
+    params.set("CARGO", `ilike.*${sanitizeSearchValue(cargo)}*`);
   }
   if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
 
-  const response = await fetch(supabaseRest("transporte_barranquilla", `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-    cache: "no-store",
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        error:
-          body?.message ||
-          body?.error ||
-          `Supabase respondiÃ³ ${response.status}.`,
-      },
-      { status: response.status },
-    );
-  }
-
-  const personas = Array.isArray(body) ? body : [];
+  const personas = await readPersonas(params);
   const filteredPersonas = shouldFilterJornadaLocally
     ? personas.filter((persona) => {
         const cargoText = normalizeText(persona?.CARGO);
@@ -171,6 +98,13 @@ async function listPersonasByCargo(cargo: string, contractor: string | undefined
     : personas;
 
   return NextResponse.json({ personas: filteredPersonas });
+}
+
+function readPersonas(params: URLSearchParams) {
+  const url = supabaseRest("transporte_barranquilla", `?${params.toString()}`);
+  return cachedJsonFetch<PersonaRow[]>(`supabase:personas:${url}`, PEOPLE_CACHE_TTL_MS, url, {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+  });
 }
 
 function normalizeText(value: unknown) {

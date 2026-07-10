@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
@@ -57,29 +57,51 @@ export default function AsistenciaPage() {
   const [personas, setPersonas] = useState<Partial<Record<PersonField, Persona | null>>>({});
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
+  const personasCacheRef = useRef(new Map<string, Persona | null>());
+  const { cedulaAuxiliar1, cedulaAuxiliar2, cedulaResponsable, contratista } = form;
 
   useEffect(() => {
+    let cancelled = false;
+    const cedulas: Record<PersonField, string> = {
+      cedulaAuxiliar1,
+      cedulaAuxiliar2,
+      cedulaResponsable,
+    };
+
     const timers = personFields.map((field) => {
-      const cc = form[field];
-      if (!cc || !form.contratista) {
+      const cc = cedulas[field];
+      const contractor = contratista.trim();
+      if (!cc || cc.length < 5 || !contractor) {
         setPersonas((current) => ({ ...current, [field]: undefined }));
+        return undefined;
+      }
+
+      const cacheKey = `${contractor.toLowerCase()}:${cc}`;
+      if (personasCacheRef.current.has(cacheKey)) {
+        setPersonas((current) => ({ ...current, [field]: personasCacheRef.current.get(cacheKey) ?? null }));
         return undefined;
       }
 
       return window.setTimeout(async () => {
         try {
-          const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}&contratista=${encodeURIComponent(form.contratista)}`, { cache: "no-store" });
+          const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}&contratista=${encodeURIComponent(contractor)}`, { cache: "no-store" });
           const body = await response.json();
           if (!response.ok) throw new Error(body.error || "No se pudo buscar la cedula.");
-          setPersonas((current) => ({ ...current, [field]: body.persona }));
+          const persona = body.persona ?? null;
+          personasCacheRef.current.set(cacheKey, persona);
+          if (!cancelled) setPersonas((current) => ({ ...current, [field]: persona }));
         } catch {
-          setPersonas((current) => ({ ...current, [field]: null }));
+          personasCacheRef.current.set(cacheKey, null);
+          if (!cancelled) setPersonas((current) => ({ ...current, [field]: null }));
         }
       }, 350);
     });
 
-    return () => timers.forEach((timer) => timer && window.clearTimeout(timer));
-  }, [form]);
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => timer && window.clearTimeout(timer));
+    };
+  }, [cedulaAuxiliar1, cedulaAuxiliar2, cedulaResponsable, contratista]);
 
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
