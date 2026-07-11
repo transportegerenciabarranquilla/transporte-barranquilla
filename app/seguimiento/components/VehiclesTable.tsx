@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, progressColor } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, progressColor, toDateKey } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
   vehicles,
+  operationalDate,
   now,
   onSelectVehicle,
   onDeleteVehicle,
@@ -13,28 +14,34 @@ export function VehiclesTable({
   onUpdateVisited,
 }: {
   vehicles: Vehiculo[];
+  operationalDate: string;
   now: Date;
   onSelectVehicle: (vehicle: Vehiculo) => void;
   onDeleteVehicle: (recordKey: string) => void;
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
+  const selectedDate = operationalDate || getLocalDateKey();
+  const visibleVehicles = useMemo(
+    () => vehicles.filter((vehicle) => toDateKey(vehicle.fechaDespacho) === selectedDate),
+    [selectedDate, vehicles],
+  );
   const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
-  const [sortedVehicleKeys, setSortedVehicleKeys] = useState(() => sortVehicleKeys(vehicles, "desc"));
+  const [sortedVehicleKeys, setSortedVehicleKeys] = useState(() => sortVehicleKeys(visibleVehicles, "desc"));
   const duplicatedDt = useMemo(() => {
     const counts = new Map<string, number>();
-    vehicles.forEach((vehicle) => {
+    visibleVehicles.forEach((vehicle) => {
       const key = getVehicleRecordKey(vehicle);
       if (!key) return;
       counts.set(key, (counts.get(key) || 0) + 1);
     });
 
     return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([key]) => key));
-  }, [vehicles]);
+  }, [visibleVehicles]);
 
   useEffect(() => {
     setSortedVehicleKeys((currentKeys) => {
-      const vehicleKeys = vehicles.map(getVehicleUiKey);
+      const vehicleKeys = visibleVehicles.map(getVehicleUiKey);
       const vehicleKeySet = new Set(vehicleKeys);
       const currentKeySet = new Set(currentKeys);
       const existingKeys = currentKeys.filter((key) => vehicleKeySet.has(key));
@@ -42,20 +49,20 @@ export function VehiclesTable({
 
       return [...existingKeys, ...newKeys];
     });
-  }, [vehicles]);
+  }, [visibleVehicles]);
 
   const sortedVehicles = useMemo(() => {
-    const vehiclesByKey = new Map(vehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
+    const vehiclesByKey = new Map(visibleVehicles.map((vehicle) => [getVehicleUiKey(vehicle), vehicle]));
     return sortedVehicleKeys.flatMap((key) => {
       const vehicle = vehiclesByKey.get(key);
       return vehicle ? [vehicle] : [];
     });
-  }, [sortedVehicleKeys, vehicles]);
+  }, [sortedVehicleKeys, visibleVehicles]);
 
   function handleSortByRoute() {
     const nextOrder = routeSortOrder === "desc" ? "asc" : "desc";
     setRouteSortOrder(nextOrder);
-    setSortedVehicleKeys(sortVehicleKeys(vehicles, nextOrder));
+    setSortedVehicleKeys(sortVehicleKeys(visibleVehicles, nextOrder));
   }
 
   return (
@@ -66,7 +73,7 @@ export function VehiclesTable({
           <p className="text-xs text-slate-500">Selecciona una fila para ver el detalle.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{vehicles.length} rutas</span>
+          <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{visibleVehicles.length} rutas</span>
           <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">Click para detalle</span>
         </div>
       </div>
@@ -217,6 +224,11 @@ export function VehiclesTable({
       )}
     </div>
   );
+}
+
+function getLocalDateKey() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {

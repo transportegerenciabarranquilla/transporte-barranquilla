@@ -1,5 +1,6 @@
 export type Vehiculo = {
   recordId?: string;
+  dispatchDateChanged?: boolean;
   cajasGestionadas: number;
   cajasReportadas: number;
   createdAt: string;

@@ -294,11 +294,16 @@ export default function SeguimientoPage() {
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
     };
 
+    if (changes.fechaDespacho !== undefined && changes.fechaDespacho !== item.fechaDespacho) {
+      updated.dispatchDateChanged = true;
+    }
+
     if (changes.status === "Cambio de fecha" && changes.fechaDespacho === undefined) {
       const nextDispatchDate = getNextOperationalDate(item.fechaDespacho);
       updated.fechaDespacho = nextDispatchDate;
       updated.date = nextDispatchDate;
       updated.clasificacionOnTime = item.fechaDt === nextDispatchDate ? "On Time" : "No On Time";
+      updated.dispatchDateChanged = true;
     }
     const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
 
@@ -627,6 +632,7 @@ export default function SeguimientoPage() {
 
         <VehiclesTable
           vehicles={filteredVehicles}
+          operationalDate={fechaDtFilter}
           now={now}
           onSelectVehicle={seleccionarVehiculo}
           onDeleteVehicle={borrarVehiculo}

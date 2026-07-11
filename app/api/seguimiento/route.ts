@@ -78,12 +78,18 @@ export async function PUT(request: Request) {
       session.contractor,
     );
 
-    const rows = scopedRecords.map((record, index) => ({
-      record_id: getSeguimientoRecordId(record, session.contractor, index),
-      contractor: session.contractor,
-      data: { ...record, recordId: getSeguimientoRecordId(record, session.contractor, index) },
-      updated_at: new Date().toISOString(),
-    }));
+    const rows = scopedRecords.map((record, index) => {
+      const recordId = getSeguimientoRecordId(record, session.contractor, index);
+      const storedRecord = { ...record };
+      delete storedRecord.dispatchDateChanged;
+
+      return {
+        record_id: recordId,
+        contractor: session.contractor,
+        data: { ...storedRecord, recordId },
+        updated_at: new Date().toISOString(),
+      };
+    });
     if (rows.length) {
       const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
         method: "POST",
@@ -96,6 +102,12 @@ export async function PUT(request: Request) {
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");
     }
+
+    const changedDateRecords = scopedRecords
+      .map((record, index) => ({ record, recordId: rows[index]?.record_id || "" }))
+      .filter(({ record }) => record.dispatchDateChanged === true);
+    const duplicateDeleteError = await deletePreviousDtCopies(changedDateRecords, session.contractor, session.accessToken);
+    if (duplicateDeleteError) return NextResponse.json({ error: duplicateDeleteError }, { status: 500 });
 
     const supersededRecordIds = getSupersededRecordIds(scopedRecords, rows);
     const supersededDeleteError = await deleteSeguimientoRows(supersededRecordIds, session.contractor, session.accessToken);
@@ -132,6 +144,40 @@ export async function PUT(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
   }
+}
+
+async function deletePreviousDtCopies(
+  changedRecords: { record: Vehiculo; recordId: string }[],
+  contractor: string,
+  accessToken: string,
+) {
+  if (!changedRecords.length) return "";
+
+  const headers = getWriteHeaders(accessToken);
+  const uniqueRecords = new Map<string, { dt: string; recordId: string }>();
+  changedRecords.forEach(({ record, recordId }) => {
+    const dt = String(record.transporte || "").trim();
+    if (dt && recordId) uniqueRecords.set(`${dt}:${recordId}`, { dt, recordId });
+  });
+
+  for (const { dt, recordId } of uniqueRecords.values()) {
+    const params = new URLSearchParams({
+      contractor: `eq.${contractor}`,
+      "data->>transporte": `eq.${dt}`,
+      record_id: `neq.${recordId}`,
+    });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+    if (!response.ok) return await supabaseError(response);
+  }
+
+  clearServerCache(`supabase:${TABLE}:`);
+  clearServerCache("supabase:people-summary:");
+  clearServerCache("supabase:admin-seguimiento:");
+  return "";
 }
 
 function getSupersededRecordIds(records: Vehiculo[], rows: { record_id: string }[]) {
@@ -217,17 +263,27 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
   const recordsWithoutRoute: Vehiculo[] = [];
 
   records.forEach((record) => {
-    const routeKey = getVehicleRecordKey(record);
-    if (!routeKey || routeKey.endsWith("-sin-fecha")) {
+    const dt = normalizeDt(record.transporte);
+    const fallbackKey = getVehicleRecordKey(record);
+    if (!dt && (!fallbackKey || fallbackKey.endsWith("-sin-fecha"))) {
       recordsWithoutRoute.push(record);
       return;
     }
 
     const contractorKey = normalizeContractorName(record.transportista);
-    const uniqueKey = `${contractorKey}:${routeKey}`;
+    const uniqueKey = `${contractorKey}:${dt || fallbackKey}`;
     const current = recordsByRoute.get(uniqueKey);
-    recordsByRoute.delete(uniqueKey);
-    recordsByRoute.set(uniqueKey, current ? mergeDuplicateVehicle(current, record) : record);
+    if (!current) {
+      recordsByRoute.set(uniqueKey, record);
+      return;
+    }
+
+    // En escrituras, la fila que acaba de cambiar de fecha siempre gana.
+    // En lecturas las filas llegan por updated_at desc, por eso se conserva
+    // la primera (la mas reciente) y se impide mostrar el mismo DT dos dias.
+    if (record.dispatchDateChanged && !current.dispatchDateChanged) {
+      recordsByRoute.set(uniqueKey, mergeDuplicateVehicle(current, record));
+    }
   });
 
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
