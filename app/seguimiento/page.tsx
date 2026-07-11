@@ -293,6 +293,13 @@ export default function SeguimientoPage() {
       peso: changes.peso === undefined ? item.peso : Math.max(changes.peso, 0),
       capacidad: changes.capacidad === undefined ? item.capacidad : Math.max(changes.capacidad, 0),
     };
+
+    if (changes.status === "Cambio de fecha" && changes.fechaDespacho === undefined) {
+      const nextDispatchDate = getNextOperationalDate(item.fechaDespacho);
+      updated.fechaDespacho = nextDispatchDate;
+      updated.date = nextDispatchDate;
+      updated.clasificacionOnTime = item.fechaDt === nextDispatchDate ? "On Time" : "No On Time";
+    }
     const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);
@@ -723,4 +730,12 @@ function DeleteVehicleDialog({
       </section>
     </div>
   );
+}
+
+function getNextOperationalDate(value: string | undefined) {
+  const currentDate = toDateKey(value) || getLocalDateKey();
+  const [year, month, day] = currentDate.split("-").map(Number);
+  const nextDate = new Date(year, month - 1, day + 1);
+
+  return `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
 }

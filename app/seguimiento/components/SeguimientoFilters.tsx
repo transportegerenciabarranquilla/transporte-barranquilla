@@ -20,6 +20,10 @@ export function SeguimientoFilters({
   onSearchChange: (value: string) => void;
   onStatusChange: (value: string[]) => void;
 }) {
+  const today = getRelativeDateKey(0);
+  const tomorrow = getRelativeDateKey(1);
+  const selectedDate = fechaDtFilter || today;
+
   return (
     <div className="relative z-30 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -44,7 +48,7 @@ export function SeguimientoFilters({
         ) : null}
       </div>
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid w-full gap-3 lg:grid-cols-[1fr_200px]">
+        <div className="grid w-full gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_190px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -55,24 +59,35 @@ export function SeguimientoFilters({
             />
           </div>
 
+          <div className="grid grid-cols-2 rounded-md border border-slate-200 bg-slate-50 p-1" aria-label="Fecha operativa">
+            <button
+              className={`h-9 rounded px-4 text-sm font-semibold transition ${
+                selectedDate === today ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              }`}
+              onClick={() => onFechaDtChange("")}
+              type="button"
+            >
+              Hoy
+            </button>
+            <button
+              className={`h-9 rounded px-4 text-sm font-semibold transition ${
+                selectedDate === tomorrow ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              }`}
+              onClick={() => onFechaDtChange(tomorrow)}
+              type="button"
+            >
+              Mañana
+            </button>
+          </div>
+
           <div className="relative">
             <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
               className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-10 text-sm text-slate-700 outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
               onChange={(event) => onFechaDtChange(event.target.value)}
               type="date"
-              value={fechaDtFilter}
+              value={selectedDate}
             />
-            {fechaDtFilter ? (
-              <button
-                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                onClick={() => onFechaDtChange("")}
-                type="button"
-                aria-label="Limpiar fecha"
-              >
-                <X size={15} />
-              </button>
-            ) : null}
           </div>
 
         </div>
@@ -127,4 +142,10 @@ export function SeguimientoFilters({
       </div>
     </div>
   );
+}
+
+function getRelativeDateKey(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }

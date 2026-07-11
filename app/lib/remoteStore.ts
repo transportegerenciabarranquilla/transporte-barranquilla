@@ -5,6 +5,7 @@ import { notifyStorageChange } from "./storageEvents";
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
 const fetchedAt = new Map<string, number>();
+const saveQueues = new Map<string, Promise<void>>();
 const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
@@ -66,47 +67,58 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
   return (cached ?? []) as T[];
 }
 
-export async function saveRemoteRecords<T>(
+export function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],
   options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string } = {},
 ) {
-  const previousRecords = cache.get(endpoint);
-  cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
-  notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records, ...options.extraBody }),
-      cache: "no-store",
-    });
-
-    const body = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
-      throw new Error(
-        body.error || "No se pudieron guardar los datos en Supabase."
-      );
-    }
-
-    const savedRecords = Array.isArray(body.records) ? body.records : records;
-    cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
-    fetchedAt.set(endpoint, Date.now());
+  const previousSave = saveQueues.get(endpoint) ?? Promise.resolve();
+  const operation = previousSave.catch(() => undefined).then(async () => {
+    const previousRecords = cache.get(endpoint);
+    cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
-    return savedRecords as T[];
-  } catch (error) {
-    if (previousRecords) {
-      cache.set(endpoint, previousRecords);
-    } else {
-      cache.delete(endpoint);
-    }
 
-    notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
-    throw error;
-  }
+    try {
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records, ...options.extraBody }),
+        cache: "no-store",
+      });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
+        throw new Error(
+          body.error || "No se pudieron guardar los datos en Supabase."
+        );
+      }
+
+      const savedRecords = Array.isArray(body.records) ? body.records : records;
+      cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
+      fetchedAt.set(endpoint, Date.now());
+      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+      return savedRecords as T[];
+    } catch (error) {
+      if (previousRecords) {
+        cache.set(endpoint, previousRecords);
+      } else {
+        cache.delete(endpoint);
+      }
+
+      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+      throw error;
+    }
+  });
+
+  const queueTail = operation.then(() => undefined, () => undefined);
+  saveQueues.set(endpoint, queueTail);
+  void queueTail.finally(() => {
+    if (saveQueues.get(endpoint) === queueTail) saveQueues.delete(endpoint);
+  });
+
+  return operation;
 }
 
 export async function deleteRemoteRecords<T>(

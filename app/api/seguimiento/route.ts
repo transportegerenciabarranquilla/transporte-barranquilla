@@ -236,9 +236,15 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
 function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: number) {
   const routeKey = getVehicleRecordKey(record);
   const contractorKey = normalizeContractorName(contractor);
+  const existingId = String(record.recordId || "").trim();
+
+  // La identidad de una ruta no debe cambiar cuando se edita una fecha.
+  // Los ids creados por esta API ya estan aislados por contratista, por lo
+  // que conservarlos actualiza la misma fila en vez de crear una copia.
+  if (existingId.startsWith(`seguimiento:${contractorKey}:`)) return existingId;
 
   if (routeKey && !routeKey.endsWith("-sin-fecha")) return `seguimiento:${contractorKey}:${routeKey}`;
-  return record.recordId || `seguimiento:${contractorKey}:${routeKey || "sin-ruta"}:${index}`;
+  return existingId || `seguimiento:${contractorKey}:${routeKey || "sin-ruta"}:${index}`;
 }
 
 function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
