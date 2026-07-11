@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
-import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal } from "../seguimiento/utils";
+import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import { useStorageSnapshot } from "../lib/storageEvents";
 
@@ -157,17 +157,20 @@ export default function AdminPage() {
     const values = dateRecords.reduce(
       (acc, record) => ({
         cajas: acc.cajas + readNumber(record.cajas),
+        hl: acc.hl + normalizeHlValue(readNumber(record.hl)),
         clientes: acc.clientes + readNumber(record.clientes),
         refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
       }),
-      { cajas: 0, clientes: 0, refusalFinal: 0 },
+      { cajas: 0, hl: 0, clientes: 0, refusalFinal: 0 },
     );
 
     const roundedCajas = normalizeCajasTotal(values.cajas);
+    const roundedHl = normalizeHlTotal(values.hl);
 
     return {
       ...values,
       cajas: roundedCajas,
+      hl: roundedHl,
       refusal: roundedCajas ? Number(((values.refusalFinal / roundedCajas) * 100).toFixed(2)) : 0,
     };
   }, [dateRecords]);
@@ -262,6 +265,7 @@ export default function AdminPage() {
               <HeroStat label="Registros" value={filteredRecords.length.toLocaleString("es-CO")} />
               <HeroStat label="Alertas" tone={adminIssues.length ? "amber" : "green"} value={adminIssues.length.toLocaleString("es-CO")} />
               <HeroStat label="Cajas" value={totals.cajas.toLocaleString("es-CO")} />
+              <HeroStat label="HL" value={totals.hl.toLocaleString("es-CO")} />
               <HeroStat label="Refusal" tone={totals.refusal ? "red" : "green"} value={`${totals.refusal.toLocaleString("es-CO")}%`} />
             </div>
           </div>
@@ -376,8 +380,9 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Metric icon={<Boxes size={21} />} label="Cajas totales" tone="blue" value={totals.cajas.toLocaleString("es-CO")} />
+          <Metric icon={<PackageCheck size={21} />} label="HL totales" tone="green" value={totals.hl.toLocaleString("es-CO")} />
           <Metric icon={<PackageCheck size={21} />} label="Refusal final" tone="red" value={`${totals.refusalFinal.toLocaleString("es-CO")} cajas`} />
           <Metric icon={<Truck size={21} />} label="% refusal total" tone="amber" value={`${totals.refusal.toLocaleString("es-CO")}%`} />
           <Metric icon={<Users size={21} />} label="Clientes" tone="green" value={totals.clientes.toLocaleString("es-CO")} />

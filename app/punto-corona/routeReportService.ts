@@ -8,6 +8,7 @@ import {
 } from "../lib/puntoCoronaRoutesStorage";
 import { getLocalDateKey, normalizeDt } from "../lib/modulacionStorage";
 import type { Vehiculo } from "../seguimiento/types";
+import { normalizeCajasValue } from "../seguimiento/utils";
 
 const NOT_STARTED = "NOT_STARTED";
 const CONCLUDED = "CONCLUDED";
@@ -193,6 +194,7 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
 }
 
 function mergeRouteWithSeguimiento(row: PuntoCoronaRouteRow, vehicle: Vehiculo, routeDt: string) {
+  const seguimientoCajas = normalizeCajasValue(Number(vehicle.cajas || 0));
   const seguimientoClientes = Number(vehicle.clientes || 0);
   const seguimientoVisitados = Number(vehicle.visitados || 0);
 
@@ -201,6 +203,7 @@ function mergeRouteWithSeguimiento(row: PuntoCoronaRouteRow, vehicle: Vehiculo, 
     dt: routeDt,
     driverName: getVehicleCrewName(vehicle) || row.driverName,
     truckLicensePlate: vehicle.vehiculo || row.truckLicensePlate,
+    seguimientoCajas,
     seguimientoClientes,
     seguimientoVisitados,
     seguimientoProgress: percentage(seguimientoVisitados, seguimientoClientes),

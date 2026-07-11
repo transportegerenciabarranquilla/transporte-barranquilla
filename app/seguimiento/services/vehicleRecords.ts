@@ -8,7 +8,7 @@ import {
 } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import type { Vehiculo } from "../types";
-import { getVehicleRecordKey } from "../utils";
+import { getVehicleRecordKey, normalizeCajasValue, normalizeHlValue } from "../utils";
 
 export function loadSeguimientoVehiculos() {
   if (typeof window === "undefined") return [];
@@ -126,7 +126,8 @@ function prepareVehicles(records: Vehiculo[]) {
 function normalizeVehicleBoxes(records: Vehiculo[]) {
   return records.map((vehicle) => ({
     ...vehicle,
-    cajas: Number(vehicle.cajas || 0),
+    cajas: normalizeCajasValue(Number(vehicle.cajas || 0)),
+    hl: normalizeHlValue(Number(vehicle.hl || 0)),
   }));
 }
 
@@ -294,7 +295,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
       ]),
       0,
     ),
-    hl: numberValue(value(["hl", "hectolitros"]), 0),
+    hl: normalizeHlValue(numberValue(value(["hl", "hectolitros"]), 0)),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
     horaSalida: "Pendiente",

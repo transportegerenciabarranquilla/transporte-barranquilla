@@ -71,7 +71,32 @@ export function getPlannedTimeInputValue(value: string | number | undefined) {
 }
 
 export function normalizeCajasTotal(value: number) {
-  return Math.round(value / 10) * 10;
+  return roundOperationalTotal(value);
+}
+
+export function normalizeHlTotal(value: number) {
+  return roundOperationalTotal(value);
+}
+
+export function normalizeCajasValue(value: number) {
+  return normalizeScaledOperationalValue(value, 20_000);
+}
+
+export function normalizeHlValue(value: number) {
+  return normalizeScaledOperationalValue(value, 20_000);
+}
+
+export function normalizePuntoCoronaVolumeValue(value: number) {
+  return normalizeScaledOperationalValue(value, 20_000);
+}
+
+function roundOperationalTotal(value: number) {
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function normalizeScaledOperationalValue(value: number, threshold: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) >= threshold ? value / 1000 : value;
 }
 
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {

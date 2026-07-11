@@ -28,6 +28,7 @@ export type PuntoCoronaRouteRow = {
   skippedReason: string;
   deliveredVolume: number;
   refusedVolume: number;
+  seguimientoCajas?: number;
   seguimientoClientes?: number;
   seguimientoVisitados?: number;
   seguimientoProgress?: number;

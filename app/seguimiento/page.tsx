@@ -15,7 +15,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -125,7 +125,7 @@ export default function SeguimientoPage() {
     return {
       vehiculos: filteredVehicles.length,
       cajas: normalizeCajasTotal(filteredVehicles.reduce((total, item) => total + Number(item.cajas || 0), 0)),
-      hl: filteredVehicles.reduce((total, item) => total + item.hl, 0).toFixed(1),
+      hl: String(normalizeHlTotal(filteredVehicles.reduce((total, item) => total + normalizeHlValue(Number(item.hl || 0)), 0))),
       visitados,
       clientes,
       avance: clientes ? Number(((visitados / clientes) * 100).toFixed(1)) : 0,

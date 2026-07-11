@@ -7,6 +7,7 @@ import { supabaseAdminHeaders, supabaseHeaders, supabaseRest, supabaseUserHeader
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
+import { normalizeCajasTotal, normalizeCajasValue, normalizePuntoCoronaVolumeValue } from "../../../seguimiento/utils";
 
 type Row = { data: Vehiculo; contractor?: string };
 type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
@@ -102,10 +103,11 @@ export async function GET() {
       }),
       { cajas: 0, rechazadas: 0, gestionadas: 0, refusalFinal: 0 },
     );
-    const totalRefusal = totals.cajas ? Number(((totals.refusalFinal / totals.cajas) * 100).toFixed(2)) : 0;
+    const roundedTotalCajas = normalizeCajasTotal(totals.cajas);
+    const totalRefusal = roundedTotalCajas ? Number(((totals.refusalFinal / roundedTotalCajas) * 100).toFixed(2)) : 0;
     const summaries = CONTRACTORS.map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
-      const cajas = contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0);
+      const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
       const refusalFinal = contractorRecords.reduce((total, record) => total + readNumber(record.cajasRefusalFinal), 0);
 
       return {
@@ -125,7 +127,7 @@ export async function GET() {
       summaries,
       records,
       refusalByComRows,
-      totalCajas: totals.cajas,
+      totalCajas: roundedTotalCajas,
       totalRechazadas: totals.rechazadas,
       totalGestionadas: totals.gestionadas,
       totalRefusalFinal: totals.refusalFinal,
@@ -222,16 +224,7 @@ function summarizeRefusal(records: ModulacionRegistro[], totalCajasSalida = 0, c
 
 function readVehicleBoxes(record: Vehiculo) {
   const source = record as Vehiculo & Record<string, unknown>;
-  return firstPositiveNumber([
-    source.cajas,
-    source.cajasReportadas,
-    source.totalCajas,
-    source.total_cajas,
-    source.cajasProgramadas,
-    source.cajas_programadas,
-    source.cajasSalida,
-    source.cajas_salida,
-  ]);
+  return normalizeCajasValue(readNumber(source.cajas));
 }
 
 function firstPositiveNumber(values: unknown[]) {
@@ -362,11 +355,11 @@ function buildPuntoCoronaVehicleRecord(
 ): Vehiculo {
   const first = rows[0];
   const startedRows = rows.filter((row) => readString(row.status).toUpperCase() !== "NOT_STARTED");
-  const cajasRechazadas = rows.reduce((total, row) => total + readPuntoCoronaRefusedBoxes(row), 0);
-  const cajasEntregadas = rows.reduce((total, row) => total + readPuntoCoronaDeliveredBoxes(row), 0);
-  const cajas = cajasEntregadas + cajasRechazadas;
+  const cajasRechazadas = normalizeCajasTotal(rows.reduce((total, row) => total + readPuntoCoronaRefusedBoxes(row), 0));
   const clientes = readPuntoCoronaSeguimientoValue(rows, "seguimientoClientes") || rows.length;
   const visitados = readPuntoCoronaSeguimientoValue(rows, "seguimientoVisitados") || startedRows.length;
+  const cajasSeguimiento = readPuntoCoronaSeguimientoValue(rows, "seguimientoCajas");
+  const cajas = normalizeCajasTotal(cajasSeguimiento);
   const status = clientes && visitados >= clientes ? "Finalizado" : startedRows.length ? "En ruta" : "Pendiente por salir";
   const createdAt = report.closedAt || report.uploadedAt || report.updatedAt || `${operationalDate}T00:00:00.000Z`;
 
@@ -416,27 +409,13 @@ function buildPuntoCoronaVehicleRecord(
   };
 }
 
-function readPuntoCoronaSeguimientoValue(rows: PuntoCoronaRouteRow[], key: "seguimientoClientes" | "seguimientoVisitados") {
+function readPuntoCoronaSeguimientoValue(rows: PuntoCoronaRouteRow[], key: "seguimientoCajas" | "seguimientoClientes" | "seguimientoVisitados") {
   return firstPositiveNumber(rows.map((row) => row[key]));
-}
-
-function readPuntoCoronaDeliveredBoxes(row: PuntoCoronaRouteRow) {
-  const source = row as PuntoCoronaRouteRow & Record<string, unknown>;
-  return firstPositiveNumber([
-    source.deliveredVolume,
-    source.totalDeliveredVol,
-    source.total_delivered_vol,
-    source.volumenEntregado,
-    source["volumen entregado"],
-    source.cajasEntregadas,
-    source["cajas entregadas"],
-    source.entregado,
-  ]);
 }
 
 function readPuntoCoronaRefusedBoxes(row: PuntoCoronaRouteRow) {
   const source = row as PuntoCoronaRouteRow & Record<string, unknown>;
-  return firstPositiveNumber([
+  return normalizePuntoCoronaVolumeValue(firstPositiveNumber([
     source.refusedVolume,
     source.totalRefusedVol,
     source.total_refused_vol,
@@ -447,7 +426,7 @@ function readPuntoCoronaRefusedBoxes(row: PuntoCoronaRouteRow) {
     source.cajasRefusal,
     source.refusal,
     source.rechazado,
-  ]);
+  ]));
 }
 
 function readTimestamp(value: unknown) {
