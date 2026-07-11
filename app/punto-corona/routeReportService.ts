@@ -6,6 +6,7 @@ import {
   type PuntoCoronaRouteRow,
   type PuntoCoronaRouteSummary,
 } from "../lib/puntoCoronaRoutesStorage";
+import { normalizeContractorName } from "../lib/contractors";
 import { getLocalDateKey, normalizeDt } from "../lib/modulacionStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { normalizeCajasValue } from "../seguimiento/utils";
@@ -19,15 +20,22 @@ const PARTIAL_DELIVERY = "PARTIAL_DELIVERY";
 export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles: Vehiculo[], contractor: string) {
   const rawRows = await readFileRows(file);
   const operationalDate = getOperationalDate(rawRows) || getLocalDateKey();
-  const seguimientoByDt = createSeguimientoByDt(seguimientoVehicles);
-  const rows = rawRows
-    .map((row) => {
-      const routeRow = mapRouteRow(row);
-      const routeDt = normalizeDt(routeRow.dt);
-      const vehicle = seguimientoByDt.get(routeDt);
-      return vehicle ? mergeRouteWithSeguimiento(routeRow, vehicle, routeDt) : { ...routeRow, dt: routeDt || routeRow.dt };
-    })
-    .filter((row) => normalizeDt(row.dt || row.tourDisplayId));
+  const seguimientoByDt = createSeguimientoByDt(seguimientoVehicles, contractor);
+  if (!seguimientoByDt.size) {
+    throw new Error(`No hay DT del seguimiento cargados para ${contractor}. Carga primero el seguimiento de esa contratista.`);
+  }
+
+  const rows: PuntoCoronaRouteRow[] = [];
+  rawRows.forEach((row) => {
+    const routeRow = mapRouteRow(row);
+    const routeDt = normalizeDt(routeRow.dt);
+    const vehicle = seguimientoByDt.get(routeDt);
+    if (vehicle) rows.push(mergeRouteWithSeguimiento(routeRow, vehicle, routeDt));
+  });
+  if (!rows.length) {
+    throw new Error(`El archivo no tiene DT que coincidan con el seguimiento de ${contractor}.`);
+  }
+
   const matchedDts = new Set(rows.map((row) => normalizeDt(row.dt)).filter((dt) => dt && seguimientoByDt.has(dt))).size;
   const summary = summarizeRows(rows, seguimientoByDt.size, matchedDts);
   const uploadedAt = new Date().toISOString();
@@ -53,10 +61,13 @@ export function createClosureReport(report: PuntoCoronaRouteReport) {
   } satisfies PuntoCoronaRouteReport;
 }
 
-function createSeguimientoByDt(vehicles: Vehiculo[]) {
+function createSeguimientoByDt(vehicles: Vehiculo[], contractor: string) {
   const records = new Map<string, Vehiculo>();
+  const contractorKey = normalizeContractorName(contractor);
 
   vehicles.forEach((vehicle) => {
+    if (contractorKey && normalizeContractorName(vehicle.transportista) !== contractorKey) return;
+
     const dt = normalizeDt(vehicle.transporte);
     if (dt && !records.has(dt)) records.set(dt, vehicle);
   });

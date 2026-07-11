@@ -35,7 +35,7 @@ import {
 import { refreshRemoteRecords } from "../lib/remoteStore";
 import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
-import { CONTRACTORS } from "../lib/contractors";
+import { CONTRACTORS, normalizeContractorName } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
@@ -142,10 +142,10 @@ export default function PuntoCoronaPage() {
     event.target.value = "";
     if (!file) return;
 
-    let seguimientoContratista = seguimientoVehicles;
+    let seguimientoContratista = filterVehiclesByContractor(seguimientoVehicles, contractor);
     if (!seguimientoContratista.length) {
       await refreshRemoteRecords("/api/seguimiento", { force: true });
-      seguimientoContratista = loadSeguimientoVehiculos();
+      seguimientoContratista = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
     }
 
     setIsImporting(true);
@@ -1155,6 +1155,13 @@ function getRecordModulationKey(record: Pick<ModulacionRegistro, "dt" | "codigoC
 
 function normalizeClienteCode(value: string | number | undefined) {
   return String(value ?? "").replace(/\D/g, "");
+}
+
+function filterVehiclesByContractor(vehicles: Vehiculo[], contractor: string) {
+  const contractorKey = normalizeContractorName(contractor);
+  if (!contractorKey) return [];
+
+  return vehicles.filter((vehicle) => normalizeContractorName(vehicle.transportista) === contractorKey);
 }
 
 async function updateSeguimientoClientsFromBees(vehicles: Vehiculo[], report: PuntoCoronaRouteReport) {

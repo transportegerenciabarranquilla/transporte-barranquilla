@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { CONTRACTORS } from "../../lib/contractors";
+import { normalizeDt } from "../../lib/modulacionStorage";
 import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
@@ -42,6 +43,9 @@ export async function PUT(request: Request) {
 
     const { records } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
+    const seguimientoDts = records.length ? await fetchSeguimientoDts(session.contractor, session.accessToken) : new Set<string>();
+    const validationError = validateReportDts(records, seguimientoDts, session.contractor);
+    if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
     const rows = records.map((record) => ({
       report_id: record.id,
@@ -61,6 +65,7 @@ export async function PUT(request: Request) {
       });
       if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
       clearServerCache(`supabase:${TABLE}:`);
+      clearServerCache("supabase:admin-rango:");
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");
     }
@@ -108,6 +113,7 @@ export async function DELETE(request: Request) {
     });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:admin-rango:");
     clearServerCache("supabase:people-summary:");
     clearServerCache("supabase:admin-seguimiento:");
 
@@ -129,6 +135,35 @@ export async function DELETE(request: Request) {
 
 function canUseRangoModule(session: { contractor?: string; isAdmin?: boolean }) {
   return !session.isAdmin && CONTRACTORS.includes(session.contractor as (typeof CONTRACTORS)[number]);
+}
+
+async function fetchSeguimientoDts(contractor: string, accessToken: string) {
+  const params = new URLSearchParams({
+    select: "data",
+    contractor: `eq.${contractor}`,
+  });
+  const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(await supabaseError(response));
+
+  const rows = (await response.json()) as Array<{ data?: { transporte?: string | number } }>;
+  return new Set(rows.map((row) => normalizeDt(row.data?.transporte)).filter(Boolean));
+}
+
+function validateReportDts(records: PuntoCoronaRouteReport[], seguimientoDts: Set<string>, contractor: string) {
+  if (!seguimientoDts.size) return `No hay DT del seguimiento cargados para ${contractor}.`;
+
+  const reportDts = new Set(
+    records.flatMap((record) => (record.rows || []).map((row) => normalizeDt(row.dt || row.tourDisplayId))).filter(Boolean),
+  );
+  if (!reportDts.size) return "El reporte de rango no tiene DT validos.";
+
+  const invalidDts = Array.from(reportDts).filter((dt) => !seguimientoDts.has(dt));
+  if (!invalidDts.length) return "";
+
+  return `El archivo trae DT que no pertenecen a ${contractor}: ${invalidDts.slice(0, 8).join(", ")}.`;
 }
 
 type ReportRow = {
