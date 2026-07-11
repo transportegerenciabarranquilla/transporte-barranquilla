@@ -101,10 +101,12 @@ export default function SeguimientoPage() {
   }, []);
 
   const matchingVehicles = useMemo(() => {
+    const operationalDate = fechaDtFilter || getLocalDateKey();
+
     return vehiculos.filter((item) => {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
-      const matchesFechaDt = !fechaDtFilter || toDateKey(item.fechaDespacho) === fechaDtFilter;
+      const matchesFechaDt = toDateKey(item.fechaDespacho) === operationalDate;
       const matchesResponsible = !onlyWithoutResponsible || isWithoutResponsible(item);
 
       return matchesSearch && matchesFechaDt && matchesResponsible;
@@ -280,6 +282,10 @@ export default function SeguimientoPage() {
     const updated = {
       ...item,
       ...changes,
+      // La fecha operativa del seguimiento es la fecha de despacho. Mantener
+      // ambos campos alineados evita que una sincronizacion vuelva a usar la
+      // fecha original de carga como respaldo.
+      date: changes.fechaDespacho === undefined ? item.date : changes.fechaDespacho,
       clientes: changes.clientes === undefined ? item.clientes : Math.max(changes.clientes, 0),
       visitados: changes.visitados === undefined ? item.visitados : Math.max(changes.visitados, 0),
       cajas: changes.cajas === undefined ? item.cajas : Math.max(changes.cajas, 0),

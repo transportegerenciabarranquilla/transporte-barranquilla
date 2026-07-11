@@ -97,6 +97,10 @@ export async function PUT(request: Request) {
       clearServerCache("supabase:admin-seguimiento:");
     }
 
+    const supersededRecordIds = getSupersededRecordIds(scopedRecords, rows);
+    const supersededDeleteError = await deleteSeguimientoRows(supersededRecordIds, session.contractor, session.accessToken);
+    if (supersededDeleteError) return NextResponse.json({ error: supersededDeleteError }, { status: 500 });
+
     if (deleteMissing === true) {
       const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
       const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates);
@@ -128,6 +132,41 @@ export async function PUT(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
   }
+}
+
+function getSupersededRecordIds(records: Vehiculo[], rows: { record_id: string }[]) {
+  const activeIds = new Set(rows.map((row) => row.record_id));
+
+  return Array.from(
+    new Set(
+      records
+        .map((record, index) => {
+          const previousId = String(record.recordId || "").trim();
+          return previousId && previousId !== rows[index]?.record_id && !activeIds.has(previousId) ? previousId : "";
+        })
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function deleteSeguimientoRows(recordIds: string[], contractor: string, accessToken: string) {
+  if (!recordIds.length) return "";
+
+  const headers = getWriteHeaders(accessToken);
+  for (const recordId of recordIds) {
+    const params = new URLSearchParams({ contractor: `eq.${contractor}`, record_id: `eq.${recordId}` });
+    const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+    if (!response.ok) return await supabaseError(response);
+  }
+
+  clearServerCache(`supabase:${TABLE}:`);
+  clearServerCache("supabase:people-summary:");
+  clearServerCache("supabase:admin-seguimiento:");
+  return "";
 }
 
 async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string, submittedDates: Set<string>) {
