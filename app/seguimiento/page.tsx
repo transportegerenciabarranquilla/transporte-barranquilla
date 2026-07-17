@@ -101,12 +101,10 @@ export default function SeguimientoPage() {
   }, []);
 
   const matchingVehicles = useMemo(() => {
-    const operationalDate = fechaDtFilter || getLocalDateKey();
-
     return vehiculos.filter((item) => {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
-      const matchesFechaDt = toDateKey(item.fechaDespacho) === operationalDate;
+      const matchesFechaDt = !fechaDtFilter || toDateKey(item.fechaDespacho) === fechaDtFilter;
       const matchesResponsible = !onlyWithoutResponsible || isWithoutResponsible(item);
 
       return matchesSearch && matchesFechaDt && matchesResponsible;

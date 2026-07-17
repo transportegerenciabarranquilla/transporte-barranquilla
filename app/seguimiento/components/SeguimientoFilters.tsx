@@ -22,7 +22,7 @@ export function SeguimientoFilters({
 }) {
   const today = getRelativeDateKey(0);
   const tomorrow = getRelativeDateKey(1);
-  const selectedDate = fechaDtFilter || today;
+  const selectedDate = fechaDtFilter;
 
   return (
     <div className="relative z-30 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
@@ -64,7 +64,7 @@ export function SeguimientoFilters({
               className={`h-9 rounded px-4 text-sm font-semibold transition ${
                 selectedDate === today ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
               }`}
-              onClick={() => onFechaDtChange("")}
+              onClick={() => onFechaDtChange(today)}
               type="button"
             >
               Hoy

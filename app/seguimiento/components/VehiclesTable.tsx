@@ -21,12 +21,13 @@ export function VehiclesTable({
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
-  const selectedDate = operationalDate || getLocalDateKey();
   const visibleVehicles = useMemo(
-    () => vehicles.filter((vehicle) => toDateKey(vehicle.fechaDespacho) === selectedDate),
-    [selectedDate, vehicles],
+    () => (operationalDate ? vehicles.filter((vehicle) => toDateKey(vehicle.fechaDespacho) === operationalDate) : vehicles),
+    [operationalDate, vehicles],
   );
+  const [activeSort, setActiveSort] = useState<"route" | "progress">("route");
   const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
+  const [progressSortOrder, setProgressSortOrder] = useState<"desc" | "asc">("desc");
   const [sortedVehicleKeys, setSortedVehicleKeys] = useState(() => sortVehicleKeys(visibleVehicles, "desc"));
   const duplicatedDt = useMemo(() => {
     const counts = new Map<string, number>();
@@ -60,9 +61,17 @@ export function VehiclesTable({
   }, [sortedVehicleKeys, visibleVehicles]);
 
   function handleSortByRoute() {
-    const nextOrder = routeSortOrder === "desc" ? "asc" : "desc";
+    const nextOrder = activeSort === "route" && routeSortOrder === "desc" ? "asc" : "desc";
+    setActiveSort("route");
     setRouteSortOrder(nextOrder);
     setSortedVehicleKeys(sortVehicleKeys(visibleVehicles, nextOrder));
+  }
+
+  function handleSortByProgress() {
+    const nextOrder = activeSort === "progress" && progressSortOrder === "desc" ? "asc" : "desc";
+    setActiveSort("progress");
+    setProgressSortOrder(nextOrder);
+    setSortedVehicleKeys(sortVehicleKeysByProgress(visibleVehicles, nextOrder));
   }
 
   return (
@@ -89,17 +98,37 @@ export function VehiclesTable({
               <th className="w-28 px-2 py-1.5 text-left">Fecha despacho</th>
               <th className="w-16 px-2 py-1.5 text-left">Clientes</th>
               <th className="w-48 px-2 py-1.5 text-left">
-                <div className="inline-flex items-center gap-1">
-                  Ruta
-                  <button
-                    aria-label="Ordenar por visitados"
-                    className="inline-grid h-4 w-4 place-items-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
-                    onClick={handleSortByRoute}
-                    title={routeSortOrder === "desc" ? "Mas visitados primero" : "Menos visitados primero"}
-                    type="button"
-                  >
-                    <ArrowUpDown size={10} />
-                  </button>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="inline-flex items-center gap-1">
+                    Ruta
+                    <button
+                      aria-label="Ordenar por visitados"
+                      aria-pressed={activeSort === "route"}
+                      className={`inline-grid h-4 w-4 place-items-center rounded transition hover:bg-slate-200 hover:text-slate-700 ${
+                        activeSort === "route" ? "text-cyan-300" : "text-slate-500"
+                      }`}
+                      onClick={handleSortByRoute}
+                      title={activeSort === "route" && routeSortOrder === "desc" ? "Menos visitados primero" : "Mas visitados primero"}
+                      type="button"
+                    >
+                      <ArrowUpDown size={10} />
+                    </button>
+                  </div>
+                  <div className="inline-flex items-center gap-1">
+                    % avance
+                    <button
+                      aria-label="Ordenar por porcentaje de avance"
+                      aria-pressed={activeSort === "progress"}
+                      className={`inline-grid h-4 w-4 place-items-center rounded transition hover:bg-slate-200 hover:text-slate-700 ${
+                        activeSort === "progress" ? "text-cyan-300" : "text-slate-500"
+                      }`}
+                      onClick={handleSortByProgress}
+                      title={activeSort === "progress" && progressSortOrder === "desc" ? "Menor porcentaje primero" : "Mayor porcentaje primero"}
+                      type="button"
+                    >
+                      <ArrowUpDown size={10} />
+                    </button>
+                  </div>
                 </div>
               </th>
               <th className="w-24 px-2 py-1.5 text-left">Tiempo</th>
@@ -226,11 +255,6 @@ export function VehiclesTable({
   );
 }
 
-function getLocalDateKey() {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {
   return (
     <div className="relative inline-flex max-w-full">
@@ -334,6 +358,15 @@ function sortVehicleKeys(vehicles: Vehiculo[], order: "desc" | "asc") {
       const bVisited = Number(b.visitados || 0);
 
       return order === "desc" ? bVisited - aVisited : aVisited - bVisited;
+    })
+    .map(getVehicleUiKey);
+}
+
+function sortVehicleKeysByProgress(vehicles: Vehiculo[], order: "desc" | "asc") {
+  return [...vehicles]
+    .sort((a, b) => {
+      const difference = getProgress(b) - getProgress(a);
+      return order === "desc" ? difference : -difference;
     })
     .map(getVehicleUiKey);
 }
