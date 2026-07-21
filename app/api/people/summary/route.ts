@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS, normalizeContractorName } from "../../../lib/contractors";
 import { readServerCache } from "../../../lib/serverCache";
-import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type PersonRow = {
   CC?: string;
@@ -23,6 +23,8 @@ type VehicleRow = {
   responsable?: string;
   tiempoRuta?: string;
   status?: string;
+  horaSalida?: string;
+  horaLlegada?: string;
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
@@ -78,11 +80,12 @@ type PuntoCoronaReportRow = {
 
 const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
 const VEHICLE_SELECT =
-  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
+  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 const NOT_STARTED = "NOT_STARTED";
 const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000;
+const SUMMARY_CACHE_VERSION = "v5-seguimiento-vh";
 
 export async function GET(request: Request) {
   try {
@@ -92,13 +95,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No tienes permiso para consultar personas." }, { status: 403 });
     }
 
-    const rangeDate = dateKey(new URL(request.url).searchParams.get("date"));
-    const cacheKey = `supabase:people-summary:${session.isAdmin ? "admin" : session.contractor}:${rangeDate || "all"}`;
-    const body = await readServerCache(cacheKey, SUMMARY_CACHE_TTL_MS, async () => {
+    const searchParams = new URL(request.url).searchParams;
+    const rangeDate = dateKey(searchParams.get("date"));
+    const cacheKey = `supabase:people-summary:${SUMMARY_CACHE_VERSION}:${session.isAdmin ? "admin" : session.contractor}:${rangeDate || "all"}`;
+    const loadSummary = async () => {
       const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+      const seguimientoHeaders = supabaseAdminHeaders() ?? supabaseHeaders();
       const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
         readPeople(headers),
-        readVehicles(headers),
+        readVehicles(seguimientoHeaders),
         readModulations(headers),
         readPuntoCoronaRouteReports(headers),
       ]);
@@ -112,8 +117,25 @@ export async function GET(request: Request) {
         };
       });
 
-      return { contractors, generatedAt: new Date().toISOString() };
-    });
+      const seguimiento = vehicles.map((vehicle) => ({
+        contractor: vehicle.contractor,
+        transporte: vehicle.transporte,
+        vehiculo: vehicle.vehiculo,
+        fechaDespacho: vehicle.fechaDespacho,
+        fechaDt: vehicle.fechaDt,
+        status: vehicle.status,
+        horaSalida: vehicle.horaSalida,
+        horaLlegada: vehicle.horaLlegada,
+        cedulaResponsable: vehicle.cedulaResponsable,
+        cedulaAuxiliar1: vehicle.cedulaAuxiliar1,
+        cedulaAuxiliar2: vehicle.cedulaAuxiliar2,
+      }));
+
+      return { contractors, seguimiento, generatedAt: new Date().toISOString() };
+    };
+    const body = searchParams.get("live") === "1"
+      ? await loadSummary()
+      : await readServerCache(cacheKey, SUMMARY_CACHE_TTL_MS, loadSummary);
 
     return NextResponse.json(body);
   } catch (error) {
@@ -305,6 +327,8 @@ function normalizeVehicle(row: VehicleRow): Required<VehicleRow> {
     responsable: readString(row.responsable),
     tiempoRuta: readString(row.tiempoRuta),
     status: readString(row.status),
+    horaSalida: readString(row.horaSalida),
+    horaLlegada: readString(row.horaLlegada),
     cedulaResponsable: readString(row.cedulaResponsable),
     cedulaAuxiliar1: readString(row.cedulaAuxiliar1),
     cedulaAuxiliar2: readString(row.cedulaAuxiliar2),

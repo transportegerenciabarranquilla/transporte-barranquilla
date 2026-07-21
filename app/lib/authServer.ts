@@ -6,7 +6,7 @@ export const ACCESS_COOKIE = "bavaria_access_token";
 export const REFRESH_COOKIE = "bavaria_refresh_token";
 export const REMEMBER_COOKIE = "bavaria_remember_session";
 
-type SupabaseUser = { email?: string };
+type SupabaseUser = { id?: string; email?: string };
 type SupabaseRefreshResponse = {
   access_token?: string;
   expires_in?: number;
@@ -41,7 +41,7 @@ export async function getAuthenticatedSession() {
 
   const email = user.email?.toLowerCase() || "";
   const contractor = contractorForEmail(email);
-  return contractor ? { accessToken, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) } : null;
+  return contractor && user.id ? { accessToken, userId: user.id, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) } : null;
 }
 
 async function fetchSupabaseUser(supabaseKey: string, accessToken: string) {

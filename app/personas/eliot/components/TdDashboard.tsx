@@ -69,7 +69,7 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
         setActiveDate("");
       }
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible cargar los cortes locales." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible cargar los cortes de Supabase." });
     } finally {
       setLoading(false);
     }
@@ -88,7 +88,7 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
         }
       })
       .catch((error: unknown) => {
-        if (active) setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible cargar los cortes locales." });
+        if (active) setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible cargar los cortes de Supabase." });
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -193,7 +193,7 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
     try {
       await deleteSnapshot(snapshot.id);
       await refreshSnapshots();
-      setMessage({ tone: "success", text: "Corte eliminado de Supabase y del navegador." });
+      setMessage({ tone: "success", text: "Corte eliminado de Supabase." });
     } catch (error) {
       setMessage({
         tone: "error",

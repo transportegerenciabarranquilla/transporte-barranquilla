@@ -23,7 +23,7 @@ export function PinGate({ children }: { children: (lock: () => void) => ReactNod
         setState(stored ? (sessionStorage.getItem(SESSION_KEY) === "1" ? "unlocked" : "locked") : "setup");
       })
       .catch(() => {
-        setError("No fue posible abrir el almacenamiento local del navegador.");
+        setError("No fue posible consultar el PIN en la base de datos.");
         setState("setup");
       });
   }, []);
@@ -60,7 +60,7 @@ export function PinGate({ children }: { children: (lock: () => void) => ReactNod
   }
 
   async function resetApplication() {
-    if (!window.confirm("Se eliminarán el PIN y todos los cortes guardados en este navegador. ¿Deseas continuar?")) return;
+    if (!window.confirm("Se eliminarán el PIN y todos los cortes guardados en Supabase. ¿Deseas continuar?")) return;
     setBusy(true);
     setError("");
     try {
@@ -71,7 +71,7 @@ export function PinGate({ children }: { children: (lock: () => void) => ReactNod
       setConfirmPin("");
       setState("setup");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No fue posible borrar los datos locales.");
+      setError(caught instanceof Error ? caught.message : "No fue posible borrar los datos de Supabase.");
     } finally {
       setBusy(false);
     }
@@ -86,10 +86,10 @@ export function PinGate({ children }: { children: (lock: () => void) => ReactNod
           <span className="grid h-12 w-12 place-items-center rounded-xl bg-white/10 ring-1 ring-white/15">
             {state === "setup" ? <ShieldCheck size={24} /> : <LockKeyhole size={23} />}
           </span>
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-orange-200">Control operativo local</p>
+          <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-orange-200">Control operativo en la nube</p>
           <h1 className="mt-2 text-2xl font-bold">Control  de tripulaciones</h1>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            {state === "setup" ? "Crea el PIN que protegerá este equipo." : "Ingresa el PIN para consultar los cortes guardados."}
+            {state === "setup" ? "Crea el PIN que protegerá los cortes en Supabase." : "Ingresa el PIN para consultar los cortes guardados."}
           </p>
         </div>
 
@@ -138,10 +138,10 @@ export function PinGate({ children }: { children: (lock: () => void) => ReactNod
 
           {state === "locked" ? (
             <button className="flex w-full items-center justify-center gap-2 text-xs font-semibold text-slate-500 hover:text-red-600" onClick={resetApplication} type="button">
-              <Trash2 size={14} /> Olvidé el PIN: borrar datos locales
+              <Trash2 size={14} /> Olvidé el PIN: borrar datos de Supabase
             </button>
           ) : (
-            <p className="text-center text-xs leading-5 text-slate-500">El PIN es un bloqueo local de este navegador, no una cuenta en la nube.</p>
+            <p className="text-center text-xs leading-5 text-slate-500">El PIN y los cortes se guardan en las tablas TD de Supabase.</p>
           )}
         </form>
       </section>

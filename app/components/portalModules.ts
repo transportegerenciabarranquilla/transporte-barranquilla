@@ -78,6 +78,15 @@ const peopleAttendanceModule: PortalModule = {
   accent: "border-l-[#0f7c58]",
 };
 
+const managementModule: PortalModule = {
+  id: 8,
+  title: "Gerencia",
+  href: "/gerencia",
+  detail: "Llegadas, pendientes, personal en CD y en ruta",
+  tone: "from-[#10223d] to-[#7c3aed]",
+  accent: "border-l-[#7c3aed]",
+};
+
 export function getVisiblePortalModules({
   contractor,
   isAdmin,
@@ -90,8 +99,8 @@ export function getVisiblePortalModules({
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
-  if (isPeople) return [peopleModule, peopleDelaysModule];
-  if (isAdmin) return [{ ...baseModules[0], href: "/admin" }, adminRangoModule, peopleAttendanceModule, ...baseModules.slice(1)];
+  if (isPeople) return [peopleModule, peopleDelaysModule, managementModule];
+  if (isAdmin) return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...baseModules.slice(1)];
   return contractor ? [...baseModules, rangoModule] : baseModules;
 }
 

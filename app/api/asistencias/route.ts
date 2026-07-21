@@ -9,24 +9,34 @@ import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeade
 const TABLE = "asistencias_ruta";
 const LIST_CACHE_TTL_MS = 45_000;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
 
     const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-    if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
+    if (!session.isAdmin && !session.isPeople) params.set("contractor", `eq.${session.contractor}`);
 
     const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<{ contractor?: string; data: AsistenciaRegistro }[]>(
-      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
-      LIST_CACHE_TTL_MS,
-      url,
-      { headers: supabaseReadHeaders(session.accessToken) },
-    );
+    const headers = session.isAdmin || session.isPeople
+      ? supabaseAdminHeaders() ?? supabaseHeaders()
+      : supabaseReadHeaders(session.accessToken);
+    const loadRows = async () => {
+      const response = await fetch(url, { headers, cache: "no-store" });
+      if (!response.ok) throw new Error(await supabaseError(response));
+      return (await response.json()) as { contractor?: string; data: AsistenciaRegistro }[];
+    };
+    const rows = new URL(request.url).searchParams.get("live") === "1"
+      ? await loadRows()
+      : await cachedJsonFetch<{ contractor?: string; data: AsistenciaRegistro }[]>(
+          `supabase:${TABLE}:list:${session.isAdmin || session.isPeople ? "global" : session.contractor}:${url}`,
+          LIST_CACHE_TTL_MS,
+          url,
+          { headers },
+        );
     const records = rows
       .map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista }))
-      .filter((record) => session.isAdmin || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor));
+      .filter((record) => session.isAdmin || session.isPeople || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor));
 
     return NextResponse.json({ records });
   } catch (error) {
