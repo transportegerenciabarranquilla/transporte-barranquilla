@@ -41,10 +41,10 @@ export async function PUT(request: Request) {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (!canUseRangoModule(session)) return NextResponse.json({ error: "Modulo exclusivo para contratistas." }, { status: 403 });
 
-    const { records } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
-    if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
-    const seguimientoDts = records.length ? await fetchSeguimientoDts(session.contractor, session.accessToken) : new Set<string>();
-    const validationError = validateReportDts(records, seguimientoDts, session.contractor);
+    const { records: submittedRecords } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
+    if (!Array.isArray(submittedRecords)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
+    const seguimientoDts = submittedRecords.length ? await fetchSeguimientoDts(session.contractor, session.accessToken) : new Set<string>();
+    const { records, ignoredDts, validationError } = sanitizeReportDts(submittedRecords, seguimientoDts, session.contractor);
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
     const rows = records.map((record) => ({
@@ -87,7 +87,7 @@ export async function PUT(request: Request) {
       });
     }
 
-    return NextResponse.json({ records: rows.map((row) => row.data) });
+    return NextResponse.json({ records: rows.map((row) => row.data), ignoredDts });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando reportes de rango." }, { status: 500 });
   }
@@ -152,18 +152,97 @@ async function fetchSeguimientoDts(contractor: string, accessToken: string) {
   return new Set(rows.map((row) => normalizeDt(row.data?.transporte)).filter(Boolean));
 }
 
-function validateReportDts(records: PuntoCoronaRouteReport[], seguimientoDts: Set<string>, contractor: string) {
-  if (!seguimientoDts.size) return `No hay DT del seguimiento cargados para ${contractor}.`;
+function sanitizeReportDts(records: PuntoCoronaRouteReport[], seguimientoDts: Set<string>, contractor: string) {
+  if (!seguimientoDts.size) {
+    return { records: [], ignoredDts: [], validationError: `No hay DT del seguimiento cargados para ${contractor}.` };
+  }
 
   const reportDts = new Set(
     records.flatMap((record) => (record.rows || []).map((row) => normalizeDt(row.dt || row.tourDisplayId))).filter(Boolean),
   );
-  if (!reportDts.size) return "El reporte de rango no tiene DT validos.";
+  if (!reportDts.size) return { records: [], ignoredDts: [], validationError: "El reporte de rango no tiene DT validos." };
 
-  const invalidDts = Array.from(reportDts).filter((dt) => !seguimientoDts.has(dt));
-  if (!invalidDts.length) return "";
+  const ignoredDts = Array.from(reportDts).filter((dt) => !seguimientoDts.has(dt));
+  const sanitizedRecords = records.map((record) => {
+    const rows = (record.rows || []).filter((row) => seguimientoDts.has(normalizeDt(row.dt || row.tourDisplayId)));
+    return { ...record, rows, summary: summarizeReportRows(record, rows, seguimientoDts.size) };
+  });
+  const validRows = sanitizedRecords.reduce((total, record) => total + record.rows.length, 0);
+  if (!validRows) {
+    return {
+      records: [],
+      ignoredDts,
+      validationError: `El archivo no tiene DT que pertenezcan a ${contractor}.`,
+    };
+  }
 
-  return `El archivo trae DT que no pertenecen a ${contractor}: ${invalidDts.slice(0, 8).join(", ")}.`;
+  return { records: sanitizedRecords, ignoredDts, validationError: "" };
+}
+
+function summarizeReportRows(report: PuntoCoronaRouteReport, rows: PuntoCoronaRouteReport["rows"], seguimientoDts: number) {
+  const notStarted = "NOT_STARTED";
+  const returnedStatuses = new Set(["DEFINITELY_RETURNED", "WAITING_MODULATION", "PARTIAL_DELIVERY"]);
+  const startedRows = rows.filter((row) => row.status !== notStarted);
+  const concluded = rows.filter((row) => row.status === "CONCLUDED").length;
+  const returned = rows.filter((row) => returnedStatuses.has(row.status)).length;
+  const inRange = startedRows.filter((row) => row.withinRadius === true).length;
+  const outOfRange = startedRows.filter((row) => row.withinRadius === false).length;
+  const modulationOpenRows = startedRows.length - concluded - returned;
+  const crews = new Map<string, typeof rows>();
+
+  rows.forEach((row) => {
+    const key = `${normalizeDt(row.dt)}:${row.driverName}:${row.truckLicensePlate}`;
+    crews.set(key, [...(crews.get(key) || []), row]);
+  });
+
+  return {
+    ...report.summary,
+    seguimientoDts,
+    csvDts: new Set(rows.map((row) => normalizeDt(row.dt || row.tourDisplayId)).filter(Boolean)).size,
+    matchedDts: new Set(rows.map((row) => normalizeDt(row.dt || row.tourDisplayId)).filter(Boolean)).size,
+    totalRows: rows.length,
+    ignoredNotStarted: rows.length - startedRows.length,
+    startedRows: startedRows.length,
+    inRange,
+    outOfRange,
+    concluded,
+    returned,
+    openRows: modulationOpenRows,
+    modulatedRows: concluded,
+    modulationOpenRows,
+    modulationPercent: percent(concluded, concluded + returned),
+    deliveryRangePercent: percent(inRange, startedRows.length),
+    crews: Array.from(crews.entries()).map(([key, crewRows]) => {
+      const started = crewRows.filter((row) => row.status !== notStarted);
+      const crewConcluded = crewRows.filter((row) => row.status === "CONCLUDED").length;
+      const crewReturned = crewRows.filter((row) => returnedStatuses.has(row.status)).length;
+      const crewInRange = started.filter((row) => row.withinRadius === true).length;
+      const crewOutOfRange = started.filter((row) => row.withinRadius === false).length;
+      return {
+        key,
+        dt: crewRows[0]?.dt || "",
+        driverName: crewRows[0]?.driverName || "Sin tripulacion",
+        truckLicensePlate: crewRows[0]?.truckLicensePlate || "Sin placa",
+        totalStarted: started.length,
+        inRange: crewInRange,
+        outOfRange: crewOutOfRange,
+        concluded: crewConcluded,
+        returned: crewReturned,
+        open: started.length - crewConcluded - crewReturned,
+        modulatedRows: crewConcluded,
+        modulationOpenRows: started.length - crewConcluded - crewReturned,
+        modulationPercent: percent(crewConcluded, crewConcluded + crewReturned),
+        deliveryRangePercent: percent(crewInRange, started.length),
+        seguimientoClientes: Number(crewRows[0]?.seguimientoClientes || 0),
+        seguimientoVisitados: Number(crewRows[0]?.seguimientoVisitados || 0),
+        seguimientoProgress: Number(crewRows[0]?.seguimientoProgress || 0),
+      };
+    }),
+  };
+}
+
+function percent(value: number, total: number) {
+  return total ? Number(((value / total) * 100).toFixed(2)) : 0;
 }
 
 type ReportRow = {
