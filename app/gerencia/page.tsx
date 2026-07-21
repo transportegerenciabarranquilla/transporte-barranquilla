@@ -80,6 +80,11 @@ const ATTENDANCE_STORAGE_KEY = "bavaria.people.attendance.excel.v1";
 const CONTRACTORS = [
   { id: "logisticos", label: "Logísticos", aliases: ["logisticos", "logisticosarenosa"] },
 ] as const;
+const DEPARTURE_CONTRACTORS = [
+  { id: "logisticos", label: "Logísticos", aliases: ["logisticos", "logisticosarenosa"] },
+  { id: "surti", label: "Surti Cervezas", aliases: ["surti", "surticervezas"] },
+  { id: "punto-corona", label: "Punto Corona", aliases: ["puntocorona", "corona", "puntocoronaarenosa", "coronaarenosa"] },
+] as const;
 
 export default function ManagementPage() {
   const router = useRouter();
@@ -216,11 +221,11 @@ export default function ManagementPage() {
     { total: 0, arrived: 0, pending: 0, inCd: 0, inRoute: 0 },
   );
   const tripDashboard = useMemo(
-    () => dashboard.map((contractor) => ({
+    () => DEPARTURE_CONTRACTORS.map((contractor) => ({
       ...contractor,
       ...summarizeTrips(seguimientoRoutes, selectedDate, contractor.aliases),
     })),
-    [dashboard, seguimientoRoutes, selectedDate],
+    [seguimientoRoutes, selectedDate],
   );
   const deadline = getDepartureDeadline(selectedDate, now);
 

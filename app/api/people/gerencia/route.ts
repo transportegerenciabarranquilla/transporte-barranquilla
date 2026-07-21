@@ -32,6 +32,7 @@ type AttendanceRow = {
 
 const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada";
 const ATTENDANCE_SELECT = "contractor,dt:data->>dt,llave:data->>llave,createdAt:data->>createdAt,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
+const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
 
 export async function GET() {
   try {
@@ -42,11 +43,29 @@ export async function GET() {
     }
 
     const headers = supabaseAdminHeaders() ?? supabaseHeaders();
-    const [people, seguimientoRows, attendanceRows] = await Promise.all([
+    const [people, seguimientoByContractor, attendanceRows] = await Promise.all([
       readRows<PersonRow>("transporte_barranquilla", "select=CC,NOMBRE,CARGO,CONTRATISTA&order=NOMBRE.asc&limit=1500", headers),
-      readRows<SeguimientoRow>("seguimiento_vehiculos", new URLSearchParams({ select: SEGUIMIENTO_SELECT, order: "updated_at.desc", limit: "3000" }).toString(), headers),
-      readRows<AttendanceRow>("asistencias_ruta", new URLSearchParams({ select: ATTENDANCE_SELECT, order: "updated_at.desc", limit: "3000" }).toString(), headers),
+      Promise.all(
+        SEGUIMIENTO_CONTRACTORS.map((contractor) =>
+          readRows<SeguimientoRow>(
+            "seguimiento_vehiculos",
+            new URLSearchParams({
+              select: SEGUIMIENTO_SELECT,
+              contractor: `eq.${contractor}`,
+              order: "updated_at.desc",
+              limit: "1000",
+            }).toString(),
+            headers,
+          ),
+        ),
+      ),
+      readRows<AttendanceRow>(
+        "asistencias_ruta",
+        new URLSearchParams({ select: ATTENDANCE_SELECT, contractor: "eq.Logisticos", order: "updated_at.desc", limit: "1000" }).toString(),
+        headers,
+      ),
     ]);
+    const seguimientoRows = seguimientoByContractor.flat();
 
     const contractors = Array.from(
       people.reduce((groups, person) => {
