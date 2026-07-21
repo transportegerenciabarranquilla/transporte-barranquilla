@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #2d1b4e;
+  --coral: #ed6a5a;
+  --paper: #f8f6fc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(237, 106, 90, 0.11), transparent 31rem),
+    radial-gradient(circle at 94% 8%, rgba(124, 58, 237, 0.1), transparent 36rem),
+    radial-gradient(circle at 50% 100%, rgba(245, 158, 11, 0.07), transparent 32rem),
+    var(--paper);
+  color: #1e293b;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.panel {
+  border: 1px solid rgb(226 232 240);
+  border-radius: 1.15rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 55px rgba(45, 27, 78, 0.065);
+}
+
+.trend-panel-3d {
+  perspective: 1200px;
+  transform-style: preserve-3d;
+}
+
+.trend-chart-3d {
+  overflow: visible;
+  transform: rotateX(0deg) translateZ(0);
+  transform-origin: 50% 100%;
+  transform-style: preserve-3d;
+  transition: transform 450ms cubic-bezier(0.2, 0.75, 0.2, 1), filter 450ms ease;
+}
+
+.trend-panel-3d:hover .trend-chart-3d {
+  filter: drop-shadow(0 18px 14px rgba(45, 27, 78, 0.12));
+  transform: rotateX(3deg) translateY(-3px) translateZ(12px);
+}
+
+.trend-area-face {
+  animation: trend-rise 700ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+  transform-box: fill-box;
+  transform-origin: bottom;
+}
+
+.trend-area-depth {
+  transform: translateY(7px);
+  transition: transform 350ms ease, opacity 350ms ease;
+}
+
+.trend-panel-3d:hover .trend-area-depth {
+  opacity: 0.24;
+  transform: translateY(10px);
+}
+
+.trend-line-depth {
+  opacity: 0.24;
+}
+
+.trend-line-draw {
+  animation: trend-draw 900ms ease-out both;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.trend-point {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 220ms ease, filter 220ms ease;
+}
+
+.trend-point:hover,
+.trend-point:focus {
+  filter: brightness(1.04);
+  transform: translateY(-4px) scale(1.12);
+}
+
+@keyframes trend-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes trend-rise {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.chart-grid {
+  background-image: linear-gradient(to right, rgba(148, 163, 184, 0.15) 1px, transparent 1px);
+  background-size: 10% 100%;
+}
+
+.field {
+  height: 2.5rem;
+  width: 100%;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.5rem;
+  background: white;
+  padding: 0 0.7rem;
+  color: rgb(51 65 85);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+  outline: none;
+}
+
+.field:focus {
+  border-color: rgb(237 106 90);
+  box-shadow: 0 0 0 3px rgb(255 228 224);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trend-chart-3d,
+  .trend-area-depth,
+  .trend-point {
+    transition: none;
+  }
+
+  .trend-area-face,
+  .trend-line-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
