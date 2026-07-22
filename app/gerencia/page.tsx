@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileSpreadsheet, MapPin, Route, Upload, Users } from "lucide-react";
+import { Archive, ArrowLeft, Building2, ChevronDown, ChevronUp, Clock3, FileSpreadsheet, Maximize2, Minimize2, RefreshCw, Upload } from "lucide-react";
 
 type Person = {
   cc: string;
@@ -51,10 +51,12 @@ type ClockRow = {
   salida?: string;
 };
 
-type StoredAttendance = {
-  fileName?: string;
-  savedAt?: string;
-  rows?: ClockRow[];
+type AttendanceSnapshot = {
+  operationalDate: string;
+  fileName: string;
+  uploadedAt: string;
+  closedAt: string | null;
+  rows: ClockRow[];
 };
 
 type PersonState = Person & {
@@ -76,7 +78,7 @@ type CargoRow = {
   inRoute: number;
 };
 
-const ATTENDANCE_STORAGE_KEY = "bavaria.people.attendance.excel.v1";
+const REFRESH_SECONDS = 10;
 const CONTRACTORS = [
   { id: "logisticos", label: "Logísticos", aliases: ["logisticos", "logisticosarenosa"] },
 ] as const;
@@ -93,16 +95,20 @@ export default function ManagementPage() {
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [seguimientoRoutes, setSeguimientoRoutes] = useState<SeguimientoRoute[]>([]);
   const [routeAttendances, setRouteAttendances] = useState<RouteAttendance[]>([]);
+  const [attendanceSnapshots, setAttendanceSnapshots] = useState<AttendanceSnapshot[]>([]);
   const [clockRows, setClockRows] = useState<ClockRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [expandedContractor, setExpandedContractor] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [isTvMode, setIsTvMode] = useState(false);
   const [isAllowed, setIsAllowed] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [now, setNow] = useState(0);
+  const [refreshIn, setRefreshIn] = useState(REFRESH_SECONDS);
   const [sourceCounts, setSourceCounts] = useState({ seguimiento: 0, asistencias: 0 });
 
   const refreshManagementData = useCallback(async () => {
@@ -114,35 +120,45 @@ export default function ManagementPage() {
     setPeopleGroups(body.contractors || []);
     setSeguimientoRoutes(liveSeguimiento);
     setRouteAttendances(liveAttendances);
-    const latestOperationalDate = getLatestOperationalDate(liveSeguimiento, liveAttendances);
-    if (!dateSelectedByUser.current && latestOperationalDate) setSelectedDate(latestOperationalDate);
+    if (!dateSelectedByUser.current) setSelectedDate(bogotaToday());
     setSourceCounts({
       seguimiento: Number(body.sourceCounts?.seguimiento || 0),
       asistencias: Number(body.sourceCounts?.asistencias || 0),
     });
   }, []);
 
-  useEffect(() => {
-    const stored = readStoredAttendance();
-    setClockRows(stored?.rows || []);
-    setFileName(stored?.fileName || "");
+  const refreshAttendanceData = useCallback(async () => {
+    const response = await fetch(`/api/people/attendance-snapshots?refresh=${Date.now()}`, { cache: "no-store" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "No se pudo cargar la asistencia guardada.");
+    const snapshots = (body.snapshots || []) as AttendanceSnapshot[];
+    setAttendanceSnapshots(snapshots);
+    setClockRows(snapshots.flatMap((snapshot) => snapshot.rows || []));
+    if (!dateSelectedByUser.current) setSelectedDate(bogotaToday());
+  }, []);
 
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshManagementData(), refreshAttendanceData()]);
+    setRefreshIn(REFRESH_SECONDS);
+  }, [refreshAttendanceData, refreshManagementData]);
+
+  useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!body?.session?.isAdmin && !body?.session?.isPeople) throw new Error("Este módulo está disponible solo para Gerencia y People.");
         setIsAllowed(true);
-        return refreshManagementData();
+        return refreshAll();
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : "No se pudo cargar Gerencia."))
       .finally(() => setIsLoading(false));
-  }, [refreshManagementData]);
+  }, [refreshAll]);
 
   useEffect(() => {
     if (!isAllowed) return;
     const refresh = () => {
-      void refreshManagementData().catch((caught) => {
-        setError(caught instanceof Error ? caught.message : "No se pudo actualizar Seguimiento.");
+      void refreshAll().catch((caught) => {
+        setError(caught instanceof Error ? caught.message : "No se pudo actualizar el tablero.");
       });
     };
     const handleVisibility = () => {
@@ -156,16 +172,25 @@ export default function ManagementPage() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [isAllowed, refreshManagementData]);
+  }, [isAllowed, refreshAll]);
 
   useEffect(() => {
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      setRefreshIn((current) => current > 1 ? current - 1 : REFRESH_SECONDS);
+    }, 1000);
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const handleFullscreen = () => setIsTvMode(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", handleFullscreen);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreen);
+  }, []);
+
   const dates = useMemo(() => {
-    const values = new Set(clockRows.map((row) => dateKey(row.fechaKey)).filter(Boolean));
+    const values = new Set([bogotaToday(), ...attendanceSnapshots.map((snapshot) => snapshot.operationalDate)]);
     seguimientoRoutes.forEach((record) => {
       const value = seguimientoDate(record);
       if (value) values.add(value);
@@ -175,7 +200,12 @@ export default function ManagementPage() {
       if (value) values.add(value);
     });
     return Array.from(values).sort().reverse();
-  }, [clockRows, routeAttendances, seguimientoRoutes]);
+  }, [attendanceSnapshots, routeAttendances, seguimientoRoutes]);
+
+  useEffect(() => {
+    const selectedSnapshot = attendanceSnapshots.find((snapshot) => snapshot.operationalDate === selectedDate);
+    setFileName(selectedSnapshot?.fileName || "");
+  }, [attendanceSnapshots, selectedDate]);
 
   useEffect(() => {
     if (!selectedDate && dates.length) setSelectedDate(dates[0]);
@@ -186,40 +216,30 @@ export default function ManagementPage() {
     return CONTRACTORS.map((contractor) => {
       const contractorPeople = people.filter((person) => contractor.aliases.includes(normalizeText(person.contratista) as never));
       const peopleIds = new Set(contractorPeople.map((person) => normalizeId(person.cc)).filter(Boolean));
-      const arrivals = buildArrivalMap(clockRows, selectedDate, contractor.aliases);
-      const routedPeople = buildRoutedPeople(routeAttendances, seguimientoRoutes, selectedDate, peopleIds);
+      const clockRecords = buildClockMap(clockRows, selectedDate, contractor.aliases);
+      const routedPeople = buildSeguimientoPeople(seguimientoRoutes, routeAttendances, selectedDate, contractor.aliases, peopleIds);
       const rows: PersonState[] = contractorPeople.map((person) => {
         const cc = normalizeId(person.cc);
-        const arrival = arrivals.get(cc);
+        const clockRecord = clockRecords.get(cc);
         const routeInfo = routedPeople.get(cc);
         const inRoute = Boolean(routeInfo);
-        const arrived = Boolean(arrival || inRoute);
+        const arrived = Boolean(clockRecord?.entrada || inRoute);
         return {
           ...person,
           arrived,
           inCd: arrived && !inRoute,
           inRoute,
           status: inRoute ? "En ruta" : arrived ? "En CD" : "Pendiente",
-          arrivalTime: arrival?.entrada || "",
+          arrivalTime: clockRecord?.entrada || "",
           routeDepartureTime: routeInfo?.departureTime || "",
-          pendingReason: inRoute ? "" : arrival ? "No ha salido a ruta" : "Sin marca de llegada",
+          pendingReason: arrived || inRoute ? "" : "Sin marca de llegada",
         };
       });
-      return { ...contractor, rows, cargos: summarizeByCargo(rows), totals: summarizePeople(rows), peopleIds };
+      return { ...contractor, rows, cargos: summarizeByCargo(rows), totals: summarizePeople(rows) };
     });
-  }, [clockRows, peopleGroups, routeAttendances, selectedDate]);
+  }, [clockRows, peopleGroups, routeAttendances, seguimientoRoutes, selectedDate]);
 
   const active = dashboard.find((item) => item.id === expandedContractor) || null;
-  const global = dashboard.reduce(
-    (total, item) => ({
-      total: total.total + item.totals.total,
-      arrived: total.arrived + item.totals.arrived,
-      pending: total.pending + item.totals.pending,
-      inCd: total.inCd + item.totals.inCd,
-      inRoute: total.inRoute + item.totals.inRoute,
-    }),
-    { total: 0, arrived: 0, pending: 0, inCd: 0, inRoute: 0 },
-  );
   const tripDashboard = useMemo(
     () => DEPARTURE_CONTRACTORS.map((contractor) => ({
       ...contractor,
@@ -228,6 +248,38 @@ export default function ManagementPage() {
     [seguimientoRoutes, selectedDate],
   );
   const deadline = getDepartureDeadline(selectedDate, now);
+  const previousOpenSnapshot = attendanceSnapshots.find((snapshot) => snapshot.operationalDate < bogotaToday() && !snapshot.closedAt);
+
+  async function toggleTvMode() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      setIsTvMode((current) => !current);
+    }
+  }
+
+  async function closePreviousDay() {
+    if (!previousOpenSnapshot) return;
+    setIsClosing(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/people/attendance-snapshots", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationalDate: previousOpenSnapshot.operationalDate }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo cerrar la jornada anterior.");
+      await refreshAttendanceData();
+      setMessage(`Jornada ${formatDate(previousOpenSnapshot.operationalDate)} cerrada y guardada.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo cerrar la jornada anterior.");
+    } finally {
+      setIsClosing(false);
+    }
+  }
 
   async function handleAttendanceUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -248,17 +300,24 @@ export default function ManagementPage() {
         peopleGroups.flatMap((group) => group.people).map((person) => [normalizeId(person.cc), person]),
       );
       const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
-      const parsedRows = rawRows.map((row) => parseClockRow(row, peopleById)).filter((row): row is ClockRow => Boolean(row));
-      if (!parsedRows.length) throw new Error("No se encontraron registros válidos de asistencia.");
+      const allParsedRows = rawRows.map((row) => parseClockRow(row, peopleById)).filter((row): row is ClockRow => Boolean(row));
+      const today = bogotaToday();
+      const parsedRows = allParsedRows.filter((row) => dateKey(row.fechaKey) === today).map((row) => ({ ...row, fechaKey: today }));
+      if (!parsedRows.length) throw new Error(`El Excel no contiene registros de hoy (${formatDate(today)}). No se guardó ningún dato.`);
 
-      const payload = { fileName: file.name, savedAt: new Date().toISOString(), rows: parsedRows };
-      localStorage.setItem(ATTENDANCE_STORAGE_KEY, JSON.stringify(payload));
-      setClockRows(parsedRows);
+      const response = await fetch("/api/people/attendance-snapshots", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationalDate: today, fileName: file.name, rows: parsedRows }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar la asistencia en la base de datos.");
+      await refreshAttendanceData();
+      dateSelectedByUser.current = true;
+      setSelectedDate(today);
       setFileName(file.name);
-      const latestOperationalDate = getLatestOperationalDate(seguimientoRoutes, routeAttendances);
-      const latestExcelDate = parsedRows.map((row) => dateKey(row.fechaKey)).filter(Boolean).sort().reverse()[0];
-      if (latestOperationalDate || latestExcelDate) setSelectedDate(latestOperationalDate || latestExcelDate);
-      setMessage(`Asistencia cargada: ${parsedRows.length} marcaciones procesadas.`);
+      const ignored = allParsedRows.length - parsedRows.length;
+      setMessage(`Asistencia de hoy guardada en la base de datos: ${parsedRows.length} registros.${ignored ? ` Se ignoraron ${ignored} registros de otras fechas.` : ""}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo leer el Excel de asistencia.");
     } finally {
@@ -271,12 +330,14 @@ export default function ManagementPage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_8%_0%,rgba(237,106,90,0.11),transparent_31rem),radial-gradient(circle_at_94%_8%,rgba(124,58,237,0.10),transparent_36rem),#f8f6fc] text-slate-900">
-      <header className="sticky top-0 z-20 border-b border-white/60 bg-white/90 backdrop-blur-xl">
+      <header className={`${isTvMode ? "hidden" : "sticky"} top-0 z-20 border-b border-white/60 bg-white/90 backdrop-blur-xl`}>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button aria-label="Volver" className="grid h-10 w-10 place-items-center rounded-lg text-[#10223d] hover:bg-slate-100" onClick={() => router.push("/")} type="button">
             <ArrowLeft size={20} />
           </button>
           <div className="flex items-center gap-3 text-right">
+            <span className="hidden items-center gap-2 rounded-xl bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 sm:inline-flex"><RefreshCw size={14} /> Actualiza en {refreshIn}s</span>
+            <button className="inline-flex h-10 items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 text-xs font-black text-violet-700 hover:bg-violet-50" onClick={toggleTvMode} type="button"><Maximize2 size={16} /> Modo TV</button>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#ed6a5a]">Vista ejecutiva</p>
               <h1 className="text-2xl font-black text-[#2d1b4e]">Gerencia de personal</h1>
@@ -286,7 +347,13 @@ export default function ManagementPage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl space-y-6 px-5 py-7 sm:px-8">
+      <section className={`mx-auto space-y-6 ${isTvMode ? "max-w-none px-3 py-3 [&_button]:text-base [&_h2]:text-3xl [&_p]:text-base" : "max-w-7xl px-5 py-7 sm:px-8"}`}>
+        {isTvMode ? (
+          <div className="sticky top-2 z-30 flex justify-end gap-2">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-[#2d1b4e] px-5 py-3 text-lg font-black text-white shadow-lg"><RefreshCw size={20} /> Actualiza en {refreshIn}s</span>
+            <button className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-lg font-black text-violet-700 shadow-lg ring-1 ring-violet-100" onClick={toggleTvMode} type="button"><Minimize2 size={20} /> Salir TV</button>
+          </div>
+        ) : null}
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p> : null}
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</p> : null}
         {!clockRows.length ? (
@@ -309,19 +376,14 @@ export default function ManagementPage() {
                 {dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}
               </select>
             </label>
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!previousOpenSnapshot || isClosing} onClick={closePreviousDay} title={previousOpenSnapshot ? `Cerrar ${formatDate(previousOpenSnapshot.operationalDate)}` : "No hay jornadas anteriores abiertas"} type="button">
+              <Archive size={16} /> {isClosing ? "Cerrando…" : previousOpenSnapshot ? `Cerrar ${formatShortDate(previousOpenSnapshot.operationalDate)}` : "Anterior cerrada"}
+            </button>
             <input accept=".xlsx,.xls" className="hidden" onChange={handleAttendanceUpload} ref={fileInputRef} type="file" />
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#ed6a5a] px-5 text-sm font-black text-white shadow-lg shadow-rose-100 transition hover:bg-[#d95749] disabled:bg-slate-300" disabled={isUploading} onClick={() => fileInputRef.current?.click()} type="button">
               <Upload size={16} /> {isUploading ? "Procesando…" : "Subir Excel de asistencia"}
             </button>
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Metric icon={<Users size={18} />} label="Personal" tone="slate" value={global.total} />
-          <Metric icon={<CheckCircle2 size={18} />} label="Llegaron" tone="green" value={global.arrived} />
-          <Metric icon={<Clock3 size={18} />} label="Pendientes" tone="amber" value={global.pending} />
-          <Metric icon={<MapPin size={18} />} label="En el CD" tone="blue" value={global.inCd} />
-          <Metric icon={<Route size={18} />} label="En ruta · Seguimiento" tone="violet" value={global.inRoute} />
         </div>
 
         <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.07)]">
@@ -330,7 +392,7 @@ export default function ManagementPage() {
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#ed6a5a]">Meta de salida</p>
               <h2 className="mt-1 text-xl font-black text-[#2d1b4e]">Viajes por contratista</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · VH cargados por cada contratista en Seguimiento</p>
-              <p className="mt-1 text-xs font-bold text-violet-600">Actualización en vivo: {sourceCounts.seguimiento} VH · {sourceCounts.asistencias} asistencias · Fecha {selectedDate || "sin seleccionar"}</p>
+              <p className="mt-1 text-xs font-bold text-violet-600">Seguimiento en vivo: {sourceCounts.seguimiento} VH · Fecha {selectedDate || "sin seleccionar"} · próxima actualización en {refreshIn}s</p>
             </div>
             <div className={`flex min-w-64 items-center gap-3 rounded-2xl border px-4 py-3 ${deadline.isOpen ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-800"}`}>
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white"><Clock3 size={19} /></span>
@@ -342,19 +404,19 @@ export default function ManagementPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">
+            <table className={`w-full min-w-[760px] text-left ${isTvMode ? "text-lg" : "text-sm"}`}>
+              <thead className={`bg-slate-50 font-black uppercase tracking-[0.1em] text-slate-400 ${isTvMode ? "text-sm" : "text-[10px]"}`}>
                 <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">En ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tripDashboard.map((contractor) => (
                   <tr className="hover:bg-slate-50/70" key={contractor.id}>
-                    <td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#2d1b4e] text-white"><Building2 size={16} /></span><span className="font-black text-[#10223d]">{contractor.label}</span></div></td>
-                    <td className="px-4 py-4 text-center text-2xl font-black text-[#2d1b4e]">{contractor.total}</td>
-                    <td className="px-4 py-4 text-center text-2xl font-black text-emerald-600">{contractor.departed}</td>
-                    <td className="px-4 py-4 text-center text-2xl font-black text-red-600">{contractor.late}</td>
-                    <td className="px-4 py-4 text-center text-2xl font-black text-amber-600">{contractor.pending}</td>
-                    <td className="px-5 py-4"><TripProgressRing percentage={contractor.percentage} /></td>
+                    <td className={`${isTvMode ? "py-6" : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid place-items-center rounded-xl bg-[#2d1b4e] text-white ${isTvMode ? "h-12 w-12" : "h-9 w-9"}`}><Building2 size={isTvMode ? 23 : 16} /></span><span className="font-black text-[#10223d]">{contractor.label}</span></div></td>
+                    <td className={`px-4 text-center font-black text-[#2d1b4e] ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.total}</td>
+                    <td className={`px-4 text-center font-black text-emerald-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.departed}</td>
+                    <td className={`px-4 text-center font-black text-red-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.late}</td>
+                    <td className={`px-4 text-center font-black text-amber-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.pending}</td>
+                    <td className={`${isTvMode ? "py-6" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -377,26 +439,26 @@ export default function ManagementPage() {
                   <span className="shrink-0 rounded-lg bg-violet-50 px-2.5 py-1 text-xs font-black text-violet-700">{contractor.totals.arrived}/{contractor.totals.total}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-1.5 text-center text-xs">
-                  <SmallStat label="Pendientes" value={contractor.totals.pending} />
-                  <SmallStat label="En CD" value={contractor.totals.inCd} />
-                  <SmallStat label="En ruta" value={contractor.totals.inRoute} />
+                  <SmallStat label="Pendientes" large={isTvMode} value={contractor.totals.pending} />
+                  <SmallStat label="En CD" large={isTvMode} value={contractor.totals.inCd} />
+                  <SmallStat label="En ruta" large={isTvMode} value={contractor.totals.inRoute} />
                 </div>
               </div>
 
               <div className="flex-1 overflow-x-auto">
-                <table className="w-full min-w-[390px] text-left text-[11px]">
-                  <thead className="bg-slate-50 text-[9px] font-black uppercase tracking-[0.08em] text-slate-400">
+                <table className={`w-full min-w-[390px] text-left ${isTvMode ? "text-base" : "text-[11px]"}`}>
+                  <thead className={`bg-slate-50 font-black uppercase tracking-[0.08em] text-slate-400 ${isTvMode ? "text-xs" : "text-[9px]"}`}>
                     <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center" title="Personal">Per.</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600">Ruta</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {contractor.cargos.slice(0, 6).map((row, index) => (
                       <tr className="hover:bg-slate-50/80" key={row.cargo}>
                         <td className="px-3.5 py-2"><span className="mr-1.5 text-[9px] font-black text-slate-400">{index + 1}</span><span className="font-bold text-[#10223d]">{row.cargo}</span></td>
-                        <CompactNumber value={row.total} />
-                        <CompactNumber tone="green" value={row.arrived} />
-                        <CompactNumber tone="amber" value={row.pending} />
-                        <CompactNumber tone="blue" value={row.inCd} />
-                        <CompactNumber tone="violet" value={row.inRoute} />
+                        <CompactNumber large={isTvMode} value={row.total} />
+                        <CompactNumber large={isTvMode} tone="green" value={row.arrived} />
+                        <CompactNumber large={isTvMode} tone="amber" value={row.pending} />
+                        <CompactNumber large={isTvMode} tone="blue" value={row.inCd} />
+                        <CompactNumber large={isTvMode} tone="violet" value={row.inRoute} />
                       </tr>
                     ))}
                     {!contractor.cargos.length ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={6}>No hay personal asociado.</td></tr> : null}
@@ -421,7 +483,7 @@ export default function ManagementPage() {
               <button aria-label="Ocultar detalle" className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200" onClick={() => setExpandedContractor(null)} type="button"><ChevronUp size={17} /></button>
             </div>
             <div className="max-h-[520px] overflow-auto">
-              <table className="w-full min-w-[1080px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-[0.1em] text-slate-500"><tr><th className="px-5 py-3">Persona</th><th className="px-4 py-3">Cargo</th><th className="px-4 py-3">Llegada</th><th className="px-4 py-3">Salida a ruta</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Causa pendiente</th></tr></thead><tbody className="divide-y divide-slate-100">{active.rows.map((person) => <tr key={`${person.contratista}:${person.cc}`}><td className="px-5 py-3"><p className="font-bold text-[#10223d]">{person.nombre}</p><p className="text-xs text-slate-400">CC {person.cc}</p></td><td className="px-4 py-3 text-slate-600">{person.cargo || "Sin cargo"}</td><td className="px-4 py-3 font-semibold text-slate-600">{person.arrivalTime || (person.inRoute ? "Asistencia de ruta" : "-")}</td><td className="px-4 py-3 font-black text-violet-700">{person.routeDepartureTime || "—"}</td><td className="px-4 py-3"><Status status={person.status} /></td><td className="px-4 py-3"><PendingReason reason={person.pendingReason} /></td></tr>)}{!active.rows.length ? <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>No hay personal asociado a este contratista.</td></tr> : null}</tbody></table>
+              <table className="w-full min-w-[1080px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-[0.1em] text-slate-500"><tr><th className="px-5 py-3">Persona</th><th className="px-4 py-3">Cargo</th><th className="px-4 py-3">Entrada (Excel)</th><th className="px-4 py-3">Salida (Excel)</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Causa pendiente</th></tr></thead><tbody className="divide-y divide-slate-100">{active.rows.map((person) => <tr key={`${person.contratista}:${person.cc}`}><td className="px-5 py-3"><p className="font-bold text-[#10223d]">{person.nombre}</p><p className="text-xs text-slate-400">CC {person.cc}</p></td><td className="px-4 py-3 text-slate-600">{person.cargo || "Sin cargo"}</td><td className="px-4 py-3 font-semibold text-slate-600">{person.arrivalTime || "—"}</td><td className="px-4 py-3 font-black text-violet-700">{person.routeDepartureTime || "—"}</td><td className="px-4 py-3"><Status status={person.status} /></td><td className="px-4 py-3"><PendingReason reason={person.pendingReason} /></td></tr>)}{!active.rows.length ? <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>No hay personal asociado a este contratista.</td></tr> : null}</tbody></table>
             </div>
           </section>
         ) : null}
@@ -430,37 +492,48 @@ export default function ManagementPage() {
   );
 }
 
-function buildArrivalMap(rows: ClockRow[], selectedDate: string, aliases: readonly string[]) {
+function buildClockMap(rows: ClockRow[], selectedDate: string, aliases: readonly string[]) {
   const values = new Map<string, ClockRow>();
   rows.forEach((row) => {
     const cc = normalizeId(row.identificador);
     if (!cc || dateKey(row.fechaKey) !== selectedDate || !aliases.includes(normalizeText(row.contratista))) return;
-    if (row.entrada) values.set(cc, row);
+    const current = values.get(cc);
+    if (!current || Number(Boolean(row.entrada)) + Number(Boolean(row.salida)) >= Number(Boolean(current.entrada)) + Number(Boolean(current.salida))) values.set(cc, row);
   });
   return values;
 }
 
-function buildRoutedPeople(attendances: RouteAttendance[], seguimiento: SeguimientoRoute[], selectedDate: string, contractorPeopleIds: Set<string>) {
+function buildSeguimientoPeople(records: SeguimientoRoute[], attendances: RouteAttendance[], selectedDate: string, aliases: readonly string[], peopleIds: Set<string>) {
   const values = new Map<string, { departureTime: string }>();
-  const routesByDt = new Map<string, SeguimientoRoute>();
-  seguimiento.forEach((route) => {
-    if (seguimientoDate(route) !== selectedDate) return;
-    const dt = normalizeId(route.transporte);
-    if (dt && !routesByDt.has(dt)) routesByDt.set(dt, route);
-  });
-
-  attendances.forEach((record) => {
-    if (routeAttendanceDate(record) !== selectedDate) return;
-    const route = routesByDt.get(normalizeId(record.dt));
-    const departureTime = formatOperationalTime(route?.horaSalida) || formatOperationalTime(record.createdAt);
+  const departedByDt = new Map<string, SeguimientoRoute>();
+  records.forEach((record) => {
+    if (seguimientoDate(record) !== selectedDate || !aliases.includes(normalizeText(record.contractor)) || !hasDepartedRoute(record)) return;
+    const departureTime = formatOperationalTime(record.horaSalida);
+    const dt = normalizeId(record.transporte);
+    if (dt) departedByDt.set(dt, record);
     [record.cedulaResponsable, record.cedulaAuxiliar1, record.cedulaAuxiliar2]
       .map(normalizeId)
-      .filter((cc) => Boolean(cc) && contractorPeopleIds.has(cc))
-      .forEach((cc) => {
-        if (!values.has(cc)) values.set(cc, { departureTime });
-      });
+      .filter((cc) => Boolean(cc) && peopleIds.has(cc))
+      .forEach((cc) => values.set(cc, { departureTime }));
+  });
+  attendances.forEach((attendance) => {
+    if (routeAttendanceDate(attendance) !== selectedDate || !aliases.includes(normalizeText(attendance.contratista))) return;
+    const route = departedByDt.get(normalizeId(attendance.dt));
+    if (!route) return;
+    const departureTime = formatOperationalTime(route.horaSalida);
+    [attendance.cedulaResponsable, attendance.cedulaAuxiliar1, attendance.cedulaAuxiliar2]
+      .map(normalizeId)
+      .filter((cc) => Boolean(cc) && peopleIds.has(cc))
+      .forEach((cc) => values.set(cc, { departureTime }));
   });
   return values;
+}
+
+function formatOperationalTime(value: string | undefined) {
+  const text = String(value || "").trim();
+  const time = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (time) return `${time[1].padStart(2, "0")}:${time[2]}${time[3] ? `:${time[3]}` : ""}`;
+  return "";
 }
 
 function routeAttendanceDate(record: RouteAttendance) {
@@ -472,22 +545,6 @@ function seguimientoDate(record: SeguimientoRoute) {
   return dateKey(record.fechaDespacho || record.fechaDt);
 }
 
-function getLatestOperationalDate(seguimiento: SeguimientoRoute[], attendances: RouteAttendance[]) {
-  return [
-    ...seguimiento.map(seguimientoDate),
-    ...attendances.map(routeAttendanceDate),
-  ].filter(Boolean).sort().reverse()[0] || "";
-}
-
-function formatOperationalTime(value: string | undefined) {
-  const text = String(value || "").trim();
-  const time = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (time) return `${time[1].padStart(2, "0")}:${time[2]}${time[3] ? `:${time[3]}` : ""}`;
-  if (!text) return "";
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/Bogota" }).format(parsed);
-}
 
 function hasOperationalTime(value: string | undefined) {
   const normalized = normalizeText(value);
@@ -581,10 +638,6 @@ function dedupePeople(people: Person[]) {
   return Array.from(values.values());
 }
 
-function readStoredAttendance(): StoredAttendance | null {
-  try { return JSON.parse(localStorage.getItem(ATTENDANCE_STORAGE_KEY) || "null") as StoredAttendance | null; } catch { return null; }
-}
-
 function parseClockRow(row: Record<string, unknown>, peopleById: Map<string, Person>): ClockRow | null {
   const identificador = normalizeId(readClockValue(row, ["identificador", "cedula", "cc", "documento"]));
   const person = peopleById.get(identificador);
@@ -625,7 +678,7 @@ function normalizeHeader(value: string) {
 function normalizeClockDate(value: string) {
   const text = value.trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
-  const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const match = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
   if (match) return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
   return dateKey(text);
 }
@@ -634,11 +687,12 @@ function normalizeId(value: unknown) { return String(value || "").replace(/\D/g,
 function normalizeText(value: unknown) { return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 function dateKey(value: unknown) { const text = String(value || ""); if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10); const parsed = new Date(text); return Number.isNaN(parsed.getTime()) ? "" : `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`; }
 function formatDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" }) : "Sin fecha"; }
+function formatShortDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit" }) : ""; }
+function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 
-function Metric({ icon, label, tone, value }: { icon: React.ReactNode; label: string; tone: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "bg-slate-100 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", blue: "bg-cyan-50 text-cyan-700", violet: "bg-violet-50 text-violet-700" }; return <article className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-[0_18px_55px_rgba(45,27,78,0.07)]"><span className={`grid h-9 w-9 place-items-center rounded-xl ${styles[tone]}`}>{icon}</span><p className="mt-3 text-3xl font-black text-[#2d1b4e]">{value}</p><p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p></article>; }
-function SmallStat({ label, value }: { label: string; value: number }) { return <span className="rounded-lg bg-white px-1.5 py-1.5 ring-1 ring-slate-100"><strong className="block text-base text-[#10223d]">{value}</strong><span className="text-[8px] font-bold uppercase text-slate-400">{label}</span></span>; }
-function CompactNumber({ tone = "slate", value }: { tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-slate-700", green: "text-emerald-700", amber: "text-amber-700", blue: "text-cyan-700", violet: "text-violet-700" }; return <td className={`px-2 py-2 text-center font-black ${styles[tone]}`}>{value}</td>; }
-function TripProgressRing({ percentage }: { percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className="grid h-16 w-16 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#7c3aed ${degrees}deg, #ede9fe ${degrees}deg)` }}><span className="grid h-12 w-12 place-items-center rounded-full bg-white text-sm font-black text-[#2d1b4e]">{percentage}%</span></div><span className="text-xs font-bold text-slate-500">Salieron<br />hasta 7:00</span></div>; }
+function SmallStat({ label, large = false, value }: { label: string; large?: boolean; value: number }) { return <span className={`rounded-lg bg-white ring-1 ring-slate-100 ${large ? "px-3 py-2.5" : "px-1.5 py-1.5"}`}><strong className={`block text-[#10223d] ${large ? "text-3xl" : "text-base"}`}>{value}</strong><span className={`font-bold uppercase text-slate-400 ${large ? "text-xs" : "text-[8px]"}`}>{label}</span></span>; }
+function CompactNumber({ large = false, tone = "slate", value }: { large?: boolean; tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-slate-700", green: "text-emerald-700", amber: "text-amber-700", blue: "text-cyan-700", violet: "text-violet-700" }; return <td className={`px-2 text-center font-black ${large ? "py-4 text-xl" : "py-2"} ${styles[tone]}`}>{value}</td>; }
+function TripProgressRing({ large = false, percentage }: { large?: boolean; percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className={`grid shrink-0 place-items-center rounded-full ${large ? "h-24 w-24" : "h-16 w-16"}`} style={{ background: `conic-gradient(#7c3aed ${degrees}deg, #ede9fe ${degrees}deg)` }}><span className={`grid place-items-center rounded-full bg-white font-black text-[#2d1b4e] ${large ? "h-[74px] w-[74px] text-xl" : "h-12 w-12 text-sm"}`}>{percentage}%</span></div><span className={`${large ? "text-base" : "text-xs"} font-bold text-slate-500`}>Salieron<br />hasta 7:00</span></div>; }
 function Status({ status }: { status: PersonState["status"] }) { const styles = status === "En ruta" ? "bg-violet-50 text-violet-700" : status === "En CD" ? "bg-cyan-50 text-cyan-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-black ${styles}`}>{status}</span>; }
 function PendingReason({ reason }: { reason: PersonState["pendingReason"] }) { if (!reason) return <span className="text-slate-300">—</span>; const style = reason === "Sin marca de llegada" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-bold ${style}`}>{reason}</span>; }
 function Restricted({ message, onBack }: { message: string; onBack: () => void }) { return <main className="grid min-h-screen place-items-center bg-[#f4f7fb] px-5"><section className="max-w-md rounded-xl border border-red-100 bg-white p-6 text-center shadow-lg"><h1 className="text-xl font-black text-[#10223d]">Gerencia restringida</h1><p className="mt-2 text-sm text-slate-500">{message || "No tienes permiso para consultar este módulo."}</p><button className="mt-5 rounded-lg bg-[#10223d] px-4 py-2 text-sm font-bold text-white" onClick={onBack} type="button">Volver</button></section></main>; }
