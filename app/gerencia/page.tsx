@@ -367,11 +367,11 @@ export default function ManagementPage() {
         </div>
       </header>
 
-      <section className={`mx-auto ${isTvMode ? "grid h-screen max-w-none grid-rows-[44fr_56fr] gap-2 overflow-hidden p-2 [&_button]:text-base" : "max-w-7xl space-y-6 px-5 py-7 sm:px-8"}`}>
+      <section className={`mx-auto ${isTvMode ? "grid h-screen max-w-none grid-rows-[44fr_56fr] gap-3 overflow-hidden p-3 font-sans [&_button]:text-base" : "max-w-7xl space-y-6 px-5 py-7 sm:px-8"}`}>
         {isTvMode ? (
           <div className="fixed right-3 top-3 z-30 flex justify-end gap-2">
-            <span className="inline-flex items-center gap-2 rounded-xl bg-[#102a43] px-4 py-2 text-base font-black text-white shadow-lg shadow-slate-400/30"><RefreshCw size={17} /> Actualiza en {refreshIn}s</span>
-            <button className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-base font-black text-[#1e3a5f] shadow-lg ring-1 ring-slate-300" onClick={toggleTvMode} type="button"><Minimize2 size={17} /> Salir TV</button>
+            <span className="inline-flex items-center gap-2 rounded-2xl bg-[#102a43] px-4 py-2 text-base font-semibold tracking-[-0.01em] text-white shadow-lg shadow-slate-400/30"><RefreshCw size={17} /> Actualiza en {refreshIn}s</span>
+            <button className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-base font-semibold tracking-[-0.01em] text-[#1e3a5f] shadow-lg ring-1 ring-slate-300" onClick={toggleTvMode} type="button"><Minimize2 size={17} /> Salir TV</button>
           </div>
         ) : null}
         {!isTvMode && error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p> : null}
@@ -406,13 +406,13 @@ export default function ManagementPage() {
           </div>
         </div>
 
-        <section className={`min-h-0 overflow-hidden rounded-[22px] border bg-white/95 ${isTvMode ? "border-slate-300 shadow-[0_16px_40px_rgba(15,35,58,0.16)] ring-1 ring-white/80" : "border-slate-200 shadow-[0_18px_55px_rgba(45,27,78,0.07)]"}`}>
+        <section className={`min-h-0 overflow-hidden rounded-[22px] border ${isTvMode ? "border-slate-300 bg-gradient-to-br from-white via-[#f8fafc] to-[#edf2f6] shadow-[0_9px_0_-4px_#c5d0da,0_22px_44px_rgba(15,35,58,0.2),inset_0_2px_0_white] ring-1 ring-white" : "border-slate-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.07)]"}`}>
           <div className={`flex border-b border-slate-200 sm:flex-row sm:items-center sm:justify-between ${isTvMode ? "gap-2 px-4 py-2" : "flex-col gap-4 px-5 py-5"}`}>
             <div className={isTvMode ? "border-l-4 border-[#0f766e] pl-3" : ""}>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#ed6a5a]">Meta de salida</p>
-              <h2 className={`${isTvMode ? "text-2xl" : "mt-1 text-xl"} font-black text-[#102a43]`}>Viajes por contratista</h2>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d76458]">Meta de salida</p>
+              <h2 className={`${isTvMode ? "text-3xl tracking-[-0.04em]" : "mt-1 text-xl"} font-bold text-[#102a43]`}>Viajes por contratista</h2>
               {!isTvMode ? <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · VH cargados por cada contratista en Seguimiento</p> : null}
-              <p className={`${isTvMode ? "flex items-center gap-2 text-sm" : "mt-1 text-xs"} font-bold text-[#2563a6]`}>
+              <p className={`${isTvMode ? "flex items-center gap-2 text-sm" : "mt-1 text-xs"} font-semibold text-[#2563a6]`}>
                 {isTvMode ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" /> : null}
                 Seguimiento en vivo: {sourceCounts.seguimiento} VH · Fecha {selectedDate || "sin seleccionar"}{isTvMode ? ` · ${formatTvClock(now)}` : ` · próxima actualización en ${refreshIn}s`}
               </p>
@@ -420,25 +420,25 @@ export default function ManagementPage() {
             <div className={`flex items-center rounded-2xl border ${isTvMode ? "mr-72 min-w-48 gap-2 px-3 py-2" : "min-w-64 gap-3 px-4 py-3"} ${deadline.isOpen ? "border-amber-300 bg-amber-50 text-amber-900" : isTvMode ? "border-slate-300 bg-slate-100 text-[#334e68]" : "border-violet-200 bg-violet-50 text-violet-800"}`}>
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white"><Clock3 size={19} /></span>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.13em]">{deadline.isOpen ? "Tiempo restante" : "Estado de la meta"}</p>
-                <p className="font-mono text-lg font-black tabular-nums">{deadline.label}</p>
+                <p className="text-[9px] font-semibold uppercase tracking-[0.18em]">{deadline.isOpen ? "Tiempo restante" : "Estado de la meta"}</p>
+                <p className="font-mono text-lg font-semibold tracking-[-0.02em] tabular-nums">{deadline.label}</p>
               </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className={`w-full min-w-[760px] text-left ${isTvMode ? "text-lg" : "text-sm"}`}>
-              <thead className={`font-black uppercase tracking-[0.1em] ${isTvMode ? "border-y border-slate-200 bg-[#e8eef6] text-sm text-[#1e3a5f]" : "bg-slate-50 text-[10px] text-slate-400"}`}>
+            <table className={`w-full min-w-[760px] text-left ${isTvMode ? "border-separate border-spacing-y-2 px-3 text-lg" : "text-sm"}`}>
+              <thead className={`uppercase ${isTvMode ? "text-[11px] font-semibold tracking-[0.16em] text-[#51697b]" : "bg-[#edf6ff] text-[10px] font-black tracking-[0.1em] text-[#42627a]"}`}>
                 <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">VH en ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tripDashboard.map((contractor, index) => (
-                  <tr className={isTvMode ? index % 2 === 0 ? "bg-white hover:bg-[#eef3f8]" : "bg-[#f5f7fa] hover:bg-[#eaf0f6]" : "hover:bg-slate-50/70"} key={contractor.id}>
-                    <td className={`${isTvMode ? `border-l-4 py-2 ${index === 0 ? "border-[#315b7d]" : index === 1 ? "border-[#0f766e]" : "border-[#b7791f]"}` : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid h-9 w-9 place-items-center rounded-xl text-white shadow-sm ${isTvMode ? index === 0 ? "bg-[#315b7d]" : index === 1 ? "bg-[#0f766e]" : "bg-[#b7791f]" : "bg-[#2d1b4e]"}`}><Building2 size={16} /></span><span className="font-black text-[#10223d]">{contractor.label}</span></div></td>
-                    <td className={`px-4 text-center font-black tabular-nums text-[#2d1b4e] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.total}</td>
-                    <td className={`px-4 text-center font-black tabular-nums text-[#0f766e] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.departed}</td>
-                    <td className={`px-4 text-center font-black tabular-nums text-[#b42318] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.late}</td>
-                    <td className={`px-4 text-center font-black tabular-nums text-[#a15c00] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.pending}</td>
+                  <tr className={isTvMode ? "drop-shadow-[0_6px_10px_rgba(15,35,58,0.10)] transition duration-200 [&_td]:bg-white/90 [&_td:first-child]:rounded-l-2xl [&_td:last-child]:rounded-r-2xl hover:drop-shadow-[0_9px_15px_rgba(15,35,58,0.15)] hover:[&_td]:bg-white" : "transition-colors hover:bg-[#edf8ff]"} key={contractor.id}>
+                    <td className={`${isTvMode ? `border-l-4 py-2 ${index === 0 ? "border-[#315b7d]" : index === 1 ? "border-[#2f716c]" : "border-[#a9823b]"}` : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl text-white shadow-md ${index === 0 ? "bg-[#315b7d]" : index === 1 ? "bg-[#2f716c]" : "bg-[#a9823b]"}`}><Building2 size={16} /></span><span className="text-xl font-bold tracking-[-0.02em] text-[#10223d]">{contractor.label}</span></div></td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#2d1b4e] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.total}</td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#059669] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.departed}</td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#ef4444] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.late}</td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#d97706] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.pending}</td>
                     <td className={`${isTvMode ? "py-1" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
                   </tr>
                 ))}
@@ -449,14 +449,14 @@ export default function ManagementPage() {
 
         <div className={`grid min-h-0 w-full ${isTvMode ? "gap-0" : "gap-5"}`}>
           {dashboard.map((contractor) => (
-            <section className={`flex h-full flex-col overflow-hidden rounded-[18px] border bg-white/95 ${isTvMode ? "min-h-0 border-slate-300 shadow-[0_14px_38px_rgba(15,35,58,0.15)] ring-1 ring-white/80" : "min-h-[350px] border-slate-200 shadow-[0_14px_40px_rgba(45,27,78,0.06)]"}`} key={contractor.id}>
-              <div className={`border-b px-3.5 ${isTvMode ? "border-[#294d68] bg-gradient-to-r from-[#102a43] via-[#163f59] to-[#0f5b5b] py-1.5 text-white" : "border-slate-200 py-3"}`}>
+            <section className={`flex h-full flex-col overflow-hidden rounded-[18px] border ${isTvMode ? "min-h-0 border-slate-300 bg-gradient-to-br from-white via-[#fafbfc] to-[#edf2f4] shadow-[0_9px_0_-4px_#aebcc7,0_20px_40px_rgba(15,35,58,0.24),inset_0_2px_0_white] ring-1 ring-white" : "min-h-[350px] border-slate-200 bg-white/95 shadow-[0_14px_40px_rgba(45,27,78,0.06)]"}`} key={contractor.id}>
+              <div className={`border-b px-3.5 ${isTvMode ? "border-[#17384d] bg-gradient-to-b from-[#294f66] via-[#183c52] to-[#102f43] py-1.5 text-white shadow-[inset_0_2px_0_rgba(255,255,255,0.16),inset_0_-3px_0_rgba(0,0,0,0.2),0_5px_12px_rgba(15,35,58,0.25)]" : "border-slate-200 py-3"}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${isTvMode ? "bg-white/15 text-white ring-1 ring-white/30" : "bg-[#2d1b4e] text-white"}`}><Building2 size={16} /></span>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${isTvMode ? "bg-gradient-to-br from-white/35 to-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_5px_10px_rgba(0,0,0,0.28)] ring-1 ring-white/40" : "bg-[#2d1b4e] text-white"}`}><Building2 size={16} /></span>
                     <div className="min-w-0">
-                      <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isTvMode ? "text-[#9fd8d2]" : "text-[#ed6a5a]"}`}>Contratista</p>
-                      <h2 className={`truncate text-base font-black ${isTvMode ? "text-white" : "text-[#10223d]"}`} title={contractor.label}>{contractor.label}</h2>
+                      <p className={`text-[9px] font-semibold uppercase tracking-[0.22em] ${isTvMode ? "text-[#a8d8d3]" : "text-[#ed6a5a]"}`}>Contratista</p>
+                      <h2 className={`truncate text-lg font-bold tracking-[-0.02em] ${isTvMode ? "text-white" : "text-[#10223d]"}`} title={contractor.label}>{contractor.label}</h2>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -473,22 +473,21 @@ export default function ManagementPage() {
               </div>
 
               <div className="flex-1 overflow-x-auto">
-                <table className={`w-full min-w-[390px] text-left ${isTvMode ? "text-base" : "text-[11px]"}`}>
-                  <thead className={`font-black uppercase tracking-[0.08em] ${isTvMode ? "border-b border-slate-200 bg-[#e8eef6] text-xs text-[#334e68]" : "bg-slate-50 text-[9px] text-slate-400"}`}>
-                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center" title="Personal">Per.</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600" title="Personas identificadas en ruta">Ruta ident.</th></tr>
+                <table className={`w-full min-w-[390px] text-left ${isTvMode ? "border-separate border-spacing-y-1.5 px-2 text-base" : "text-[11px]"}`}>
+                  <thead className={`uppercase ${isTvMode ? "text-[10px] font-semibold tracking-[0.14em] text-[#536b7d]" : "bg-[#edf6ff] text-[9px] font-black tracking-[0.08em] text-[#52718a]"}`}>
+                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600" title="Personas identificadas en ruta">Ruta ident.</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {contractor.cargos.slice(0, 6).map((row, index) => (
-                      <tr className={isTvMode ? index % 2 === 0 ? "bg-white hover:bg-[#eef3f8]" : "bg-[#f4f7f9] hover:bg-[#e8eff5]" : "hover:bg-slate-50/80"} key={row.cargo}>
-                        <td className="px-3.5 py-2"><span className="mr-1.5 text-[9px] font-black text-slate-400">{index + 1}</span><span className="font-bold text-[#10223d]">{row.cargo}</span></td>
-                        <CompactNumber large={isTvMode} value={row.total} />
+                      <tr className={isTvMode ? "drop-shadow-[0_4px_8px_rgba(15,35,58,0.08)] transition duration-200 [&_td]:bg-white/85 [&_td:first-child]:rounded-l-xl [&_td:last-child]:rounded-r-xl hover:drop-shadow-[0_7px_12px_rgba(15,35,58,0.13)] hover:[&_td]:bg-white" : "transition-colors hover:bg-[#edf8ff]"} key={row.cargo}>
+                        <td className="px-3.5 py-2"><span className="mr-2 text-[9px] font-semibold text-slate-400">{index + 1}</span><span className="text-base font-semibold tracking-[-0.01em] text-[#10223d]">{row.cargo}</span></td>
                         <CompactNumber large={isTvMode} tone="green" value={row.arrived} />
                         <CompactNumber large={isTvMode} tone="amber" value={row.pending} />
                         <CompactNumber large={isTvMode} tone="blue" value={row.inCd} />
                         <CompactNumber large={isTvMode} tone="violet" value={row.inRoute} />
                       </tr>
                     ))}
-                    {!contractor.cargos.length ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={6}>No hay personal asociado.</td></tr> : null}
+                    {!contractor.cargos.length ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={5}>No hay personal asociado.</td></tr> : null}
                   </tbody>
                 </table>
               </div>
@@ -510,7 +509,7 @@ export default function ManagementPage() {
               <button aria-label="Ocultar detalle" className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200" onClick={() => setExpandedContractor(null)} type="button"><ChevronUp size={17} /></button>
             </div>
             <div className="max-h-[520px] overflow-auto">
-              <table className="w-full min-w-[1080px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-[0.1em] text-slate-500"><tr><th className="px-5 py-3">Persona</th><th className="px-4 py-3">Cargo</th><th className="px-4 py-3">Entrada (Excel)</th><th className="px-4 py-3">Salida (Excel)</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Causa pendiente</th></tr></thead><tbody className="divide-y divide-slate-100">{active.rows.map((person) => <tr key={`${person.contratista}:${person.cc}`}><td className="px-5 py-3"><p className="font-bold text-[#10223d]">{person.nombre}</p><p className="text-xs text-slate-400">CC {person.cc}</p></td><td className="px-4 py-3 text-slate-600">{person.cargo || "Sin cargo"}</td><td className="px-4 py-3 font-semibold text-slate-600">{person.arrivalTime || "—"}</td><td className="px-4 py-3 font-black text-violet-700">{person.routeDepartureTime || "—"}</td><td className="px-4 py-3"><Status status={person.status} /></td><td className="px-4 py-3"><PendingReason reason={person.pendingReason} /></td></tr>)}{!active.rows.length ? <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>No hay personal asociado a este contratista.</td></tr> : null}</tbody></table>
+              <table className="w-full min-w-[1080px] text-left text-sm"><thead className="sticky top-0 bg-gradient-to-r from-[#dbeafe] via-[#dcfce7] to-[#f3e8ff] text-xs font-black uppercase tracking-[0.1em] text-[#36546d]"><tr><th className="px-5 py-3">Persona</th><th className="px-4 py-3">Cargo</th><th className="px-4 py-3">Entrada (Excel)</th><th className="px-4 py-3">Salida (Excel)</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Causa pendiente</th></tr></thead><tbody className="divide-y divide-slate-100">{active.rows.map((person, index) => <tr className={`transition-colors ${index % 2 === 0 ? "bg-white hover:bg-[#dbeafe]" : "bg-[#f0fdfa] hover:bg-[#d1fae5]"}`} key={`${person.contratista}:${person.cc}`}><td className="px-5 py-3"><p className="font-bold text-[#10223d]">{person.nombre}</p><p className="text-xs text-slate-400">CC {person.cc}</p></td><td className="px-4 py-3 text-slate-600">{person.cargo || "Sin cargo"}</td><td className="px-4 py-3 font-semibold text-slate-600">{person.arrivalTime || "—"}</td><td className="px-4 py-3 font-black text-violet-700">{person.routeDepartureTime || "—"}</td><td className="px-4 py-3"><Status status={person.status} /></td><td className="px-4 py-3"><PendingReason reason={person.pendingReason} /></td></tr>)}{!active.rows.length ? <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>No hay personal asociado a este contratista.</td></tr> : null}</tbody></table>
             </div>
           </section>
         ) : null}
@@ -732,9 +731,9 @@ function formatShortDate(value: string) { return value ? new Date(`${value}T12:0
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function formatTvClock(value: number) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }).format(new Date(value)) : "--:--:--"; }
 
-function SmallStat({ label, large = false, tone = "slate", value }: { label: string; large?: boolean; tone?: "slate" | "amber" | "cyan" | "violet"; value: number }) { const tones = { slate: "bg-white text-[#102a43] ring-slate-200", amber: "bg-[#fff7e6] text-[#9a5b00] ring-[#e8c98e]", cyan: "bg-[#e8f3f5] text-[#155e75] ring-[#a9ccd3]", violet: "bg-[#eceff8] text-[#373f78] ring-[#b9c1dc]" }; return <span className={`rounded-lg ring-1 ${large ? `px-2 py-1 ${tones[tone]}` : "bg-white px-1.5 py-1.5 text-[#10223d] ring-slate-100"}`}><strong className={`block ${large ? "text-2xl" : "text-base"}`}>{value}</strong><span className={`font-bold uppercase opacity-70 ${large ? "text-[10px]" : "text-[8px]"}`}>{label}</span></span>; }
-function CompactNumber({ large = false, tone = "slate", value }: { large?: boolean; tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-[#334e68]", green: "text-[#0f766e]", amber: "text-[#a15c00]", blue: "text-[#155e75]", violet: "text-[#373f78]" }; return <td className={`px-2 text-center font-black tabular-nums ${large ? "py-4 text-xl" : "py-2"} ${styles[tone]}`}>{value}</td>; }
-function TripProgressRing({ large = false, percentage }: { large?: boolean; percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; const color = percentage >= 90 ? "#0f766e" : percentage >= 70 ? "#b7791f" : "#b42318"; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className={`grid shrink-0 place-items-center rounded-full shadow-md ${large ? "h-[72px] w-[72px]" : "h-16 w-16"}`} style={{ background: `conic-gradient(${color} ${degrees}deg, #d6dee8 ${degrees}deg)` }}><span className={`grid place-items-center rounded-full bg-white font-black tabular-nums text-[#102a43] ${large ? "h-14 w-14 text-base" : "h-12 w-12 text-sm"}`}>{percentage}%</span></div><span className={`${large ? "text-sm" : "text-xs"} font-bold text-[#52677b]`}>Salieron<br />hasta 7:00</span></div>; }
-function Status({ status }: { status: PersonState["status"] }) { const styles = status === "En ruta" ? "bg-violet-50 text-violet-700" : status === "En CD" ? "bg-cyan-50 text-cyan-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-black ${styles}`}>{status}</span>; }
+function SmallStat({ label, large = false, tone = "slate", value }: { label: string; large?: boolean; tone?: "slate" | "amber" | "cyan" | "violet"; value: number }) { const tones = { slate: "bg-gradient-to-b from-white to-[#e7edf2] text-[#102a43] ring-slate-300", amber: "bg-gradient-to-b from-white to-[#f3ead8] text-[#8a5a18] ring-[#d5bd91]", cyan: "bg-gradient-to-b from-white to-[#e1ecef] text-[#226173] ring-[#afcbd2]", violet: "bg-gradient-to-b from-white to-[#ebe9f1] text-[#514b72] ring-[#c6c1d5]" }; return <span className={`rounded-lg ring-1 ${large ? `px-2 py-1 shadow-[inset_0_2px_0_white,inset_0_-2px_0_rgba(15,35,58,0.1),0_6px_12px_rgba(15,35,58,0.18)] ${tones[tone]}` : "bg-white px-1.5 py-1.5 text-[#10223d] shadow-sm ring-slate-200"}`}><strong className={`block drop-shadow-sm ${large ? "text-2xl" : "text-base"}`}>{value}</strong><span className={`font-bold uppercase opacity-80 ${large ? "text-[10px]" : "text-[8px]"}`}>{label}</span></span>; }
+function CompactNumber({ large = false, tone = "slate", value }: { large?: boolean; tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-[#334e68]", green: "text-[#00a86b]", amber: "text-[#e87900]", blue: "text-[#0096c7]", violet: "text-[#7c3aed]" }; return <td className={`px-2 text-center font-bold tracking-[-0.03em] tabular-nums ${large ? "py-4 text-[26px]" : "py-2"} ${styles[tone]}`}>{value}</td>; }
+function TripProgressRing({ large = false, percentage }: { large?: boolean; percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; const color = percentage >= 90 ? "#10b981" : percentage >= 70 ? "#facc15" : "#ef4444"; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className={`grid shrink-0 place-items-center rounded-full shadow-lg ${large ? "h-[72px] w-[72px]" : "h-16 w-16"}`} style={{ background: `conic-gradient(${color} ${degrees}deg, #dbeafe ${degrees}deg)` }}><span className={`grid place-items-center rounded-full bg-white font-black tabular-nums text-[#102a43] ${large ? "h-14 w-14 text-base" : "h-12 w-12 text-sm"}`}>{percentage}%</span></div><span className={`${large ? "text-sm" : "text-xs"} font-bold text-[#52677b]`}>Salieron<br />hasta 7:00</span></div>; }
+function Status({ status }: { status: PersonState["status"] }) { const styles = status === "En ruta" ? "bg-violet-100 text-violet-700 ring-1 ring-violet-300" : status === "En CD" ? "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-300" : "bg-amber-100 text-amber-700 ring-1 ring-amber-300"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-black ${styles}`}>{status}</span>; }
 function PendingReason({ reason }: { reason: PersonState["pendingReason"] }) { if (!reason) return <span className="text-slate-300">—</span>; const style = reason === "Sin marca de llegada" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-bold ${style}`}>{reason}</span>; }
 function Restricted({ message, onBack }: { message: string; onBack: () => void }) { return <main className="grid min-h-screen place-items-center bg-[#f4f7fb] px-5"><section className="max-w-md rounded-xl border border-red-100 bg-white p-6 text-center shadow-lg"><h1 className="text-xl font-black text-[#10223d]">Gerencia restringida</h1><p className="mt-2 text-sm text-slate-500">{message || "No tienes permiso para consultar este módulo."}</p><button className="mt-5 rounded-lg bg-[#10223d] px-4 py-2 text-sm font-bold text-white" onClick={onBack} type="button">Volver</button></section></main>; }

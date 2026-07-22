@@ -29,6 +29,7 @@ export async function GET() {
 
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const params = new URLSearchParams({ select: "profile_id,contractor,data", order: "updated_at.desc" });
+    params.set("and", "(profile_id.not.like.nps:*,profile_id.not.like.attendance:*)");
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers, cache: "no-store" });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
@@ -73,6 +74,7 @@ export async function PUT(request: Request) {
 
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const params = new URLSearchParams({ select: "profile_id,contractor,data", order: "updated_at.desc" });
+    params.set("and", "(profile_id.not.like.nps:*,profile_id.not.like.attendance:*)");
     const savedResponse = await fetch(supabaseRest(TABLE, `?${params.toString()}`), { headers, cache: "no-store" });
     if (!savedResponse.ok) return NextResponse.json({ error: await supabaseError(savedResponse) }, { status: savedResponse.status });
 
