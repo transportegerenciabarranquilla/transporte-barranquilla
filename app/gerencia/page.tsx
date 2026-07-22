@@ -253,7 +253,11 @@ export default function ManagementPage() {
   async function toggleTvMode() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      else {
+        window.scrollTo({ top: 0, behavior: "auto" });
+        setExpandedContractor(null);
+        await document.documentElement.requestFullscreen();
+      }
     } catch {
       setIsTvMode((current) => !current);
     }
@@ -329,7 +333,7 @@ export default function ManagementPage() {
   if (!isAllowed) return <Restricted message={error} onBack={() => router.push("/")} />;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_8%_0%,rgba(237,106,90,0.11),transparent_31rem),radial-gradient(circle_at_94%_8%,rgba(124,58,237,0.10),transparent_36rem),#f8f6fc] text-slate-900">
+    <main className={`${isTvMode ? "h-screen overflow-hidden bg-[radial-gradient(circle_at_10%_0%,rgba(37,99,235,0.10),transparent_32rem),radial-gradient(circle_at_92%_8%,rgba(15,118,110,0.09),transparent_34rem),linear-gradient(145deg,#e8eef6_0%,#f4f7fa_52%,#e7edf4_100%)]" : "min-h-screen bg-[radial-gradient(circle_at_8%_0%,rgba(237,106,90,0.11),transparent_31rem),radial-gradient(circle_at_94%_8%,rgba(124,58,237,0.10),transparent_36rem),#f8f6fc]"} text-slate-900`}>
       <header className={`${isTvMode ? "hidden" : "sticky"} top-0 z-20 border-b border-white/60 bg-white/90 backdrop-blur-xl`}>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button aria-label="Volver" className="grid h-10 w-10 place-items-center rounded-lg text-[#10223d] hover:bg-slate-100" onClick={() => router.push("/")} type="button">
@@ -347,23 +351,23 @@ export default function ManagementPage() {
         </div>
       </header>
 
-      <section className={`mx-auto space-y-6 ${isTvMode ? "max-w-none px-3 py-3 [&_button]:text-base [&_h2]:text-3xl [&_p]:text-base" : "max-w-7xl px-5 py-7 sm:px-8"}`}>
+      <section className={`mx-auto ${isTvMode ? "grid h-screen max-w-none grid-rows-[44fr_56fr] gap-2 overflow-hidden p-2 [&_button]:text-base" : "max-w-7xl space-y-6 px-5 py-7 sm:px-8"}`}>
         {isTvMode ? (
-          <div className="sticky top-2 z-30 flex justify-end gap-2">
-            <span className="inline-flex items-center gap-2 rounded-xl bg-[#2d1b4e] px-5 py-3 text-lg font-black text-white shadow-lg"><RefreshCw size={20} /> Actualiza en {refreshIn}s</span>
-            <button className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-lg font-black text-violet-700 shadow-lg ring-1 ring-violet-100" onClick={toggleTvMode} type="button"><Minimize2 size={20} /> Salir TV</button>
+          <div className="fixed right-3 top-3 z-30 flex justify-end gap-2">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-[#102a43] px-4 py-2 text-base font-black text-white shadow-lg shadow-slate-400/30"><RefreshCw size={17} /> Actualiza en {refreshIn}s</span>
+            <button className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-base font-black text-[#1e3a5f] shadow-lg ring-1 ring-slate-300" onClick={toggleTvMode} type="button"><Minimize2 size={17} /> Salir TV</button>
           </div>
         ) : null}
-        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p> : null}
-        {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</p> : null}
-        {!clockRows.length ? (
+        {!isTvMode && error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p> : null}
+        {!isTvMode && message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</p> : null}
+        {!isTvMode && !clockRows.length ? (
           <div className="flex flex-col gap-3 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-900 sm:flex-row sm:items-center sm:justify-between">
             <p>Sube el Excel de asistencia para separar pendientes, personal en CD y personal en ruta.</p>
             <button className="rounded-xl bg-[#2d1b4e] px-4 py-2 font-bold text-white" onClick={() => fileInputRef.current?.click()} type="button">Subir Excel</button>
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-[0_18px_55px_rgba(45,27,78,0.07)] sm:flex-row sm:items-end sm:justify-between">
+        <div className={`${isTvMode ? "hidden" : "flex"} flex-col gap-4 rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-[0_18px_55px_rgba(45,27,78,0.07)] sm:flex-row sm:items-end sm:justify-between`}>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#ed6a5a]">Corte gerencial</p>
             <p className="mt-1 text-sm font-semibold text-slate-600">{fileName ? `Marcaciones: ${fileName}` : "Sin Excel de marcaciones cargado"}</p>
@@ -386,15 +390,18 @@ export default function ManagementPage() {
           </div>
         </div>
 
-        <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.07)]">
-          <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+        <section className={`min-h-0 overflow-hidden rounded-[22px] border bg-white/95 ${isTvMode ? "border-slate-300 shadow-[0_16px_40px_rgba(15,35,58,0.16)] ring-1 ring-white/80" : "border-slate-200 shadow-[0_18px_55px_rgba(45,27,78,0.07)]"}`}>
+          <div className={`flex border-b border-slate-200 sm:flex-row sm:items-center sm:justify-between ${isTvMode ? "gap-2 px-4 py-2" : "flex-col gap-4 px-5 py-5"}`}>
+            <div className={isTvMode ? "border-l-4 border-[#0f766e] pl-3" : ""}>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#ed6a5a]">Meta de salida</p>
-              <h2 className="mt-1 text-xl font-black text-[#2d1b4e]">Viajes por contratista</h2>
-              <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · VH cargados por cada contratista en Seguimiento</p>
-              <p className="mt-1 text-xs font-bold text-violet-600">Seguimiento en vivo: {sourceCounts.seguimiento} VH · Fecha {selectedDate || "sin seleccionar"} · próxima actualización en {refreshIn}s</p>
+              <h2 className={`${isTvMode ? "text-2xl" : "mt-1 text-xl"} font-black text-[#102a43]`}>Viajes por contratista</h2>
+              {!isTvMode ? <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · VH cargados por cada contratista en Seguimiento</p> : null}
+              <p className={`${isTvMode ? "flex items-center gap-2 text-sm" : "mt-1 text-xs"} font-bold text-[#2563a6]`}>
+                {isTvMode ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" /> : null}
+                Seguimiento en vivo: {sourceCounts.seguimiento} VH · Fecha {selectedDate || "sin seleccionar"}{isTvMode ? ` · ${formatTvClock(now)}` : ` · próxima actualización en ${refreshIn}s`}
+              </p>
             </div>
-            <div className={`flex min-w-64 items-center gap-3 rounded-2xl border px-4 py-3 ${deadline.isOpen ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-800"}`}>
+            <div className={`flex items-center rounded-2xl border ${isTvMode ? "mr-72 min-w-48 gap-2 px-3 py-2" : "min-w-64 gap-3 px-4 py-3"} ${deadline.isOpen ? "border-amber-300 bg-amber-50 text-amber-900" : isTvMode ? "border-slate-300 bg-slate-100 text-[#334e68]" : "border-violet-200 bg-violet-50 text-violet-800"}`}>
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white"><Clock3 size={19} /></span>
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.13em]">{deadline.isOpen ? "Tiempo restante" : "Estado de la meta"}</p>
@@ -405,18 +412,18 @@ export default function ManagementPage() {
 
           <div className="overflow-x-auto">
             <table className={`w-full min-w-[760px] text-left ${isTvMode ? "text-lg" : "text-sm"}`}>
-              <thead className={`bg-slate-50 font-black uppercase tracking-[0.1em] text-slate-400 ${isTvMode ? "text-sm" : "text-[10px]"}`}>
+              <thead className={`font-black uppercase tracking-[0.1em] ${isTvMode ? "border-y border-slate-200 bg-[#e8eef6] text-sm text-[#1e3a5f]" : "bg-slate-50 text-[10px] text-slate-400"}`}>
                 <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">En ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {tripDashboard.map((contractor) => (
-                  <tr className="hover:bg-slate-50/70" key={contractor.id}>
-                    <td className={`${isTvMode ? "py-6" : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid place-items-center rounded-xl bg-[#2d1b4e] text-white ${isTvMode ? "h-12 w-12" : "h-9 w-9"}`}><Building2 size={isTvMode ? 23 : 16} /></span><span className="font-black text-[#10223d]">{contractor.label}</span></div></td>
-                    <td className={`px-4 text-center font-black text-[#2d1b4e] ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.total}</td>
-                    <td className={`px-4 text-center font-black text-emerald-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.departed}</td>
-                    <td className={`px-4 text-center font-black text-red-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.late}</td>
-                    <td className={`px-4 text-center font-black text-amber-600 ${isTvMode ? "py-6 text-4xl" : "py-4 text-2xl"}`}>{contractor.pending}</td>
-                    <td className={`${isTvMode ? "py-6" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
+                {tripDashboard.map((contractor, index) => (
+                  <tr className={isTvMode ? index % 2 === 0 ? "bg-white hover:bg-[#eef3f8]" : "bg-[#f5f7fa] hover:bg-[#eaf0f6]" : "hover:bg-slate-50/70"} key={contractor.id}>
+                    <td className={`${isTvMode ? `border-l-4 py-2 ${index === 0 ? "border-[#315b7d]" : index === 1 ? "border-[#0f766e]" : "border-[#b7791f]"}` : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid h-9 w-9 place-items-center rounded-xl text-white shadow-sm ${isTvMode ? index === 0 ? "bg-[#315b7d]" : index === 1 ? "bg-[#0f766e]" : "bg-[#b7791f]" : "bg-[#2d1b4e]"}`}><Building2 size={16} /></span><span className="font-black text-[#10223d]">{contractor.label}</span></div></td>
+                    <td className={`px-4 text-center font-black tabular-nums text-[#2d1b4e] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.total}</td>
+                    <td className={`px-4 text-center font-black tabular-nums text-[#0f766e] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.departed}</td>
+                    <td className={`px-4 text-center font-black tabular-nums text-[#b42318] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.late}</td>
+                    <td className={`px-4 text-center font-black tabular-nums text-[#a15c00] ${isTvMode ? "py-2 text-3xl" : "py-4 text-2xl"}`}>{contractor.pending}</td>
+                    <td className={`${isTvMode ? "py-1" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -424,35 +431,36 @@ export default function ManagementPage() {
           </div>
         </section>
 
-        <div className="grid w-full gap-5">
+        <div className={`grid min-h-0 w-full ${isTvMode ? "gap-0" : "gap-5"}`}>
           {dashboard.map((contractor) => (
-            <section className="flex h-full min-h-[350px] flex-col overflow-hidden rounded-[18px] border border-slate-200 bg-white/95 shadow-[0_14px_40px_rgba(45,27,78,0.06)]" key={contractor.id}>
-              <div className="border-b border-slate-200 px-3.5 py-3">
+            <section className={`flex h-full flex-col overflow-hidden rounded-[18px] border bg-white/95 ${isTvMode ? "min-h-0 border-slate-300 shadow-[0_14px_38px_rgba(15,35,58,0.15)] ring-1 ring-white/80" : "min-h-[350px] border-slate-200 shadow-[0_14px_40px_rgba(45,27,78,0.06)]"}`} key={contractor.id}>
+              <div className={`border-b px-3.5 ${isTvMode ? "border-[#294d68] bg-gradient-to-r from-[#102a43] via-[#163f59] to-[#0f5b5b] py-1.5 text-white" : "border-slate-200 py-3"}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#2d1b4e] text-white"><Building2 size={16} /></span>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${isTvMode ? "bg-white/15 text-white ring-1 ring-white/30" : "bg-[#2d1b4e] text-white"}`}><Building2 size={16} /></span>
                     <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#ed6a5a]">Contratista</p>
-                      <h2 className="truncate text-base font-black text-[#10223d]" title={contractor.label}>{contractor.label}</h2>
+                      <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isTvMode ? "text-[#9fd8d2]" : "text-[#ed6a5a]"}`}>Contratista</p>
+                      <h2 className={`truncate text-base font-black ${isTvMode ? "text-white" : "text-[#10223d]"}`} title={contractor.label}>{contractor.label}</h2>
                     </div>
                   </div>
-                  <span className="shrink-0 rounded-lg bg-violet-50 px-2.5 py-1 text-xs font-black text-violet-700">{contractor.totals.arrived}/{contractor.totals.total}</span>
+                  <span className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-black ${isTvMode ? "bg-white text-[#102a43] shadow-md" : "bg-violet-50 text-violet-700"}`}>{contractor.totals.arrived}/{contractor.totals.total}</span>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-1.5 text-center text-xs">
-                  <SmallStat label="Pendientes" large={isTvMode} value={contractor.totals.pending} />
-                  <SmallStat label="En CD" large={isTvMode} value={contractor.totals.inCd} />
-                  <SmallStat label="En ruta" large={isTvMode} value={contractor.totals.inRoute} />
+                <div className={`${isTvMode ? "mt-1" : "mt-3"} grid grid-cols-3 gap-1.5 text-center text-xs`}>
+                  <SmallStat label="Pendientes" large={isTvMode} tone="amber" value={contractor.totals.pending} />
+                  <SmallStat label="En CD" large={isTvMode} tone="cyan" value={contractor.totals.inCd} />
+                  <SmallStat label="En ruta" large={isTvMode} tone="violet" value={contractor.totals.inRoute} />
                 </div>
+                {isTvMode ? <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/20"><span className="block h-full rounded-full bg-[#5eead4] transition-[width] duration-500" style={{ width: `${contractor.totals.total ? Math.round((contractor.totals.arrived / contractor.totals.total) * 100) : 0}%` }} /></div> : null}
               </div>
 
               <div className="flex-1 overflow-x-auto">
                 <table className={`w-full min-w-[390px] text-left ${isTvMode ? "text-base" : "text-[11px]"}`}>
-                  <thead className={`bg-slate-50 font-black uppercase tracking-[0.08em] text-slate-400 ${isTvMode ? "text-xs" : "text-[9px]"}`}>
+                  <thead className={`font-black uppercase tracking-[0.08em] ${isTvMode ? "border-b border-slate-200 bg-[#e8eef6] text-xs text-[#334e68]" : "bg-slate-50 text-[9px] text-slate-400"}`}>
                     <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center" title="Personal">Per.</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600">Ruta</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {contractor.cargos.slice(0, 6).map((row, index) => (
-                      <tr className="hover:bg-slate-50/80" key={row.cargo}>
+                      <tr className={isTvMode ? index % 2 === 0 ? "bg-white hover:bg-[#eef3f8]" : "bg-[#f4f7f9] hover:bg-[#e8eff5]" : "hover:bg-slate-50/80"} key={row.cargo}>
                         <td className="px-3.5 py-2"><span className="mr-1.5 text-[9px] font-black text-slate-400">{index + 1}</span><span className="font-bold text-[#10223d]">{row.cargo}</span></td>
                         <CompactNumber large={isTvMode} value={row.total} />
                         <CompactNumber large={isTvMode} tone="green" value={row.arrived} />
@@ -466,7 +474,7 @@ export default function ManagementPage() {
                 </table>
               </div>
 
-              <div className="border-t border-slate-100 bg-slate-50/60 p-2.5">
+              <div className={`${isTvMode ? "hidden" : "block"} border-t border-slate-100 bg-slate-50/60 p-2.5`}>
                 <button className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-[11px] font-black text-violet-700 transition hover:border-violet-300 hover:bg-violet-50" onClick={() => setExpandedContractor(active?.id === contractor.id ? null : contractor.id)} type="button">
                   {active?.id === contractor.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   {active?.id === contractor.id ? "Ocultar detalle" : `Ver más · ${contractor.rows.length} personas`}
@@ -476,7 +484,7 @@ export default function ManagementPage() {
           ))}
         </div>
 
-        {active ? (
+        {!isTvMode && active ? (
           <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.09)]">
             <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
               <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-700">Detalle del personal</p><h2 className="mt-1 text-lg font-black text-[#10223d]">{active.label}</h2></div>
@@ -689,10 +697,11 @@ function dateKey(value: unknown) { const text = String(value || ""); if (/^\d{4}
 function formatDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" }) : "Sin fecha"; }
 function formatShortDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit" }) : ""; }
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
+function formatTvClock(value: number) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }).format(new Date(value)) : "--:--:--"; }
 
-function SmallStat({ label, large = false, value }: { label: string; large?: boolean; value: number }) { return <span className={`rounded-lg bg-white ring-1 ring-slate-100 ${large ? "px-3 py-2.5" : "px-1.5 py-1.5"}`}><strong className={`block text-[#10223d] ${large ? "text-3xl" : "text-base"}`}>{value}</strong><span className={`font-bold uppercase text-slate-400 ${large ? "text-xs" : "text-[8px]"}`}>{label}</span></span>; }
-function CompactNumber({ large = false, tone = "slate", value }: { large?: boolean; tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-slate-700", green: "text-emerald-700", amber: "text-amber-700", blue: "text-cyan-700", violet: "text-violet-700" }; return <td className={`px-2 text-center font-black ${large ? "py-4 text-xl" : "py-2"} ${styles[tone]}`}>{value}</td>; }
-function TripProgressRing({ large = false, percentage }: { large?: boolean; percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className={`grid shrink-0 place-items-center rounded-full ${large ? "h-24 w-24" : "h-16 w-16"}`} style={{ background: `conic-gradient(#7c3aed ${degrees}deg, #ede9fe ${degrees}deg)` }}><span className={`grid place-items-center rounded-full bg-white font-black text-[#2d1b4e] ${large ? "h-[74px] w-[74px] text-xl" : "h-12 w-12 text-sm"}`}>{percentage}%</span></div><span className={`${large ? "text-base" : "text-xs"} font-bold text-slate-500`}>Salieron<br />hasta 7:00</span></div>; }
+function SmallStat({ label, large = false, tone = "slate", value }: { label: string; large?: boolean; tone?: "slate" | "amber" | "cyan" | "violet"; value: number }) { const tones = { slate: "bg-white text-[#102a43] ring-slate-200", amber: "bg-[#fff7e6] text-[#9a5b00] ring-[#e8c98e]", cyan: "bg-[#e8f3f5] text-[#155e75] ring-[#a9ccd3]", violet: "bg-[#eceff8] text-[#373f78] ring-[#b9c1dc]" }; return <span className={`rounded-lg ring-1 ${large ? `px-2 py-1 ${tones[tone]}` : "bg-white px-1.5 py-1.5 text-[#10223d] ring-slate-100"}`}><strong className={`block ${large ? "text-2xl" : "text-base"}`}>{value}</strong><span className={`font-bold uppercase opacity-70 ${large ? "text-[10px]" : "text-[8px]"}`}>{label}</span></span>; }
+function CompactNumber({ large = false, tone = "slate", value }: { large?: boolean; tone?: "slate" | "green" | "amber" | "blue" | "violet"; value: number }) { const styles = { slate: "text-[#334e68]", green: "text-[#0f766e]", amber: "text-[#a15c00]", blue: "text-[#155e75]", violet: "text-[#373f78]" }; return <td className={`px-2 text-center font-black tabular-nums ${large ? "py-4 text-xl" : "py-2"} ${styles[tone]}`}>{value}</td>; }
+function TripProgressRing({ large = false, percentage }: { large?: boolean; percentage: number }) { const degrees = Math.max(0, Math.min(100, percentage)) * 3.6; const color = percentage >= 90 ? "#0f766e" : percentage >= 70 ? "#b7791f" : "#b42318"; return <div className="flex items-center justify-center gap-3"><div aria-label={`${percentage}% de salidas a tiempo`} className={`grid shrink-0 place-items-center rounded-full shadow-md ${large ? "h-[72px] w-[72px]" : "h-16 w-16"}`} style={{ background: `conic-gradient(${color} ${degrees}deg, #d6dee8 ${degrees}deg)` }}><span className={`grid place-items-center rounded-full bg-white font-black tabular-nums text-[#102a43] ${large ? "h-14 w-14 text-base" : "h-12 w-12 text-sm"}`}>{percentage}%</span></div><span className={`${large ? "text-sm" : "text-xs"} font-bold text-[#52677b]`}>Salieron<br />hasta 7:00</span></div>; }
 function Status({ status }: { status: PersonState["status"] }) { const styles = status === "En ruta" ? "bg-violet-50 text-violet-700" : status === "En CD" ? "bg-cyan-50 text-cyan-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-black ${styles}`}>{status}</span>; }
 function PendingReason({ reason }: { reason: PersonState["pendingReason"] }) { if (!reason) return <span className="text-slate-300">—</span>; const style = reason === "Sin marca de llegada" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"; return <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-bold ${style}`}>{reason}</span>; }
 function Restricted({ message, onBack }: { message: string; onBack: () => void }) { return <main className="grid min-h-screen place-items-center bg-[#f4f7fb] px-5"><section className="max-w-md rounded-xl border border-red-100 bg-white p-6 text-center shadow-lg"><h1 className="text-xl font-black text-[#10223d]">Gerencia restringida</h1><p className="mt-2 text-sm text-slate-500">{message || "No tienes permiso para consultar este módulo."}</p><button className="mt-5 rounded-lg bg-[#10223d] px-4 py-2 text-sm font-bold text-white" onClick={onBack} type="button">Volver</button></section></main>; }
