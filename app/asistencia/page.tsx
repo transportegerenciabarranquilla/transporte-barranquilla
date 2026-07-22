@@ -42,9 +42,8 @@ function validate(form: FormState) {
 
   if (!form.contratista) errors.contratista = "Selecciona el contratista.";
   if (!form.dt) errors.dt = "Ingresa el DT.";
-  if (!personFields.some((field) => form[field])) {
-    errors.cedulaResponsable = "Ingresa al menos una cedula.";
-  }
+  if (!form.cedulaResponsable) errors.cedulaResponsable = "La cédula del responsable de ruta es obligatoria.";
+  if (!form.cedulaAuxiliar1) errors.cedulaAuxiliar1 = "La cédula del conductor es obligatoria.";
 
   return errors;
 }
@@ -226,7 +225,7 @@ export default function AsistenciaPage() {
             <NumericField
               error={errors.cedulaAuxiliar1}
               icon={<Truck size={18} />}
-              label="Cedula conductor / auxiliar 1"
+              label="Cédula conductor (obligatoria)"
               onChange={(value) => updateField("cedulaAuxiliar1", value)}
               value={form.cedulaAuxiliar1}
             />
@@ -235,7 +234,7 @@ export default function AsistenciaPage() {
             <NumericField
               error={errors.cedulaAuxiliar2}
               icon={<Users size={18} />}
-              label="Cedula auxiliar 2"
+              label="Cédula auxiliar (opcional)"
               onChange={(value) => updateField("cedulaAuxiliar2", value)}
               value={form.cedulaAuxiliar2}
             />

@@ -214,7 +214,20 @@ export default function ManagementPage() {
   const dashboard = useMemo(() => {
     const people = dedupePeople(peopleGroups.flatMap((group) => group.people));
     return CONTRACTORS.map((contractor) => {
-      const contractorPeople = people.filter((person) => contractor.aliases.includes(normalizeText(person.contratista) as never));
+      const excelPeople = dedupePeople(
+        clockRows
+          .filter((row) => dateKey(row.fechaKey) === selectedDate && Boolean(normalizeId(row.identificador)) && Boolean(canonicalCargo(row.cargo)))
+          .map((row) => ({
+            cc: normalizeId(row.identificador),
+            nombre: row.nombreCompleto || `CC ${normalizeId(row.identificador)}`,
+            cargo: canonicalCargo(row.cargo),
+            contratista: "Logísticos",
+          })),
+      );
+      const masterPeople = people
+        .filter((person) => contractor.aliases.includes(normalizeText(person.contratista) as never) && Boolean(canonicalCargo(person.cargo)))
+        .map((person) => ({ ...person, cargo: canonicalCargo(person.cargo) }));
+      const contractorPeople = excelPeople.length ? excelPeople : masterPeople;
       const peopleIds = new Set(contractorPeople.map((person) => normalizeId(person.cc)).filter(Boolean));
       const clockRecords = buildClockMap(clockRows, selectedDate, contractor.aliases);
       const routedPeople = buildSeguimientoPeople(seguimientoRoutes, routeAttendances, selectedDate, contractor.aliases, peopleIds);
@@ -248,6 +261,9 @@ export default function ManagementPage() {
     [seguimientoRoutes, selectedDate],
   );
   const deadline = getDepartureDeadline(selectedDate, now);
+  const logisticsTripsInRoute = tripDashboard.find((contractor) => contractor.id === "logisticos")?.departed || 0;
+  const identifiedDriversInRoute = dashboard.find((contractor) => contractor.id === "logisticos")?.cargos.find((cargo) => cargo.cargo === "Conductor")?.inRoute || 0;
+  const unidentifiedDrivers = Math.max(0, logisticsTripsInRoute - identifiedDriversInRoute);
   const previousOpenSnapshot = attendanceSnapshots.find((snapshot) => snapshot.operationalDate < bogotaToday() && !snapshot.closedAt);
 
   async function toggleTvMode() {
@@ -413,7 +429,7 @@ export default function ManagementPage() {
           <div className="overflow-x-auto">
             <table className={`w-full min-w-[760px] text-left ${isTvMode ? "text-lg" : "text-sm"}`}>
               <thead className={`font-black uppercase tracking-[0.1em] ${isTvMode ? "border-y border-slate-200 bg-[#e8eef6] text-sm text-[#1e3a5f]" : "bg-slate-50 text-[10px] text-slate-400"}`}>
-                <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">En ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
+                <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">VH en ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tripDashboard.map((contractor, index) => (
@@ -443,12 +459,15 @@ export default function ManagementPage() {
                       <h2 className={`truncate text-base font-black ${isTvMode ? "text-white" : "text-[#10223d]"}`} title={contractor.label}>{contractor.label}</h2>
                     </div>
                   </div>
-                  <span className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-black ${isTvMode ? "bg-white text-[#102a43] shadow-md" : "bg-violet-50 text-violet-700"}`}>{contractor.totals.arrived}/{contractor.totals.total}</span>
+                  <div className="flex items-center gap-2">
+                    {unidentifiedDrivers ? <span className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-black ${isTvMode ? "bg-amber-100 text-amber-900 shadow-md" : "bg-amber-50 text-amber-800"}`}>{unidentifiedDrivers} conductores sin identificar</span> : null}
+                    <span className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-black ${isTvMode ? "bg-white text-[#102a43] shadow-md" : "bg-violet-50 text-violet-700"}`}>{contractor.totals.arrived}/{contractor.totals.total}</span>
+                  </div>
                 </div>
                 <div className={`${isTvMode ? "mt-1" : "mt-3"} grid grid-cols-3 gap-1.5 text-center text-xs`}>
                   <SmallStat label="Pendientes" large={isTvMode} tone="amber" value={contractor.totals.pending} />
                   <SmallStat label="En CD" large={isTvMode} tone="cyan" value={contractor.totals.inCd} />
-                  <SmallStat label="En ruta" large={isTvMode} tone="violet" value={contractor.totals.inRoute} />
+                  <SmallStat label="Personas en ruta" large={isTvMode} tone="violet" value={contractor.totals.inRoute} />
                 </div>
                 {isTvMode ? <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/20"><span className="block h-full rounded-full bg-[#5eead4] transition-[width] duration-500" style={{ width: `${contractor.totals.total ? Math.round((contractor.totals.arrived / contractor.totals.total) * 100) : 0}%` }} /></div> : null}
               </div>
@@ -456,7 +475,7 @@ export default function ManagementPage() {
               <div className="flex-1 overflow-x-auto">
                 <table className={`w-full min-w-[390px] text-left ${isTvMode ? "text-base" : "text-[11px]"}`}>
                   <thead className={`font-black uppercase tracking-[0.08em] ${isTvMode ? "border-b border-slate-200 bg-[#e8eef6] text-xs text-[#334e68]" : "bg-slate-50 text-[9px] text-slate-400"}`}>
-                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center" title="Personal">Per.</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600">Ruta</th></tr>
+                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center" title="Personal">Per.</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600" title="Personas identificadas en ruta">Ruta ident.</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {contractor.cargos.slice(0, 6).map((row, index) => (
@@ -621,7 +640,8 @@ function getDepartureDeadline(selectedDate: string, now: number) {
 function summarizeByCargo(rows: PersonState[]): CargoRow[] {
   const groups = new Map<string, CargoRow>();
   rows.forEach((person) => {
-    const cargo = person.cargo || "Sin cargo";
+    const cargo = canonicalCargo(person.cargo);
+    if (!cargo) return;
     const current = groups.get(cargo) || { cargo, total: 0, arrived: 0, pending: 0, inCd: 0, inRoute: 0 };
     current.total += 1;
     if (person.arrived) current.arrived += 1;
@@ -646,6 +666,19 @@ function dedupePeople(people: Person[]) {
   return Array.from(values.values());
 }
 
+function canonicalCargo(value: unknown) {
+  const cargo = normalizeText(value);
+  if (cargo.includes("conductor")) return "Conductor";
+  if (cargo.includes("auxiliar") && (cargo.includes("reparto") || cargo.includes("rr"))) return "Auxiliar de Reparto";
+  if (
+    (cargo.includes("responsable") && (cargo.includes("reparto") || cargo.includes("ruta") || cargo.includes("rr"))) ||
+    cargo === "rr" ||
+    cargo.includes("liderderuta") ||
+    (cargo.includes("coordinador") && cargo.includes("ruta"))
+  ) return "Responsable de Ruta";
+  return "";
+}
+
 function parseClockRow(row: Record<string, unknown>, peopleById: Map<string, Person>): ClockRow | null {
   const identificador = normalizeId(readClockValue(row, ["identificador", "cedula", "cc", "documento"]));
   const person = peopleById.get(identificador);
@@ -661,7 +694,7 @@ function parseClockRow(row: Record<string, unknown>, peopleById: Map<string, Per
     identificador,
     nombreCompleto,
     cargo: readClockValue(row, ["cargo"]) || person?.cargo || "",
-    contratista: person?.contratista || readClockValue(row, ["contratista", "transportista"]) || "Sin contratista",
+    contratista: "Logísticos",
     fechaKey: normalizeClockDate(fecha),
     entrada,
     salida,
