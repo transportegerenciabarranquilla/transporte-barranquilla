@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, CheckCircle2, History, MapPinCheck, Search, Table2, Truck, X, XCircle } from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, Download, History, LoaderCircle, MapPinCheck, Search, Table2, Truck, X, XCircle } from "lucide-react";
 import { CONTRACTORS } from "../../lib/contractors";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 
@@ -40,6 +40,7 @@ export default function AdminRangoPage() {
   const [dateRange, setDateRange] = useState<DateRange>({ from: "", to: "" });
   const [dtSearch, setDtSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -84,6 +85,41 @@ export default function AdminRangoPage() {
     setDtSearch("");
   }
 
+  async function downloadHistory() {
+    setExporting(true);
+    setError("");
+
+    try {
+      const params = new URLSearchParams();
+      if (contractor !== "Todas") params.set("contractor", contractor);
+      if (dateRange.from) params.set("from", dateRange.from);
+      if (dateRange.to) params.set("to", dateRange.to);
+      if (dtSearch.trim()) params.set("dt", dtSearch.trim());
+
+      const response = await fetch(`/api/admin/rango/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo generar el historial en Excel.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/i)?.[1] || "historial-fuera-de-rango.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo generar el historial en Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -118,7 +154,7 @@ export default function AdminRangoPage() {
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando historial de rango...</div> : null}
 
         <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto_auto]">
             <label className="text-sm font-semibold text-[#10223d]">
               <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
                 <CalendarDays size={16} />
@@ -164,6 +200,16 @@ export default function AdminRangoPage() {
             >
               <X size={16} />
               Limpiar
+            </button>
+            <button
+              className="mt-6 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={exporting || totals.outOfRange === 0}
+              onClick={downloadHistory}
+              title={totals.outOfRange === 0 ? "No hay visitas fuera de rango para los filtros seleccionados." : "Descargar las visitas fuera de rango de los filtros actuales."}
+              type="button"
+            >
+              {exporting ? <LoaderCircle className="animate-spin" size={16} /> : <Download size={16} />}
+              {exporting ? "Generando..." : "Descargar historial"}
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
