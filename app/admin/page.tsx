@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, FileText, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
 import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
@@ -59,6 +59,8 @@ type VehiclePerson = PersonSummary & {
 
 type AdminTab = "resumen" | "detalle" | "errores" | "exportar";
 type AdminIssueKind = "sin-responsable" | "sin-asistencia" | "salida-tardia" | "bajo-avance" | "modulacion-pendiente" | "sin-fecha" | "sin-salida";
+type ModulacionExportFormat = "xlsx" | "pdf";
+type ModulacionExportPeriod = "today" | "month" | "history";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -76,6 +78,8 @@ export default function AdminPage() {
   const [dtSearch, setDtSearch] = useState("");
   const [activeTab, setActiveTab] = useState<AdminTab>("resumen");
   const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
+  const [exportingModulaciones, setExportingModulaciones] = useState("");
+  const [exportError, setExportError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -206,6 +210,38 @@ export default function AdminPage() {
     if (selectedContractor !== "Todas") params.set("contratista", selectedContractor);
     const query = params.toString();
     router.push(query ? `/admin/graficas?${query}` : "/admin/graficas");
+  }
+
+  async function downloadModulaciones(period: ModulacionExportPeriod, format: ModulacionExportFormat) {
+    const exportKey = `${period}-${format}`;
+    setExportingModulaciones(exportKey);
+    setExportError("");
+
+    try {
+      const params = new URLSearchParams({ period, format });
+      if (selectedContractor !== "Todas") params.set("contractor", selectedContractor);
+      const response = await fetch(`/api/admin/modulaciones/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo generar el archivo.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `modulaciones.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
+    } finally {
+      setExportingModulaciones("");
+    }
   }
 
   return (
@@ -531,31 +567,67 @@ export default function AdminPage() {
         ) : null}
 
         {activeTab === "exportar" ? (
-          <section className="tech-card rounded-lg p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Exportar y revisar</p>
-            <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Salidas de informacion</h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Usa los filtros actuales para abrir graficas o auditoria con el mismo contexto operativo.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
-                onClick={goToAdminGraficas}
-                type="button"
-              >
-                <BarChart3 size={16} />
-                Abrir graficas filtradas
-              </button>
-              <button
-                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
-                onClick={() => router.push("/admin/auditoria")}
-                type="button"
-              >
-                <History size={16} />
-                Ver auditoria
-              </button>
-            </div>
-          </section>
+          <div className="space-y-5">
+            <section className="tech-card rounded-lg p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Descargar modulaciones</p>
+              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Informes en Excel o PDF</h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-500">
+                Descarga las modulaciones de{" "}
+                <span className="font-semibold text-[#10223d]">
+                  {selectedContractor === "Todas" ? "todos los transportistas" : selectedContractor}
+                </span>
+                , según el filtro de transportista seleccionado arriba.
+              </p>
+              {exportError ? (
+                <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{exportError}</div>
+              ) : null}
+              <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                <ModulacionExportCard
+                  description="Modulaciones registradas durante la fecha actual."
+                  exporting={exportingModulaciones}
+                  onDownload={downloadModulaciones}
+                  period="today"
+                  title="Lo que va del día"
+                />
+                <ModulacionExportCard
+                  description="Desde el primer día del mes actual hasta hoy."
+                  exporting={exportingModulaciones}
+                  onDownload={downloadModulaciones}
+                  period="month"
+                  title="Lo que va del mes"
+                />
+                <ModulacionExportCard
+                  description="Todas las modulaciones disponibles en el sistema."
+                  exporting={exportingModulaciones}
+                  onDownload={downloadModulaciones}
+                  period="history"
+                  title="Histórico completo"
+                />
+              </div>
+            </section>
+
+            <section className="tech-card rounded-lg p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Otras salidas</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+                  onClick={goToAdminGraficas}
+                  type="button"
+                >
+                  <BarChart3 size={16} />
+                  Abrir gráficas filtradas
+                </button>
+                <button
+                  className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
+                  onClick={() => router.push("/admin/auditoria")}
+                  type="button"
+                >
+                  <History size={16} />
+                  Ver auditoría
+                </button>
+              </div>
+            </section>
+          </div>
         ) : null}
       </section>
 
@@ -567,6 +639,56 @@ export default function AdminPage() {
         />
       ) : null}
     </main>
+  );
+}
+
+function ModulacionExportCard({
+  description,
+  exporting,
+  onDownload,
+  period,
+  title,
+}: {
+  description: string;
+  exporting: string;
+  onDownload: (period: ModulacionExportPeriod, format: ModulacionExportFormat) => void;
+  period: ModulacionExportPeriod;
+  title: string;
+}) {
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-[#0f7c58] ring-1 ring-emerald-100">
+          <CalendarDays size={19} />
+        </span>
+        <div>
+          <h3 className="font-semibold text-[#10223d]">{title}</h3>
+          <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {(["xlsx", "pdf"] as const).map((format) => {
+          const key = `${period}-${format}`;
+          const isExporting = exporting === key;
+          return (
+            <button
+              className={`inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                format === "xlsx"
+                  ? "bg-[#0f7c58] text-white hover:bg-[#0b684a]"
+                  : "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+              }`}
+              disabled={Boolean(exporting)}
+              key={format}
+              onClick={() => onDownload(period, format)}
+              type="button"
+            >
+              {format === "xlsx" ? <FileSpreadsheet size={16} /> : <FileText size={16} />}
+              {isExporting ? "Generando..." : format === "xlsx" ? "Excel" : "PDF"}
+            </button>
+          );
+        })}
+      </div>
+    </article>
   );
 }
 
@@ -620,7 +742,7 @@ function AdminTabs({
     { id: "resumen", label: "Resumen", detail: "Totales y contratistas" },
     { id: "detalle", label: "Detalle", detail: `${recordCount} registros` },
     { id: "errores", label: "Errores", detail: `${issueCount} alertas` },
-    { id: "exportar", label: "Exportar", detail: "Graficas y auditoria" },
+    { id: "exportar", label: "Exportar", detail: "Excel y PDF" },
   ];
 
   return (
