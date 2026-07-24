@@ -427,9 +427,9 @@ export default function ManagementPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className={`w-full min-w-[760px] text-left ${isTvMode ? "border-separate border-spacing-y-2 px-3 text-lg" : "text-sm"}`}>
+            <table className={`w-full min-w-[680px] text-left ${isTvMode ? "border-separate border-spacing-y-2 px-3 text-lg" : "text-sm"}`}>
               <thead className={`uppercase ${isTvMode ? "text-[11px] font-semibold tracking-[0.16em] text-[#51697b]" : "bg-[#edf6ff] text-[10px] font-black tracking-[0.1em] text-[#42627a]"}`}>
-                <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">VH en ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-4 py-3 text-center text-amber-600">Pendientes</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
+                <tr><th className="px-5 py-3">Contratista</th><th className="px-4 py-3 text-center">Viajes totales</th><th className="px-4 py-3 text-center text-emerald-600">VH en ruta</th><th className="px-4 py-3 text-center text-red-600">Después de 7</th><th className="px-5 py-3 text-center">Cumplimiento a tiempo</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tripDashboard.map((contractor, index) => (
@@ -438,7 +438,6 @@ export default function ManagementPage() {
                     <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#2d1b4e] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.total}</td>
                     <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#059669] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.departed}</td>
                     <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#ef4444] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.late}</td>
-                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#d97706] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.pending}</td>
                     <td className={`${isTvMode ? "py-1" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
                   </tr>
                 ))}
@@ -475,19 +474,18 @@ export default function ManagementPage() {
               <div className="flex-1 overflow-x-auto">
                 <table className={`w-full min-w-[390px] text-left ${isTvMode ? "border-separate border-spacing-y-1.5 px-2 text-base" : "text-[11px]"}`}>
                   <thead className={`uppercase ${isTvMode ? "text-[10px] font-semibold tracking-[0.14em] text-[#536b7d]" : "bg-[#edf6ff] text-[9px] font-black tracking-[0.08em] text-[#52718a]"}`}>
-                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-amber-600" title="Pendientes">Pend.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600" title="Personas identificadas en ruta">Ruta ident.</th></tr>
+                    <tr><th className="px-4 py-2.5">Cargo</th><th className="px-2 py-2.5 text-center text-emerald-600" title="Llegaron">Lleg.</th><th className="px-2 py-2.5 text-center text-cyan-600">CD</th><th className="px-3 py-2.5 text-center text-violet-600" title="Personas identificadas en ruta">Ruta ident.</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {contractor.cargos.slice(0, 6).map((row, index) => (
                       <tr className={isTvMode ? "drop-shadow-[0_4px_8px_rgba(15,35,58,0.08)] transition duration-200 [&_td]:bg-white/85 [&_td:first-child]:rounded-l-xl [&_td:last-child]:rounded-r-xl hover:drop-shadow-[0_7px_12px_rgba(15,35,58,0.13)] hover:[&_td]:bg-white" : "transition-colors hover:bg-[#edf8ff]"} key={row.cargo}>
                         <td className="px-3.5 py-2"><span className="mr-2 text-[9px] font-semibold text-slate-400">{index + 1}</span><span className="text-base font-semibold tracking-[-0.01em] text-[#10223d]">{row.cargo}</span></td>
                         <CompactNumber large={isTvMode} tone="green" value={row.arrived} />
-                        <CompactNumber large={isTvMode} tone="amber" value={row.pending} />
                         <CompactNumber large={isTvMode} tone="blue" value={row.inCd} />
                         <CompactNumber large={isTvMode} tone="violet" value={row.inRoute} />
                       </tr>
                     ))}
-                    {!contractor.cargos.length ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={5}>No hay personal asociado.</td></tr> : null}
+                    {!contractor.cargos.length ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={4}>No hay personal asociado.</td></tr> : null}
                   </tbody>
                 </table>
               </div>
