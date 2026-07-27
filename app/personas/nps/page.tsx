@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Database, MapPinned, Navigation, RotateCcw, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, MapPinned, Navigation, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Upload, X } from "lucide-react";
 import type { Map as MapLibreMapInstance, Marker as MapLibreMarker, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -27,6 +27,8 @@ type Detractor = {
   lastRr?: string;
   score: number;
   cd: string;
+  com: string;
+  stratum: string;
   management: string;
   primaryDriver: string;
   secondaryDriver: string;
@@ -37,7 +39,7 @@ type NpsData = {
   options: { cds: string[]; years: string[]; managements: string[]; weeks: string[] };
   trends: { annual: TrendSeries[]; years: Group[]; currentMonths: Group[]; months: Group[]; weeks: Group[]; currentDays: Group[]; days: Group[] };
   scoreDistribution: ScoreRow[];
-  segments: { cds: Group[]; coms: Group[]; managements: Group[]; populations: Group[] };
+  segments: { cds: Group[]; commercialActivities: Group[]; commercialManagers: Group[]; coms: Group[]; managements: Group[]; populations: Group[]; strata: Group[] };
   drivers: { primary: Driver[]; secondary: Driver[] };
   detractors: Detractor[];
   source: {
@@ -65,6 +67,10 @@ export default function NpsPage() {
   const [error, setError] = useState("");
   const [data, setData] = useState<NpsData | null>(null);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
@@ -109,7 +115,29 @@ export default function NpsPage() {
       });
 
     return () => controller.abort();
-  }, [allowed, filters]);
+  }, [allowed, filters, refreshVersion]);
+
+  async function handleNpsUpload(file?: File) {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setUploadMessage("");
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      const response = await fetch("/api/people/nps/upload", { method: "POST", body: formData });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo importar el Excel.");
+      setUploadMessage(`${formatNumber(body.inserted || 0)} filas nuevas agregadas · ${formatNumber(body.skipped || 0)} ya existían.`);
+      window.sessionStorage.removeItem(NPS_REPORT_CACHE_KEY);
+      setRefreshVersion((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo importar el Excel.");
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  }
 
   if (checkingSession) return <LoadingScreen message="Validando acceso a People Intelligence…" />;
   if (allowed && !data && fetching) return <LoadingScreen message="Consultando y consolidando la tabla NPS…" detail="La primera carga puede tardar unos segundos; las siguientes usarán la caché." />;
@@ -133,8 +161,13 @@ export default function NpsPage() {
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#e5eff2] text-[#235b66]"><Database size={21} /></span>
               <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#527180]">Repositorio central</p><h2 className="mt-1 text-xl font-semibold text-[#0b2235]">Consolidado histórico NPS</h2><p className="mt-1 text-sm text-slate-500">Todas las cifras visibles se calculan desde Supabase.</p></div>
             </div>
-            <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700"><CheckCircle2 size={17} />Tabla {data?.source.table || "NPS"} conectada</span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700"><CheckCircle2 size={17} />Tabla {data?.source.table || "NPS"} conectada</span>
+              <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void handleNpsUpload(event.target.files?.[0])} ref={uploadInputRef} type="file" />
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b2235] px-4 text-sm font-semibold text-white transition hover:bg-[#173f59] disabled:cursor-wait disabled:bg-slate-400" disabled={uploading} onClick={() => uploadInputRef.current?.click()} type="button"><Upload size={16} />{uploading ? "Importando…" : "Subir Excel NPS"}</button>
+            </div>
           </div>
+          {uploadMessage ? <div className="border-t border-emerald-200 bg-emerald-50 px-5 py-2.5 text-xs font-semibold text-emerald-700">{uploadMessage}</div> : null}
           <div className="grid border-t border-slate-200 bg-[#f7f9fa] sm:grid-cols-4">
             <RepositoryStat label="Filas almacenadas" value={formatNumber(data?.source.rawRowCount || 0)} />
             <RepositoryStat label="Encuestas únicas" value={formatNumber(data?.source.respondentCount || 0)} />
@@ -157,7 +190,7 @@ export default function NpsPage() {
 
         <SectionHeader id="resumen" index="01" title="Resumen ejecutivo" description="Indicadores del filtro seleccionado." />
         <SummaryCards summary={data?.summary} />
-        <NpsOverview summary={data?.summary} years={data?.trends.years || []} />
+        <NpsOverview cds={data?.segments.cds || []} summary={data?.summary} years={data?.trends.years || []} />
         <ScoreChart rows={data?.scoreDistribution || []} />
 
         <SectionHeader id="evolucion" index="02" title="Evolución del servicio" description="Resultados reales por periodo." />
@@ -167,6 +200,7 @@ export default function NpsPage() {
           <TrendChart eyebrow="Seguimiento semanal" mode="columns" rows={data?.trends.weeks || []} title="NPS por semana" />
           <TrendChart eyebrow="Evolución del mes actual" mode="line" rows={data?.trends.currentDays || []} title="NPS por día" />
         </div>
+        <DailyRatingsChart filters={filters} rows={data?.trends.currentDays || []} sourceMaxDate={data?.source.maxDate} />
         <DeliveryExperienceChart series={data?.trends.annual || []} />
 
         <SectionHeader id="causas" index="03" title="Causas y factores de impacto" description="Drivers registrados en las encuestas filtradas." />
@@ -178,15 +212,18 @@ export default function NpsPage() {
 
         <SectionHeader id="segmentacion" index="04" title="Segmentación territorial" description="Comparativos por dimensiones presentes en la tabla NPS." />
         <div className="grid gap-4 xl:grid-cols-2">
-          <SegmentBarChart eyebrow="Desempeño territorial" rows={data?.segments.cds || []} title="NPS por centro de distribución" />
+          <SegmentBarChart eyebrow="Desempeño comercial" rows={data?.segments.commercialManagers || []} title="NPS por jefe comercial" />
           <ManagementDonut rows={data?.segments.managements || []} />
         </div>
-        <SegmentBarChart eyebrow="Segmentación comercial" rows={data?.segments.coms || []} title="NPS por COM" />
-        <SegmentBarChart eyebrow="Segmentación geográfica" rows={data?.segments.populations || []} title="NPS por población" />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <SegmentBarChart eyebrow="Segmentación comercial" rows={data?.segments.coms || []} title="NPS por COM" />
+          <SegmentBarChart eyebrow="Segmentación geográfica" rows={data?.segments.populations || []} title="NPS por población" />
+        </div>
+        <SegmentBarChart eyebrow="Actividad comercial" rows={data?.segments.commercialActivities || []} title="NPS por actividad comercial" />
 
         <SectionHeader id="detractores" index="05" title="Gestión de detractores" description="Últimas encuestas con calificación de 0 a 6." />
         <MonthlyDetractorChart rows={data?.trends.months || []} />
-        <DetractorExplorer rows={data?.detractors || []} />
+        <DetractorExplorer rows={data?.detractors || []} strata={data?.segments.strata || []} />
 
         <CdMapPanel rows={data?.segments.cds || []} />
         <SectionHeader id="datos" index="06" title="Gobierno de datos" description="Trazabilidad del origen consultado." />
@@ -243,7 +280,7 @@ function FilterPanel({ data, fetching, filters, onChange, onReset }: {
 function SummaryCards({ summary }: { summary?: Summary }) {
   const total = summary?.respondentCount || 0;
   const items = [
-    { label: "NPS actual", value: formatSigned(summary?.nps || 0), detail: "Promotores − detractores" },
+    { label: "NPS actual", value: formatSigned(summary?.nps || 0), detail: "((Promotores − detractores) / encuestados) × 100" },
     { label: "Promotores", value: formatNumber(summary?.promoters || 0), detail: formatPercent(summary?.promoters || 0, total) },
     { label: "Pasivos", value: formatNumber(summary?.passives || 0), detail: formatPercent(summary?.passives || 0, total) },
     { label: "Detractores", value: formatNumber(summary?.detractors || 0), detail: formatPercent(summary?.detractors || 0, total) },
@@ -253,7 +290,7 @@ function SummaryCards({ summary }: { summary?: Summary }) {
   return <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">{items.map((item) => <MetricCard key={item.label} {...item} />)}</section>;
 }
 
-function NpsOverview({ summary, years }: { summary?: Summary; years: Group[] }) {
+function NpsOverview({ cds, summary, years }: { cds: Group[]; summary?: Summary; years: Group[] }) {
   const current = years.at(-1);
   const previous = years.at(-2);
   const delta = current && previous ? current.nps - previous.nps : null;
@@ -261,43 +298,105 @@ function NpsOverview({ summary, years }: { summary?: Summary; years: Group[] }) 
   const gaugeRotation = ((gaugeValue + 100) / 200) * 180;
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,.8fr)]">
-      <ChartCard eyebrow="Indicador consolidado" title="NPS global">
-        <div className="mt-6 grid items-center gap-6 sm:grid-cols-[240px_minmax(0,1fr)]">
-          <svg aria-label={`NPS global ${formatSigned(gaugeValue)}`} className="mx-auto w-full max-w-64" role="img" viewBox="0 0 250 150">
-            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#edf2f5" strokeLinecap="round" strokeWidth="28" />
-            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#dc4b48" strokeDasharray="35 65" strokeLinecap="butt" strokeWidth="28" />
-            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#efbb32" strokeDasharray="25 75" strokeDashoffset="-35" strokeLinecap="butt" strokeWidth="28" />
-            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#20ae78" strokeDasharray="40 60" strokeDashoffset="-60" strokeLinecap="butt" strokeWidth="28" />
-            <g className="transition-transform duration-700" style={{ transform: `rotate(${gaugeRotation}deg)`, transformBox: "view-box", transformOrigin: "125px 125px" }}><line stroke="#071f33" strokeLinecap="round" strokeWidth="4" x1="125" x2="38" y1="125" y2="125" /></g>
-            <circle cx="125" cy="125" fill="#071f33" r="9" stroke="#fff" strokeWidth="4" />
-            <text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="25" y="148">-100</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="125" y="30">0</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="225" y="148">+100</text>
-          </svg>
-          <div className="text-center sm:text-left"><strong className="text-6xl font-semibold tracking-tight text-[#071f33]">{formatSigned(summary?.nps || 0)}</strong><p className="mt-2 text-[10px] font-extrabold uppercase tracking-[.16em] text-slate-400">Promotores − detractores</p><p className="mt-4 text-xs leading-5 text-slate-500">Calculado sobre {formatNumber(summary?.respondentCount || 0)} encuestas únicas del periodo filtrado.</p></div>
-        </div>
-      </ChartCard>
+    <section className="space-y-4">
+      <div className="grid grid-cols-3 gap-4">
+        <ChartCard eyebrow="Indicador consolidado" title="Gerencia Barranquilla">
+          <div className="mt-3 grid items-center gap-2 sm:grid-cols-[110px_minmax(0,1fr)]">
+            <svg aria-label={`NPS global ${formatSigned(gaugeValue)}`} className="mx-auto w-full max-w-28" role="img" viewBox="0 0 250 150">
+              <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#edf2f5" strokeLinecap="round" strokeWidth="28" />
+              <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#dc4b48" strokeDasharray="35 65" strokeLinecap="butt" strokeWidth="28" />
+              <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#efbb32" strokeDasharray="25 75" strokeDashoffset="-35" strokeLinecap="butt" strokeWidth="28" />
+              <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#20ae78" strokeDasharray="40 60" strokeDashoffset="-60" strokeLinecap="butt" strokeWidth="28" />
+              <g className="transition-transform duration-700" style={{ transform: `rotate(${gaugeRotation}deg)`, transformBox: "view-box", transformOrigin: "125px 125px" }}><line stroke="#071f33" strokeLinecap="round" strokeWidth="4" x1="125" x2="38" y1="125" y2="125" /></g>
+              <circle cx="125" cy="125" fill="#071f33" r="9" stroke="#fff" strokeWidth="4" />
+              <text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="25" y="148">-100</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="125" y="30">0</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="225" y="148">+100</text>
+            </svg>
+            <div className="text-center sm:text-left"><strong className="text-3xl font-semibold tracking-tight text-[#071f33]">{formatSigned(summary?.nps || 0)}</strong><p className="mt-1 text-[8px] font-extrabold uppercase tracking-[.1em] text-slate-400">(Promotores − detractores) / encuestados</p><p className="mt-1 text-[9px] leading-4 text-slate-500">{formatNumber(summary?.respondentCount || 0)} encuestas</p></div>
+          </div>
+        </ChartCard>
+        <CdNpsGauges rows={cds} />
+      </div>
       <ChartCard eyebrow="Lectura interanual" title="Resultado YTD">
-        <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-5"><p className="text-[9px] font-extrabold uppercase tracking-[.14em] text-emerald-700">Año actual · {current?.label || "—"}</p><strong className="mt-2 block text-4xl font-semibold text-[#071f33]">{current ? formatSigned(current.nps) : "—"}</strong><p className="mt-1 text-xs font-bold text-emerald-700">YTD</p></div>
-          <div className="rounded-xl border border-slate-200 bg-[#f8fafb] p-5"><p className="text-[9px] font-extrabold uppercase tracking-[.14em] text-slate-500">Año anterior · {previous?.label || "—"}</p><strong className="mt-2 block text-4xl font-semibold text-[#071f33]">{previous ? formatSigned(previous.nps) : "—"}</strong><p className={`mt-1 text-xs font-bold ${delta !== null && delta >= 0 ? "text-emerald-700" : "text-red-600"}`}>{delta === null ? "Sin comparación" : `${formatSigned(delta)} puntos`}</p></div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3.5"><p className="text-[8px] font-extrabold uppercase tracking-[.12em] text-emerald-700">Año actual · {current?.label || "—"}</p><strong className="mt-1 block text-3xl font-semibold text-[#071f33]">{current ? formatSigned(current.nps) : "—"}</strong><p className="text-[10px] font-bold text-emerald-700">YTD</p></div>
+          <div className="rounded-xl border border-slate-200 bg-[#f8fafb] p-3.5"><p className="text-[8px] font-extrabold uppercase tracking-[.12em] text-slate-500">Año anterior · {previous?.label || "—"}</p><strong className="mt-1 block text-3xl font-semibold text-[#071f33]">{previous ? formatSigned(previous.nps) : "—"}</strong><p className={`text-[10px] font-bold ${delta !== null && delta >= 0 ? "text-emerald-700" : "text-red-600"}`}>{delta === null ? "Sin comparación" : `${formatSigned(delta)} puntos`}</p></div>
         </div>
       </ChartCard>
     </section>
   );
 }
 
+function CdNpsGauges({ rows }: { rows: Group[] }) {
+  const cards = [
+    { key: "galapa", title: "CD Galapa" },
+    { key: "arenosa", title: "CD La Arenosa" },
+  ].map((card) => ({
+    ...card,
+    row: rows.find((row) => normalizeTextLabel(row.label).includes(card.key)),
+  }));
+
+  return (
+    <>
+      {cards.map(({ row, title }) => {
+        const value = Math.max(-100, Math.min(100, row?.nps || 0));
+        const rotation = ((value + 100) / 200) * 180;
+        return (
+          <ChartCard eyebrow="Desempeño por centro" key={title} title={title}>
+            <div className="mt-3 grid items-center gap-2 sm:grid-cols-[110px_minmax(0,1fr)]">
+              <svg aria-label={`${title}: NPS ${formatSigned(value)}`} className="mx-auto w-full max-w-28" role="img" viewBox="0 0 250 150">
+                <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#edf2f5" strokeLinecap="round" strokeWidth="28" />
+                <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#dc4b48" strokeDasharray="35 65" strokeWidth="28" />
+                <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#efbb32" strokeDasharray="25 75" strokeDashoffset="-35" strokeWidth="28" />
+                <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#20ae78" strokeDasharray="40 60" strokeDashoffset="-60" strokeWidth="28" />
+                <g className="transition-transform duration-700" style={{ transform: `rotate(${rotation}deg)`, transformBox: "view-box", transformOrigin: "125px 125px" }}><line stroke="#071f33" strokeLinecap="round" strokeWidth="4" x1="125" x2="38" y1="125" y2="125" /></g>
+                <circle cx="125" cy="125" fill="#071f33" r="9" stroke="#fff" strokeWidth="4" />
+                <text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="25" y="148">-100</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="125" y="30">0</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="225" y="148">+100</text>
+              </svg>
+              <div className="text-center sm:text-left"><strong className="text-3xl font-semibold tracking-tight text-[#071f33]">{row ? formatSigned(row.nps) : "—"}</strong><p className="mt-1 text-[8px] font-extrabold uppercase tracking-[.1em] text-slate-400">NPS del centro</p><p className="mt-1 text-[9px] leading-4 text-slate-500">{row ? `${formatNumber(row.respondentCount)} encuestas` : "Sin datos"}</p></div>
+            </div>
+          </ChartCard>
+        );
+      })}
+    </>
+  );
+}
+
 function TrendChart({ eyebrow, mode, rows, title }: { eyebrow: string; mode: "line" | "columns"; rows: Group[]; title: string }) {
   const [pinnedLabel, setPinnedLabel] = useState("");
+  const [page, setPage] = useState(0);
   if (!rows.length) return <ChartCard eyebrow={eyebrow} title={title}><EmptyState /></ChartCard>;
   if (mode === "columns") {
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+    const currentPage = Math.min(page, pageCount - 1);
+    const pageRows = rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+    const firstVisible = currentPage * pageSize + 1;
+    const lastVisible = Math.min((currentPage + 1) * pageSize, rows.length);
     return (
       <ChartCard eyebrow={eyebrow} title={title}>
-        <div className="mt-7 flex h-72 min-w-[620px] items-end gap-4 overflow-x-auto border-b border-l border-[#cbd9e3] px-5 pt-4">
-          {rows.map((row) => {
+        <div className="mt-7 flex h-64 w-full min-w-0 items-end gap-3 border-b border-l border-[#cbd9e3] px-4 pt-16">
+          {pageRows.map((row) => {
             const height = Math.max(8, ((row.nps + 100) / 200) * 92);
             const color = row.nps >= 80 ? "linear-gradient(180deg,#34d399,#059669)" : row.nps >= 65 ? "linear-gradient(180deg,#fde047,#eab308)" : "linear-gradient(180deg,#fb7185,#dc2626)";
-            return <button className="group relative flex h-full min-w-28 flex-1 flex-col items-center justify-end outline-none" key={row.label} onClick={() => setPinnedLabel(pinnedLabel === row.label ? "" : row.label)}><span className="mb-2 text-[10px] font-extrabold text-[#17364d]">{formatSigned(row.nps)}%</span><span className={`nps-chart-bar w-full max-w-52 rounded-t-md transition duration-300 group-hover:brightness-105 ${pinnedLabel === row.label ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`} style={{ background: color, height: `${height}%` }} /><span className="mt-2 text-xs font-extrabold text-[#17364d]">{row.label.replace(/^S/, "")}</span><ChartTooltip pinned={pinnedLabel === row.label}>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip></button>;
+            return (
+              <button className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end outline-none" key={row.label} onClick={() => setPinnedLabel(pinnedLabel === row.label ? "" : row.label)}>
+                <span className="relative flex w-full max-w-52 items-end justify-center" style={{ height: `${height}%` }}>
+                  <ChartTooltip pinned={pinnedLabel === row.label}>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip>
+                  <span className="absolute -top-6 text-[10px] font-extrabold text-[#17364d]">{formatSigned(row.nps)}%</span>
+                  <span className={`nps-chart-bar block h-full w-full rounded-t-md transition duration-300 group-hover:brightness-105 ${pinnedLabel === row.label ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`} style={{ background: color }} />
+                </span>
+                <span className="mt-2 text-xs font-extrabold text-[#17364d]">{row.label.replace(/^S/, "")}</span>
+              </button>
+            );
           })}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-[10px] font-semibold text-slate-500">Mostrando {firstVisible}–{lastVisible} de {rows.length} semanas</span>
+          <div className="flex items-center gap-2">
+            <button className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[10px] font-bold text-[#25435b] transition hover:border-[#176b73] disabled:cursor-not-allowed disabled:opacity-40" disabled={currentPage === 0} onClick={() => { setPinnedLabel(""); setPage((value) => Math.max(0, value - 1)); }} type="button">Anterior</button>
+            <span className="min-w-12 text-center text-[10px] font-extrabold text-[#17364d]">{currentPage + 1}/{pageCount}</span>
+            <button className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[10px] font-bold text-[#25435b] transition hover:border-[#176b73] disabled:cursor-not-allowed disabled:opacity-40" disabled={currentPage >= pageCount - 1} onClick={() => { setPinnedLabel(""); setPage((value) => Math.min(pageCount - 1, value + 1)); }} type="button">Siguiente</button>
+          </div>
         </div>
       </ChartCard>
     );
@@ -344,6 +443,7 @@ function TrendChart({ eyebrow, mode, rows, title }: { eyebrow: string; mode: "li
 
 function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series: TrendSeries[]; title: string }) {
   const [pinnedPoint, setPinnedPoint] = useState("");
+  const [hoveredMonth, setHoveredMonth] = useState("");
   if (!series.some((item) => item.rows.length)) return <ChartCard eyebrow={eyebrow} title={title}><EmptyState /></ChartCard>;
   const width = 720;
   const height = 230;
@@ -368,6 +468,13 @@ function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series:
   }));
   const pinned = plotted.flatMap((item, seriesIndex) => item.points.map((point) => ({ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label })))
     .find((point) => `${point.seriesLabel}:${point.label}` === pinnedPoint);
+  const comparisonMonth = hoveredMonth || pinned?.label || "";
+  const comparison = comparisonMonth
+    ? plotted.flatMap((item, seriesIndex) => {
+        const point = item.points.find((candidate) => candidate.label === comparisonMonth);
+        return point ? [{ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label }] : [];
+      })
+    : [];
 
   return (
     <ChartCard eyebrow={eyebrow} title={title}>
@@ -388,16 +495,20 @@ function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series:
             {item.points.map((point) => {
               const key = `${item.label}:${point.label}`;
               const active = pinnedPoint === key;
-              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: NPS ${formatSigned(point.nps)} · ${formatNumber(point.respondentCount)} encuestas · Haz clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>;
+              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)} onMouseEnter={() => setHoveredMonth(point.label)} onMouseLeave={() => setHoveredMonth("")}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: NPS ${formatSigned(point.nps)} · ${formatNumber(point.respondentCount)} encuestas · Haz clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>;
             })}
           </g>)}
           {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].map((month, index) => <text fill="#71899b" fontSize="9" fontWeight="600" key={month} textAnchor="middle" x={paddingX + (index * (width - paddingX * 2)) / 11} y={height + 12}>{month}</text>)}
-          {pinned ? (() => {
-            const tooltipWidth = 138;
-            const tooltipHeight = 72;
-            const tooltipX = Math.max(6, Math.min(width - tooltipWidth - 6, pinned.x - tooltipWidth / 2));
-            const tooltipY = pinned.y > 105 ? pinned.y - tooltipHeight - 16 : pinned.y + 16;
-            return <g className="cursor-pointer" onClick={() => setPinnedPoint("")}><rect fill="#0b2235" height={tooltipHeight} rx="9" width={tooltipWidth} x={tooltipX} y={tooltipY} /><circle cx={tooltipX + 14} cy={tooltipY + 16} fill={pinned.color} r="4" /><text fill="#9bb0bf" fontSize="8" fontWeight="800" letterSpacing=".8" x={tooltipX + 24} y={tooltipY + 19}>{pinned.label.toUpperCase()} · {pinned.seriesLabel}</text><text fill="#fff" fontSize="19" fontWeight="800" x={tooltipX + 12} y={tooltipY + 44}>{formatSigned(pinned.nps)}%</text><text fill="#9bb0bf" fontSize="7.5" fontWeight="600" x={tooltipX + 12} y={tooltipY + 61}>{formatNumber(pinned.respondentCount)} encuestas · clic para cerrar</text></g>;
+          {comparison.length ? (() => {
+            const tooltipWidth = 166;
+            const tooltipHeight = 48 + comparison.length * 22;
+            const anchorX = comparison[0].x;
+            const anchorY = Math.min(...comparison.map((point) => point.y));
+            const tooltipX = Math.max(6, Math.min(width - tooltipWidth - 6, anchorX - tooltipWidth / 2));
+            const tooltipY = anchorY > tooltipHeight + 22 ? anchorY - tooltipHeight - 14 : anchorY + 18;
+            const ordered = [...comparison].sort((a, b) => Number(b.seriesLabel) - Number(a.seriesLabel));
+            const difference = ordered.length > 1 ? ordered[0].nps - ordered[1].nps : null;
+            return <g className={pinned && !hoveredMonth ? "cursor-pointer" : ""} onClick={() => { if (pinned && !hoveredMonth) setPinnedPoint(""); }}><rect fill="#0b2235" height={tooltipHeight} rx="10" width={tooltipWidth} x={tooltipX} y={tooltipY} /><text fill="#9bb0bf" fontSize="8" fontWeight="800" letterSpacing=".8" x={tooltipX + 12} y={tooltipY + 17}>{comparisonMonth.toUpperCase()} · COMPARATIVO</text>{ordered.map((point, index) => <g key={point.seriesLabel}><circle cx={tooltipX + 15} cy={tooltipY + 34 + index * 22} fill={point.color} r="4" /><text fill="#dce7ed" fontSize="9" fontWeight="700" x={tooltipX + 25} y={tooltipY + 37 + index * 22}>{point.seriesLabel}</text><text fill="#fff" fontSize="13" fontWeight="800" textAnchor="end" x={tooltipX + tooltipWidth - 12} y={tooltipY + 38 + index * 22}>{formatSigned(point.nps)}%</text></g>)}{difference !== null ? <text fill={difference >= 0 ? "#63d6bc" : "#ff9b91"} fontSize="8" fontWeight="800" x={tooltipX + 12} y={tooltipY + tooltipHeight - 8}>DIFERENCIA {formatSigned(difference)} PUNTOS</text> : null}</g>;
           })() : null}
         </svg>
       </div>
@@ -417,6 +528,7 @@ function smoothPath(points: Array<{ x: number; y: number }>) {
 
 function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
   const [pinnedPoint, setPinnedPoint] = useState("");
+  const [hoveredMonth, setHoveredMonth] = useState("");
   const colors = ["#159b94", "#e79522"];
   const width = 920;
   const height = 230;
@@ -433,6 +545,13 @@ function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
   }));
   const pinned = plotted.flatMap((item, seriesIndex) => item.points.map((point) => ({ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label })))
     .find((point) => `${point.seriesLabel}:${point.label}` === pinnedPoint);
+  const comparisonMonth = hoveredMonth || pinned?.label || "";
+  const comparison = comparisonMonth
+    ? plotted.flatMap((item, seriesIndex) => {
+        const point = item.points.find((candidate) => candidate.label === comparisonMonth);
+        return point ? [{ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label }] : [];
+      })
+    : [];
 
   return (
     <ChartCard eyebrow="Experiencia de entrega" title="Delivery Experience por mes">
@@ -447,14 +566,19 @@ function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
             {plotted.map((item, seriesIndex) => <g key={item.label}><path className="nps-chart-line" d={smoothPath(item.points)} fill="none" stroke={colors[seriesIndex % colors.length]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />{item.points.map((point) => {
               const key = `${item.label}:${point.label}`;
               const active = pinnedPoint === key;
-              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 4.5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: ${point.averageScore.toLocaleString("es-CO")} / 10 · clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{point.averageScore.toLocaleString("es-CO")}</text></g>;
+              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)} onMouseEnter={() => setHoveredMonth(point.label)} onMouseLeave={() => setHoveredMonth("")}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 4.5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: ${point.averageScore.toLocaleString("es-CO")} / 10 · clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{point.averageScore.toLocaleString("es-CO")}</text></g>;
             })}</g>)}
             {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].map((month, index) => <text fill="#71899b" fontSize="9" fontWeight="600" key={month} textAnchor="middle" x={paddingX + (index * (width - paddingX * 2)) / 11} y={height + 12}>{month}</text>)}
-            {pinned ? (() => {
-              const boxWidth = 142; const boxHeight = 70;
-              const x = Math.max(6, Math.min(width - boxWidth - 6, pinned.x - boxWidth / 2));
-              const y = pinned.y > 105 ? pinned.y - boxHeight - 16 : pinned.y + 16;
-              return <g className="cursor-pointer" onClick={() => setPinnedPoint("")}><rect fill="#0b2235" height={boxHeight} rx="9" width={boxWidth} x={x} y={y} /><circle cx={x + 14} cy={y + 16} fill={pinned.color} r="4" /><text fill="#9bb0bf" fontSize="8" fontWeight="800" x={x + 24} y={y + 19}>{pinned.label.toUpperCase()} · {pinned.seriesLabel}</text><text fill="#fff" fontSize="18" fontWeight="800" x={x + 12} y={y + 43}>{pinned.averageScore.toLocaleString("es-CO")} / 10</text><text fill="#9bb0bf" fontSize="7.5" x={x + 12} y={y + 59}>Fijado · clic para cerrar</text></g>;
+            {comparison.length ? (() => {
+              const tooltipWidth = 180;
+              const tooltipHeight = 48 + comparison.length * 22;
+              const anchorX = comparison[0].x;
+              const anchorY = Math.min(...comparison.map((point) => point.y));
+              const tooltipX = Math.max(6, Math.min(width - tooltipWidth - 6, anchorX - tooltipWidth / 2));
+              const tooltipY = anchorY > tooltipHeight + 22 ? anchorY - tooltipHeight - 14 : anchorY + 18;
+              const ordered = [...comparison].sort((a, b) => Number(b.seriesLabel) - Number(a.seriesLabel));
+              const difference = ordered.length > 1 ? ordered[0].averageScore - ordered[1].averageScore : null;
+              return <g className={pinned && !hoveredMonth ? "cursor-pointer" : ""} onClick={() => { if (pinned && !hoveredMonth) setPinnedPoint(""); }}><rect fill="#0b2235" height={tooltipHeight} rx="10" width={tooltipWidth} x={tooltipX} y={tooltipY} /><text fill="#9bb0bf" fontSize="8" fontWeight="800" letterSpacing=".8" x={tooltipX + 12} y={tooltipY + 17}>{comparisonMonth.toUpperCase()} · COMPARATIVO</text>{ordered.map((point, index) => <g key={point.seriesLabel}><circle cx={tooltipX + 15} cy={tooltipY + 34 + index * 22} fill={point.color} r="4" /><text fill="#dce7ed" fontSize="9" fontWeight="700" x={tooltipX + 25} y={tooltipY + 37 + index * 22}>{point.seriesLabel}</text><text fill="#fff" fontSize="13" fontWeight="800" textAnchor="end" x={tooltipX + tooltipWidth - 12} y={tooltipY + 38 + index * 22}>{point.averageScore.toLocaleString("es-CO", { maximumFractionDigits: 1 })} / 10</text></g>)}{difference !== null ? <text fill={difference >= 0 ? "#63d6bc" : "#ff9b91"} fontSize="8" fontWeight="800" x={tooltipX + 12} y={tooltipY + tooltipHeight - 8}>DIFERENCIA {formatSigned(difference)} PUNTOS</text> : null}</g>;
             })() : null}
           </svg>
         </div>
@@ -463,14 +587,60 @@ function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
   );
 }
 
+function DailyRatingsChart({ filters, rows, sourceMaxDate }: { filters: FilterState; rows: Group[]; sourceMaxDate?: string | null }) {
+  const [pinnedLabel, setPinnedLabel] = useState("");
+  if (!rows.length) return <ChartCard eyebrow="Volumen diario" title="Calificaciones por día"><EmptyState /></ChartCard>;
+
+  const sourceDate = sourceMaxDate ? new Date(`${sourceMaxDate.slice(0, 10)}T12:00:00`) : new Date();
+  const year = Number(filters.year) || sourceDate.getFullYear();
+  const month = Number(filters.month) || sourceDate.getMonth() + 1;
+  const maximum = Math.max(1, ...rows.map((row) => row.respondentCount));
+  const weekday = (day: number) => new Intl.DateTimeFormat("es-CO", { weekday: "long", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, day)));
+
+  return (
+    <ChartCard eyebrow="Volumen diario" title="Calificaciones por día">
+      <p className="mt-1 text-xs text-slate-500">Cantidad de encuestas recibidas cada día durante el mes seleccionado.</p>
+      <div className="mt-6 flex h-60 items-end gap-2 overflow-x-auto border-b border-l border-slate-300 px-4 pt-14">
+        {rows.map((row) => {
+          const day = Number(row.label);
+          const height = Math.max(3, (row.respondentCount / maximum) * 100);
+          const active = pinnedLabel === row.label;
+          return (
+            <button className="group flex h-full min-w-16 flex-1 flex-col items-center justify-end outline-none" key={row.label} onClick={() => setPinnedLabel(active ? "" : row.label)}>
+              <span className="relative flex w-full max-w-20 items-end justify-center" style={{ height: `${height}%` }}>
+                <ChartTooltip pinned={active}>{weekday(day)} {day}: {formatNumber(row.respondentCount)} calificaciones · NPS {formatSigned(row.nps)}</ChartTooltip>
+                <span className="absolute -top-6 text-[10px] font-extrabold tabular-nums text-[#17364d]">{formatNumber(row.respondentCount)}</span>
+                <span className={`nps-chart-bar block h-full w-full rounded-t-md bg-gradient-to-b from-[#d9f41c] to-[#b9d500] transition duration-300 group-hover:brightness-105 ${active ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`} />
+              </span>
+              <span className="mt-2 max-w-16 truncate text-[9px] font-bold capitalize text-slate-600">{weekday(day)}</span>
+              <span className="text-xs font-extrabold text-[#17364d]">{day}</span>
+            </button>
+          );
+        })}
+      </div>
+    </ChartCard>
+  );
+}
+
 function ScoreChart({ rows }: { rows: ScoreRow[] }) {
   const maximum = Math.max(1, ...rows.map((row) => row.count));
   return (
     <ChartCard eyebrow="Volumen de respuestas" title="Distribución de calificaciones">
-      <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto border-b border-l border-slate-300 px-4 pt-5">
+      <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto border-b border-l border-slate-300 px-4 pt-14">
         {rows.map((row) => {
           const tone = row.score >= 9 ? "bg-[#258578]" : row.score >= 7 ? "bg-[#d7a138]" : "bg-[#c95850]";
-          return <button className="group relative flex h-full min-w-12 flex-1 flex-col items-center justify-end outline-none" key={row.score}><span className="mb-1 text-[9px] font-bold text-[#28485d]">{formatNumber(row.count)}</span><span className={`w-full max-w-14 origin-bottom rounded-t transition duration-300 group-hover:brightness-110 ${tone}`} style={{ height: `${Math.max(3, (row.count / maximum) * 100)}%` }} /><span className="mt-2 text-[10px] font-bold text-slate-600">{row.score}</span><ChartTooltip>Score {row.score}: {formatNumber(row.count)} encuestas · {row.percentage.toLocaleString("es-CO")}%</ChartTooltip></button>;
+          const height = Math.max(3, (row.count / maximum) * 100);
+          return (
+            <button className="group flex h-full min-w-12 flex-1 flex-col items-center justify-end outline-none" key={row.score}>
+              <span className="relative flex w-full max-w-14 items-end justify-center" style={{ height: `${height}%` }}>
+                <ChartTooltip>Score {row.score}: {formatNumber(row.count)} encuestas · {row.percentage.toLocaleString("es-CO")}%</ChartTooltip>
+                <span className="absolute -top-5 text-[9px] font-bold text-[#28485d]">{formatNumber(row.count)}</span>
+                <span className={`block h-full w-full rounded-t transition duration-300 group-hover:brightness-110 ${tone}`} />
+              </span>
+              <span className="mt-2 text-[10px] font-bold text-slate-600">{row.score}</span>
+            </button>
+          );
         })}
       </div>
       <div className="mt-4 flex flex-wrap gap-4 text-[10px] font-semibold text-slate-500"><Legend color="bg-[#c95850]" label="Detractores (0–6)" /><Legend color="bg-[#d7a138]" label="Pasivos (7–8)" /><Legend color="bg-[#258578]" label="Promotores (9–10)" /></div>
@@ -484,9 +654,9 @@ function DriverChart({ eyebrow, rows, title, variant }: { eyebrow: string; rows:
   return (
     <ChartCard eyebrow={eyebrow} title={title}>
       {visible.length ? (
-        <div className={variant === "grid" ? "mt-8 grid gap-3 sm:grid-cols-2" : "mt-8 space-y-6"}>
+        <div className={variant === "grid" ? "mt-8 grid gap-x-6 gap-y-5 sm:grid-cols-2" : "mt-8 space-y-6"}>
           {visible.map((row, index) => (
-            <div className={variant === "grid" ? "group rounded-xl border border-[#d8e2e8] bg-[#f8fafb] p-4 transition hover:border-[#b7cbd6] hover:bg-white" : "group px-2"} key={row.label}>
+            <div className="group px-2" key={row.label}>
               <div className="mb-2 flex items-start justify-between gap-4">
                 <span className="text-[13px] font-medium leading-5 text-[#25435b]">{row.label}</span>
                 <strong className="shrink-0 text-sm font-extrabold tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong>
@@ -513,36 +683,52 @@ function DriverContribution({ rows }: { rows: Driver[] }) {
   const total = visible.reduce((sum, row) => sum + row.percentage, 0);
   return (
     <ChartCard eyebrow="Contribución acumulada" title="% Primary Driver">
-      {visible.length ? <div className="mt-7 grid gap-x-8 gap-y-4 lg:grid-cols-2">{visible.map((row, index) => {
+      {visible.length ? <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{visible.map((row, index) => {
         const cumulative = visible.slice(0, index + 1).reduce((sum, item) => sum + item.percentage, 0);
-        return <div className="group rounded-xl border border-[#d8e2e8] bg-[#f9fbfc] p-4 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-4"><span className="text-xs font-semibold leading-5 text-[#25435b]">{row.label}</span><strong className="shrink-0 text-sm tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-2 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 flex justify-between text-[9px] font-bold uppercase tracking-[.08em] text-slate-400"><span>{formatNumber(row.count)} menciones</span><span>Acumulado {cumulative.toLocaleString("es-CO")}%</span></div></div>;
-      })}<div className="rounded-xl border border-[#a7d4cf] bg-[#edf8f7] p-4 lg:col-span-2"><div className="flex items-center justify-between gap-4"><span className="text-xs font-extrabold uppercase tracking-[.12em] text-[#087f78]">Cobertura de los drivers visibles</span><strong className="text-2xl text-[#071f33]">{total.toLocaleString("es-CO")}%</strong></div></div></div> : <EmptyState />}
+        return <div className="group rounded-lg border border-[#d8e2e8] bg-[#f9fbfc] p-3 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-3"><span className="truncate text-[11px] font-semibold text-[#25435b]" title={row.label}>{row.label}</span><strong className="shrink-0 text-xs tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 flex justify-between gap-2 text-[8px] font-bold uppercase tracking-[.06em] text-slate-400"><span>{formatNumber(row.count)} menciones</span><span>Acum. {cumulative.toLocaleString("es-CO")}%</span></div></div>;
+      })}<div className="rounded-lg border border-[#a7d4cf] bg-[#edf8f7] px-4 py-2.5 sm:col-span-2 xl:col-span-4"><div className="flex items-center justify-between gap-4"><span className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#087f78]">Cobertura de los drivers visibles</span><strong className="text-xl text-[#071f33]">{total.toLocaleString("es-CO")}%</strong></div></div></div> : <EmptyState />}
     </ChartCard>
   );
 }
 
-function SegmentBarChart({ eyebrow, rows, title }: { eyebrow: string; rows: Group[]; title: string }) {
+function SegmentBarChart({ eyebrow, onSelect, rows, title }: { eyebrow: string; onSelect?: (row: Group) => void; rows: Group[]; title: string }) {
+  const [page, setPage] = useState(0);
+  const [pinnedLabel, setPinnedLabel] = useState("");
   const visible = [...rows].sort((a, b) => b.nps - a.nps);
+  const pageSize = 8;
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageRows = visible.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const firstVisible = visible.length ? currentPage * pageSize + 1 : 0;
+  const lastVisible = Math.min((currentPage + 1) * pageSize, visible.length);
   return (
     <ChartCard eyebrow={eyebrow} title={title}>
       {visible.length ? (
-        <div className="mt-7 overflow-x-auto pb-1">
+        <div className="mt-7 min-w-0 pb-1">
           <div className="mb-3 flex flex-wrap gap-4 text-[9px] font-bold text-slate-500"><Legend color="bg-emerald-500" label="Alto ≥ 75" /><Legend color="bg-yellow-400" label="Medio 60–74,9" /><Legend color="bg-red-500" label="Bajo < 60" /></div>
-          <div className="relative flex h-72 min-w-max items-end gap-2 border-b border-l border-[#cbd9e3] bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(25%_-_1px),#e4ebef_25%)] px-3 pt-4">
-            {visible.map((row) => (
-              <button className="group relative flex h-full w-20 flex-none flex-col items-center justify-end outline-none sm:w-24" key={row.label}>
+          <div className="relative flex h-72 w-full min-w-0 items-end gap-2 border-b border-l border-[#cbd9e3] bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(25%_-_1px),#e4ebef_25%)] px-3 pt-4">
+            {pageRows.map((row) => (
+              <button className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end outline-none" key={row.label} onClick={() => { setPinnedLabel(pinnedLabel === row.label ? "" : row.label); onSelect?.(row); }}>
                 <span className="mb-2 text-[9px] font-extrabold tabular-nums text-[#17364d]">{formatSigned(row.nps)}%</span>
                 <span
-                  className="nps-chart-bar w-full max-w-28 rounded-t-md transition duration-300 group-hover:-translate-y-1 group-hover:brightness-105"
+                  className={`nps-chart-bar w-[82%] max-w-20 rounded-t-md transition duration-300 group-hover:-translate-y-1 group-hover:brightness-105 ${pinnedLabel === row.label ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`}
                   style={{
                     background: row.nps >= 75 ? "linear-gradient(180deg,#34d399,#079669)" : row.nps >= 60 ? "linear-gradient(180deg,#fde047,#eab308)" : "linear-gradient(180deg,#fb7185,#dc2626)",
                     height: `${Math.max(5, ((row.nps + 100) / 200) * 86)}%`,
                   }}
                 />
-                <span className="mt-2 w-full truncate text-center text-[9px] font-semibold text-[#496579]" title={row.label}>{row.label.replace(/^CD /, "")}</span>
-                <ChartTooltip>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip>
+                <span className="mt-2 h-7 w-full overflow-hidden px-1 text-center text-[9px] font-semibold leading-3 text-[#496579]" title={row.label}>{row.label.replace(/^CD /, "")}</span>
+                <ChartTooltip pinned={pinnedLabel === row.label}>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip>
               </button>
             ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-[10px] font-semibold text-slate-500">Mostrando {firstVisible}–{lastVisible} de {visible.length}</span>
+            <div className="flex items-center gap-2">
+              <button className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[10px] font-bold text-[#25435b] transition hover:border-[#176b73] disabled:cursor-not-allowed disabled:opacity-40" disabled={currentPage === 0} onClick={() => { setPinnedLabel(""); setPage((value) => Math.max(0, value - 1)); }} type="button">Anterior</button>
+              <span className="min-w-12 text-center text-[10px] font-extrabold text-[#17364d]">{currentPage + 1}/{pageCount}</span>
+              <button className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[10px] font-bold text-[#25435b] transition hover:border-[#176b73] disabled:cursor-not-allowed disabled:opacity-40" disabled={currentPage >= pageCount - 1} onClick={() => { setPinnedLabel(""); setPage((value) => Math.min(pageCount - 1, value + 1)); }} type="button">Siguiente</button>
+            </div>
           </div>
         </div>
       ) : <EmptyState />}
@@ -642,6 +828,7 @@ const MAP_STYLE: StyleSpecification = {
       type: "raster",
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
+      maxzoom: 19,
       attribution: "© OpenStreetMap contributors",
     },
   },
@@ -744,7 +931,17 @@ function CdMap({ point }: { point: MapPoint }) {
         const { AttributionControl, Map, Marker, NavigationControl } = await import("maplibre-gl");
         if (cancelled || !containerRef.current) return;
         const initial = initialPointRef.current;
-        const map = new Map({ attributionControl: false, center: [initial.longitude, initial.latitude], container: containerRef.current, style: MAP_STYLE, zoom: 12.5 });
+        const map = new Map({
+          attributionControl: false,
+          center: [initial.longitude, initial.latitude],
+          container: containerRef.current,
+          maxZoom: 19,
+          style: MAP_STYLE,
+          transformRequest: (url) => ({ url: clampOpenStreetMapTileUrl(url) }),
+          zoom: 12.5,
+        });
+        map.setMaxZoom(19);
+        map.on("error", () => undefined);
         const marker = new Marker({ color: "#176b73", scale: 1.15 }).setLngLat([initial.longitude, initial.latitude]).addTo(map);
         map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
         map.addControl(new AttributionControl({ compact: true }), "bottom-left");
@@ -771,41 +968,63 @@ function CdMap({ point }: { point: MapPoint }) {
 
   useEffect(() => {
     markerRef.current?.setLngLat([point.longitude, point.latitude]);
-    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], duration: 1000, essential: true, zoom: 13 });
+    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], duration: 1000, essential: true, zoom: point.label.startsWith("Cliente") ? 16 : 13 });
   }, [point]);
 
   return mapError ? <div className="absolute inset-0 grid place-items-center bg-[#eaf1f4] text-sm font-semibold text-slate-500">{mapError}</div> : <div aria-label={`Mapa de ${point.label}`} className="absolute inset-0 h-full w-full" ref={containerRef} role="img" />;
 }
 
-function DetractorExplorer({ rows }: { rows: Detractor[] }) {
-  const [selection, setSelection] = useState<{ type: "cd" | "score"; value: string } | null>(null);
-  const byCd = Array.from(new Set(rows.map((row) => row.cd))).map((cd) => ({
-    label: cd,
-    rows: rows.filter((row) => row.cd === cd),
+function clampOpenStreetMapTileUrl(url: string) {
+  const match = url.match(/^(https:\/\/tile\.openstreetmap\.org\/)(\d+)\/(\d+)\/(\d+)\.png(\?.*)?$/);
+  if (!match) return url;
+  const zoom = Number(match[2]);
+  if (zoom <= 19) return url;
+  const scale = 2 ** (zoom - 19);
+  const x = Math.floor(Number(match[3]) / scale);
+  const y = Math.floor(Number(match[4]) / scale);
+  return `${match[1]}19/${x}/${y}.png${match[5] || ""}`;
+}
+
+function DetractorExplorer({ rows, strata }: { rows: Detractor[]; strata: Group[] }) {
+  const [selection, setSelection] = useState<{ type: "com" | "score" | "stratum"; value: string } | null>(null);
+  const [comPage, setComPage] = useState(0);
+  const byCom = Array.from(new Set(rows.map((row) => row.com || "Sin COM"))).map((com) => ({
+    label: com,
+    rows: rows.filter((row) => (row.com || "Sin COM") === com),
   })).sort((a, b) => b.rows.length - a.rows.length);
+  const comPageSize = 5;
+  const comPageCount = Math.max(1, Math.ceil(byCom.length / comPageSize));
+  const currentComPage = Math.min(comPage, comPageCount - 1);
+  const visibleComs = byCom.slice(currentComPage * comPageSize, (currentComPage + 1) * comPageSize);
+  const firstVisibleCom = byCom.length ? currentComPage * comPageSize + 1 : 0;
+  const lastVisibleCom = Math.min((currentComPage + 1) * comPageSize, byCom.length);
   const byScore = Array.from({ length: 7 }, (_, score) => ({
     label: String(score),
     rows: rows.filter((row) => row.score === score),
   })).filter((item) => item.rows.length);
-  const maximumCd = Math.max(1, ...byCd.map((item) => item.rows.length));
+  const maximumCom = Math.max(1, ...byCom.map((item) => item.rows.length));
   const maximumScore = Math.max(1, ...byScore.map((item) => item.rows.length));
   const selectedRows = selection
-    ? rows.filter((row) => selection.type === "cd" ? row.cd === selection.value : String(row.score) === selection.value)
+    ? rows.filter((row) => selection.type === "com"
+      ? (row.com || "Sin COM") === selection.value
+      : selection.type === "stratum"
+        ? (row.stratum || "Sin estrato") === selection.value
+        : String(row.score) === selection.value)
     : [];
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
-        <ChartCard eyebrow="Detalle operativo" title="Clientes detractores por CD">
-          {byCd.length ? <div className="mt-7 space-y-3">{byCd.map((item) => {
-            const active = selection?.type === "cd" && selection.value === item.label;
+      <div className="grid gap-4 xl:grid-cols-3">
+        <ChartCard eyebrow="Detalle operativo" title="Clientes detractores por COM">
+          {byCom.length ? <><div className="mt-7 space-y-3">{visibleComs.map((item, index) => {
+            const active = selection?.type === "com" && selection.value === item.label;
             return (
-              <button className={`group block w-full rounded-xl border p-3 text-left transition ${active ? "border-[#159b94] bg-[#edf8f7] shadow-[0_0_0_2px_rgba(21,155,148,.10)]" : "border-[#d8e2e8] bg-[#f9fbfc] hover:border-[#aac4d1]"}`} key={item.label} onClick={() => setSelection(active ? null : { type: "cd", value: item.label })}>
+              <button className={`group block w-full rounded-xl border p-3 text-left transition ${active ? "border-[#159b94] bg-[#edf8f7] shadow-[0_0_0_2px_rgba(21,155,148,.10)]" : "border-[#d8e2e8] bg-[#f9fbfc] hover:border-[#aac4d1]"}`} key={`${item.label}:${currentComPage * comPageSize + index}`} onClick={() => setSelection(active ? null : { type: "com", value: item.label })}>
                 <span className="mb-2 flex items-center justify-between gap-3 text-xs"><strong className="text-[#17364d]">{item.label}</strong><span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 font-extrabold text-red-600">{item.rows.length}</span></span>
-                <span className="block h-2 overflow-hidden rounded-full bg-[#edf2f6]"><i className="block h-full rounded-full bg-[#356b8e] transition-all group-hover:brightness-110" style={{ width: `${Math.max(4, (item.rows.length / maximumCd) * 100)}%` }} /></span>
+                <span className="block h-2 overflow-hidden rounded-full bg-[#edf2f6]"><i className="block h-full rounded-full bg-[#356b8e] transition-all group-hover:brightness-110" style={{ width: `${Math.max(4, (item.rows.length / maximumCom) * 100)}%` }} /></span>
               </button>
             );
-          })}</div> : <EmptyState />}
+          })}</div><div className="mt-4 flex items-center justify-between gap-2"><span className="text-[9px] font-semibold text-slate-500">{firstVisibleCom}–{lastVisibleCom} de {byCom.length}</span><div className="flex items-center gap-1.5"><button className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[9px] font-bold text-[#25435b] disabled:opacity-40" disabled={currentComPage === 0} onClick={() => { setSelection(null); setComPage((value) => Math.max(0, value - 1)); }} type="button">Anterior</button><span className="min-w-9 text-center text-[9px] font-extrabold text-[#17364d]">{currentComPage + 1}/{comPageCount}</span><button className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[9px] font-bold text-[#25435b] disabled:opacity-40" disabled={currentComPage >= comPageCount - 1} onClick={() => { setSelection(null); setComPage((value) => Math.min(comPageCount - 1, value + 1)); }} type="button">Siguiente</button></div></div></> : <EmptyState />}
         </ChartCard>
         <ChartCard eyebrow="Severidad de la experiencia" title="Clientes detractores por score">
           {byScore.length ? <div className="mt-7 flex h-64 items-end gap-3 border-b border-l border-[#cbd9e3] px-4">{byScore.map((item) => {
@@ -819,8 +1038,9 @@ function DetractorExplorer({ rows }: { rows: Detractor[] }) {
             );
           })}</div> : <EmptyState />}
         </ChartCard>
+        <SegmentBarChart eyebrow="Segmentación territorial" onSelect={(row) => setSelection({ type: "stratum", value: row.label })} rows={strata} title="NPS por estrato de zona de negocio" />
       </div>
-      {selection ? <DetractorTable rows={selectedRows} selectionLabel={selection.type === "cd" ? selection.value : `Score ${selection.value}`} /> : <div className="rounded-xl border border-dashed border-[#b9cbd5] bg-white/60 px-5 py-6 text-center text-xs font-semibold text-slate-500">Selecciona una barra para ver los clientes detractores.</div>}
+      {selection ? <DetractorTable rows={selectedRows} selectionLabel={selection.type === "score" ? `Score ${selection.value}` : selection.type === "stratum" ? `Estrato ${selection.value}` : selection.value} /> : <div className="rounded-xl border border-dashed border-[#b9cbd5] bg-white/60 px-5 py-6 text-center text-xs font-semibold text-slate-500">Selecciona un COM, score o estrato para ver los clientes detractores.</div>}
     </div>
   );
 }
@@ -849,9 +1069,8 @@ function DetractorTable({ rows, selectionLabel }: { rows: Detractor[]; selection
 
   return (
     <article className="overflow-hidden rounded-2xl border border-[#cbd9e3] bg-white shadow-[0_1px_3px_rgba(11,34,53,.10)]">
-      <div className="flex items-start justify-between gap-4 border-b border-[#d8e2e8] px-5 py-4">
+      <div className="flex items-start gap-4 border-b border-[#d8e2e8] px-5 py-4">
         <div><p className="text-[9px] font-extrabold uppercase tracking-[.18em] text-[#527180]">Detalle operativo seleccionado</p><h2 className="mt-1 text-xl font-semibold tracking-tight text-[#071f33]">Clientes detractores · {selectionLabel}</h2><p className="mt-1 text-[10px] text-slate-400">{visible.length} registros · cruce con clientes y seguimiento operativo</p></div>
-        <span className="rounded-lg bg-[#e7f2f3] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#087f78]">Datos reales</span>
       </div>
       <div className="overflow-x-auto">
         <table className="nps-data-table min-w-[1120px] w-full text-left text-xs">
@@ -896,7 +1115,7 @@ function Th({ children, right = false }: { children: ReactNode; right?: boolean 
 function Td({ children, right = false, strong = false }: { children: ReactNode; right?: boolean; strong?: boolean }) { return <td className={`px-4 py-3 ${right ? "text-right tabular-nums" : ""} ${strong ? "font-semibold text-[#18334a]" : "text-slate-600"}`}>{children}</td>; }
 function EmptyRow({ columns }: { columns: number }) { return <tr><td className="px-5 py-10 text-center text-slate-400" colSpan={columns}>No hay datos para los filtros seleccionados.</td></tr>; }
 function EmptyState() { return <div className="grid h-56 place-items-center text-sm text-slate-400">No hay datos para los filtros seleccionados.</div>; }
-function ChartCard({ children, eyebrow, title }: { children: ReactNode; eyebrow: string; title: string }) { return <article className="rounded-2xl border border-[#cbd9e3] bg-white p-5 shadow-[0_1px_3px_rgba(11,34,53,.10)] sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[9px] font-extrabold uppercase tracking-[.18em] text-[#527180]">{eyebrow}</p><h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#071f33]">{title}</h2></div><span className="rounded-lg bg-[#e7f2f3] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#087f78]">Datos reales</span></div>{children}</article>; }
+function ChartCard({ children, eyebrow, title }: { children: ReactNode; eyebrow: string; title: string }) { return <article className="rounded-2xl border border-[#cbd9e3] bg-white p-5 shadow-[0_1px_3px_rgba(11,34,53,.10)] sm:p-6"><div><p className="text-[9px] font-extrabold uppercase tracking-[.18em] text-[#527180]">{eyebrow}</p><h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#071f33]">{title}</h2></div>{children}</article>; }
 function ChartTooltip({ children, pinned = false }: { children: ReactNode; pinned?: boolean }) { return <span className={`pointer-events-none absolute left-1/2 top-0 z-30 min-w-max -translate-x-1/2 -translate-y-[110%] rounded-lg bg-[#0b2235] px-3 py-2 text-[9px] font-semibold text-white shadow-xl ${pinned ? "block" : "hidden group-hover:block group-focus:block group-focus-within:block"}`}>{children}<small className="mt-0.5 block text-[7px] font-medium text-[#9bb0bf]">{pinned ? "Fijado · clic para cerrar" : "Clic para fijar"}</small></span>; }
 function PinnedSvgTooltip({ color, height, onClose, point, width }: { color: string; height: number; onClose: () => void; point: Group & { x: number; y: number }; width: number }) {
   const tooltipWidth = 138;
@@ -924,6 +1143,7 @@ function formatNumber(value: number) { return value.toLocaleString("es-CO"); }
 function formatPercent(value: number, total: number) { return `${(total ? (value / total) * 100 : 0).toLocaleString("es-CO", { maximumFractionDigits: 1 })}%`; }
 function formatSigned(value: number) { return `${value > 0 ? "+" : ""}${value.toLocaleString("es-CO", { maximumFractionDigits: 1 })}`; }
 function normalizeClientCode(value: string) { return value.replace(/\D/g, "").replace(/^0+/, ""); }
+function normalizeTextLabel(value: string) { return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 function readCachedNpsReport() {
   try {
     const raw = sessionStorage.getItem(NPS_REPORT_CACHE_KEY);

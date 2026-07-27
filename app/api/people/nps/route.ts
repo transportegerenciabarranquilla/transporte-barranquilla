@@ -52,7 +52,7 @@ type FollowUpRow = {
   responsable?: string;
   transporte?: string;
 };
-type CustomerSegment = { com: string; population: string };
+type CustomerSegment = { commercialActivity: string; commercialManager: string; com: string; population: string; stratum: string };
 
 const TABLE = "NPS";
 const PAGE_SIZE = 1_000;
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     const filtered = dataset.surveys.filter((survey) => matchesFilters(survey, filters));
     const customerCodes = Array.from(new Set(dataset.surveys.map((survey) => normalizeDigits(survey.accountId)).filter(Boolean)));
     const customerSegments = await readServerCache(
-      `supabase:nps-customer-segments:${dataset.rawRowCount}`,
+      `supabase:nps-customer-segments:v4:${dataset.rawRowCount}`,
       CACHE_TTL_MS,
       () => loadCustomerSegments(session, customerCodes),
     );
@@ -95,13 +95,15 @@ export async function GET(request: Request) {
         date: survey.date,
         score: survey.score,
         cd: survey.cd || survey.ddc || "Sin CD",
+        com: customerSegments.get(normalizeDigits(survey.accountId))?.com || "Sin COM",
+        stratum: customerSegments.get(normalizeDigits(survey.accountId))?.stratum || "Sin estrato",
         management: survey.management || "Sin subregión",
         primaryDriver: Array.from(survey.primaryDrivers)[0] || "Sin dato",
         secondaryDriver: Array.from(survey.secondaryDrivers)[0] || "Sin dato",
       }));
     const detractorCacheKey = detractorRows.map((row) => `${normalizeDigits(row.accountId)}:${row.date}`).join("|");
     const detractors = await readServerCache(
-      `supabase:nps-detractors:${session.email || "people"}:${detractorCacheKey}`,
+      `supabase:nps-detractors:v2:${session.email || "people"}:${detractorCacheKey}`,
       5 * 60 * 1_000,
       () => enrichDetractorsWithLastRr(detractorRows, session),
     );
@@ -130,6 +132,19 @@ export async function GET(request: Request) {
           filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.population),
           (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.population || "Sin población",
         ),
+        commercialManagers: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialManager),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialManager || "Sin jefe comercial",
+        ),
+        commercialActivities: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialActivity),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialActivity || "Sin actividad comercial",
+        ),
+        strata: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.stratum),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.stratum || "Sin estrato",
+          numericOrder,
+        ),
       },
       drivers: {
         primary: groupDrivers(filtered, "primaryDrivers"),
@@ -157,8 +172,13 @@ async function loadCustomerSegments(session: Session, codes: string[]) {
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const chunks = Array.from({ length: Math.ceil(codes.length / 400) }, (_, index) => codes.slice(index * 400, index * 400 + 400));
   const pages = await Promise.all(chunks.map(async (chunk) => {
-    const params = new URLSearchParams({ select: "CodigoCliente,CodigoZona_Principal,Poblacion", CodigoCliente: `in.(${chunk.join(",")})` });
-    const response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
+    const baseColumns = "CodigoCliente,CodigoZona_Principal,Poblacion,Jefe comercial,SubCanal";
+    const params = new URLSearchParams({ select: `${baseColumns},Estrato`, CodigoCliente: `in.(${chunk.join(",")})` });
+    let response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
+    if (!response.ok) {
+      params.set("select", baseColumns);
+      response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
+    }
     return response.ok ? (await response.json()) as Record<string, unknown>[] : [];
   }));
   const rows = pages.flat();
@@ -169,7 +189,10 @@ async function loadCustomerSegments(session: Session, codes: string[]) {
     if (!code) return;
     const com = String(row.CodigoZona_Principal ?? "").trim();
     const population = String(row.Poblacion ?? "").trim();
-    result.set(code, { com, population });
+    const commercialManager = String(row["Jefe comercial"] ?? "").trim();
+    const commercialActivity = String(row.SubCanal ?? "").trim();
+    const stratum = String(row.Estrato ?? "").trim();
+    result.set(code, { commercialActivity, commercialManager, com, population, stratum });
   });
   return result;
 }
