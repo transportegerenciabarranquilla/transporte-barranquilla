@@ -21,6 +21,7 @@ type SeguimientoRoute = {
   contractor: string;
   transporte?: string;
   vehiculo?: string;
+  viaje?: string;
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
@@ -411,7 +412,7 @@ export default function ManagementPage() {
             <div className={isTvMode ? "border-l-4 border-[#0f766e] pl-3" : ""}>
               <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d76458]">Meta de salida</p>
               <h2 className={`${isTvMode ? "text-3xl tracking-[-0.04em]" : "mt-1 text-xl"} font-bold text-[#102a43]`}>Viajes por contratista</h2>
-              {!isTvMode ? <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · VH cargados por cada contratista en Seguimiento</p> : null}
+              {!isTvMode ? <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · Solo Viaje 1 cargado por cada contratista en Seguimiento</p> : null}
               <p className={`${isTvMode ? "flex items-center gap-2 text-sm" : "mt-1 text-xs"} font-semibold text-[#2563a6]`}>
                 {isTvMode ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" /> : null}
                 Seguimiento en vivo: {sourceCounts.seguimiento} VH · Fecha {selectedDate || "sin seleccionar"}{isTvMode ? ` · ${formatTvClock(now)}` : ` · próxima actualización en ${refreshIn}s`}
@@ -578,7 +579,7 @@ function hasOperationalTime(value: string | undefined) {
 function summarizeTrips(records: SeguimientoRoute[], selectedDate: string, aliases: readonly string[]) {
   const trips = new Map<string, SeguimientoRoute>();
   records.forEach((record, index) => {
-    if (seguimientoDate(record) !== selectedDate || !aliases.includes(normalizeText(record.contractor))) return;
+    if (!isFirstTrip(record.viaje) || seguimientoDate(record) !== selectedDate || !aliases.includes(normalizeText(record.contractor))) return;
     const dt = normalizeId(record.transporte);
     const vehicle = normalizeText(record.vehiculo);
     trips.set(`${dt || "sin-dt"}:${vehicle || index}`, record);
@@ -591,6 +592,15 @@ function summarizeTrips(records: SeguimientoRoute[], selectedDate: string, alias
   const late = tripRows.filter((record) => isDepartureLate(record.horaSalida)).length;
   const pending = Math.max(0, total - departed);
   return { total, departed, onTime, late, pending, percentage: total ? Math.round((onTime / total) * 100) : 0 };
+}
+
+function isFirstTrip(value: unknown) {
+  const trip = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return trip === "primer viaje" || /^(?:v(?:iaje)?\s*)?1(?:\D.*)?$/.test(trip);
 }
 
 function hasDepartedRoute(record: SeguimientoRoute) {

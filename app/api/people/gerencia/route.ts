@@ -13,6 +13,7 @@ type SeguimientoRow = {
   contractor?: string;
   transporte?: string;
   vehiculo?: string;
+  viaje?: string;
   fechaDespacho?: string;
   fechaDt?: string;
   status?: string;
@@ -33,7 +34,7 @@ type AttendanceRow = {
   cedulaAuxiliar2?: string;
 };
 
-const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
+const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,viaje:data->>viaje,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
 const ATTENDANCE_SELECT = "contractor,dt:data->>dt,llave:data->>llave,createdAt:data->>createdAt,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
 const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
 
@@ -68,7 +69,7 @@ export async function GET() {
         headers,
       ),
     ]);
-    const seguimientoRows = seguimientoByContractor.flat();
+    const seguimientoRows = seguimientoByContractor.flat().filter((row) => isFirstTrip(row.viaje));
 
     const contractors = Array.from(
       people.reduce((groups, person) => {
@@ -102,6 +103,15 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo cargar Gerencia." }, { status: 500 });
   }
+}
+
+function isFirstTrip(value: unknown) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return normalized === "primer viaje" || /^(?:v(?:iaje)?\s*)?1(?:\D.*)?$/.test(normalized);
 }
 
 async function readRows<T>(table: string, query: string, headers: Record<string, string>) {

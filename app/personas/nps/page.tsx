@@ -1,558 +1,881 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Database, FileSpreadsheet, MapPinned, Navigation, RotateCcw, ShieldCheck, SlidersHorizontal, UploadCloud, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, MapPinned, Navigation, RotateCcw, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import type { Map as MapLibreMapInstance, Marker as MapLibreMarker, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-type SheetSummary = { name: string; columns: string[]; rowCount: number };
-type NpsImport = { id: string; fileName: string; fileSize: number; sheetCount: number; rowCount: number; sheets: SheetSummary[]; uploadedAt: string; uploadedBy: string };
-const CDS = ["Todos los CD", "CD Galapa", "CD La Arenosa"];
+type Summary = {
+  respondentCount: number;
+  rawRowCount: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+  nps: number;
+  averageScore: number;
+};
+type Group = Summary & { label: string };
+type TrendSeries = { label: string; rows: Group[] };
+type Driver = { label: string; count: number; percentage: number };
+type ScoreRow = { score: number; count: number; percentage: number };
+type Detractor = {
+  accountId: string;
+  date: string;
+  lastAttention?: string;
+  lastRr?: string;
+  score: number;
+  cd: string;
+  management: string;
+  primaryDriver: string;
+  secondaryDriver: string;
+};
+type DetractorClient = { com?: string; nombre?: string };
+type NpsData = {
+  summary: Summary;
+  options: { cds: string[]; years: string[]; managements: string[]; weeks: string[] };
+  trends: { annual: TrendSeries[]; years: Group[]; currentMonths: Group[]; months: Group[]; weeks: Group[]; currentDays: Group[]; days: Group[] };
+  scoreDistribution: ScoreRow[];
+  segments: { cds: Group[]; coms: Group[]; managements: Group[]; populations: Group[] };
+  drivers: { primary: Driver[]; secondary: Driver[] };
+  detractors: Detractor[];
+  source: {
+    table: string;
+    columns: number;
+    rawRowCount: number;
+    respondentCount: number;
+    minDate: string | null;
+    maxDate: string | null;
+  };
+};
+type FilterState = { cd: string; year: string; month: string; day: string; week: string; management: string };
+type CachedNpsReport = { data: NpsData; filters: FilterState; storedAt: number };
+
+const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "" };
+const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const NPS_REPORT_CACHE_KEY = "people:nps:last-report";
+const NPS_REPORT_CACHE_TTL_MS = 30 * 60 * 1_000;
 
 export default function NpsPage() {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [imports, setImports] = useState<NpsImport[]>([]);
   const [allowed, setAllowed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [cd, setCd] = useState(CDS[0]);
-  const [year, setYear] = useState("2026");
-  const [month, setMonth] = useState("Todos");
-  const [day, setDay] = useState("Todos");
-  const [week, setWeek] = useState("Todas");
-  const [management, setManagement] = useState("GC Barranquilla");
-  const [chief, setChief] = useState("Todos");
-
-  async function loadImports() {
-    const response = await fetch(`/api/people/nps?refresh=${Date.now()}`, { cache: "no-store" });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || "No se pudo consultar el consolidado NPS.");
-    setImports(data.imports || []);
-  }
+  const [data, setData] = useState<NpsData | null>(null);
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
 
   useEffect(() => {
-    fetch("/api/session/session", { cache: "no-store" }).then((response) => response.json()).then(async (body) => {
-      if (!body?.session?.isPeople && !body?.session?.isAdmin) throw new Error("Este módulo es exclusivo de People.");
-      setAllowed(true);
-      await loadImports();
-    }).catch((caught) => setError(caught instanceof Error ? caught.message : "No se pudo abrir NPS.")).finally(() => setLoading(false));
+    fetch("/api/session/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => {
+        if (!body?.session?.isPeople && !body?.session?.isAdmin) throw new Error("Este módulo es exclusivo de People.");
+        const cached = readCachedNpsReport();
+        if (cached) {
+          setFilters(cached.filters);
+          setData(cached.data);
+        }
+        setAllowed(true);
+      })
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "No se pudo abrir NPS."))
+      .finally(() => setCheckingSession(false));
   }, []);
 
-  async function uploadExcel(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setUploading(true); setError(""); setNotice("");
-    try {
-      const form = new FormData(); form.append("file", file);
-      const response = await fetch("/api/people/nps", { method: "POST", body: form });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "No se pudo cargar el Excel.");
-      setNotice(`${file.name} quedó guardado en la base de datos.`);
-      await loadImports();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo cargar el Excel."); }
-    finally { setUploading(false); }
-  }
+  useEffect(() => {
+    if (!allowed) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
 
-  if (loading) return <main className="min-h-screen bg-[#edf1f4]" />;
+    setFetching(true);
+    setError("");
+    fetch(`/api/people/nps?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "No se pudo consultar la tabla NPS.");
+        const nextData = body as NpsData;
+        setData(nextData);
+        writeCachedNpsReport({ data: nextData, filters, storedAt: Date.now() });
+      })
+      .catch((caught) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setError(caught instanceof Error ? caught.message : "No se pudo consultar NPS.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setFetching(false);
+      });
+
+    return () => controller.abort();
+  }, [allowed, filters]);
+
+  if (checkingSession) return <LoadingScreen message="Validando acceso a People Intelligence…" />;
+  if (allowed && !data && fetching) return <LoadingScreen message="Consultando y consolidando la tabla NPS…" detail="La primera carga puede tardar unos segundos; las siguientes usarán la caché." />;
   if (!allowed) return <Restricted message={error} onBack={() => router.push("/")} />;
 
   return (
     <main className="min-h-screen bg-[#edf1f4] text-[#16293a]">
-      <header className="border-b border-[#17364d] bg-[#0b2235] text-white shadow-sm"><div className="mx-auto flex max-w-[1560px] items-center justify-between px-5 py-4 sm:px-8"><button aria-label="Volver" className="grid h-10 w-10 place-items-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white" onClick={() => router.push("/")}><ArrowLeft size={20} /></button><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#71b7ba]">People Intelligence</p><h1 className="text-xl font-semibold tracking-tight">NPS Gerencia Barranquilla</h1></div></div></header>
+      <header className="border-b border-[#17364d] bg-[#0b2235] text-white shadow-sm">
+        <div className="mx-auto flex max-w-[1560px] items-center justify-between px-5 py-4 sm:px-8">
+          <button aria-label="Volver" className="grid h-10 w-10 place-items-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white" onClick={() => router.push("/")}><ArrowLeft size={20} /></button>
+          <div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#71b7ba]">People Intelligence</p><h1 className="text-xl font-semibold tracking-tight">NPS Gerencia Barranquilla</h1></div>
+        </div>
+      </header>
 
-      <section className="mx-auto max-w-[1560px] space-y-4 px-4 py-5 sm:px-8">
-        {error ? <Alert tone="error" onClose={() => setError("")}>{error}</Alert> : null}
-        {notice ? <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert> : null}
-        <div className="flex items-center justify-between rounded-xl border border-[#c9d9df] bg-[#e9f2f4] px-4 py-3 text-sm text-[#235b66]"><span><strong>Vista demostrativa:</strong> los valores visualizados son datos falsos para revisar el diseño.</span><span className="hidden rounded-md bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.12em] sm:block">Datos de prueba</span></div>
+      <section className="mx-auto max-w-[1560px] space-y-5 px-4 py-5 sm:px-8">
+        {error ? <Alert onClose={() => setError("")}>{error}</Alert> : null}
 
         <section className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="flex flex-col gap-5 p-5 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex items-start gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#e5eff2] text-[#235b66]"><Database size={21} /></span><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#527180]">Repositorio central</p><h2 className="mt-1 text-xl font-semibold text-[#0b2235]">Consolidado histórico NPS</h2><p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">Carga el consolidado de los dos años y las actualizaciones posteriores. Cada hoja, columna y fila se conserva en la base de datos sin aplicar cálculos.</p></div></div>
-            <div><input ref={inputRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={uploadExcel} /><button disabled={uploading} onClick={() => inputRef.current?.click()} className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#176b73] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115861] disabled:cursor-wait disabled:opacity-60"><UploadCloud size={18} />{uploading ? "Guardando…" : "Subir Excel NPS"}</button></div>
+          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#e5eff2] text-[#235b66]"><Database size={21} /></span>
+              <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#527180]">Repositorio central</p><h2 className="mt-1 text-xl font-semibold text-[#0b2235]">Consolidado histórico NPS</h2><p className="mt-1 text-sm text-slate-500">Todas las cifras visibles se calculan desde Supabase.</p></div>
+            </div>
+            <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700"><CheckCircle2 size={17} />Tabla {data?.source.table || "NPS"} conectada</span>
           </div>
-          <div className="grid border-t border-slate-200 bg-[#f7f9fa] sm:grid-cols-3"><RepositoryStat label="Archivos almacenados" value={String(imports.length)} /><RepositoryStat label="Filas conservadas" value={imports.length ? imports.reduce((total, item) => total + item.rowCount, 0).toLocaleString("es-CO") : "0"} /><RepositoryStat label="Estado del modelo" value="Sin cálculos" /></div>
+          <div className="grid border-t border-slate-200 bg-[#f7f9fa] sm:grid-cols-4">
+            <RepositoryStat label="Filas almacenadas" value={formatNumber(data?.source.rawRowCount || 0)} />
+            <RepositoryStat label="Encuestas únicas" value={formatNumber(data?.source.respondentCount || 0)} />
+            <RepositoryStat label="Primera encuesta" value={formatDate(data?.source.minDate)} />
+            <RepositoryStat label="Última encuesta" value={formatDate(data?.source.maxDate)} />
+          </div>
         </section>
 
-        <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#e8f2f3] text-[#176b73]"><SlidersHorizontal size={16} /></span><div><h2 className="text-sm font-semibold text-[#0b2235]">Filtros del informe</h2><p className="text-[10px] text-slate-400">Segmenta toda la vista demostrativa</p></div></div><button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100" onClick={() => { setCd(CDS[0]); setYear("2026"); setMonth("Todos"); setDay("Todos"); setWeek("Todas"); setManagement("GC Barranquilla"); setChief("Todos"); }}><RotateCcw size={14} />Limpiar</button></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7"><Filter label="CD"><select value={cd} onChange={(event) => setCd(event.target.value)}>{CDS.map((item) => <option key={item}>{item}</option>)}</select></Filter><Filter label="Año"><select value={year} onChange={(event) => setYear(event.target.value)}><option>2026</option><option>2025</option></select></Filter><Filter label="Mes"><select value={month} onChange={(event) => setMonth(event.target.value)}>{["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio"].map((item) => <option key={item}>{item}</option>)}</select></Filter><Filter label="Día"><select value={day} onChange={(event) => setDay(event.target.value)}>{["Todos", ...Array.from({ length: 31 }, (_, index) => String(index + 1))].map((item) => <option key={item}>{item}</option>)}</select></Filter><Filter label="Semana"><select value={week} onChange={(event) => setWeek(event.target.value)}>{["Todas", "27", "28", "29", "30"].map((item) => <option key={item}>{item}</option>)}</select></Filter><Filter label="Gerencia"><select value={management} onChange={(event) => setManagement(event.target.value)}>{["GC Barranquilla", "GC Cartagena", "GC Cúcuta", "KA Costa"].map((item) => <option key={item}>{item}</option>)}</select></Filter><Filter label="Jefe comercial"><select value={chief} onChange={(event) => setChief(event.target.value)}>{["Todos", "Juan Hernández", "Renzo Tarazona", "Carlos Padilla", "Diannys Díaz"].map((item) => <option key={item}>{item}</option>)}</select></Filter></div></section>
+        <FilterPanel
+          data={data}
+          fetching={fetching}
+          filters={filters}
+          onChange={(key, value) => setFilters((current) => ({ ...current, [key]: value }))}
+          onReset={() => setFilters(EMPTY_FILTERS)}
+        />
 
-        <nav className="sticky top-3 z-20 flex gap-1 overflow-x-auto rounded-xl border border-slate-300 bg-white/95 p-1.5 shadow-lg shadow-slate-300/30 backdrop-blur"><NavLink href="#resumen">Resumen</NavLink><NavLink href="#evolucion">Evolución</NavLink><NavLink href="#causas">Causas</NavLink><NavLink href="#segmentacion">Segmentación</NavLink><NavLink href="#detractores">Detractores</NavLink><NavLink href="#datos">Datos</NavLink></nav>
+        <nav className="sticky top-3 z-20 flex gap-1 overflow-x-auto rounded-xl border border-slate-300 bg-white/95 p-1.5 shadow-lg shadow-slate-300/30 backdrop-blur">
+          <NavLink href="#resumen">Resumen</NavLink><NavLink href="#evolucion">Evolución</NavLink><NavLink href="#causas">Causas</NavLink><NavLink href="#segmentacion">Segmentación</NavLink><NavLink href="#detractores">Detractores</NavLink><NavLink href="#datos">Datos</NavLink>
+        </nav>
 
-        <SectionHeader id="resumen" index="01" title="Resumen ejecutivo" description="Indicadores principales del periodo seleccionado." />
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">{[{ label: "NPS actual", value: "+77", detail: "+4,2 pts" }, { label: "Promotores", value: "396", detail: "84,4%" }, { label: "Pasivos", value: "36", detail: "7,7%" }, { label: "Detractores", value: "37", detail: "7,9%" }, { label: "Encuestados", value: "469", detail: "+12 este mes" }, { label: "Delivery Experience", value: "8,7", detail: "/ 10" }].map((item) => <MetricPlaceholder key={item.label} {...item} />)}</section>
+        <SectionHeader id="resumen" index="01" title="Resumen ejecutivo" description="Indicadores del filtro seleccionado." />
+        <SummaryCards summary={data?.summary} />
+        <NpsOverview summary={data?.summary} years={data?.trends.years || []} />
+        <ScoreChart rows={data?.scoreDistribution || []} />
 
-        <SectionHeader id="evolucion" index="02" title="Evolución del servicio" description="Lectura temporal anual, mensual, semanal y diaria." />
-        <section className="grid gap-4 xl:grid-cols-2"><ChartFrame title="NPS por año" eyebrow="Comparativo anual" variant="line" /><ChartFrame title="Delivery Experience por año" eyebrow="Comparativo anual de entrega" variant="line" /></section>
-        <section className="grid gap-4 xl:grid-cols-2"><ChartFrame title="NPS por semana" eyebrow="Seguimiento semanal" variant="columns" /><ChartFrame title="NPS por día" eyebrow="Evolución diaria" variant="line" /></section>
-        <ChartFrame title="Calificaciones por día" eyebrow="Volumen diario" variant="columns" />
+        <SectionHeader id="evolucion" index="02" title="Evolución del servicio" description="Resultados reales por periodo." />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <AnnualTrendChart eyebrow="Comparativo anual" series={data?.trends.annual || []} title="NPS por año" />
+          <TrendChart eyebrow="Evolución del año actual" mode="line" rows={data?.trends.currentMonths || []} title="NPS por mes" />
+          <TrendChart eyebrow="Seguimiento semanal" mode="columns" rows={data?.trends.weeks || []} title="NPS por semana" />
+          <TrendChart eyebrow="Evolución del mes actual" mode="line" rows={data?.trends.currentDays || []} title="NPS por día" />
+        </div>
+        <DeliveryExperienceChart series={data?.trends.annual || []} />
 
-        <SectionHeader id="causas" index="03" title="Causas y factores de impacto" description="Estructura para drivers principales y secundarios de la experiencia." />
-        <section className="grid gap-4 xl:grid-cols-2"><ChartFrame title="Primary Driver" eyebrow="Factores principales" variant="bars" /><ChartFrame title="Secondary Delivery" eyebrow="Causas de entrega" variant="waterfall" /></section>
-        <ChartFrame title="Secondary Sales Representative Service" eyebrow="Servicio del representante" variant="waterfall" />
+        <SectionHeader id="causas" index="03" title="Causas y factores de impacto" description="Drivers registrados en las encuestas filtradas." />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <DriverChart eyebrow="Factores principales" rows={data?.drivers.primary || []} title="Primary Driver" variant="list" />
+          <DriverChart eyebrow="Causas de entrega" rows={data?.drivers.secondary || []} title="Secondary Delivery" variant="grid" />
+        </div>
+        <DriverContribution rows={data?.drivers.primary || []} />
 
-        <SectionHeader id="segmentacion" index="04" title="Segmentación comercial y territorial" description="Comparativos por responsables, gerencias, clientes y zonas." />
-        <section className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]"><RankedChart title="NPS por jefe comercial" eyebrow="Desempeño comercial" columns={8} /><DonutStructure /></section>
-        <RankedChart title="NPS por canal o segmento" eyebrow="Segmentación de clientes" columns={18} />
-        <RankedChart title="NPS por COM" eyebrow="Clasificación comercial" columns={24} />
-        <section className="grid gap-4 xl:grid-cols-2"><RankedChart title="NPS por zona de transporte" eyebrow="Distribución territorial" columns={14} /><RankedChart title="NPS por población" eyebrow="Distribución geográfica" columns={18} /></section>
+        <SectionHeader id="segmentacion" index="04" title="Segmentación territorial" description="Comparativos por dimensiones presentes en la tabla NPS." />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <SegmentBarChart eyebrow="Desempeño territorial" rows={data?.segments.cds || []} title="NPS por centro de distribución" />
+          <ManagementDonut rows={data?.segments.managements || []} />
+        </div>
+        <SegmentBarChart eyebrow="Segmentación comercial" rows={data?.segments.coms || []} title="NPS por COM" />
+        <SegmentBarChart eyebrow="Segmentación geográfica" rows={data?.segments.populations || []} title="NPS por población" />
 
-        <SectionHeader id="detractores" index="05" title="Gestión de detractores" description="Seguimiento mensual y detalle operativo de clientes a gestionar." />
-        <ComboChartStructure />
-        <DetractorStructure />
-        <InteractiveComMap />
+        <SectionHeader id="detractores" index="05" title="Gestión de detractores" description="Últimas encuestas con calificación de 0 a 6." />
+        <MonthlyDetractorChart rows={data?.trends.months || []} />
+        <DetractorExplorer rows={data?.detractors || []} />
 
-        <SectionHeader id="datos" index="06" title="Gobierno de datos" description="Trazabilidad de los consolidados almacenados en la base de datos." />
-        <section className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#527180]">Trazabilidad</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">Archivos guardados en base de datos</h2></div><span className="rounded-md bg-[#e6f1ef] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.1em] text-[#176b73]">Persistencia activa</span></div>
-          {imports.length ? <div className="overflow-x-auto"><table className="nps-data-table w-full min-w-[850px] text-left"><caption className="sr-only">Archivos NPS guardados en la base de datos</caption><thead className="text-[10px] uppercase tracking-[.1em] text-slate-500"><tr><th className="px-5 py-3" scope="col">Archivo</th><th className="px-5 py-3" scope="col">Hojas</th><th className="px-5 py-3 text-right" scope="col">Filas</th><th className="px-5 py-3 text-right" scope="col">Columnas</th><th className="px-5 py-3" scope="col">Cargado</th><th className="px-5 py-3" scope="col">Estado</th></tr></thead><tbody>{imports.map((item) => <tr key={item.id} className="text-sm"><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e6f1ef]"><FileSpreadsheet className="text-[#176b73]" size={18} /></span><div><p className="font-semibold text-[#18334a]">{item.fileName}</p><p className="mt-0.5 text-xs text-slate-400">{formatBytes(item.fileSize)}</p></div></div></td><td className="max-w-[260px] px-5 py-4 text-slate-600"><span className="block truncate" title={item.sheets.map((sheet) => sheet.name).join(", ")}>{item.sheets.map((sheet) => sheet.name).join(", ")}</span></td><td className="px-5 py-4 text-right"><span className="rounded-md bg-[#edf3f7] px-2 py-1 font-semibold tabular-nums text-[#28485d]">{item.rowCount.toLocaleString("es-CO")}</span></td><td className="px-5 py-4 text-right font-semibold tabular-nums text-slate-600">{item.sheets.reduce((total, sheet) => total + sheet.columns.length, 0)}</td><td className="px-5 py-4 text-slate-600">{formatDate(item.uploadedAt)}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={14} />Guardado</span></td></tr>)}</tbody></table></div> : <div className="grid min-h-44 place-items-center p-6 text-center"><div><FileSpreadsheet className="mx-auto text-slate-300" size={32} /><p className="mt-3 font-semibold text-slate-600">Aún no hay archivos cargados</p><p className="mt-1 text-sm text-slate-400">El primer Excel aparecerá aquí después de guardarse.</p></div></div>}
-        </section>
+        <CdMapPanel rows={data?.segments.cds || []} />
+        <SectionHeader id="datos" index="06" title="Gobierno de datos" description="Trazabilidad del origen consultado." />
+        <SourceTable data={data} />
       </section>
-      <style jsx global>{`.nps-filter{display:flex;width:100%;height:44px;align-items:center;gap:8px;border:1px solid #cbd5e1;border-radius:8px;padding-left:10px;color:#64748b;background:#fff;transition:border-color .2s,box-shadow .2s}.nps-filter:focus-within{border-color:#20a39e;box-shadow:0 0 0 3px rgba(32,163,158,.12)}.nps-filter select{min-width:0;flex:1;border:0;background:transparent;padding:8px 20px 8px 2px;font-size:12px;font-weight:600;color:#172b3a;outline:none}.nps-filter span{flex:none;font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#527180}.nps-data-table{border-collapse:separate;border-spacing:0}.nps-data-table thead th{border-bottom:1px solid #cbd9e3;background:linear-gradient(180deg,#f8fafb 0%,#edf3f6 100%);color:#527180;font-weight:800}.nps-data-table tbody tr{background:#fff;transition:background .16s ease,box-shadow .16s ease}.nps-data-table tbody tr:nth-child(even){background:#f8fafb}.nps-data-table tbody tr:hover,.nps-data-table tbody tr:focus-within{background:#eaf4f4;box-shadow:inset 3px 0 0 #176b73}.nps-data-table tbody td{border-bottom:1px solid #e7edf1}.nps-data-table tbody tr:last-child td{border-bottom:0}`}</style>
+
+      <style jsx global>{`
+        .nps-filter{display:flex;width:100%;height:48px;align-items:center;gap:8px;border:1px solid #cbd5e1;border-radius:10px;padding-left:12px;color:#64748b;background:#fff;transition:border-color .2s,box-shadow .2s}
+        .nps-filter:focus-within{border-color:#20a39e;box-shadow:0 0 0 3px rgba(32,163,158,.12)}
+        .nps-filter select{min-width:0;flex:1;border:0;background:transparent;padding:8px 22px 8px 2px;font-size:12px;font-weight:700;color:#172b3a;outline:none}
+        .nps-filter span{flex:none;font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#527180}
+        .nps-data-table{border-collapse:separate;border-spacing:0}
+        .nps-data-table thead th{border-bottom:1px solid #cbd9e3;background:linear-gradient(180deg,#f8fafb 0%,#edf3f6 100%);color:#527180;font-weight:800}
+        .nps-data-table tbody tr:nth-child(even){background:#f8fafb}
+        .nps-data-table tbody tr:hover{background:#eaf4f4}
+        .nps-data-table tbody td{border-bottom:1px solid #e7edf1}
+        .nps-chart-bar{transform-origin:bottom;animation:nps-bar-in .65s cubic-bezier(.2,.8,.2,1) both}
+        .nps-chart-line{animation:nps-line-in .8s ease-out both}
+        .nps-chart-point{transition:r .18s ease,filter .18s ease}
+        .nps-chart-point:hover{r:7px;filter:drop-shadow(0 2px 3px rgba(11,34,53,.25))}
+        @keyframes nps-bar-in{from{transform:scaleY(.05);opacity:.35}to{transform:scaleY(1);opacity:1}}
+        @keyframes nps-line-in{from{opacity:0}to{opacity:1}}
+        @media(prefers-reduced-motion:reduce){.nps-chart-bar,.nps-chart-line{animation:none}}
+      `}</style>
     </main>
   );
 }
 
-function NavLink({ children, href }: { children: ReactNode; href: string }) { return <a className="shrink-0 rounded-lg px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-[#e7f1f2] hover:text-[#176b73]" href={href}>{children}</a>; }
-function SectionHeader({ description, id, index, title }: { description: string; id: string; index: string; title: string }) { return <div className="scroll-mt-24 pt-4" id={id}><div className="flex items-center gap-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0b2235] text-xs font-bold text-white">{index}</span><div><h2 className="text-lg font-semibold text-[#0b2235]">{title}</h2><p className="text-xs text-slate-500">{description}</p></div><span className="ml-auto hidden h-px flex-1 bg-gradient-to-r from-slate-300 to-transparent sm:block" /></div></div>; }
-
-function ChartFrame({ eyebrow, title, variant }: { eyebrow: string; title: string; variant: "columns" | "line" | "bars" | "waterfall" }) {
-  const values = title.includes("Calificaciones") ? [87, 71, 20, 43, 22, 68, 32] : title.includes("semana") ? [71.2, 82.9, 77.1, 93.8] : title.includes("año") ? [73.2, 77] : [67.8, 77.5, 85, 72.7, 95.5, 83.3, 92.3];
-  const labels = title.includes("semana") ? ["S27", "S28", "S29", "S30"] : title.includes("año") ? ["2025", "2026"] : ["1", "2", "3", "4", "5", "6", "7"];
-  const drivers = [{ label: "Entrega completa", value: 12.7 }, { label: "Servicio del conductor", value: 9.9 }, { label: "Cumplimiento horario", value: 8.1 }, { label: "Estado del producto", value: 5.7 }];
-  const secondary = [{ label: "Entrega fuera de tiempo", value: 46.9 }, { label: "Entrega incompleta", value: 15.6 }, { label: "Producto con novedad", value: 12.5 }, { label: "Atención comercial", value: 9.4 }];
-  return <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">{eyebrow}</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">{title}</h2></div><DemoBadge /></div>{variant === "line" ? <CssLineChart title={title} /> : variant === "bars" ? <div className="mt-6 space-y-4">{drivers.map((item) => <HorizontalDatum key={item.label} {...item} />)}</div> : variant === "waterfall" ? <div className="mt-6 grid gap-3 sm:grid-cols-2">{secondary.map((item, index) => <button className="group relative rounded-lg border border-slate-200 bg-[#f8fafb] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#79b7b3] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#20a39e]/30" key={item.label} type="button"><div className="flex items-start justify-between gap-3"><p className="text-xs font-medium text-slate-600">{item.label}</p><strong className="text-sm text-[#0b2235]">{item.value}%</strong></div><div className="mt-3 h-1.5 rounded bg-slate-100"><span className={`block h-full rounded transition-all duration-300 group-hover:brightness-110 ${index === 0 ? "bg-[#d6973e]" : "bg-[#386f8f]"}`} style={{ width: `${Math.min(100, item.value * 2)}%` }} /></div><HoverTip>{item.label}: {item.value}%</HoverTip></button>)}</div> : <div className="mt-6 flex h-48 items-end gap-3 border-b border-l border-slate-300 px-4 pt-5">{values.map((value, index) => <button className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end focus:outline-none" key={index} type="button"><span className="mb-2 text-[10px] font-bold tabular-nums text-[#28485d]">{value}{title.includes("Calificaciones") ? "" : "%"}</span><span className={`w-full max-w-12 origin-bottom rounded-t transition duration-300 group-hover:scale-x-110 group-hover:brightness-110 ${["bg-[#386f8f]", "bg-[#2a9d8f]", "bg-[#e0a23b]", "bg-[#e76f51]"][index % 4]}`} style={{ height: `${Math.max(8, Math.min(100, value))}%` }} /><span className="mt-2 text-[9px] font-semibold text-slate-400">{labels[index] || index + 1}</span><HoverTip>{labels[index] || index + 1}: {value}{title.includes("Calificaciones") ? " respuestas" : "%"}</HoverTip></button>)}</div>}</article>;
-}
-
-function CssLineChart({ title }: { title: string }) {
-  const annual = title.includes("año");
-  const daily = title.includes("día");
-  const deliveryAnnual = annual && title.includes("Delivery Experience");
-  const labels = annual ? ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] : daily ? ["1", "4", "7", "10", "13", "16", "20"] : ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul"];
-  const primary = deliveryAnnual
-    ? [12.7, 14.1, 13.8, 15.7, 21, 17.3, 12.9]
-    : annual
-      ? [62.3, 66.2, 78.8, 75.1, 78, 73.3, 76.5, 80, 82, 80.5, 74.1, 69]
-      : daily
-        ? [67.8, 50, 95.5, 75, 50, 62.5, 92.3]
-        : [12.7, 14.1, 13.8, 15.7, 21, 17.3, 12.9];
-  const secondary = deliveryAnnual
-    ? [11.4, 12.8, 13.1, 14.6, 16.8, 16.1, 15.3, 17.2, 17.6, 18.4, 19.2, 20]
-    : annual
-      ? [52.6, 67.6, 68, 73.9, 77.9, 70.9, 67.8, 80.1, 81.9, 80.5, 74.1, 69]
-      : [];
-  const datasets = [{ label: annual ? "2026" : "Resultado", color: "#139a92", fill: "rgba(19,154,146,.12)", values: primary }, ...(secondary.length ? [{ label: "2025", color: "#e39b32", fill: "transparent", values: secondary }] : [])];
-  return <div className="mt-5"><div className="mb-2 flex items-center gap-4 text-[9px] font-semibold text-slate-500">{datasets.map((dataset) => <span className="flex items-center gap-1.5" key={dataset.label}><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dataset.color }} />{dataset.label}</span>)}</div><CanvasLineChart datasets={datasets} labels={labels} title={title} /></div>;
-}
-
-function CanvasLineChart({ datasets, labels, title }: { datasets: Array<{ label: string; color: string; fill: string; values: number[] }>; labels: string[]; title: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  type ActivePoint = { datasetIndex: number; index: number; label: string; period: string; value: number; color: string; x: number; y: number; left: number };
-  const geometryRef = useRef<ActivePoint[]>([]);
-  const [hovered, setHovered] = useState<ActivePoint | null>(null);
-  const [pinned, setPinned] = useState<ActivePoint | null>(null);
-  const active = hovered || pinned;
-  useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const draw = () => {
-      const width = Math.max(320, Math.floor(canvas.getBoundingClientRect().width)); const height = 270; const ratio = window.devicePixelRatio || 1;
-      canvas.width = width * ratio; canvas.height = height * ratio; canvas.style.height = `${height}px`;
-      const context = canvas.getContext("2d"); if (!context) return; context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
-      const padding = { left: 43, right: 18, top: 30, bottom: 34 }; const chartWidth = width - padding.left - padding.right; const chartHeight = height - padding.top - padding.bottom;
-      const allValues = datasets.flatMap((dataset) => dataset.values); const minimum = Math.floor((Math.min(...allValues) - 6) / 5) * 5; const maximum = Math.ceil((Math.max(...allValues) + 6) / 5) * 5; const range = maximum - minimum || 1;
-      context.font = "10px ui-sans-serif, system-ui"; context.textBaseline = "middle"; context.strokeStyle = "#dce5ea"; context.fillStyle = "#7890a0"; context.lineWidth = 1;
-      for (let step = 0; step <= 4; step += 1) { const y = padding.top + (chartHeight / 4) * step; const value = maximum - (range / 4) * step; context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke(); context.textAlign = "right"; context.fillText(`${Math.round(value)}%`, padding.left - 8, y); }
-      labels.forEach((label, index) => { const x = padding.left + (chartWidth / Math.max(1, labels.length - 1)) * index; context.textAlign = index === 0 ? "left" : index === labels.length - 1 ? "right" : "center"; context.fillStyle = "#7890a0"; context.fillText(label, x, height - 12); });
-      const trace = (points: Array<{ x: number; y: number }>) => { context.moveTo(points[0].x, points[0].y); for (let index = 0; index < points.length - 1; index += 1) { const current = points[index]; const next = points[index + 1]; const middle = (current.x + next.x) / 2; context.bezierCurveTo(middle, current.y, middle, next.y, next.x, next.y); } };
-      const geometry: ActivePoint[] = [];
-      datasets.forEach((dataset, datasetIndex) => {
-        const points = dataset.values.map((value, index) => ({ x: padding.left + (chartWidth / Math.max(1, labels.length - 1)) * index, y: padding.top + chartHeight - ((value - minimum) / range) * chartHeight, value }));
-        if (datasetIndex === 0) { const gradient = context.createLinearGradient(0, padding.top, 0, padding.top + chartHeight); gradient.addColorStop(0, dataset.fill); gradient.addColorStop(1, "rgba(19,154,146,0)"); context.beginPath(); trace(points); context.lineTo(points[points.length - 1].x, padding.top + chartHeight); context.lineTo(points[0].x, padding.top + chartHeight); context.closePath(); context.fillStyle = gradient; context.fill(); }
-        context.beginPath(); trace(points); context.strokeStyle = dataset.color; context.lineWidth = datasetIndex === 0 ? 3 : 2.5; context.lineCap = "round"; context.lineJoin = "round"; context.stroke();
-        points.forEach((point, index) => { const isActive = active?.datasetIndex === datasetIndex && active.index === index; if (isActive) { context.beginPath(); context.arc(point.x, point.y, 10, 0, Math.PI * 2); context.fillStyle = `${dataset.color}28`; context.fill(); } context.beginPath(); context.arc(point.x, point.y, isActive ? 6 : 4.5, 0, Math.PI * 2); context.fillStyle = isActive ? dataset.color : "#ffffff"; context.fill(); context.lineWidth = 2.5; context.strokeStyle = dataset.color; context.stroke(); if (!active && (datasets.length === 1 || index % 2 === datasetIndex)) { context.font = "bold 9px ui-sans-serif, system-ui"; context.textAlign = "center"; context.fillStyle = dataset.color; context.fillText(`${point.value}%`, point.x, point.y + (datasetIndex === 0 ? -13 : 14)); } geometry.push({ datasetIndex, index, label: dataset.label, period: labels[index] || String(index + 1), value: point.value, color: dataset.color, x: point.x, y: point.y, left: (point.x / width) * 100 }); });
-      });
-      geometryRef.current = geometry;
-    };
-    draw(); const observer = new ResizeObserver(draw); observer.observe(canvas); return () => observer.disconnect();
-  }, [active, datasets, labels]);
-  const nearestPoint = (event: ReactPointerEvent<HTMLCanvasElement>) => { const rect = event.currentTarget.getBoundingClientRect(); const x = event.clientX - rect.left; const y = event.clientY - rect.top; return geometryRef.current.map((point) => ({ point, distance: Math.hypot(point.x - x, point.y - y) })).sort((a, b) => a.distance - b.distance)[0]; };
-  const handleMove = (event: ReactPointerEvent<HTMLCanvasElement>) => { const nearest = nearestPoint(event); const next = nearest && nearest.distance <= 22 ? nearest.point : null; setHovered((current) => current?.datasetIndex === next?.datasetIndex && current?.index === next?.index ? current : next); event.currentTarget.style.cursor = next ? "pointer" : "crosshair"; };
-  const handleClick = (event: ReactPointerEvent<HTMLCanvasElement>) => { const nearest = nearestPoint(event); if (!nearest || nearest.distance > 22) return; setPinned((current) => current?.datasetIndex === nearest.point.datasetIndex && current.index === nearest.point.index ? null : nearest.point); };
-  return <div className="relative"><canvas aria-label={`Gráfica de líneas interactiva: ${title}`} className="block h-[270px] w-full touch-none" onClick={handleClick} onPointerLeave={() => setHovered(null)} onPointerMove={handleMove} ref={canvasRef} role="img" />{active ? <div className="pointer-events-none absolute z-20 min-w-32 -translate-x-1/2 -translate-y-full rounded-lg border border-slate-700 bg-[#0b2235] px-3 py-2 text-white shadow-xl" style={{ left: `${active.left}%`, top: `${Math.max(58, active.y - 8)}px` }}><p className="text-[8px] font-bold uppercase tracking-[.12em] text-slate-400">{active.period} · {active.label}</p><p className="mt-1 text-lg font-semibold">{active.value}%</p><p className="text-[8px] text-slate-400">{pinned ? "Punto seleccionado" : "Haz clic para fijar"}</p></div> : null}</div>;
-}
-
-function RankedChart({ columns, eyebrow, title }: { columns: number; eyebrow: string; title: string }) {
-  const values = Array.from({ length: columns }, (_, index) => Math.max(38, 96 - index * (58 / Math.max(1, columns - 1))));
-  const names = title.includes("jefe") ? ["D. Díaz", "C. Padilla", "R. Tarazona", "A. Heladio", "J. Hernández", "J. Cotrino", "G. Biava", "E. Galindo"] : title.includes("zona") ? ["08A108", "08A204", "08A801", "08B101", "08A703", "08A715", "08A701", "08A711", "08A716", "08A714", "08A713", "08A712", "08A201", "08A107"] : title.includes("población") ? ["Malambo", "Soledad", "Galapa", "Baranoa", "Sabanagrande", "Puerto Col.", "Tubará", "Usiacurí"] : [];
-  return <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">{eyebrow}</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">{title}</h2></div><DemoBadge /></div><div className="mt-6 overflow-x-auto pb-2"><div className="flex h-52 min-w-[680px] items-end gap-2 border-b border-l border-slate-300 px-3">{values.map((value, index) => { const name = names[index] || `Grupo ${index + 1}`; return <button className="group relative flex h-full min-w-6 flex-1 flex-col items-center justify-end focus:outline-none" key={index} type="button"><span className="mb-1 text-[8px] font-bold text-[#28485d]">{value.toFixed(0)}%</span><span className="w-full origin-bottom rounded-t transition duration-300 group-hover:scale-x-110 group-hover:saturate-125" style={{ background: performanceGradient(value), height: `${value}%` }} /><span className="mt-2 max-w-16 truncate text-[8px] font-semibold text-slate-500">{name}</span><HoverTip>{name}: {value.toFixed(1)}%</HoverTip></button>; })}</div></div></article>;
-}
-
-function performanceGradient(value: number) {
-  if (value >= 75) return "linear-gradient(180deg, #34d399 0%, #10b981 48%, #059669 100%)";
-  if (value >= 60) return "linear-gradient(180deg, #fde047 0%, #facc15 48%, #eab308 100%)";
-  return "linear-gradient(180deg, #ff7b7b 0%, #f05252 48%, #dc2626 100%)";
-}
-
-function DonutStructure() {
-  const colors = ["bg-[#315b7d]", "bg-[#176b73]", "bg-[#b58a35]", "bg-[#744f73]"];
+function FilterPanel({ data, fetching, filters, onChange, onReset }: {
+  data: NpsData | null;
+  fetching: boolean;
+  filters: FilterState;
+  onChange: (key: keyof FilterState, value: string) => void;
+  onReset: () => void;
+}) {
   return (
-    <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Comparativo organizacional</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">NPS por gerencia</h2></div><DemoBadge /></div>
-      <div className="mt-5 grid min-h-60 place-items-center gap-6 rounded-lg border border-slate-200 bg-[#fafbfc] p-6 sm:grid-cols-[1fr_.85fr]">
-        <div className="grid h-40 w-40 place-items-center rounded-full" style={{ background: "conic-gradient(#315b7d 0 28%, #176b73 28% 53%, #b58a35 53% 76%, #744f73 76% 100%)" }}><div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center"><span><strong className="text-2xl text-[#0b2235]">+77</strong><small className="block text-[9px] font-bold uppercase text-slate-400">NPS global</small></span></div></div>
-        <div className="w-full space-y-2">{[{ label: "GC Barranquilla", value: "77,1%" }, { label: "GC Cartagena", value: "74,8%" }, { label: "GC Cúcuta", value: "81,3%" }, { label: "KA Costa", value: "79,6%" }].map((item, index) => <button className="group relative flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-white hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#20a39e]/30" key={item.label} type="button"><span className={`h-2.5 w-2.5 rounded-full transition group-hover:scale-150 ${colors[index]}`} /><span className="text-xs font-medium text-slate-600">{item.label}</span><strong className="ml-auto text-xs text-[#0b2235]">{item.value}</strong><HoverTip>{item.label}: NPS {item.value}</HoverTip></button>)}</div>
+    <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#e8f2f3] text-[#176b73]"><SlidersHorizontal size={16} /></span><div><h2 className="text-sm font-semibold text-[#0b2235]">Filtros del informe</h2><p className="text-[10px] text-slate-400">{fetching ? "Actualizando resultados…" : "Todos los resultados y tablas responden a estos filtros"}</p></div></div>
+        <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100" onClick={onReset}><RotateCcw size={14} />Limpiar</button>
       </div>
-    </article>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <Filter label="CD"><select value={filters.cd} onChange={(event) => onChange("cd", event.target.value)}><option value="">Todos</option>{data?.options.cds.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="Año"><select value={filters.year} onChange={(event) => onChange("year", event.target.value)}><option value="">Todos</option>{data?.options.years.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="Mes"><select value={filters.month} onChange={(event) => onChange("month", event.target.value)}><option value="">Todos</option>{MONTHS.map((value, index) => <option key={value} value={index + 1}>{value}</option>)}</select></Filter>
+        <Filter label="Día"><select value={filters.day} onChange={(event) => onChange("day", event.target.value)}><option value="">Todos</option>{Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></Filter>
+        <Filter label="Semana"><select value={filters.week} onChange={(event) => onChange("week", event.target.value)}><option value="">Todas</option>{data?.options.weeks.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="Gerencia"><select value={filters.management} onChange={(event) => onChange("management", event.target.value)}><option value="">Todas</option>{data?.options.managements.map((value) => <option key={value} value={value}>{value.replace(/^CO /, "")}</option>)}</select></Filter>
+      </div>
+    </section>
   );
 }
 
-function ComboChartStructure() {
-  const totals: Array<number | null> = [82, 61, 29, 46, 29, 46, 37, null, null, null, null, null];
-  const nps: Array<number | null> = [62.3, 67.6, 78.8, 73.9, 77.9, 70.9, 76.5, null, null, null, null, null];
-  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-  return <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Seguimiento de alertas</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">Detractores por mes</h2></div><DemoBadge /></div><div className="mt-6 overflow-x-auto pb-2"><div className="flex h-60 min-w-[1080px] items-end gap-3 border-b border-l border-slate-300 px-4">{totals.map((total, index) => { const month = months[index]; const isFuture = total === null; return <button className={`group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end rounded-t focus:outline-none ${isFuture ? "opacity-75" : ""}`} key={month} type="button"><span className={`mb-1 text-[9px] font-bold ${isFuture ? "text-slate-400" : "text-[#0b2235]"}`}>{isFuture ? "Sin datos" : total}</span><span className={`mb-1 text-[8px] font-semibold ${isFuture ? "text-slate-300" : "text-[#087f78]"}`}>{isFuture ? "Periodo futuro" : `NPS ${nps[index]}%`}</span><span className={`w-full max-w-14 origin-bottom rounded-t transition duration-300 group-hover:scale-x-110 group-hover:saturate-125 ${isFuture ? "border-2 border-dashed border-blue-300 bg-blue-50" : ""}`} style={{ background: isFuture ? undefined : detractorGradient(total), height: isFuture ? "18%" : `${total}%` }} /><span className={`mt-2 text-[9px] font-bold ${isFuture ? "text-slate-400" : "text-slate-600"}`}>{month}</span><HoverTip>{isFuture ? `${month}: periodo futuro sin datos` : `${month}: ${total} detractores · NPS ${nps[index]}%`}</HoverTip></button>; })}</div></div></article>;
+function SummaryCards({ summary }: { summary?: Summary }) {
+  const total = summary?.respondentCount || 0;
+  const items = [
+    { label: "NPS actual", value: formatSigned(summary?.nps || 0), detail: "Promotores − detractores" },
+    { label: "Promotores", value: formatNumber(summary?.promoters || 0), detail: formatPercent(summary?.promoters || 0, total) },
+    { label: "Pasivos", value: formatNumber(summary?.passives || 0), detail: formatPercent(summary?.passives || 0, total) },
+    { label: "Detractores", value: formatNumber(summary?.detractors || 0), detail: formatPercent(summary?.detractors || 0, total) },
+    { label: "Encuestados", value: formatNumber(total), detail: "Encuestas únicas" },
+    { label: "Calificación", value: (summary?.averageScore || 0).toLocaleString("es-CO", { minimumFractionDigits: 1 }), detail: "/ 10" },
+  ];
+  return <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">{items.map((item) => <MetricCard key={item.label} {...item} />)}</section>;
 }
 
-type ComMapPoint = {
-  com: string;
-  customers: number;
-  latitude: number;
-  longitude: number;
-  nps: number;
-  zone: string;
+function NpsOverview({ summary, years }: { summary?: Summary; years: Group[] }) {
+  const current = years.at(-1);
+  const previous = years.at(-2);
+  const delta = current && previous ? current.nps - previous.nps : null;
+  const gaugeValue = Math.max(-100, Math.min(100, summary?.nps || 0));
+  const gaugeRotation = ((gaugeValue + 100) / 200) * 180;
+
+  return (
+    <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,.8fr)]">
+      <ChartCard eyebrow="Indicador consolidado" title="NPS global">
+        <div className="mt-6 grid items-center gap-6 sm:grid-cols-[240px_minmax(0,1fr)]">
+          <svg aria-label={`NPS global ${formatSigned(gaugeValue)}`} className="mx-auto w-full max-w-64" role="img" viewBox="0 0 250 150">
+            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#edf2f5" strokeLinecap="round" strokeWidth="28" />
+            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#dc4b48" strokeDasharray="35 65" strokeLinecap="butt" strokeWidth="28" />
+            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#efbb32" strokeDasharray="25 75" strokeDashoffset="-35" strokeLinecap="butt" strokeWidth="28" />
+            <path d="M 25 125 A 100 100 0 0 1 225 125" fill="none" pathLength="100" stroke="#20ae78" strokeDasharray="40 60" strokeDashoffset="-60" strokeLinecap="butt" strokeWidth="28" />
+            <g className="transition-transform duration-700" style={{ transform: `rotate(${gaugeRotation}deg)`, transformBox: "view-box", transformOrigin: "125px 125px" }}><line stroke="#071f33" strokeLinecap="round" strokeWidth="4" x1="125" x2="38" y1="125" y2="125" /></g>
+            <circle cx="125" cy="125" fill="#071f33" r="9" stroke="#fff" strokeWidth="4" />
+            <text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="25" y="148">-100</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="125" y="30">0</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="225" y="148">+100</text>
+          </svg>
+          <div className="text-center sm:text-left"><strong className="text-6xl font-semibold tracking-tight text-[#071f33]">{formatSigned(summary?.nps || 0)}</strong><p className="mt-2 text-[10px] font-extrabold uppercase tracking-[.16em] text-slate-400">Promotores − detractores</p><p className="mt-4 text-xs leading-5 text-slate-500">Calculado sobre {formatNumber(summary?.respondentCount || 0)} encuestas únicas del periodo filtrado.</p></div>
+        </div>
+      </ChartCard>
+      <ChartCard eyebrow="Lectura interanual" title="Resultado YTD">
+        <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-5"><p className="text-[9px] font-extrabold uppercase tracking-[.14em] text-emerald-700">Año actual · {current?.label || "—"}</p><strong className="mt-2 block text-4xl font-semibold text-[#071f33]">{current ? formatSigned(current.nps) : "—"}</strong><p className="mt-1 text-xs font-bold text-emerald-700">YTD</p></div>
+          <div className="rounded-xl border border-slate-200 bg-[#f8fafb] p-5"><p className="text-[9px] font-extrabold uppercase tracking-[.14em] text-slate-500">Año anterior · {previous?.label || "—"}</p><strong className="mt-2 block text-4xl font-semibold text-[#071f33]">{previous ? formatSigned(previous.nps) : "—"}</strong><p className={`mt-1 text-xs font-bold ${delta !== null && delta >= 0 ? "text-emerald-700" : "text-red-600"}`}>{delta === null ? "Sin comparación" : `${formatSigned(delta)} puntos`}</p></div>
+        </div>
+      </ChartCard>
+    </section>
+  );
+}
+
+function TrendChart({ eyebrow, mode, rows, title }: { eyebrow: string; mode: "line" | "columns"; rows: Group[]; title: string }) {
+  const [pinnedLabel, setPinnedLabel] = useState("");
+  if (!rows.length) return <ChartCard eyebrow={eyebrow} title={title}><EmptyState /></ChartCard>;
+  if (mode === "columns") {
+    return (
+      <ChartCard eyebrow={eyebrow} title={title}>
+        <div className="mt-7 flex h-72 min-w-[620px] items-end gap-4 overflow-x-auto border-b border-l border-[#cbd9e3] px-5 pt-4">
+          {rows.map((row) => {
+            const height = Math.max(8, ((row.nps + 100) / 200) * 92);
+            const color = row.nps >= 80 ? "linear-gradient(180deg,#34d399,#059669)" : row.nps >= 65 ? "linear-gradient(180deg,#fde047,#eab308)" : "linear-gradient(180deg,#fb7185,#dc2626)";
+            return <button className="group relative flex h-full min-w-28 flex-1 flex-col items-center justify-end outline-none" key={row.label} onClick={() => setPinnedLabel(pinnedLabel === row.label ? "" : row.label)}><span className="mb-2 text-[10px] font-extrabold text-[#17364d]">{formatSigned(row.nps)}%</span><span className={`nps-chart-bar w-full max-w-52 rounded-t-md transition duration-300 group-hover:brightness-105 ${pinnedLabel === row.label ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`} style={{ background: color, height: `${height}%` }} /><span className="mt-2 text-xs font-extrabold text-[#17364d]">{row.label.replace(/^S/, "")}</span><ChartTooltip pinned={pinnedLabel === row.label}>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip></button>;
+          })}
+        </div>
+      </ChartCard>
+    );
+  }
+
+  const width = 720;
+  const height = 230;
+  const paddingX = 38;
+  const paddingY = 28;
+  const values = rows.map((row) => row.nps);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const span = Math.max(10, maximum - minimum);
+  const floor = Math.max(-100, minimum - span * 0.2);
+  const ceiling = Math.min(100, maximum + span * 0.2);
+  const chartSpan = Math.max(1, ceiling - floor);
+  const points = rows.map((row, index) => ({
+    ...row,
+    x: paddingX + (index * (width - paddingX * 2)) / Math.max(1, rows.length - 1),
+    y: height - paddingY - ((row.nps - floor) / chartSpan) * (height - paddingY * 2),
+  }));
+  const path = smoothPath(points);
+  const pinned = points.find((point) => point.label === pinnedLabel);
+
+  return (
+    <ChartCard eyebrow={eyebrow} title={title}>
+      <div className="mt-5 overflow-x-auto">
+        <svg aria-label={title} className="min-w-[620px]" role="img" viewBox={`0 0 ${width} ${height + 30}`}>
+          {[0, 1, 2, 3, 4].map((line) => {
+            const y = paddingY + (line * (height - paddingY * 2)) / 4;
+            const value = ceiling - (line * chartSpan) / 4;
+            return <g key={line}><line stroke="#d6e1e7" x1={paddingX} x2={width - paddingX} y1={y} y2={y} /><text fill="#71899b" fontSize="9" textAnchor="end" x={paddingX - 8} y={y + 3}>{Math.round(value)}%</text></g>;
+          })}
+          <path d={`${path} L ${points.at(-1)?.x} ${height - paddingY} L ${points[0].x} ${height - paddingY} Z`} fill="url(#nps-fill)" />
+          <defs><linearGradient id="nps-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#159b94" stopOpacity=".14" /><stop offset="1" stopColor="#159b94" stopOpacity="0" /></linearGradient></defs>
+          <path className="nps-chart-line" d={path} fill="none" stroke="#139a92" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+          {points.map((point) => <g className="cursor-pointer" key={point.label} onClick={() => setPinnedLabel(pinnedLabel === point.label ? "" : point.label)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={pinnedLabel === point.label ? "#139a92" : "#fff"} r={pinnedLabel === point.label ? 7 : 5} stroke="#139a92" strokeWidth="3"><title>{`${point.label}: NPS ${formatSigned(point.nps)} · ${formatNumber(point.respondentCount)} encuestas · clic para fijar`}</title></circle><text fill="#139a92" fontSize="9" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text><text fill="#71899b" fontSize="9" fontWeight="600" textAnchor="middle" x={point.x} y={height + 12}>{point.label}</text></g>)}
+          {pinned ? <PinnedSvgTooltip color="#139a92" height={height} onClose={() => setPinnedLabel("")} point={pinned} width={width} /> : null}
+        </svg>
+      </div>
+    </ChartCard>
+  );
+}
+
+function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series: TrendSeries[]; title: string }) {
+  const [pinnedPoint, setPinnedPoint] = useState("");
+  if (!series.some((item) => item.rows.length)) return <ChartCard eyebrow={eyebrow} title={title}><EmptyState /></ChartCard>;
+  const width = 720;
+  const height = 230;
+  const paddingX = 44;
+  const paddingY = 28;
+  const colors = ["#159b94", "#e79522"];
+  const allValues = series.flatMap((item) => item.rows.map((row) => row.nps));
+  const minimum = Math.min(...allValues);
+  const maximum = Math.max(...allValues);
+  const span = Math.max(10, maximum - minimum);
+  const floor = Math.max(-100, Math.floor((minimum - span * .25) / 5) * 5);
+  const ceiling = Math.min(100, Math.ceil((maximum + span * .25) / 5) * 5);
+  const chartSpan = Math.max(1, ceiling - floor);
+  const monthIndex = (label: string) => ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(label);
+  const plotted = series.map((item) => ({
+    ...item,
+    points: item.rows.map((row) => ({
+      ...row,
+      x: paddingX + (Math.max(0, monthIndex(row.label)) * (width - paddingX * 2)) / 11,
+      y: height - paddingY - ((row.nps - floor) / chartSpan) * (height - paddingY * 2),
+    })),
+  }));
+  const pinned = plotted.flatMap((item, seriesIndex) => item.points.map((point) => ({ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label })))
+    .find((point) => `${point.seriesLabel}:${point.label}` === pinnedPoint);
+
+  return (
+    <ChartCard eyebrow={eyebrow} title={title}>
+      <div className="mt-5 flex flex-wrap gap-5 text-[10px] font-semibold text-[#527180]">
+        {series.map((item, index) => <span className="inline-flex items-center gap-2" key={item.label}><i className="h-3 w-3 rounded-full" style={{ background: colors[index % colors.length] }} />{item.label}</span>)}
+      </div>
+      <div className="mt-2 overflow-x-auto">
+        <svg aria-label={`${title}: comparación con el año anterior`} className="min-w-[620px]" role="img" viewBox={`0 0 ${width} ${height + 30}`}>
+          <defs><linearGradient id="annual-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#159b94" stopOpacity=".13" /><stop offset="1" stopColor="#159b94" stopOpacity="0" /></linearGradient></defs>
+          {[0, 1, 2, 3, 4].map((line) => {
+            const y = paddingY + (line * (height - paddingY * 2)) / 4;
+            const value = ceiling - (line * chartSpan) / 4;
+            return <g key={line}><line stroke="#d6e1e7" x1={paddingX} x2={width - paddingX} y1={y} y2={y} /><text fill="#71899b" fontSize="9" textAnchor="end" x={paddingX - 8} y={y + 3}>{Math.round(value)}%</text></g>;
+          })}
+          {plotted[0]?.points.length > 1 ? <path d={`${smoothPath(plotted[0].points)} L ${plotted[0].points.at(-1)?.x} ${height - paddingY} L ${plotted[0].points[0].x} ${height - paddingY} Z`} fill="url(#annual-fill)" /> : null}
+          {plotted.map((item, seriesIndex) => <g key={item.label}>
+            <path className="nps-chart-line" d={smoothPath(item.points)} fill="none" stroke={colors[seriesIndex % colors.length]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+            {item.points.map((point) => {
+              const key = `${item.label}:${point.label}`;
+              const active = pinnedPoint === key;
+              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: NPS ${formatSigned(point.nps)} · ${formatNumber(point.respondentCount)} encuestas · Haz clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>;
+            })}
+          </g>)}
+          {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].map((month, index) => <text fill="#71899b" fontSize="9" fontWeight="600" key={month} textAnchor="middle" x={paddingX + (index * (width - paddingX * 2)) / 11} y={height + 12}>{month}</text>)}
+          {pinned ? (() => {
+            const tooltipWidth = 138;
+            const tooltipHeight = 72;
+            const tooltipX = Math.max(6, Math.min(width - tooltipWidth - 6, pinned.x - tooltipWidth / 2));
+            const tooltipY = pinned.y > 105 ? pinned.y - tooltipHeight - 16 : pinned.y + 16;
+            return <g className="cursor-pointer" onClick={() => setPinnedPoint("")}><rect fill="#0b2235" height={tooltipHeight} rx="9" width={tooltipWidth} x={tooltipX} y={tooltipY} /><circle cx={tooltipX + 14} cy={tooltipY + 16} fill={pinned.color} r="4" /><text fill="#9bb0bf" fontSize="8" fontWeight="800" letterSpacing=".8" x={tooltipX + 24} y={tooltipY + 19}>{pinned.label.toUpperCase()} · {pinned.seriesLabel}</text><text fill="#fff" fontSize="19" fontWeight="800" x={tooltipX + 12} y={tooltipY + 44}>{formatSigned(pinned.nps)}%</text><text fill="#9bb0bf" fontSize="7.5" fontWeight="600" x={tooltipX + 12} y={tooltipY + 61}>{formatNumber(pinned.respondentCount)} encuestas · clic para cerrar</text></g>;
+          })() : null}
+        </svg>
+      </div>
+    </ChartCard>
+  );
+}
+
+function smoothPath(points: Array<{ x: number; y: number }>) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const midpoint = (previous.x + point.x) / 2;
+    return `${path} C ${midpoint.toFixed(1)} ${previous.y.toFixed(1)}, ${midpoint.toFixed(1)} ${point.y.toFixed(1)}, ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+  }, `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`);
+}
+
+function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
+  const [pinnedPoint, setPinnedPoint] = useState("");
+  const colors = ["#159b94", "#e79522"];
+  const width = 920;
+  const height = 230;
+  const paddingX = 45;
+  const paddingY = 28;
+  const monthIndex = (label: string) => ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(label);
+  const plotted = series.map((item) => ({
+    ...item,
+    points: item.rows.map((row) => ({
+      ...row,
+      x: paddingX + (Math.max(0, monthIndex(row.label)) * (width - paddingX * 2)) / 11,
+      y: height - paddingY - (Math.max(0, Math.min(10, row.averageScore)) / 10) * (height - paddingY * 2),
+    })),
+  }));
+  const pinned = plotted.flatMap((item, seriesIndex) => item.points.map((point) => ({ ...point, color: colors[seriesIndex % colors.length], seriesLabel: item.label })))
+    .find((point) => `${point.seriesLabel}:${point.label}` === pinnedPoint);
+
+  return (
+    <ChartCard eyebrow="Experiencia de entrega" title="Delivery Experience por mes">
+      {plotted.some((item) => item.points.length) ? <>
+        <div className="mt-5 flex gap-5 text-[10px] font-semibold text-[#527180]">{series.map((item, index) => <span className="inline-flex items-center gap-2" key={item.label}><i className="h-3 w-3 rounded-full" style={{ background: colors[index % colors.length] }} />{item.label}</span>)}</div>
+        <div className="mt-2 overflow-x-auto">
+          <svg aria-label="Delivery Experience mensual por año" className="min-w-[760px]" role="img" viewBox={`0 0 ${width} ${height + 30}`}>
+            {[0, 2.5, 5, 7.5, 10].map((value) => {
+              const y = height - paddingY - (value / 10) * (height - paddingY * 2);
+              return <g key={value}><line stroke="#d6e1e7" x1={paddingX} x2={width - paddingX} y1={y} y2={y} /><text fill="#71899b" fontSize="9" textAnchor="end" x={paddingX - 8} y={y + 3}>{value.toLocaleString("es-CO")}</text></g>;
+            })}
+            {plotted.map((item, seriesIndex) => <g key={item.label}><path className="nps-chart-line" d={smoothPath(item.points)} fill="none" stroke={colors[seriesIndex % colors.length]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />{item.points.map((point) => {
+              const key = `${item.label}:${point.label}`;
+              const active = pinnedPoint === key;
+              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 4.5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: ${point.averageScore.toLocaleString("es-CO")} / 10 · clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{point.averageScore.toLocaleString("es-CO")}</text></g>;
+            })}</g>)}
+            {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].map((month, index) => <text fill="#71899b" fontSize="9" fontWeight="600" key={month} textAnchor="middle" x={paddingX + (index * (width - paddingX * 2)) / 11} y={height + 12}>{month}</text>)}
+            {pinned ? (() => {
+              const boxWidth = 142; const boxHeight = 70;
+              const x = Math.max(6, Math.min(width - boxWidth - 6, pinned.x - boxWidth / 2));
+              const y = pinned.y > 105 ? pinned.y - boxHeight - 16 : pinned.y + 16;
+              return <g className="cursor-pointer" onClick={() => setPinnedPoint("")}><rect fill="#0b2235" height={boxHeight} rx="9" width={boxWidth} x={x} y={y} /><circle cx={x + 14} cy={y + 16} fill={pinned.color} r="4" /><text fill="#9bb0bf" fontSize="8" fontWeight="800" x={x + 24} y={y + 19}>{pinned.label.toUpperCase()} · {pinned.seriesLabel}</text><text fill="#fff" fontSize="18" fontWeight="800" x={x + 12} y={y + 43}>{pinned.averageScore.toLocaleString("es-CO")} / 10</text><text fill="#9bb0bf" fontSize="7.5" x={x + 12} y={y + 59}>Fijado · clic para cerrar</text></g>;
+            })() : null}
+          </svg>
+        </div>
+      </> : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+function ScoreChart({ rows }: { rows: ScoreRow[] }) {
+  const maximum = Math.max(1, ...rows.map((row) => row.count));
+  return (
+    <ChartCard eyebrow="Volumen de respuestas" title="Distribución de calificaciones">
+      <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto border-b border-l border-slate-300 px-4 pt-5">
+        {rows.map((row) => {
+          const tone = row.score >= 9 ? "bg-[#258578]" : row.score >= 7 ? "bg-[#d7a138]" : "bg-[#c95850]";
+          return <button className="group relative flex h-full min-w-12 flex-1 flex-col items-center justify-end outline-none" key={row.score}><span className="mb-1 text-[9px] font-bold text-[#28485d]">{formatNumber(row.count)}</span><span className={`w-full max-w-14 origin-bottom rounded-t transition duration-300 group-hover:brightness-110 ${tone}`} style={{ height: `${Math.max(3, (row.count / maximum) * 100)}%` }} /><span className="mt-2 text-[10px] font-bold text-slate-600">{row.score}</span><ChartTooltip>Score {row.score}: {formatNumber(row.count)} encuestas · {row.percentage.toLocaleString("es-CO")}%</ChartTooltip></button>;
+        })}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-4 text-[10px] font-semibold text-slate-500"><Legend color="bg-[#c95850]" label="Detractores (0–6)" /><Legend color="bg-[#d7a138]" label="Pasivos (7–8)" /><Legend color="bg-[#258578]" label="Promotores (9–10)" /></div>
+    </ChartCard>
+  );
+}
+
+function DriverChart({ eyebrow, rows, title, variant }: { eyebrow: string; rows: Driver[]; title: string; variant: "list" | "grid" }) {
+  const visible = rows.slice(0, variant === "list" ? 6 : 8);
+  const maximum = Math.max(1, ...visible.map((row) => row.percentage));
+  return (
+    <ChartCard eyebrow={eyebrow} title={title}>
+      {visible.length ? (
+        <div className={variant === "grid" ? "mt-8 grid gap-3 sm:grid-cols-2" : "mt-8 space-y-6"}>
+          {visible.map((row, index) => (
+            <div className={variant === "grid" ? "group rounded-xl border border-[#d8e2e8] bg-[#f8fafb] p-4 transition hover:border-[#b7cbd6] hover:bg-white" : "group px-2"} key={row.label}>
+              <div className="mb-2 flex items-start justify-between gap-4">
+                <span className="text-[13px] font-medium leading-5 text-[#25435b]">{row.label}</span>
+                <strong className="shrink-0 text-sm font-extrabold tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-[#edf2f6]">
+                <span
+                  className="block h-full rounded-full transition-[width,filter] duration-300 group-hover:brightness-110"
+                  style={{
+                    background: index === 0 && variant === "grid" ? "#df952e" : "#356b8e",
+                    width: `${Math.max(3, (row.percentage / maximum) * 96)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+function DriverContribution({ rows }: { rows: Driver[] }) {
+  const visible = rows.slice(0, 8);
+  const total = visible.reduce((sum, row) => sum + row.percentage, 0);
+  return (
+    <ChartCard eyebrow="Contribución acumulada" title="% Primary Driver">
+      {visible.length ? <div className="mt-7 grid gap-x-8 gap-y-4 lg:grid-cols-2">{visible.map((row, index) => {
+        const cumulative = visible.slice(0, index + 1).reduce((sum, item) => sum + item.percentage, 0);
+        return <div className="group rounded-xl border border-[#d8e2e8] bg-[#f9fbfc] p-4 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-4"><span className="text-xs font-semibold leading-5 text-[#25435b]">{row.label}</span><strong className="shrink-0 text-sm tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-2 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 flex justify-between text-[9px] font-bold uppercase tracking-[.08em] text-slate-400"><span>{formatNumber(row.count)} menciones</span><span>Acumulado {cumulative.toLocaleString("es-CO")}%</span></div></div>;
+      })}<div className="rounded-xl border border-[#a7d4cf] bg-[#edf8f7] p-4 lg:col-span-2"><div className="flex items-center justify-between gap-4"><span className="text-xs font-extrabold uppercase tracking-[.12em] text-[#087f78]">Cobertura de los drivers visibles</span><strong className="text-2xl text-[#071f33]">{total.toLocaleString("es-CO")}%</strong></div></div></div> : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+function SegmentBarChart({ eyebrow, rows, title }: { eyebrow: string; rows: Group[]; title: string }) {
+  const visible = [...rows].sort((a, b) => b.nps - a.nps);
+  return (
+    <ChartCard eyebrow={eyebrow} title={title}>
+      {visible.length ? (
+        <div className="mt-7 overflow-x-auto pb-1">
+          <div className="mb-3 flex flex-wrap gap-4 text-[9px] font-bold text-slate-500"><Legend color="bg-emerald-500" label="Alto ≥ 75" /><Legend color="bg-yellow-400" label="Medio 60–74,9" /><Legend color="bg-red-500" label="Bajo < 60" /></div>
+          <div className="relative flex h-72 min-w-max items-end gap-2 border-b border-l border-[#cbd9e3] bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(25%_-_1px),#e4ebef_25%)] px-3 pt-4">
+            {visible.map((row) => (
+              <button className="group relative flex h-full w-20 flex-none flex-col items-center justify-end outline-none sm:w-24" key={row.label}>
+                <span className="mb-2 text-[9px] font-extrabold tabular-nums text-[#17364d]">{formatSigned(row.nps)}%</span>
+                <span
+                  className="nps-chart-bar w-full max-w-28 rounded-t-md transition duration-300 group-hover:-translate-y-1 group-hover:brightness-105"
+                  style={{
+                    background: row.nps >= 75 ? "linear-gradient(180deg,#34d399,#079669)" : row.nps >= 60 ? "linear-gradient(180deg,#fde047,#eab308)" : "linear-gradient(180deg,#fb7185,#dc2626)",
+                    height: `${Math.max(5, ((row.nps + 100) / 200) * 86)}%`,
+                  }}
+                />
+                <span className="mt-2 w-full truncate text-center text-[9px] font-semibold text-[#496579]" title={row.label}>{row.label.replace(/^CD /, "")}</span>
+                <ChartTooltip>{row.label}: NPS {formatSigned(row.nps)} · {formatNumber(row.respondentCount)} encuestas</ChartTooltip>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+function ManagementDonut({ rows }: { rows: Group[] }) {
+  const visible = rows.slice(0, 6);
+  const colors = ["#315f82", "#177b80", "#bd8b2c", "#77547a", "#4f8e68", "#d46b4d"];
+  const totalResponses = visible.reduce((sum, row) => sum + row.respondentCount, 0);
+  const globalNps = totalResponses
+    ? visible.reduce((sum, row) => sum + row.nps * row.respondentCount, 0) / totalResponses
+    : 0;
+  const stops = visible.map((row, index) => {
+    const start = totalResponses
+      ? (visible.slice(0, index).reduce((sum, item) => sum + item.respondentCount, 0) / totalResponses) * 100
+      : 0;
+    const end = totalResponses ? start + (row.respondentCount / totalResponses) * 100 : 0;
+    return `${colors[index % colors.length]} ${start}% ${end}%`;
+  }).join(", ");
+
+  return (
+    <ChartCard eyebrow="Comparativo organizacional" title="NPS por gerencia">
+      {visible.length ? (
+        <div className="mt-7 grid min-h-64 items-center gap-7 rounded-xl border border-[#d8e2e8] bg-[#f9fbfc] p-5 sm:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="relative mx-auto grid h-44 w-44 place-items-center rounded-full" style={{ background: `conic-gradient(${stops})` }}>
+            <div className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-[0_0_0_1px_rgba(203,217,227,.45)]">
+              <div><strong className="text-3xl font-semibold text-[#071f33]">{formatSigned(globalNps)}</strong><p className="mt-1 text-[8px] font-extrabold uppercase tracking-[.08em] text-slate-400">NPS global</p></div>
+            </div>
+          </div>
+          <div className="space-y-4">
+            {visible.map((row, index) => (
+              <div className="grid grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-3 text-xs" key={row.label}>
+                <span className="h-3 w-3 rounded-full" style={{ background: colors[index % colors.length] }} />
+                <span className="truncate font-medium text-[#25435b]" title={row.label}>{row.label.replace(/^CO /, "")}</span>
+                <strong className="tabular-nums text-[#071f33]">{formatSigned(row.nps)}%</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+function MonthlyDetractorChart({ rows }: { rows: Group[] }) {
+  const [pinnedLabel, setPinnedLabel] = useState("");
+  const maximum = Math.max(1, ...rows.map((row) => row.detractors));
+  const width = 920;
+  const height = 270;
+  const paddingX = 50;
+  const top = 30;
+  const bottom = 45;
+  const slot = (width - paddingX * 2) / Math.max(1, rows.length);
+  const points = rows.map((row, index) => ({
+    ...row,
+    x: paddingX + slot * index + slot / 2,
+    y: top + ((100 - row.nps) / 200) * (height - top - bottom),
+  }));
+  return (
+    <ChartCard eyebrow="Seguimiento de alertas" title="Detractores por mes">
+      {rows.length ? <>
+        <div className="mt-5 flex gap-5 text-[10px] font-semibold text-[#527180]"><Legend color="bg-[#e5524b]" label="Total detractores" /><Legend color="bg-[#243ba5]" label="NPS" /></div>
+        <div className="mt-2 overflow-x-auto">
+          <svg aria-label="Detractores y NPS por mes" className="min-w-[760px]" role="img" viewBox={`0 0 ${width} ${height}`}>
+            <line stroke="#cbd9e3" x1={paddingX} x2={width - paddingX} y1={height - bottom} y2={height - bottom} />
+            {rows.map((row, index) => {
+              const barHeight = Math.max(8, (row.detractors / maximum) * (height - top - bottom - 20));
+              const x = paddingX + slot * index + slot * .16;
+              const barWidth = slot * .68;
+              return <g className="cursor-pointer" key={row.label} onClick={() => setPinnedLabel(pinnedLabel === row.label ? "" : row.label)}><rect fill={row.detractors / maximum >= .75 ? "#ef4444" : row.detractors / maximum >= .45 ? "#e79522" : "#22c55e"} height={barHeight} rx="3" stroke={pinnedLabel === row.label ? "#071f33" : "none"} strokeWidth="3" width={barWidth} x={x} y={height - bottom - barHeight}><title>{`${row.label}: ${formatNumber(row.detractors)} detractores · clic para fijar`}</title></rect><text fill="#071f33" fontSize="10" fontWeight="800" textAnchor="middle" x={x + barWidth / 2} y={height - bottom - barHeight - 7}>{formatNumber(row.detractors)}</text><text fill="#17364d" fontSize="10" fontWeight="700" textAnchor="middle" x={x + barWidth / 2} y={height - 25}>{row.label}</text></g>;
+            })}
+            <path className="nps-chart-line" d={smoothPath(points)} fill="none" stroke="#243ba5" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+            {points.map((point) => <g className="cursor-pointer" key={point.label} onClick={() => setPinnedLabel(pinnedLabel === point.label ? "" : point.label)}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill="#243ba5" r={pinnedLabel === point.label ? 7 : 5}><title>{`${point.label}: NPS ${formatSigned(point.nps)} · clic para fijar`}</title></circle><text fill="#17255f" fontSize="9" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>)}
+            {points.find((point) => point.label === pinnedLabel) ? <PinnedSvgTooltip color="#243ba5" height={height} onClose={() => setPinnedLabel("")} point={points.find((point) => point.label === pinnedLabel)!} width={width} /> : null}
+          </svg>
+        </div>
+      </> : <EmptyState />}
+    </ChartCard>
+  );
+}
+
+type CdPoint = Group & { latitude: number; longitude: number };
+type ClientCoordinate = { codigo: string; latitude: number; longitude: number; rawLatitude: number; rawLongitude: number };
+type MapPoint = { label: string; latitude: number; longitude: number };
+
+const CD_LOCATIONS: Record<string, { latitude: number; longitude: number }> = {
+  "CD Galapa": { latitude: 10.92614, longitude: -74.84523 },
+  "CD La Arenosa": { latitude: 10.97439, longitude: -74.7721 },
 };
 
-const COM_MAP_POINTS: ComMapPoint[] = [
-  { com: "COM5O3", customers: 8, latitude: 10.9878, longitude: -74.7889, nps: 55.6, zone: "Norte Centro Histórico" },
-  { com: "COM5O7", customers: 8, latitude: 11.0137, longitude: -74.8278, nps: 100, zone: "Riomar" },
-  { com: "COM5P0", customers: 15, latitude: 10.9574, longitude: -74.7911, nps: 66.7, zone: "Centro" },
-  { com: "COM5P1", customers: 11, latitude: 10.9412, longitude: -74.7704, nps: 45.5, zone: "Suroriente" },
-  { com: "COM5S3", customers: 7, latitude: 10.9236, longitude: -74.7915, nps: 71.4, zone: "Metropolitana" },
-  { com: "COM5S4", customers: 6, latitude: 10.9048, longitude: -74.8032, nps: 100, zone: "Soledad norte" },
-  { com: "COM5S5", customers: 7, latitude: 10.8856, longitude: -74.7828, nps: 71.4, zone: "Soledad centro" },
-  { com: "COM5S6", customers: 11, latitude: 10.8679, longitude: -74.7775, nps: 100, zone: "Soledad sur" },
-  { com: "COM5W0", customers: 1, latitude: 10.9932, longitude: -74.8426, nps: 100, zone: "Corredor portuario" },
-  { com: "COM5X0", customers: 1, latitude: 10.9701, longitude: -74.8146, nps: 100, zone: "Barranquillita" },
-  { com: "COM5Y2", customers: 10, latitude: 10.8351, longitude: -74.7551, nps: 90, zone: "Malambo" },
-  { com: "COM5Y9", customers: 10, latitude: 10.8933, longitude: -74.8571, nps: 100, zone: "Galapa" },
-  { com: "COM5Z4", customers: 14, latitude: 10.9823, longitude: -74.7515, nps: 78.6, zone: "Las Nieves" },
-  { com: "COM5Z5", customers: 10, latitude: 11.0245, longitude: -74.8108, nps: 100, zone: "Villa Santos" },
-  { com: "COM694", customers: 8, latitude: 10.7486, longitude: -74.7542, nps: 75, zone: "Sabanagrande" },
-  { com: "COM697", customers: 6, latitude: 10.7894, longitude: -74.7608, nps: 83.3, zone: "Palmar de Varela" },
-  { com: "COM6EY", customers: 1, latitude: 10.9784, longitude: -74.8037, nps: 100, zone: "El Prado" },
-];
-
-const FALLBACK_MAP_STYLE: StyleSpecification = {
+const MAP_STYLE: StyleSpecification = {
   version: 8,
   sources: {
     openStreetMap: {
       type: "raster",
-      attribution: "© OpenStreetMap contributors",
-      tileSize: 256,
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
     },
   },
   layers: [{ id: "open-street-map", type: "raster", source: "openStreetMap" }],
 };
 
-function InteractiveComMap() {
-  const [selected, setSelected] = useState<ComMapPoint>(COM_MAP_POINTS[0]);
+function CdMapPanel({ rows }: { rows: Group[] }) {
+  const points: CdPoint[] = rows.flatMap((row) => {
+    const location = CD_LOCATIONS[row.label];
+    return location ? [{ ...row, ...location }] : [];
+  });
+  const [selectedLabel, setSelectedLabel] = useState("");
+  const [clientCode, setClientCode] = useState("");
+  const [clientCoordinate, setClientCoordinate] = useState<ClientCoordinate | null>(null);
+  const [coordinateError, setCoordinateError] = useState("");
+  const [searchingCoordinate, setSearchingCoordinate] = useState(false);
+  const selected = points.find((point) => point.label === selectedLabel) || points[0];
+  const mapPoint: MapPoint | undefined = clientCoordinate
+    ? { label: `Cliente ${clientCoordinate.codigo}`, latitude: clientCoordinate.latitude, longitude: clientCoordinate.longitude }
+    : selected;
 
-  function selectPoint(point: ComMapPoint) {
-    setSelected(point);
+  async function searchClientCoordinate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const codigo = clientCode.replace(/\D/g, "");
+    if (!codigo) return;
+    setSearchingCoordinate(true);
+    setCoordinateError("");
+    try {
+      const response = await fetch(`/api/people/coordinates?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudieron consultar las coordenadas.");
+      if (!body.coordinate) throw new Error(body.hint || "No se encontraron coordenadas para ese cliente.");
+      setClientCoordinate(body.coordinate as ClientCoordinate);
+    } catch (caught) {
+      setClientCoordinate(null);
+      setCoordinateError(caught instanceof Error ? caught.message : "No se encontraron coordenadas.");
+    } finally {
+      setSearchingCoordinate(false);
+    }
   }
 
   return (
     <article className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Distribución geográfica</p>
-          <h2 className="mt-1 text-lg font-semibold text-[#0b2235]">Clientes detractores y encuestas por COM</h2>
-          <p className="mt-1 text-xs text-slate-500">Selecciona una fila para centrar el mapa. Las coordenadas actuales son demostrativas y se reemplazarán por las reales.</p>
-        </div>
-        <DemoBadge />
+      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-end">
+        <div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Distribución geográfica</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">NPS, encuestas y ubicación de clientes</h2><p className="mt-1 text-xs text-slate-500">Selecciona un CD o busca un código de cliente para centrar el mapa.</p></div>
+        <form className="flex gap-2" onSubmit={searchClientCoordinate}>
+          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[#cbd9e3] bg-[#f8fafb] px-3 focus-within:border-[#159b94] focus-within:ring-2 focus-within:ring-[#159b94]/10"><Search className="shrink-0 text-[#527180]" size={16} /><input aria-label="Código del cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#0b2235] outline-none placeholder:font-normal placeholder:text-slate-400" inputMode="numeric" onChange={(event) => setClientCode(event.target.value.replace(/\D/g, ""))} placeholder="Código del cliente" value={clientCode} /></label>
+          <button className="h-11 rounded-xl bg-[#0b2235] px-5 text-xs font-bold text-white transition hover:bg-[#176b73] disabled:cursor-wait disabled:opacity-60" disabled={searchingCoordinate} type="submit">{searchingCoordinate ? "Buscando…" : "Buscar"}</button>
+        </form>
+        {coordinateError ? <p className="text-xs font-semibold text-red-600 lg:col-start-2">{coordinateError}</p> : null}
       </div>
-
-      <div className="grid min-h-[560px] xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="relative min-h-[420px] overflow-hidden bg-[#dcecf3]">
-          <ComMap point={selected} />
-          <div className="pointer-events-none absolute left-4 top-4 max-w-[calc(100%-2rem)] rounded-xl border border-white/70 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-            <div className="flex items-start gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#176b73] text-white"><MapPinned size={18} /></span>
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[.12em] text-[#b36b16]">Coordenadas demo · No reales</p>
-                <p className="mt-0.5 font-semibold text-[#0b2235]">{selected.com} · {selected.zone}</p>
-                <p className="mt-1 font-mono text-[10px] text-slate-500">{selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}</p>
+      {mapPoint ? (
+        <div className="grid min-h-[580px] xl:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="relative min-h-[520px] overflow-hidden bg-[#dcecf3] xl:min-h-[580px]">
+            <CdMap point={mapPoint} />
+            <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/70 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+              <div className="flex items-start gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#176b73] text-white"><MapPinned size={18} /></span>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[.12em] text-[#b36b16]">{clientCoordinate ? "Cliente localizado" : "Centro seleccionado"}</p>
+                  <p className="mt-0.5 font-semibold text-[#0b2235]">{mapPoint.label}</p>
+                  {!clientCoordinate && selected ? <p className="mt-1 text-xs text-slate-500">{formatNumber(selected.respondentCount)} encuestas · NPS {formatSigned(selected.nps)}</p> : null}
+                  <div className="mt-2 flex gap-2 font-mono text-[10px] font-semibold tabular-nums text-[#25435b]">
+                    <span className="rounded-md bg-[#eaf2f4] px-2 py-1">Lat: {mapPoint.latitude.toFixed(6)}</span>
+                    <span className="rounded-md bg-[#eaf2f4] px-2 py-1">Lon: {mapPoint.longitude.toFixed(6)}</span>
+                  </div>
+                </div>
               </div>
             </div>
+            <a className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-lg border border-white/70 bg-white/95 px-3 py-2 text-[10px] font-semibold text-[#176b73] shadow-md" href={`https://www.openstreetmap.org/?mlat=${mapPoint.latitude}&mlon=${mapPoint.longitude}#map=16/${mapPoint.latitude}/${mapPoint.longitude}`} rel="noreferrer" target="_blank"><Navigation size={13} />Abrir mapa</a>
           </div>
-          <a
-            className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-lg border border-white/70 bg-white/95 px-3 py-2 text-[10px] font-semibold text-[#176b73] shadow-md backdrop-blur transition hover:bg-white"
-            href={`https://www.openstreetmap.org/?mlat=${selected.latitude}&mlon=${selected.longitude}#map=15/${selected.latitude}/${selected.longitude}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <Navigation size={13} />
-            Abrir mapa
-          </a>
-        </div>
-
-        <div className="flex min-h-0 flex-col border-t border-slate-200 xl:border-l xl:border-t-0">
-          <div className="bg-gradient-to-r from-[#0b2235] to-[#176b73] px-4 py-3.5 text-white">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[8px] font-bold uppercase tracking-[.16em] text-white/60">Detalle territorial</p>
-                <h3 className="mt-0.5 font-semibold">Encuestas por COM</h3>
-              </div>
-              <span className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold backdrop-blur">
-                {COM_MAP_POINTS.length} zonas
-              </span>
-            </div>
-          </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_78px_88px] border-b border-slate-200 bg-[#edf2f5] px-3 py-2.5 text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">
-            <span>Zona / COM</span><span className="text-center">Clientes</span><span className="text-right">NPS</span>
-          </div>
-          <div className="max-h-[470px] flex-1 overflow-y-auto bg-[#f8fafb]">
-            {COM_MAP_POINTS.map((point) => {
-              const active = selected.com === point.com;
-              const npsTone = point.nps >= 80
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : point.nps >= 60
-                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                  : "border-red-200 bg-red-50 text-red-700";
-              return (
-                <button
-                  aria-pressed={active}
-                  className={`group grid w-full grid-cols-[minmax(0,1fr)_78px_88px] items-center border-b px-3 py-2.5 text-left text-xs transition ${
-                    active
-                      ? "border-[#9dcfc8] bg-[#dcefed] shadow-[inset_4px_0_0_#176b73]"
-                      : "border-slate-100 bg-white hover:bg-[#eef7f6]"
-                  }`}
-                  key={point.com}
-                  onClick={() => selectPoint(point)}
-                  type="button"
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5">
-                      <i className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[#176b73] ring-4 ring-[#176b73]/15" : "bg-slate-300 group-hover:bg-[#3e9b92]"}`} />
-                      <strong className="truncate text-[#0b2235]">{point.com}</strong>
-                      {active ? <small className="rounded bg-[#176b73] px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[.08em] text-white">En mapa</small> : null}
-                    </span>
-                    <small className="ml-3.5 mt-0.5 block truncate text-[9px] text-slate-400">{point.zone}</small>
-                  </span>
-                  <span className="justify-self-center rounded-md border border-slate-200 bg-white px-2 py-1 font-bold tabular-nums text-slate-600 shadow-sm">
-                    {point.customers}
-                  </span>
-                  <span className={`justify-self-end rounded-md border px-2 py-1 font-bold tabular-nums ${npsTone}`}>
-                    {point.nps.toLocaleString("es-CO")}%
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="border-t border-slate-300 bg-white px-3 py-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_78px_88px] items-center text-xs font-bold text-[#0b2235]">
-              <span><small className="block text-[8px] uppercase tracking-[.12em] text-slate-400">Consolidado</small>Total general</span>
-              <span className="text-center tabular-nums">431</span>
-              <span className="justify-self-end rounded-md bg-[#e6f1ef] px-2 py-1 tabular-nums text-[#176b73]">77,2%</span>
+          <div className="flex min-h-0 flex-col border-t border-slate-200 xl:border-l xl:border-t-0">
+            <div className="bg-gradient-to-r from-[#0b2235] to-[#176b73] px-4 py-3.5 text-white"><p className="text-[8px] font-bold uppercase tracking-[.16em] text-white/60">Detalle territorial</p><div className="mt-0.5 flex items-center justify-between gap-3"><h3 className="font-semibold">Encuestas por CD</h3><span className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[9px] font-bold">{points.length} centros</span></div></div>
+            <div className="grid grid-cols-[minmax(0,1fr)_90px_82px] border-b border-slate-200 bg-[#edf2f5] px-3 py-2.5 text-[9px] font-bold uppercase tracking-[.1em] text-slate-500"><span>CD</span><span className="text-center">Encuestas</span><span className="text-right">NPS</span></div>
+            <div className="flex-1 bg-[#f8fafb]">
+              {points.map((point) => {
+                const active = selected.label === point.label;
+                return <button aria-pressed={active && !clientCoordinate} className={`grid w-full grid-cols-[minmax(0,1fr)_90px_82px] items-center border-b px-3 py-3 text-left text-xs transition ${active && !clientCoordinate ? "border-[#9dcfc8] bg-[#dcefed] shadow-[inset_4px_0_0_#176b73]" : "border-slate-100 bg-white hover:bg-[#eef7f6]"}`} key={point.label} onClick={() => { setClientCoordinate(null); setCoordinateError(""); setSelectedLabel(point.label); }}><strong className="text-[#0b2235]">{point.label}</strong><span className="justify-self-center rounded-md border border-slate-200 bg-white px-2 py-1 font-bold tabular-nums text-slate-600">{formatNumber(point.respondentCount)}</span><span className={`justify-self-end rounded-md px-2 py-1 font-bold tabular-nums ${point.nps >= 50 ? "bg-emerald-50 text-emerald-700" : point.nps >= 0 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>{formatSigned(point.nps)}</span></button>;
+              })}
             </div>
           </div>
         </div>
-      </div>
+      ) : <EmptyState />}
     </article>
   );
 }
 
-function ComMap({ point }: { point: ComMapPoint }) {
+function CdMap({ point }: { point: MapPoint }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMapInstance | null>(null);
   const markerRef = useRef<MapLibreMarker | null>(null);
-  const pointRef = useRef(point);
-  const [ready, setReady] = useState(false);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const initialPointRef = useRef(point);
   const [mapError, setMapError] = useState("");
 
   useEffect(() => {
-    pointRef.current = point;
-  }, [point]);
-
-  useEffect(() => {
     let cancelled = false;
-    let loadTimer: ReturnType<typeof setTimeout> | undefined;
-    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-    let resizeFrame: number | undefined;
-    let resizeObserver: ResizeObserver | undefined;
-
-    async function initializeMap() {
+    async function initialize() {
       try {
         const { AttributionControl, Map, Marker, NavigationControl } = await import("maplibre-gl");
         if (cancelled || !containerRef.current) return;
-
-        const initialPoint = pointRef.current;
-        const map = new Map({
-          attributionControl: false,
-          center: [initialPoint.longitude, initialPoint.latitude],
-          container: containerRef.current,
-          pitch: 25,
-          style: "https://tiles.openfreemap.org/styles/bright",
-          zoom: 12.4,
-        });
-        const marker = new Marker({ color: "#176b73", scale: 1.15 })
-          .setLngLat([initialPoint.longitude, initialPoint.latitude])
-          .addTo(map);
-        let fallbackApplied = false;
-        let loaded = false;
-
-        const applyFallbackStyle = () => {
-          if (fallbackApplied || loaded || cancelled) return;
-          fallbackApplied = true;
-          map.setStyle(FALLBACK_MAP_STYLE);
-          if (loadTimer) clearTimeout(loadTimer);
-          loadTimer = setTimeout(() => {
-            if (!cancelled && !loaded) setMapError("No se pudo cargar el mapa base. Revisa la conexión a internet.");
-          }, 12000);
-        };
-
-        map.addControl(new NavigationControl({ showCompass: false, visualizePitch: true }), "bottom-right");
+        const initial = initialPointRef.current;
+        const map = new Map({ attributionControl: false, center: [initial.longitude, initial.latitude], container: containerRef.current, style: MAP_STYLE, zoom: 12.5 });
+        const marker = new Marker({ color: "#176b73", scale: 1.15 }).setLngLat([initial.longitude, initial.latitude]).addTo(map);
+        map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
         map.addControl(new AttributionControl({ compact: true }), "bottom-left");
-        map.once("load", () => {
-          loaded = true;
-          if (!cancelled) {
-            map.resize();
-            setMapError("");
-            setReady(true);
-          }
-        });
-        map.on("error", () => {
-          if (cancelled || loaded) return;
-          applyFallbackStyle();
-        });
-        loadTimer = setTimeout(() => {
-          applyFallbackStyle();
-        }, 7000);
-
         mapRef.current = map;
         markerRef.current = marker;
-        const resizeMap = () => {
-          if (resizeFrame) cancelAnimationFrame(resizeFrame);
-          resizeFrame = requestAnimationFrame(() => map.resize());
-        };
-        resizeObserver = new ResizeObserver(resizeMap);
-        resizeObserver.observe(containerRef.current);
-        resizeMap();
-        resizeTimer = setTimeout(resizeMap, 150);
+        resizeObserverRef.current = new ResizeObserver(() => map.resize());
+        resizeObserverRef.current.observe(containerRef.current);
+        requestAnimationFrame(() => map.resize());
       } catch {
-        if (!cancelled) setMapError("No se pudo iniciar el mapa interactivo.");
+        if (!cancelled) setMapError("No se pudo cargar el mapa.");
       }
     }
-
-    void initializeMap();
-
+    void initialize();
     return () => {
       cancelled = true;
-      if (loadTimer) clearTimeout(loadTimer);
-      if (resizeTimer) clearTimeout(resizeTimer);
-      if (resizeFrame) cancelAnimationFrame(resizeFrame);
-      resizeObserver?.disconnect();
       markerRef.current?.remove();
+      resizeObserverRef.current?.disconnect();
       mapRef.current?.remove();
       markerRef.current = null;
+      resizeObserverRef.current = null;
       mapRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
-    const marker = markerRef.current;
-    if (!map || !marker) return;
-
-    marker.setLngLat([point.longitude, point.latitude]);
-    map.flyTo({
-      center: [point.longitude, point.latitude],
-      duration: 1150,
-      essential: true,
-      pitch: 25,
-      zoom: 13.2,
-    });
+    markerRef.current?.setLngLat([point.longitude, point.latitude]);
+    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], duration: 1000, essential: true, zoom: 13 });
   }, [point]);
 
+  return mapError ? <div className="absolute inset-0 grid place-items-center bg-[#eaf1f4] text-sm font-semibold text-slate-500">{mapError}</div> : <div aria-label={`Mapa de ${point.label}`} className="absolute inset-0 h-full w-full" ref={containerRef} role="img" />;
+}
+
+function DetractorExplorer({ rows }: { rows: Detractor[] }) {
+  const [selection, setSelection] = useState<{ type: "cd" | "score"; value: string } | null>(null);
+  const byCd = Array.from(new Set(rows.map((row) => row.cd))).map((cd) => ({
+    label: cd,
+    rows: rows.filter((row) => row.cd === cd),
+  })).sort((a, b) => b.rows.length - a.rows.length);
+  const byScore = Array.from({ length: 7 }, (_, score) => ({
+    label: String(score),
+    rows: rows.filter((row) => row.score === score),
+  })).filter((item) => item.rows.length);
+  const maximumCd = Math.max(1, ...byCd.map((item) => item.rows.length));
+  const maximumScore = Math.max(1, ...byScore.map((item) => item.rows.length));
+  const selectedRows = selection
+    ? rows.filter((row) => selection.type === "cd" ? row.cd === selection.value : String(row.score) === selection.value)
+    : [];
+
   return (
-    <>
-      <div
-        aria-label={`Mapa interactivo de ${point.com}, ${point.zone}`}
-        className="absolute inset-0 h-full min-h-[420px] w-full"
-        ref={containerRef}
-        role="img"
-      />
-      {!ready && !mapError ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-[#dcecf3]">
-          <span className="rounded-lg bg-white/90 px-4 py-2 text-xs font-semibold text-[#176b73] shadow-md">Cargando mapa a color...</span>
-        </div>
-      ) : null}
-      {mapError ? (
-        <div className="absolute inset-0 grid place-items-center bg-[#eaf1f4] p-6 text-center">
-          <div><MapPinned className="mx-auto text-slate-400" size={30} /><p className="mt-3 text-sm font-semibold text-slate-600">{mapError}</p></div>
-        </div>
-      ) : null}
-    </>
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard eyebrow="Detalle operativo" title="Clientes detractores por CD">
+          {byCd.length ? <div className="mt-7 space-y-3">{byCd.map((item) => {
+            const active = selection?.type === "cd" && selection.value === item.label;
+            return (
+              <button className={`group block w-full rounded-xl border p-3 text-left transition ${active ? "border-[#159b94] bg-[#edf8f7] shadow-[0_0_0_2px_rgba(21,155,148,.10)]" : "border-[#d8e2e8] bg-[#f9fbfc] hover:border-[#aac4d1]"}`} key={item.label} onClick={() => setSelection(active ? null : { type: "cd", value: item.label })}>
+                <span className="mb-2 flex items-center justify-between gap-3 text-xs"><strong className="text-[#17364d]">{item.label}</strong><span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 font-extrabold text-red-600">{item.rows.length}</span></span>
+                <span className="block h-2 overflow-hidden rounded-full bg-[#edf2f6]"><i className="block h-full rounded-full bg-[#356b8e] transition-all group-hover:brightness-110" style={{ width: `${Math.max(4, (item.rows.length / maximumCd) * 100)}%` }} /></span>
+              </button>
+            );
+          })}</div> : <EmptyState />}
+        </ChartCard>
+        <ChartCard eyebrow="Severidad de la experiencia" title="Clientes detractores por score">
+          {byScore.length ? <div className="mt-7 flex h-64 items-end gap-3 border-b border-l border-[#cbd9e3] px-4">{byScore.map((item) => {
+            const active = selection?.type === "score" && selection.value === item.label;
+            return (
+              <button className="group relative flex h-full min-w-12 flex-1 flex-col items-center justify-end" key={item.label} onClick={() => setSelection(active ? null : { type: "score", value: item.label })}>
+                <span className="mb-2 text-[10px] font-extrabold text-[#17364d]">{item.rows.length}</span>
+                <span className={`w-full max-w-16 rounded-t-md transition group-hover:brightness-105 ${active ? "ring-2 ring-[#0b2235] ring-offset-2" : ""}`} style={{ background: "linear-gradient(180deg,#fb7185,#dc2626)", height: `${Math.max(8, (item.rows.length / maximumScore) * 82)}%` }} />
+                <span className="mt-2 text-[10px] font-extrabold text-slate-500">Score {item.label}</span>
+              </button>
+            );
+          })}</div> : <EmptyState />}
+        </ChartCard>
+      </div>
+      {selection ? <DetractorTable rows={selectedRows} selectionLabel={selection.type === "cd" ? selection.value : `Score ${selection.value}`} /> : <div className="rounded-xl border border-dashed border-[#b9cbd5] bg-white/60 px-5 py-6 text-center text-xs font-semibold text-slate-500">Selecciona una barra para ver los clientes detractores.</div>}
+    </div>
   );
 }
 
-function detractorGradient(total: number) {
-  if (total > 60) return "linear-gradient(180deg, #ff7b7b 0%, #f05252 48%, #dc2626 100%)";
-  if (total > 40) return "linear-gradient(180deg, #fde047 0%, #facc15 48%, #eab308 100%)";
-  return "linear-gradient(180deg, #34d399 0%, #10b981 48%, #059669 100%)";
-}
+function DetractorTable({ rows, selectionLabel }: { rows: Detractor[]; selectionLabel: string }) {
+  const visible = rows.slice(0, 20);
+  const [clients, setClients] = useState<Record<string, DetractorClient>>({});
 
-function DetractorStructure() {
-  const strata = [100, 40, 100, 73, 75.6, 78.6];
-  return <section className="grid gap-4 xl:grid-cols-[1.28fr_.62fr_.9fr]"><TableStructure title="Clientes detractores" columns={["Año", "Mes", "Día", "ID cliente", "Cliente", "Score"]} /><TableStructure title="Clientes detractores por COM" columns={["COM", "Recuento"]} /><article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Segmentación territorial</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">NPS por estrato de zona de negocio</h2></div><DemoBadge /></div><div className="mt-5 space-y-4 rounded-lg border border-slate-200 bg-[#fafbfc] p-5">{strata.map((value, index) => <button className="group relative block w-full rounded-md p-1 text-left transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#20a39e]/30" key={index} type="button"><div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold text-slate-500"><span>Estrato {6 - index}</span><span>{value}%</span></div><span className="block h-3 rounded bg-slate-100"><i className={`block h-3 rounded-r transition duration-300 group-hover:brightness-110 ${value >= 80 ? "bg-[#258578]" : value >= 70 ? "bg-[#c49a3a]" : "bg-[#b64a43]"}`} style={{ width: `${value}%` }} /></span><HoverTip>Estrato {6 - index}: NPS {value}%</HoverTip></button>)}</div></article></section>;
-}
+  useEffect(() => {
+    const rowsToEnrich = rows.slice(0, 20);
+    if (!rowsToEnrich.length) return;
+    const controller = new AbortController();
+    const codes = Array.from(new Set(rowsToEnrich.map((row) => normalizeClientCode(row.accountId)).filter(Boolean)));
 
-function TableStructure({ columns, title }: { columns: string[]; title: string }) {
-  const customerRows = [["2026", "Jul", "1", "14160901", "Donde Ludys", "0"], ["2026", "Jul", "1", "14431501", "Estanco y Eta 2", "0"], ["2026", "Jul", "2", "14401442", "Auto Lavado LA 44", "1"], ["2026", "Jul", "6", "10360540", "Granero López", "1"], ["2026", "Jul", "15", "12121397", "Kiosko Bella Vista", "2"], ["2026", "Jul", "16", "13180165", "Punto Frío La 7", "2"]];
-  const comRows = [["COM5P1", "4"], ["COM104", "3"], ["COM5L2", "2"], ["COM5M9", "2"], ["COM5N7", "2"], ["COM192", "1"]];
-  const rows = title.includes("por COM") ? comRows : customerRows;
-  const isComTable = title.includes("por COM");
+    Promise.all(codes.map(async (code) => {
+        const response = await fetch(`/api/clientes?codigo=${encodeURIComponent(code)}`, { cache: "no-store", signal: controller.signal });
+        const body = await response.json().catch(() => ({}));
+        return [code, body.cliente || {}] as const;
+      })).then((clientRows) => {
+      if (controller.signal.aborted) return;
+      setClients(Object.fromEntries(clientRows));
+    }).catch(() => undefined);
+
+    return () => controller.abort();
+  }, [rows]);
 
   return (
-    <article className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-      <div className="flex items-start justify-between border-b border-slate-200 px-4 py-3">
-        <div>
-          <p className="text-[8px] font-bold uppercase tracking-[.16em] text-[#527180]">Detalle operativo</p>
-          <h2 className="mt-0.5 text-base font-semibold text-[#0b2235]">{title}</h2>
-          <p className="mt-0.5 text-[9px] text-slate-400">{rows.length} registros demostrativos</p>
-        </div>
-        <DemoBadge />
+    <article className="overflow-hidden rounded-2xl border border-[#cbd9e3] bg-white shadow-[0_1px_3px_rgba(11,34,53,.10)]">
+      <div className="flex items-start justify-between gap-4 border-b border-[#d8e2e8] px-5 py-4">
+        <div><p className="text-[9px] font-extrabold uppercase tracking-[.18em] text-[#527180]">Detalle operativo seleccionado</p><h2 className="mt-1 text-xl font-semibold tracking-tight text-[#071f33]">Clientes detractores · {selectionLabel}</h2><p className="mt-1 text-[10px] text-slate-400">{visible.length} registros · cruce con clientes y seguimiento operativo</p></div>
+        <span className="rounded-lg bg-[#e7f2f3] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#087f78]">Datos reales</span>
       </div>
       <div className="overflow-x-auto">
-        <table className={`nps-data-table table-fixed w-full text-left ${isComTable ? "min-w-0" : "min-w-[560px]"}`}>
-          <caption className="sr-only">{title}</caption>
-          <thead className="text-[8px] uppercase tracking-[.07em] text-slate-500">
-            <tr>{columns.map((column, index) => <th className={`px-2.5 py-2 ${index === columns.length - 1 ? "text-right" : ""} ${!isComTable && index === 4 ? "w-[30%]" : ""}`} key={column} scope="col">{column}</th>)}</tr>
-          </thead>
+        <table className="nps-data-table min-w-[1120px] w-full text-left text-xs">
+          <thead><tr><Th>Año</Th><Th>Mes</Th><Th>Día</Th><Th>ID cliente</Th><Th>Cliente</Th><Th>COM</Th><Th>Último RR registrado</Th><Th>Última atención</Th><Th right>Score</Th></tr></thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr className="cursor-pointer" key={rowIndex} tabIndex={0}>
-                {row.map((value, index) => {
-                  const isLast = index === row.length - 1;
-                  const isName = !isComTable && index === row.length - 2;
-                  const isPrimary = isComTable && index === 0;
-                  return (
-                    <td className={`truncate px-2.5 py-2 text-[11px] ${isLast ? "text-right" : ""}`} key={index} title={value}>
-                      {isLast ? (
-                        <span className="inline-flex min-w-7 justify-center rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 font-bold tabular-nums text-[#b64a43]">{value}</span>
-                      ) : (
-                        <span className={`${isName || isPrimary ? "font-semibold text-[#18334a]" : "text-slate-600"} ${index === 3 ? "font-mono text-[10px]" : ""}`}>{value}</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {visible.map((row) => {
+              const date = new Date(row.date);
+              const code = normalizeClientCode(row.accountId);
+              const client = clients[code];
+              return (
+                <tr key={`${row.accountId}:${row.date}`}>
+                  <Td>{Number.isFinite(date.getTime()) ? date.getUTCFullYear() : "—"}</Td>
+                  <Td>{Number.isFinite(date.getTime()) ? date.toLocaleDateString("es-CO", { month: "short", timeZone: "UTC" }).replace(".", "") : "—"}</Td>
+                  <Td>{Number.isFinite(date.getTime()) ? date.getUTCDate() : "—"}</Td>
+                  <Td strong>{row.accountId}</Td>
+                  <Td strong>{client?.nombre || "Sin nombre registrado"}</Td>
+                  <Td>{client?.com || "Sin COM"}</Td>
+                  <Td>{row.lastRr || "Sin relación cliente–DT"}</Td>
+                  <Td>{row.lastAttention ? formatDate(row.lastAttention) : "Sin registro"}</Td>
+                  <Td right><span className="rounded-md border border-red-200 bg-red-50 px-3 py-1 font-extrabold text-red-600">{row.score}</span></Td>
+                </tr>
+              );
+            })}
+            {!visible.length ? <EmptyRow columns={9} /> : null}
           </tbody>
         </table>
       </div>
@@ -560,13 +883,65 @@ function TableStructure({ columns, title }: { columns: string[]; title: string }
   );
 }
 
-function MetricPlaceholder({ detail, label, value }: { detail: string; label: string; value: string }) { return <article className="relative overflow-hidden rounded-xl border border-slate-300 bg-white p-4 shadow-sm"><span className="absolute inset-y-0 left-0 w-1 bg-[#176b73]" /><p className="text-3xl font-semibold text-[#0b2235]">{value}</p><div className="mt-2 flex items-end justify-between gap-2"><p className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-500">{label}</p><p className="text-[10px] font-semibold text-[#258578]">{detail}</p></div></article>; }
-function DemoBadge() { return <span className="rounded-md bg-[#e8f2f3] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.08em] text-[#176b73]">Demo</span>; }
-function HorizontalDatum({ label, value }: { label: string; value: number }) { return <button className="group relative block w-full rounded-lg p-1.5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#20a39e]/30" type="button"><div className="mb-1.5 flex justify-between text-xs"><span className="font-medium text-slate-600">{label}</span><strong className="text-[#0b2235]">{value}%</strong></div><div className="h-2 rounded bg-slate-100"><span className="block h-2 rounded bg-[#315b7d] transition duration-300 group-hover:brightness-125" style={{ width: `${value * 6}%` }} /></div><HoverTip>{label}: impacto de {value}%</HoverTip></button>; }
-function HoverTip({ children }: { children: ReactNode }) { return <span className="pointer-events-none absolute left-1/2 top-0 z-30 hidden min-w-max -translate-x-1/2 -translate-y-[110%] rounded-md bg-[#0b2235] px-2.5 py-1.5 text-[9px] font-semibold text-white shadow-xl group-hover:block group-focus-visible:block">{children}</span>; }
+function SourceTable({ data }: { data: NpsData | null }) {
+  const source = data?.source;
+  return <DataTable title="Origen conectado"><thead><tr><Th>Tabla</Th><Th right>Filas</Th><Th right>Encuestas únicas</Th><Th right>Columnas</Th><Th>Periodo</Th><Th>Estado</Th></tr></thead><tbody><tr><Td strong>{source?.table || "NPS"}</Td><Td right>{formatNumber(source?.rawRowCount || 0)}</Td><Td right>{formatNumber(source?.respondentCount || 0)}</Td><Td right>{source?.columns || 11}</Td><Td>{formatDate(source?.minDate)} – {formatDate(source?.maxDate)}</Td><Td><span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 font-bold text-emerald-700"><CheckCircle2 size={13} />Activa</span></Td></tr></tbody></DataTable>;
+}
+
+function DataTable({ children, title, wide = false }: { children: ReactNode; title: string; wide?: boolean }) {
+  return <article className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm"><div className="border-b border-slate-200 px-5 py-4"><h2 className="text-lg font-semibold text-[#0b2235]">{title}</h2></div><div className="overflow-x-auto"><table className={`nps-data-table w-full text-left text-sm ${wide ? "min-w-[1100px]" : "min-w-[620px]"}`}>{children}</table></div></article>;
+}
+
+function Th({ children, right = false }: { children: ReactNode; right?: boolean }) { return <th className={`px-4 py-3 text-[9px] uppercase tracking-[.08em] ${right ? "text-right" : ""}`}>{children}</th>; }
+function Td({ children, right = false, strong = false }: { children: ReactNode; right?: boolean; strong?: boolean }) { return <td className={`px-4 py-3 ${right ? "text-right tabular-nums" : ""} ${strong ? "font-semibold text-[#18334a]" : "text-slate-600"}`}>{children}</td>; }
+function EmptyRow({ columns }: { columns: number }) { return <tr><td className="px-5 py-10 text-center text-slate-400" colSpan={columns}>No hay datos para los filtros seleccionados.</td></tr>; }
+function EmptyState() { return <div className="grid h-56 place-items-center text-sm text-slate-400">No hay datos para los filtros seleccionados.</div>; }
+function ChartCard({ children, eyebrow, title }: { children: ReactNode; eyebrow: string; title: string }) { return <article className="rounded-2xl border border-[#cbd9e3] bg-white p-5 shadow-[0_1px_3px_rgba(11,34,53,.10)] sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[9px] font-extrabold uppercase tracking-[.18em] text-[#527180]">{eyebrow}</p><h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#071f33]">{title}</h2></div><span className="rounded-lg bg-[#e7f2f3] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#087f78]">Datos reales</span></div>{children}</article>; }
+function ChartTooltip({ children, pinned = false }: { children: ReactNode; pinned?: boolean }) { return <span className={`pointer-events-none absolute left-1/2 top-0 z-30 min-w-max -translate-x-1/2 -translate-y-[110%] rounded-lg bg-[#0b2235] px-3 py-2 text-[9px] font-semibold text-white shadow-xl ${pinned ? "block" : "hidden group-hover:block group-focus:block group-focus-within:block"}`}>{children}<small className="mt-0.5 block text-[7px] font-medium text-[#9bb0bf]">{pinned ? "Fijado · clic para cerrar" : "Clic para fijar"}</small></span>; }
+function PinnedSvgTooltip({ color, height, onClose, point, width }: { color: string; height: number; onClose: () => void; point: Group & { x: number; y: number }; width: number }) {
+  const tooltipWidth = 138;
+  const tooltipHeight = 72;
+  const x = Math.max(6, Math.min(width - tooltipWidth - 6, point.x - tooltipWidth / 2));
+  const y = point.y > 105 ? point.y - tooltipHeight - 16 : Math.min(height - tooltipHeight, point.y + 16);
+  return <g className="cursor-pointer" onClick={onClose}><rect fill="#0b2235" height={tooltipHeight} rx="9" width={tooltipWidth} x={x} y={y} /><circle cx={x + 14} cy={y + 16} fill={color} r="4" /><text fill="#9bb0bf" fontSize="8" fontWeight="800" letterSpacing=".8" x={x + 24} y={y + 19}>{point.label.toUpperCase()}</text><text fill="#fff" fontSize="19" fontWeight="800" x={x + 12} y={y + 44}>{formatSigned(point.nps)}%</text><text fill="#9bb0bf" fontSize="7.5" fontWeight="600" x={x + 12} y={y + 61}>{formatNumber(point.respondentCount)} encuestas · clic para cerrar</text></g>;
+}
+function Legend({ color, label }: { color: string; label: string }) { return <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-full ${color}`} />{label}</span>; }
+function MetricCard({ detail, label, value }: { detail: string; label: string; value: string }) { return <article className="relative overflow-hidden rounded-xl border border-slate-300 bg-white p-4 shadow-sm"><span className="absolute inset-y-0 left-0 w-1 bg-[#176b73]" /><p className="text-3xl font-semibold text-[#0b2235]">{value}</p><div className="mt-2 flex items-end justify-between gap-2"><p className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-500">{label}</p><p className="text-right text-[10px] font-semibold text-[#258578]">{detail}</p></div></article>; }
 function RepositoryStat({ label, value }: { label: string; value: string }) { return <div className="border-b border-slate-200 px-5 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><p className="text-lg font-semibold tabular-nums text-[#0b2235]">{value}</p><p className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-400">{label}</p></div>; }
 function Filter({ children, label }: { children: ReactNode; label: string }) { return <label className="nps-filter"><span>{label}</span>{children}</label>; }
-function Alert({ children, onClose, tone }: { children: ReactNode; onClose: () => void; tone: "error" | "success" }) { return <div className={`flex items-center justify-between rounded-lg border bg-white px-4 py-3 text-sm font-semibold ${tone === "error" ? "border-red-200 text-red-700" : "border-emerald-200 text-emerald-700"}`}><span>{children}</span><button aria-label="Cerrar" onClick={onClose}><X size={16} /></button></div>; }
+function NavLink({ children, href }: { children: ReactNode; href: string }) { return <a className="shrink-0 rounded-lg px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-[#e7f1f2] hover:text-[#176b73]" href={href}>{children}</a>; }
+function SectionHeader({ description, id, index, title }: { description: string; id: string; index: string; title: string }) { return <div className="scroll-mt-24 pt-4" id={id}><div className="flex items-center gap-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0b2235] text-xs font-bold text-white">{index}</span><div><h2 className="text-lg font-semibold text-[#0b2235]">{title}</h2><p className="text-xs text-slate-500">{description}</p></div><span className="ml-auto hidden h-px flex-1 bg-gradient-to-r from-slate-300 to-transparent sm:block" /></div></div>; }
+function Alert({ children, onClose }: { children: ReactNode; onClose: () => void }) { return <div className="flex items-center justify-between rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700"><span>{children}</span><button aria-label="Cerrar" onClick={onClose}><X size={16} /></button></div>; }
 function Restricted({ message, onBack }: { message: string; onBack: () => void }) { return <main className="grid min-h-screen place-items-center bg-[#edf1f4] p-6"><section className="max-w-md rounded-xl border border-slate-300 bg-white p-7 text-center shadow-lg"><ShieldCheck className="mx-auto text-[#b64a43]" size={32} /><h1 className="mt-4 text-xl font-semibold text-[#0b2235]">NPS restringido</h1><p className="mt-2 text-sm text-slate-500">{message}</p><button className="mt-5 rounded-lg bg-[#0b2235] px-5 py-2.5 font-semibold text-white" onClick={onBack}>Volver</button></section></main>; }
-function formatBytes(bytes: number) { if (!bytes) return "0 KB"; return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`; }
-function formatDate(value: string) { return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+function LoadingScreen({ detail, message }: { detail?: string; message: string }) { return <main className="grid min-h-screen place-items-center bg-[#edf1f4] p-6 text-[#16293a]"><section className="w-full max-w-md rounded-2xl border border-slate-300 bg-white p-8 text-center shadow-xl"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#e8f2f3]"><i className="h-7 w-7 animate-spin rounded-full border-4 border-[#9cc9c5] border-t-[#176b73]" /></span><p className="mt-5 text-[10px] font-bold uppercase tracking-[.18em] text-[#176b73]">People Intelligence</p><h1 className="mt-2 text-lg font-semibold text-[#0b2235]">{message}</h1>{detail ? <p className="mt-2 text-sm leading-5 text-slate-500">{detail}</p> : null}</section></main>; }
+
+function formatDate(value?: string | null) {
+  if (!value) return "Sin datos";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(date) : "Sin datos";
+}
+function formatNumber(value: number) { return value.toLocaleString("es-CO"); }
+function formatPercent(value: number, total: number) { return `${(total ? (value / total) * 100 : 0).toLocaleString("es-CO", { maximumFractionDigits: 1 })}%`; }
+function formatSigned(value: number) { return `${value > 0 ? "+" : ""}${value.toLocaleString("es-CO", { maximumFractionDigits: 1 })}`; }
+function normalizeClientCode(value: string) { return value.replace(/\D/g, "").replace(/^0+/, ""); }
+function readCachedNpsReport() {
+  try {
+    const raw = sessionStorage.getItem(NPS_REPORT_CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedNpsReport;
+    if (!cached?.data || !cached?.filters || Date.now() - cached.storedAt > NPS_REPORT_CACHE_TTL_MS) {
+      sessionStorage.removeItem(NPS_REPORT_CACHE_KEY);
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+function writeCachedNpsReport(report: CachedNpsReport) {
+  try {
+    sessionStorage.setItem(NPS_REPORT_CACHE_KEY, JSON.stringify(report));
+  } catch {
+    // El informe sigue funcionando aunque el navegador bloquee sessionStorage.
+  }
+}

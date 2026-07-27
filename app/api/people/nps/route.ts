@@ -1,99 +1,235 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../lib/authServer";
+import { readServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type Session = { accessToken: string; email?: string; isPeople?: boolean; isAdmin?: boolean };
-type StoredRow = { profile_id: string; data?: Partial<ImportManifest> };
-type SheetSummary = { name: string; columns: string[]; rowCount: number };
-type ImportManifest = {
-  kind: "manifest";
-  id: string;
-  fileName: string;
-  fileSize: number;
-  sheetCount: number;
-  rowCount: number;
-  sheets: SheetSummary[];
-  uploadedAt: string;
-  uploadedBy: string;
+type NpsRow = {
+  "Vendor Account ID": string | null;
+  "Sales Sub Region": string | null;
+  "Survey Completed Date": string | null;
+  DDC: string | null;
+  DDC_NAME: string | null;
+  Score: number | string | null;
+  "Primer driver": string | null;
+  "driver secundary": string | null;
 };
+type Survey = {
+  accountId: string;
+  date: string;
+  timestamp: number;
+  year: number;
+  month: number;
+  day: number;
+  week: number;
+  ddc: string;
+  cd: string;
+  management: string;
+  score: number;
+  duplicateRows: number;
+  primaryDrivers: Set<string>;
+  secondaryDrivers: Set<string>;
+};
+type Filters = {
+  cd: string;
+  year: number | null;
+  month: number | null;
+  day: number | null;
+  week: number | null;
+  management: string;
+};
+type OperationalRow = {
+  codigoCliente?: string;
+  createdAt?: string;
+  dt?: string;
+  fechaDespacho?: string;
+  persona?: string;
+  personaNombre?: string;
+};
+type FollowUpRow = {
+  fechaDespacho?: string;
+  nombreResponsable?: string;
+  responsable?: string;
+  transporte?: string;
+};
+type CustomerSegment = { com: string; population: string };
 
-const PREFIX = "nps-import:";
-const MAX_FILE_SIZE = 30 * 1024 * 1024;
-const ROWS_PER_CHUNK = 200;
-const RECORDS_PER_REQUEST = 40;
+const TABLE = "NPS";
+const PAGE_SIZE = 1_000;
+const CACHE_TTL_MS = 10 * 60 * 1_000;
+const SELECT_COLUMNS = [
+  "Vendor Account ID",
+  "Sales Sub Region",
+  "Survey Completed Date",
+  "DDC",
+  "DDC_NAME",
+  "Score",
+  "Primer driver",
+  "driver secundary",
+].join(",");
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await requirePeople();
     if (session instanceof NextResponse) return session;
-    const params = new URLSearchParams({ select: "profile_id,data", profile_id: `like.${PREFIX}*`, order: "updated_at.desc" });
-    const response = await fetch(supabaseRest("people_profiles", `?${params}`), { headers: readHeaders(session), cache: "no-store" });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const rows = (await response.json().catch(() => [])) as StoredRow[];
-    const imports = rows.map((row) => row.data).filter((data): data is ImportManifest => data?.kind === "manifest" && Boolean(data.id));
-    return NextResponse.json({ imports });
+
+    const dataset = await readServerCache(`supabase:nps-dataset:${session.email || "people"}`, CACHE_TTL_MS, async () => {
+      const { rows, total } = await fetchAllNpsRows(session);
+      if (!total) throw new Error("La tabla NPS no devolvió filas para este usuario. Ejecuta supabase/nps_access.sql en el SQL Editor de Supabase.");
+      return buildDataset(rows, total);
+    });
+    const filters = readFilters(new URL(request.url).searchParams);
+    const filtered = dataset.surveys.filter((survey) => matchesFilters(survey, filters));
+    const customerCodes = Array.from(new Set(dataset.surveys.map((survey) => normalizeDigits(survey.accountId)).filter(Boolean)));
+    const customerSegments = await readServerCache(
+      `supabase:nps-customer-segments:${dataset.rawRowCount}`,
+      CACHE_TTL_MS,
+      () => loadCustomerSegments(session, customerCodes),
+    );
+    const detractorRows = filtered
+      .filter((survey) => survey.score <= 6)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 100)
+      .map((survey) => ({
+        accountId: survey.accountId,
+        date: survey.date,
+        score: survey.score,
+        cd: survey.cd || survey.ddc || "Sin CD",
+        management: survey.management || "Sin subregión",
+        primaryDriver: Array.from(survey.primaryDrivers)[0] || "Sin dato",
+        secondaryDriver: Array.from(survey.secondaryDrivers)[0] || "Sin dato",
+      }));
+    const detractorCacheKey = detractorRows.map((row) => `${normalizeDigits(row.accountId)}:${row.date}`).join("|");
+    const detractors = await readServerCache(
+      `supabase:nps-detractors:${session.email || "people"}:${detractorCacheKey}`,
+      5 * 60 * 1_000,
+      () => enrichDetractorsWithLastRr(detractorRows, session),
+    );
+
+    return NextResponse.json({
+      summary: summarize(filtered, filtered.reduce((total, survey) => total + survey.duplicateRows, 0)),
+      options: dataset.options,
+      trends: {
+        annual: groupAnnualMonths(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"]))),
+        years: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), (survey) => String(survey.year)),
+        currentMonths: currentYearMonths(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), filters.year),
+        months: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["month", "day", "week"])), (survey) => monthLabel(survey.month), monthOrder),
+        weeks: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["week", "day"])), (survey) => `S${survey.week}`, weekOrder),
+        currentDays: currentMonthDays(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), filters),
+        days: groupSurveys(filtered, (survey) => String(survey.day), numericOrder),
+      },
+      scoreDistribution: groupScores(filtered),
+      segments: {
+        cds: groupSurveys(filtered, (survey) => survey.cd || survey.ddc || "Sin CD"),
+        managements: groupSurveys(filtered, (survey) => survey.management || "Sin subregión"),
+        coms: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.com),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.com || "Sin COM",
+        ),
+        populations: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.population),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.population || "Sin población",
+        ),
+      },
+      drivers: {
+        primary: groupDrivers(filtered, "primaryDrivers"),
+        secondary: groupDrivers(filtered, "secondaryDrivers"),
+      },
+      detractors,
+      source: {
+        table: TABLE,
+        columns: 11,
+        rawRowCount: dataset.rawRowCount,
+        respondentCount: dataset.surveys.length,
+        minDate: dataset.minDate,
+        maxDate: dataset.maxDate,
+      },
+    });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar el consolidado NPS." }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "No se pudo consultar la tabla NPS." },
+      { status: 500 },
+    );
   }
 }
 
-export async function POST(request: Request) {
-  const session = await requirePeople();
-  if (session instanceof NextResponse) return session;
+async function loadCustomerSegments(session: Session, codes: string[]) {
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+  const chunks = Array.from({ length: Math.ceil(codes.length / 400) }, (_, index) => codes.slice(index * 400, index * 400 + 400));
+  const pages = await Promise.all(chunks.map(async (chunk) => {
+    const params = new URLSearchParams({ select: "CodigoCliente,CodigoZona_Principal,Poblacion", CodigoCliente: `in.(${chunk.join(",")})` });
+    const response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
+    return response.ok ? (await response.json()) as Record<string, unknown>[] : [];
+  }));
+  const rows = pages.flat();
 
-  let importId = "";
+  const result = new Map<string, CustomerSegment>();
+  rows.forEach((row) => {
+    const code = normalizeDigits(row.CodigoCliente);
+    if (!code) return;
+    const com = String(row.CodigoZona_Principal ?? "").trim();
+    const population = String(row.Poblacion ?? "").trim();
+    result.set(code, { com, population });
+  });
+  return result;
+}
+
+async function enrichDetractorsWithLastRr<T extends { accountId: string }>(detractors: T[], session: Session) {
+  const codes = Array.from(new Set(detractors.map((row) => normalizeDigits(row.accountId)).filter(Boolean)));
+  if (!codes.length) return detractors;
+
   try {
-    const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) return NextResponse.json({ error: "Selecciona un archivo de Excel." }, { status: 400 });
-    if (!/\.(xlsx|xls)$/i.test(file.name)) return NextResponse.json({ error: "El archivo debe ser .xlsx o .xls." }, { status: 400 });
-    if (!file.size || file.size > MAX_FILE_SIZE) return NextResponse.json({ error: "El archivo debe pesar menos de 30 MB." }, { status: 400 });
+    const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+    const modulationParams = new URLSearchParams({
+      select: "codigoCliente:data->>codigoCliente,dt:data->>dt,fechaDespacho:data->>fechaDespacho,createdAt:data->>createdAt,persona:data->>persona,personaNombre:data->>personaNombre",
+      "data->>codigoCliente": `in.(${codes.join(",")})`,
+      order: "updated_at.desc",
+      limit: "5000",
+    });
+    const modulationResponse = await fetch(supabaseRest("modulaciones_ruta", `?${modulationParams.toString()}`), { headers, cache: "no-store" });
+    if (!modulationResponse.ok) return detractors;
+    const operations = (await modulationResponse.json()) as OperationalRow[];
+    const latestByClient = new Map<string, OperationalRow>();
+    operations.forEach((operation) => {
+      const code = normalizeDigits(operation.codigoCliente);
+      if (code && !latestByClient.has(code)) latestByClient.set(code, operation);
+    });
 
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true, raw: true });
-    if (!workbook.SheetNames.length) return NextResponse.json({ error: "El Excel no contiene hojas para importar." }, { status: 400 });
-
-    importId = crypto.randomUUID();
-    const uploadedAt = new Date().toISOString();
-    const summaries: SheetSummary[] = [];
-    const databaseRows: Array<Record<string, unknown>> = [];
-    let totalRows = 0;
-
-    for (const sheetName of workbook.SheetNames) {
-      const rawRows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: null, raw: true });
-      const width = rawRows.reduce((maximum, row) => Math.max(maximum, Array.isArray(row) ? row.length : 0), 0);
-      const headers = uniqueHeaders(Array.isArray(rawRows[0]) ? rawRows[0] : [], width);
-      const rows = rawRows.slice(1).filter((row) => Array.isArray(row) && row.some((value) => value !== null && value !== "")).map((row) => Object.fromEntries(headers.map((header, index) => [header, normalizeCell((row as unknown[])[index])] )));
-      summaries.push({ name: sheetName, columns: headers, rowCount: rows.length });
-      totalRows += rows.length;
-
-      for (let offset = 0; offset < rows.length; offset += ROWS_PER_CHUNK) {
-        const index = Math.floor(offset / ROWS_PER_CHUNK);
-        databaseRows.push({
-          profile_id: `${PREFIX}${importId}:sheet:${safeId(sheetName)}:chunk:${String(index).padStart(5, "0")}`,
-          contractor: "NPS",
-          cc: null,
-          data: { kind: "chunk", importId, sheetName, index, rows: rows.slice(offset, offset + ROWS_PER_CHUNK) },
-          updated_at: uploadedAt,
+    const dts = Array.from(new Set(Array.from(latestByClient.values()).map((row) => normalizeDigits(row.dt)).filter(Boolean)));
+    const routesByKey = new Map<string, FollowUpRow>();
+    if (dts.length) {
+      const followUpParams = new URLSearchParams({
+        select: "transporte:data->>transporte,fechaDespacho:data->>fechaDespacho,responsable:data->>responsable,nombreResponsable:data->>nombreResponsable",
+        "data->>transporte": `in.(${dts.join(",")})`,
+        order: "updated_at.desc",
+        limit: "5000",
+      });
+      const followUpResponse = await fetch(supabaseRest("seguimiento_vehiculos", `?${followUpParams.toString()}`), { headers, cache: "no-store" });
+      if (followUpResponse.ok) {
+        const routes = (await followUpResponse.json()) as FollowUpRow[];
+        routes.forEach((route) => {
+          const dt = normalizeDigits(route.transporte);
+          const date = String(route.fechaDespacho || "").slice(0, 10);
+          if (dt && !routesByKey.has(`${dt}:${date}`)) routesByKey.set(`${dt}:${date}`, route);
+          if (dt && !routesByKey.has(dt)) routesByKey.set(dt, route);
         });
       }
     }
 
-    const manifest: ImportManifest = { kind: "manifest", id: importId, fileName: file.name, fileSize: file.size, sheetCount: summaries.length, rowCount: totalRows, sheets: summaries, uploadedAt, uploadedBy: session.email || "People" };
-    const headers = writeHeaders(session);
-    for (let offset = 0; offset < databaseRows.length; offset += RECORDS_PER_REQUEST) {
-      const response = await fetch(supabaseRest("people_profiles"), { method: "POST", headers, cache: "no-store", body: JSON.stringify(databaseRows.slice(offset, offset + RECORDS_PER_REQUEST)) });
-      if (!response.ok) throw new Error(await supabaseError(response));
-    }
-    const manifestResponse = await fetch(supabaseRest("people_profiles"), {
-      method: "POST", headers, cache: "no-store",
-      body: JSON.stringify({ profile_id: `${PREFIX}${importId}:manifest`, contractor: "NPS", cc: null, data: manifest, updated_at: uploadedAt }),
+    return detractors.map((row) => {
+      const operation = latestByClient.get(normalizeDigits(row.accountId));
+      if (!operation) return { ...row, lastAttention: "", lastRr: "" };
+      const dt = normalizeDigits(operation.dt);
+      const date = String(operation.fechaDespacho || "").slice(0, 10);
+      const route = routesByKey.get(`${dt}:${date}`) || routesByKey.get(dt);
+      return {
+        ...row,
+        lastAttention: operation.createdAt || operation.fechaDespacho || route?.fechaDespacho || "",
+        lastRr: route?.nombreResponsable || route?.responsable || operation.personaNombre || operation.persona || "",
+      };
     });
-    if (!manifestResponse.ok) throw new Error(await supabaseError(manifestResponse));
-    return NextResponse.json({ import: manifest }, { status: 201 });
-  } catch (error) {
-    if (importId) await cleanupImport(importId, session).catch(() => undefined);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el Excel en la base de datos." }, { status: 500 });
+  } catch {
+    return detractors;
   }
 }
 
@@ -104,27 +240,236 @@ async function requirePeople(): Promise<Session | NextResponse> {
   return session;
 }
 
-function uniqueHeaders(values: unknown[], width: number) {
-  const used = new Map<string, number>();
-  return Array.from({ length: width }, (_, index) => {
-    const base = String(values[index] ?? "").trim() || `Columna ${index + 1}`;
-    const occurrence = (used.get(base) || 0) + 1;
-    used.set(base, occurrence);
-    return occurrence === 1 ? base : `${base} (${occurrence})`;
+async function fetchAllNpsRows(session: Session) {
+  const first = await fetchNpsPage(session, 0, true);
+  const rows = [...first.rows];
+  const offsets = Array.from(
+    { length: Math.max(0, Math.ceil(first.total / PAGE_SIZE) - 1) },
+    (_, index) => (index + 1) * PAGE_SIZE,
+  );
+
+  for (let index = 0; index < offsets.length; index += 8) {
+    const pages = await Promise.all(offsets.slice(index, index + 8).map((offset) => fetchNpsPage(session, offset)));
+    pages.forEach((page) => rows.push(...page.rows));
+  }
+  return { rows, total: first.total };
+}
+
+async function fetchNpsPage(session: Session, offset: number, includeCount = false) {
+  const params = new URLSearchParams({
+    select: SELECT_COLUMNS,
+    order: "Survey Completed Date.asc,Vendor Account ID.asc",
+  });
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    headers: {
+      ...(supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken)),
+      Range: `${offset}-${offset + PAGE_SIZE - 1}`,
+      "Range-Unit": "items",
+      ...(includeCount ? { Prefer: "count=exact" } : {}),
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(await supabaseError(response));
+  const rows = (await response.json().catch(() => [])) as NpsRow[];
+  const total = includeCount ? Number((response.headers.get("content-range") || "").split("/")[1]) : 0;
+  return { rows, total: Number.isFinite(total) ? total : rows.length };
+}
+
+function buildDataset(rows: NpsRow[], rawRowCount: number) {
+  const bySurvey = new Map<string, Survey>();
+
+  rows.forEach((row, index) => {
+    const accountId = clean(row["Vendor Account ID"]);
+    const date = clean(row["Survey Completed Date"]);
+    const score = Number(row.Score);
+    const timestamp = Date.parse(date);
+    if (!date || !Number.isFinite(score) || !Number.isFinite(timestamp)) return;
+    const parsed = new Date(timestamp);
+    const key = `${accountId || `sin-id-${index}`}|${date}`;
+    const current = bySurvey.get(key) || {
+      accountId: accountId || "Sin ID",
+      date,
+      timestamp,
+      year: parsed.getUTCFullYear(),
+      month: parsed.getUTCMonth() + 1,
+      day: parsed.getUTCDate(),
+      week: isoWeek(parsed),
+      ddc: clean(row.DDC),
+      cd: clean(row.DDC_NAME),
+      management: clean(row["Sales Sub Region"]),
+      score,
+      duplicateRows: 0,
+      primaryDrivers: new Set<string>(),
+      secondaryDrivers: new Set<string>(),
+    };
+    current.duplicateRows += 1;
+    const primary = cleanDriver(row["Primer driver"]);
+    const secondary = cleanDriver(row["driver secundary"]);
+    if (primary) current.primaryDrivers.add(primary);
+    if (secondary) current.secondaryDrivers.add(secondary);
+    bySurvey.set(key, current);
+  });
+
+  const surveys = Array.from(bySurvey.values());
+  const dates = surveys.map((survey) => survey.date).sort();
+  return {
+    surveys,
+    rawRowCount,
+    minDate: dates[0] || null,
+    maxDate: dates.at(-1) || null,
+    options: {
+      cds: unique(surveys.map((survey) => survey.cd || survey.ddc)),
+      years: unique(surveys.map((survey) => String(survey.year))).sort((a, b) => Number(b) - Number(a)),
+      managements: unique(surveys.map((survey) => survey.management)),
+      weeks: unique(surveys.map((survey) => String(survey.week))).sort((a, b) => Number(a) - Number(b)),
+    },
+  };
+}
+
+function readFilters(params: URLSearchParams): Filters {
+  return {
+    cd: params.get("cd") || "",
+    year: optionalNumber(params.get("year")),
+    month: optionalNumber(params.get("month")),
+    day: optionalNumber(params.get("day")),
+    week: optionalNumber(params.get("week")),
+    management: params.get("management") || "",
+  };
+}
+
+function matchesFilters(survey: Survey, filters: Filters, omit: Array<keyof Filters> = []) {
+  return (
+    (omit.includes("cd") || !filters.cd || survey.cd === filters.cd || survey.ddc === filters.cd) &&
+    (omit.includes("year") || !filters.year || survey.year === filters.year) &&
+    (omit.includes("month") || !filters.month || survey.month === filters.month) &&
+    (omit.includes("day") || !filters.day || survey.day === filters.day) &&
+    (omit.includes("week") || !filters.week || survey.week === filters.week) &&
+    (omit.includes("management") || !filters.management || survey.management === filters.management)
+  );
+}
+
+function summarize(surveys: Survey[], rawRowCount: number) {
+  const promoters = surveys.filter((survey) => survey.score >= 9).length;
+  const passives = surveys.filter((survey) => survey.score >= 7 && survey.score < 9).length;
+  const detractors = surveys.length - promoters - passives;
+  const scoreTotal = surveys.reduce((total, survey) => total + survey.score, 0);
+  return {
+    respondentCount: surveys.length,
+    rawRowCount,
+    promoters,
+    passives,
+    detractors,
+    nps: surveys.length ? round(((promoters - detractors) / surveys.length) * 100) : 0,
+    averageScore: surveys.length ? round(scoreTotal / surveys.length) : 0,
+  };
+}
+
+function groupSurveys(surveys: Survey[], labelFor: (survey: Survey) => string, order = alphabeticalOrder) {
+  const groups = new Map<string, Survey[]>();
+  surveys.forEach((survey) => {
+    const label = labelFor(survey);
+    const current = groups.get(label);
+    if (current) current.push(survey);
+    else groups.set(label, [survey]);
+  });
+  return Array.from(groups, ([label, rows]) => ({ label, ...summarize(rows, rows.reduce((total, row) => total + row.duplicateRows, 0)) }))
+    .sort((a, b) => order(a.label, b.label));
+}
+
+function groupAnnualMonths(surveys: Survey[]) {
+  const years = Array.from(new Set(surveys.map((survey) => survey.year))).sort((a, b) => b - a).slice(0, 2);
+  return years.map((year) => ({
+    label: String(year),
+    rows: groupSurveys(surveys.filter((survey) => survey.year === year), (survey) => monthLabel(survey.month), monthOrder),
+  }));
+}
+
+function currentYearMonths(surveys: Survey[], selectedYear: number | null) {
+  const latestYear = Math.max(0, ...surveys.map((survey) => survey.year));
+  const year = selectedYear || latestYear;
+  const currentDate = new Date();
+  const lastMonth = year === currentDate.getUTCFullYear() ? currentDate.getUTCMonth() + 1 : 12;
+  return groupSurveys(
+    surveys.filter((survey) => survey.year === year && survey.month <= lastMonth),
+    (survey) => monthLabel(survey.month),
+    monthOrder,
+  );
+}
+
+function currentMonthDays(surveys: Survey[], filters: Filters) {
+  const latestYear = Math.max(0, ...surveys.map((survey) => survey.year));
+  const year = filters.year || latestYear;
+  const surveysInYear = surveys.filter((survey) => survey.year === year);
+  const latestMonth = Math.max(0, ...surveysInYear.map((survey) => survey.month));
+  const month = filters.month || latestMonth;
+  const currentDate = new Date();
+  const lastDay = year === currentDate.getUTCFullYear() && month === currentDate.getUTCMonth() + 1
+    ? currentDate.getUTCDate()
+    : 31;
+  return groupSurveys(
+    surveysInYear.filter((survey) => survey.month === month && survey.day <= lastDay),
+    (survey) => String(survey.day),
+    numericOrder,
+  );
+}
+
+function groupScores(surveys: Survey[]) {
+  return Array.from({ length: 11 }, (_, score) => {
+    const count = surveys.filter((survey) => survey.score === score).length;
+    return { score, count, percentage: surveys.length ? round((count / surveys.length) * 100) : 0 };
   });
 }
 
-function normalizeCell(value: unknown): string | number | boolean | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") return value;
-  return String(value);
+function groupDrivers(surveys: Survey[], field: "primaryDrivers" | "secondaryDrivers") {
+  const counts = new Map<string, number>();
+  surveys.forEach((survey) => survey[field].forEach((driver) => counts.set(driver, (counts.get(driver) || 0) + 1)));
+  const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0);
+  return Array.from(counts, ([label, count]) => ({ label, count, percentage: total ? round((count / total) * 100) : 0 }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "es"))
+    .slice(0, 15);
 }
 
-function safeId(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 50) || "hoja"; }
-function readHeaders(session: Session) { return supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken); }
-function writeHeaders(session: Session) { return supabaseAdminHeaders({ Prefer: "return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "return=minimal" }); }
-async function cleanupImport(id: string, session: Session) {
-  const query = `?profile_id=like.${encodeURIComponent(`${PREFIX}${id}*`)}`;
-  await fetch(supabaseRest("people_profiles", query), { method: "DELETE", headers: readHeaders(session), cache: "no-store" });
+function isoWeek(date: Date) {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.ceil(((target.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
 }
+
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
+}
+
+function cleanDriver(value: unknown) {
+  const result = clean(value);
+  return result && !["-", "pendiente", "sin dato", "n/a"].includes(result.toLowerCase()) ? result : "";
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function optionalNumber(value: string | null) {
+  const number = Number(value);
+  return value && Number.isFinite(number) ? number : null;
+}
+
+function round(value: number) {
+  return Number(value.toFixed(1));
+}
+
+function monthLabel(month: number) {
+  return ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"][month - 1] || String(month);
+}
+
+const monthOrder = (a: string, b: string) =>
+  ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(a) -
+  ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(b);
+const weekOrder = (a: string, b: string) => Number(a.slice(1)) - Number(b.slice(1));
+const numericOrder = (a: string, b: string) => Number(a) - Number(b);
+const alphabeticalOrder = (a: string, b: string) => a.localeCompare(b, "es");
