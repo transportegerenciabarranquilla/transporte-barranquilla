@@ -55,7 +55,7 @@ export function DashboardFiltersPanel({
       <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500"><Filter size={15} /> Filtros del tablero</div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:items-end">
         <Field label="Fecha" icon={<CalendarDays size={13} />}>
-          <select className="field" onChange={(event) => onDateChange(event.target.value)} value={activeDate}>{availableDates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}</select>
+          <input className="field" max={availableDates[0]} min={availableDates.at(-1)} onChange={(event) => onDateChange(event.target.value)} type="date" value={activeDate} />
         </Field>
         <Field label="Corte" icon={<Clock3 size={13} />}>
           <select className="field" onChange={(event) => { const snapshot = dateSnapshots.find((item) => item.id === event.target.value); if (snapshot) onSnapshotChange(snapshot); }} value={selectedSnapshot.id}>{dateSnapshots.map((snapshot) => <option key={snapshot.id} value={snapshot.id}>{formatTime(snapshot.uploadedAt)} · {snapshot.fileName}</option>)}</select>

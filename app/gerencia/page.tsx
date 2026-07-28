@@ -25,6 +25,9 @@ type SeguimientoRoute = {
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
+  nombreResponsable?: string;
+  nombreAuxiliar1?: string;
+  nombreAuxiliar2?: string;
   fechaDespacho?: string;
   fechaDt?: string;
   status?: string;
@@ -368,7 +371,7 @@ export default function ManagementPage() {
         </div>
       </header>
 
-      <section className={`mx-auto ${isTvMode ? "grid h-screen max-w-none grid-rows-[44fr_56fr] gap-3 overflow-hidden p-3 font-sans [&_button]:text-base" : "max-w-7xl space-y-6 px-5 py-7 sm:px-8"}`}>
+      <section className={`mx-auto ${isTvMode ? "grid h-screen max-w-none grid-rows-[46fr_54fr] gap-2 overflow-hidden p-2 font-sans [&_button]:text-sm" : "max-w-7xl space-y-6 px-5 py-7 sm:px-8"}`}>
         {isTvMode ? (
           <div className="fixed right-3 top-3 z-30 flex justify-end gap-2">
             <span className="inline-flex items-center gap-2 rounded-2xl bg-[#102a43] px-4 py-2 text-base font-semibold tracking-[-0.01em] text-white shadow-lg shadow-slate-400/30"><RefreshCw size={17} /> Actualiza en {refreshIn}s</span>
@@ -392,10 +395,7 @@ export default function ManagementPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
               Fecha
-              <select className="mt-1 block h-10 min-w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-[#2d1b4e]" onChange={(event) => { dateSelectedByUser.current = true; setSelectedDate(event.target.value); }} value={selectedDate}>
-                {!dates.length ? <option value="">Sin fechas</option> : null}
-                {dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}
-              </select>
+              <input className="mt-1 block h-10 min-w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-[#2d1b4e]" max={dates[0]} min={dates.at(-1)} onChange={(event) => { dateSelectedByUser.current = true; setSelectedDate(event.target.value); }} type="date" value={selectedDate} />
             </label>
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!previousOpenSnapshot || isClosing} onClick={closePreviousDay} title={previousOpenSnapshot ? `Cerrar ${formatDate(previousOpenSnapshot.operationalDate)}` : "No hay jornadas anteriores abiertas"} type="button">
               <Archive size={16} /> {isClosing ? "Cerrando…" : previousOpenSnapshot ? `Cerrar ${formatShortDate(previousOpenSnapshot.operationalDate)}` : "Anterior cerrada"}
@@ -411,7 +411,7 @@ export default function ManagementPage() {
           <div className={`flex border-b border-slate-200 sm:flex-row sm:items-center sm:justify-between ${isTvMode ? "gap-2 px-4 py-2" : "flex-col gap-4 px-5 py-5"}`}>
             <div className={isTvMode ? "border-l-4 border-[#0f766e] pl-3" : ""}>
               <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d76458]">Meta de salida</p>
-              <h2 className={`${isTvMode ? "text-3xl tracking-[-0.04em]" : "mt-1 text-xl"} font-bold text-[#102a43]`}>Viajes por contratista</h2>
+              <h2 className={`${isTvMode ? "text-2xl tracking-[-0.04em]" : "mt-1 text-xl"} font-bold text-[#102a43]`}>Viajes por contratista</h2>
               {!isTvMode ? <p className="mt-1 text-sm font-semibold text-slate-500">La meta termina a las 7:00 a. m. · Solo Viaje 1 cargado por cada contratista en Seguimiento</p> : null}
               <p className={`${isTvMode ? "flex items-center gap-2 text-sm" : "mt-1 text-xs"} font-semibold text-[#2563a6]`}>
                 {isTvMode ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" /> : null}
@@ -435,11 +435,11 @@ export default function ManagementPage() {
               <tbody className="divide-y divide-slate-100">
                 {tripDashboard.map((contractor, index) => (
                   <tr className={isTvMode ? "drop-shadow-[0_6px_10px_rgba(15,35,58,0.10)] transition duration-200 [&_td]:bg-white/90 [&_td:first-child]:rounded-l-2xl [&_td:last-child]:rounded-r-2xl hover:drop-shadow-[0_9px_15px_rgba(15,35,58,0.15)] hover:[&_td]:bg-white" : "transition-colors hover:bg-[#edf8ff]"} key={contractor.id}>
-                    <td className={`${isTvMode ? `border-l-4 py-2 ${index === 0 ? "border-[#315b7d]" : index === 1 ? "border-[#2f716c]" : "border-[#a9823b]"}` : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl text-white shadow-md ${index === 0 ? "bg-[#315b7d]" : index === 1 ? "bg-[#2f716c]" : "bg-[#a9823b]"}`}><Building2 size={16} /></span><span className="text-xl font-bold tracking-[-0.02em] text-[#10223d]">{contractor.label}</span></div></td>
-                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#2d1b4e] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.total}</td>
-                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#059669] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.departed}</td>
-                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#ef4444] ${isTvMode ? "py-2 text-[34px]" : "py-4 text-2xl"}`}>{contractor.late}</td>
-                    <td className={`${isTvMode ? "py-1" : "py-4"} px-5`}><TripProgressRing large={isTvMode} percentage={contractor.percentage} /></td>
+                    <td className={`${isTvMode ? `border-l-4 py-1 ${index === 0 ? "border-[#315b7d]" : index === 1 ? "border-[#2f716c]" : "border-[#a9823b]"}` : "py-4"} px-5`}><div className="flex items-center gap-3"><span className={`grid place-items-center rounded-xl text-white shadow-md ${isTvMode ? "h-8 w-8" : "h-10 w-10"} ${index === 0 ? "bg-[#315b7d]" : index === 1 ? "bg-[#2f716c]" : "bg-[#a9823b]"}`}><Building2 size={16} /></span><span className={`${isTvMode ? "text-lg" : "text-xl"} font-bold tracking-[-0.02em] text-[#10223d]`}>{contractor.label}</span></div></td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#2d1b4e] ${isTvMode ? "py-1 text-[27px]" : "py-4 text-2xl"}`}>{contractor.total}</td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#059669] ${isTvMode ? "py-1 text-[27px]" : "py-4 text-2xl"}`}>{contractor.departed}</td>
+                    <td className={`px-4 text-center font-bold tracking-[-0.04em] tabular-nums text-[#ef4444] ${isTvMode ? "py-1 text-[27px]" : "py-4 text-2xl"}`}>{contractor.late}</td>
+                    <td className={`${isTvMode ? "py-0.5" : "py-4"} px-5`}><TripProgressRing percentage={contractor.percentage} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -447,7 +447,10 @@ export default function ManagementPage() {
           </div>
         </section>
 
-        <div className={`grid min-h-0 w-full ${isTvMode ? "gap-0" : "gap-5"}`}>
+        <DepartureIntervalsChart compact={isTvMode} records={seguimientoRoutes} selectedDate={selectedDate} />
+        {!isTvMode ? <DepartureOffenderTables records={seguimientoRoutes} /> : null}
+
+        <div className={`min-h-0 w-full ${isTvMode ? "hidden" : "grid gap-5"}`}>
           {dashboard.map((contractor) => (
             <section className={`flex h-full flex-col overflow-hidden rounded-[18px] border ${isTvMode ? "min-h-0 border-slate-300 bg-gradient-to-br from-white via-[#fafbfc] to-[#edf2f4] shadow-[0_9px_0_-4px_#aebcc7,0_20px_40px_rgba(15,35,58,0.24),inset_0_2px_0_white] ring-1 ring-white" : "min-h-[350px] border-slate-200 bg-white/95 shadow-[0_14px_40px_rgba(45,27,78,0.06)]"}`} key={contractor.id}>
               <div className={`border-b px-3.5 ${isTvMode ? "border-[#17384d] bg-gradient-to-b from-[#294f66] via-[#183c52] to-[#102f43] py-1.5 text-white shadow-[inset_0_2px_0_rgba(255,255,255,0.16),inset_0_-3px_0_rgba(0,0,0,0.2),0_5px_12px_rgba(15,35,58,0.25)]" : "border-slate-200 py-3"}`}>
@@ -559,6 +562,189 @@ function formatOperationalTime(value: string | undefined) {
   const time = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (time) return `${time[1].padStart(2, "0")}:${time[2]}${time[3] ? `:${time[3]}` : ""}`;
   return "";
+}
+
+function DepartureIntervalsChart({ compact = false, records, selectedDate }: { compact?: boolean; records: SeguimientoRoute[]; selectedDate: string }) {
+  const [selectedPoint, setSelectedPoint] = useState("");
+  const [visibleContractor, setVisibleContractor] = useState("todos");
+  const intervalSeconds = 20 * 60;
+  const width = 960;
+  const height = 270;
+  const padding = { top: 32, right: 28, bottom: 48, left: 44 };
+  const contractors = DEPARTURE_CONTRACTORS.map((contractor) => ({
+    ...contractor,
+    color: contractor.id === "surti" ? "#2563eb" : contractor.id === "punto-corona" ? "#16a34a" : "#7c3aed",
+  }));
+  const uniqueDepartures = new Map<string, SeguimientoRoute>();
+  records
+    .filter((record) =>
+      seguimientoDate(record) === selectedDate &&
+      isFirstTrip(record.viaje) &&
+      operationalTimeSeconds(record.horaSalida) !== null,
+    )
+    .forEach((record, index) => {
+      const routeKey = [
+        normalizeText(record.contractor),
+        seguimientoDate(record),
+        normalizeId(record.transporte) || normalizeText(record.vehiculo) || String(index),
+      ].join(":");
+      if (!uniqueDepartures.has(routeKey)) uniqueDepartures.set(routeKey, record);
+    });
+  const validRecords = Array.from(uniqueDepartures.values());
+  const intervalStarts = validRecords.map((record) => Math.floor((operationalTimeSeconds(record.horaSalida) || 0) / intervalSeconds) * intervalSeconds);
+  const first = intervalStarts.length ? Math.min(...intervalStarts) : 0;
+  const last = intervalStarts.length ? Math.max(...intervalStarts) : -1;
+  const intervals = first <= last ? Array.from({ length: Math.floor((last - first) / intervalSeconds) + 1 }, (_, index) => first + index * intervalSeconds) : [];
+  const series = contractors.map((contractor) => ({
+    ...contractor,
+    values: intervals.map((interval) => {
+      const matching = validRecords.filter((record) =>
+        contractor.aliases.includes(normalizeText(record.contractor) as never) &&
+        Math.floor((operationalTimeSeconds(record.horaSalida) || 0) / intervalSeconds) * intervalSeconds === interval,
+      );
+      return new Set(matching.map((record, index) => normalizeText(record.vehiculo) || normalizeId(record.transporte) || String(index))).size;
+    }),
+  }));
+  const visibleSeries = visibleContractor === "todos" ? series : series.filter((item) => item.id === visibleContractor);
+  const maximum = Math.max(1, ...visibleSeries.flatMap((item) => item.values));
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const x = (index: number) => padding.left + (intervals.length <= 1 ? innerWidth / 2 : (index / (intervals.length - 1)) * innerWidth);
+  const y = (value: number) => padding.top + innerHeight - (value / maximum) * innerHeight;
+  const [selectedContractorId, selectedIntervalValue] = selectedPoint.split(":");
+  const selectedContractor = contractors.find((contractor) => contractor.id === selectedContractorId);
+  const selectedInterval = Number(selectedIntervalValue);
+  const selectedRows = selectedContractor && Number.isFinite(selectedInterval)
+    ? validRecords.filter((record) =>
+        selectedContractor.aliases.includes(normalizeText(record.contractor) as never) &&
+        Math.floor((operationalTimeSeconds(record.horaSalida) || 0) / intervalSeconds) * intervalSeconds === selectedInterval)
+    : [];
+
+  return (
+    <section className={`min-h-0 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.07)] ${compact ? "h-full" : ""}`}>
+      <div className={`flex flex-wrap items-center justify-between border-b border-slate-200 bg-slate-50/80 ${compact ? "gap-2 px-4 py-2" : "gap-3 px-5 py-4"}`}>
+        <div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Evolución de salidas</p><h2 className="mt-0.5 text-lg font-black text-[#2d1b4e]">Carros por intervalos de 20 minutos</h2><p className="mt-1 text-xs text-slate-500">Hora real de salida tomada de Seguimiento · un registro por DT y contratista.</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black ring-1 transition ${visibleContractor === "todos" ? "bg-[#10223d] text-white ring-[#10223d]" : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-50"}`} onClick={() => setVisibleContractor("todos")} type="button">Todas</button>
+          {series.map((item) => <button className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-bold ring-1 transition ${visibleContractor === item.id ? "text-white" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`} key={item.id} onClick={() => setVisibleContractor(item.id)} style={visibleContractor === item.id ? { backgroundColor: item.color, boxShadow: `inset 0 0 0 1px ${item.color}` } : undefined} type="button"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: visibleContractor === item.id ? "white" : item.color }} />{item.label}</button>)}
+          <span className="rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-violet-700 ring-1 ring-slate-200">{intervals.length} intervalos</span>
+        </div>
+      </div>
+      {intervals.length ? <div className={compact ? "p-2" : "p-4"}>
+        <div className={`${compact ? "mb-2" : "mb-4"} grid gap-2 sm:grid-cols-3`}>{series.map((item) => {
+          const total = item.values.reduce((sum, value) => sum + value, 0);
+          const peak = Math.max(0, ...item.values);
+          const peakIndex = item.values.indexOf(peak);
+          return <button className={`rounded-xl border bg-white text-left transition ${compact ? "px-3 py-1.5" : "p-3"} ${visibleContractor === item.id ? "shadow-md" : "border-slate-200 hover:border-slate-300"}`} key={item.id} onClick={() => setVisibleContractor(visibleContractor === item.id ? "todos" : item.id)} style={visibleContractor === item.id ? { borderColor: item.color } : undefined} type="button"><div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-2 text-xs font-black text-[#10223d]"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.label}</span><strong className={compact ? "text-base tabular-nums" : "text-xl tabular-nums"} style={{ color: item.color }}>{total}</strong></div>{!compact ? <p className="mt-1 text-[9px] font-semibold text-slate-500">{peak ? `Pico: ${peak} VH · ${departureIntervalLabel(intervals[peakIndex])}` : "Sin salidas registradas"}</p> : null}</button>;
+        })}</div>
+        <div className="overflow-x-auto"><svg aria-label="Salidas por contratista en intervalos de veinte minutos" className={compact ? "h-[285px] w-full" : "min-w-[900px] w-full"} preserveAspectRatio="xMidYMid meet" role="img" viewBox={`0 0 ${width} ${height}`}>
+        {[0, Math.ceil(maximum / 2), maximum].filter((value, index, values) => values.indexOf(value) === index).map((value) => <g key={value}><line stroke="#e2e8f0" x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text fill="#64748b" fontSize="10" textAnchor="end" x={padding.left - 8} y={y(value) + 4}>{value}</text></g>)}
+        {visibleSeries.map((item) => <g key={item.id}><polyline fill="none" points={item.values.map((value, index) => `${x(index)},${y(value)}`).join(" ")} stroke={item.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={visibleSeries.length === 1 ? "5" : "4"} />{item.values.map((value, index) => {
+          const pointKey = `${item.id}:${intervals[index]}`;
+          const selected = selectedPoint === pointKey;
+          return <g className={value ? "cursor-pointer" : ""} key={pointKey} onClick={() => { if (value) setSelectedPoint(selected ? "" : pointKey); }}><circle cx={x(index)} cy={y(value)} fill={selected ? item.color : "white"} r={selected ? 7 : 5} stroke={item.color} strokeWidth="3"><title>{`${item.label} · ${departureIntervalLabel(intervals[index])}: ${value} carros · clic para ver tripulación`}</title></circle>{value ? <text fill={item.color} fontSize="9" fontWeight="900" textAnchor="middle" x={x(index)} y={y(value) - 10}>{value}</text> : null}</g>;
+        })}</g>)}
+        {intervals.map((interval, index) => <text fill="#475569" fontSize="9" fontWeight="700" key={interval} textAnchor="middle" x={x(index)} y={height - 17}>{departureIntervalLabel(interval)}</text>)}
+      </svg></div>
+        {!compact && selectedContractor && selectedRows.length ? <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-black uppercase tracking-[0.12em]" style={{ color: selectedContractor.color }}>{selectedContractor.label} · {departureIntervalLabel(selectedInterval)}</p><span className="rounded-md bg-white px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">{selectedRows.length} VH</span></div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{selectedRows.map((record, index) => {
+            const people = [
+              record.nombreResponsable || record.cedulaResponsable,
+              record.nombreAuxiliar1 || record.cedulaAuxiliar1,
+              record.nombreAuxiliar2 || record.cedulaAuxiliar2,
+            ].filter(Boolean);
+            return <article className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm" key={`${normalizeId(record.transporte)}:${normalizeText(record.vehiculo)}:${index}`}><div className="flex items-center justify-between gap-2"><strong className="text-sm text-[#10223d]">{record.vehiculo || "VH sin placa"}</strong><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">DT {record.transporte || "—"}</span></div><p className="mt-1 text-[10px] font-semibold text-slate-500">Salida {formatOperationalTime(record.horaSalida) || "—"}</p><div className="mt-2 space-y-1">{people.length ? people.map((person, personIndex) => <p className="truncate text-[10px] text-slate-700" key={`${person}:${personIndex}`} title={person}>• {person}</p>) : <p className="text-[10px] text-slate-400">Sin tripulación registrada</p>}</div></article>;
+          })}</div>
+        </div> : null}
+      </div> : <div className="grid min-h-64 place-items-center px-5 text-sm font-semibold text-slate-500">No hay horas de salida para la fecha seleccionada.</div>}
+    </section>
+  );
+}
+
+function departureIntervalLabel(interval: number) {
+  return `${formatSecondsClock(interval)}–${formatSecondsClock(interval + 20 * 60 - 1)}`;
+}
+
+function formatSecondsClock(seconds: number) {
+  return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}`;
+}
+
+type DepartureOffender = {
+  averageSeconds: number;
+  document: string;
+  lateDepartures: number;
+  name: string;
+  records: number;
+  role: string;
+};
+
+function DepartureOffenderTables({ records }: { records: SeguimientoRoute[] }) {
+  const tables = DEPARTURE_CONTRACTORS.map((contractor) => ({
+    ...contractor,
+    color: contractor.id === "surti" ? "#2563eb" : contractor.id === "punto-corona" ? "#16a34a" : "#7c3aed",
+    offenders: buildDepartureOffenders(records, contractor.aliases).slice(0, 10),
+  }));
+
+  return (
+    <section>
+      <div className="mb-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Top offenders</p><h2 className="mt-0.5 text-lg font-black text-[#2d1b4e]">Personas con promedio de salida más tarde</h2><p className="mt-1 text-xs text-slate-500">Histórico disponible en Seguimiento · primer viaje · salidas posteriores a las 7:00 a. m.</p></div>
+      <div className="grid gap-4 xl:grid-cols-3">
+        {tables.map((table) => <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-[0_14px_40px_rgba(45,27,78,0.06)]" key={table.id}>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white" style={{ backgroundColor: table.color }}><div><p className="text-[8px] font-bold uppercase tracking-[0.16em] text-white/70">Contratista</p><h3 className="font-black">{table.label}</h3></div><span className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[9px] font-bold">{table.offenders.length} personas</span></div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[440px] text-left text-[10px]">
+              <thead className="bg-slate-50 text-[8px] font-black uppercase tracking-[0.08em] text-slate-500"><tr><th className="w-8 px-2 py-2 text-center">#</th><th className="px-2 py-2">Persona</th><th className="px-2 py-2">Rol</th><th className="px-2 py-2 text-center">Promedio</th><th className="px-2 py-2 text-center">Tardías</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">{table.offenders.map((offender, index) => <tr className="hover:bg-slate-50" key={`${offender.document}:${offender.name}:${offender.role}`}><td className="px-2 py-2 text-center font-black text-slate-400">{index + 1}</td><td className="px-2 py-2"><p className="max-w-40 truncate font-bold text-[#10223d]" title={offender.name}>{offender.name}</p><p className="text-[8px] text-slate-400">{offender.document ? `CC ${offender.document}` : `${offender.records} registros`}</p></td><td className="px-2 py-2 text-slate-500">{offender.role}</td><td className="px-2 py-2 text-center font-mono font-black" style={{ color: table.color }}>{formatSecondsClock(offender.averageSeconds)}</td><td className="px-2 py-2 text-center"><span className="rounded bg-red-50 px-1.5 py-1 font-black text-red-700">{offender.lateDepartures}</span></td></tr>)}
+              {!table.offenders.length ? <tr><td className="px-4 py-10 text-center text-xs text-slate-400" colSpan={5}>No hay personas con salidas tardías.</td></tr> : null}</tbody>
+            </table>
+          </div>
+        </article>)}
+      </div>
+    </section>
+  );
+}
+
+function buildDepartureOffenders(records: SeguimientoRoute[], aliases: readonly string[]) {
+  const routes = new Map<string, SeguimientoRoute>();
+  records
+    .filter((record) =>
+      aliases.includes(normalizeText(record.contractor) as never) &&
+      isFirstTrip(record.viaje) &&
+      operationalTimeSeconds(record.horaSalida) !== null)
+    .forEach((record, index) => {
+      const key = [
+        seguimientoDate(record),
+        normalizeId(record.transporte) || normalizeText(record.vehiculo) || String(index),
+      ].join(":");
+      if (!routes.has(key)) routes.set(key, record);
+    });
+
+  const groups = new Map<string, DepartureOffender & { totalSeconds: number }>();
+  routes.forEach((record) => {
+    const departureSeconds = operationalTimeSeconds(record.horaSalida);
+    if (departureSeconds === null) return;
+    const members = [
+      { document: normalizeId(record.cedulaResponsable), name: record.nombreResponsable || "", role: "Responsable" },
+      { document: normalizeId(record.cedulaAuxiliar1), name: record.nombreAuxiliar1 || "", role: "Auxiliar 1" },
+      { document: normalizeId(record.cedulaAuxiliar2), name: record.nombreAuxiliar2 || "", role: "Auxiliar 2" },
+    ];
+    members.forEach((member) => {
+      const name = member.name.trim();
+      const key = member.document || normalizeText(name);
+      if (!key) return;
+      const current = groups.get(key) || { ...member, averageSeconds: 0, lateDepartures: 0, name: name || `CC ${member.document}`, records: 0, totalSeconds: 0 };
+      current.records += 1;
+      current.totalSeconds += departureSeconds;
+      if (departureSeconds > 7 * 60 * 60) current.lateDepartures += 1;
+      groups.set(key, current);
+    });
+  });
+
+  return Array.from(groups.values())
+    .map(({ totalSeconds, ...offender }) => ({ ...offender, averageSeconds: Math.round(totalSeconds / offender.records) }))
+    .filter((offender) => offender.lateDepartures > 0)
+    .sort((a, b) => b.averageSeconds - a.averageSeconds || b.lateDepartures - a.lateDepartures || a.name.localeCompare(b.name, "es"));
 }
 
 function routeAttendanceDate(record: RouteAttendance) {

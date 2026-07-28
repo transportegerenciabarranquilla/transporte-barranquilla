@@ -42,7 +42,7 @@ type NpsData = {
   trends: { annual: TrendSeries[]; years: Group[]; currentMonths: Group[]; months: Group[]; weeks: Group[]; currentDays: Group[]; days: Group[] };
   scoreDistribution: ScoreRow[];
   segments: { cds: Group[]; commercialActivities: Group[]; commercialManagers: Group[]; coms: Group[]; managements: Group[]; populations: Group[]; strata: Group[] };
-  drivers: { primary: Driver[]; secondary: Driver[] };
+  drivers: { primary: Driver[]; secondary: Driver[]; salesRepresentativeSecondary: Driver[] };
   detractors: Detractor[];
   source: {
     table: string;
@@ -58,7 +58,7 @@ type CachedNpsReport = { data: NpsData; filters: FilterState; storedAt: number }
 
 const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "" };
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v3";
+const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v4";
 const NPS_REPORT_CACHE_TTL_MS = 30 * 60 * 1_000;
 
 export default function NpsPage() {
@@ -198,19 +198,19 @@ export default function NpsPage() {
         <SectionHeader id="evolucion" index="02" title="Evolución del servicio" description="Resultados reales por periodo." />
         <div className="grid gap-4 xl:grid-cols-2">
           <AnnualTrendChart eyebrow="Comparativo anual" series={data?.trends?.annual || []} title="NPS por año" />
-          <TrendChart eyebrow="Evolución del año actual" mode="line" rows={data?.trends?.currentMonths || []} title="NPS por mes" />
+          <AnnualTrendChart eyebrow="Comparativo interanual" metricLabel="Delivery Experience" series={toDeliveryExperienceSeries(data?.trends?.annual || [])} title="Delivery Experience por mes" />
           <TrendChart eyebrow="Seguimiento semanal" mode="columns" rows={data?.trends?.weeks || []} title="NPS por semana" />
+          <TrendChart eyebrow="Experiencia diaria" mode="columns" rows={toDeliveryExperienceRows(data?.trends?.currentDays || [])} title="Delivery Experience por día" />
           <TrendChart eyebrow="Evolución del mes actual" mode="line" rows={data?.trends?.currentDays || []} title="NPS por día" />
         </div>
         <DailyRatingsChart filters={filters} rows={data?.trends?.currentDays || []} sourceMaxDate={data?.source?.maxDate} />
-        <DeliveryExperienceChart series={data?.trends?.annual || []} />
 
         <SectionHeader id="causas" index="03" title="Causas y factores de impacto" description="Drivers registrados en las encuestas filtradas." />
         <div className="grid gap-4 xl:grid-cols-2">
           <DriverChart eyebrow="Factores principales" rows={data?.drivers?.primary || []} title="Primary Driver" variant="list" />
           <DriverChart eyebrow="Causas de entrega" rows={data?.drivers?.secondary || []} title="Secondary Delivery" variant="grid" />
         </div>
-        <DriverContribution rows={data?.drivers?.primary || []} />
+        <DriverContribution rows={data?.drivers?.salesRepresentativeSecondary || []} />
 
         <SectionHeader id="segmentacion" index="04" title="Segmentación territorial" description="Comparativos por dimensiones presentes en la tabla NPS." />
         <div className="grid gap-4 xl:grid-cols-2">
@@ -354,7 +354,7 @@ function CdNpsGauges({ rows }: { rows: Group[] }) {
                 <circle cx="125" cy="125" fill="#071f33" r="9" stroke="#fff" strokeWidth="4" />
                 <text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="25" y="148">-100</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="125" y="30">0</text><text fill="#64748b" fontSize="8" fontWeight="700" textAnchor="middle" x="225" y="148">+100</text>
               </svg>
-              <div className="text-center sm:text-left"><strong className="text-3xl font-semibold tracking-tight text-[#071f33]">{row ? formatSigned(row.nps) : "—"}</strong><p className="mt-1 text-[8px] font-extrabold uppercase tracking-[.1em] text-slate-400">NPS del centro</p><p className="mt-1 text-[9px] leading-4 text-slate-500">{row ? `${formatNumber(row.respondentCount)} encuestas` : "Sin datos"}</p></div>
+              <div className="text-center sm:text-left"><strong className="text-3xl font-semibold tracking-tight text-[#071f33]">{row ? formatSigned(row.nps) : "—"}</strong><p className="mt-1 text-[8px] font-extrabold uppercase tracking-[.1em] text-slate-400">NPS del cd</p><p className="mt-1 text-[9px] leading-4 text-slate-500">{row ? `${formatNumber(row.respondentCount)} encuestas` : "Sin datos"}</p></div>
             </div>
           </ChartCard>
         );
@@ -443,7 +443,7 @@ function TrendChart({ eyebrow, mode, rows, title }: { eyebrow: string; mode: "li
   );
 }
 
-function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series: TrendSeries[]; title: string }) {
+function AnnualTrendChart({ eyebrow, metricLabel = "NPS", series, title }: { eyebrow: string; metricLabel?: string; series: TrendSeries[]; title: string }) {
   const [pinnedPoint, setPinnedPoint] = useState("");
   const [hoveredMonth, setHoveredMonth] = useState("");
   if (!series.some((item) => item.rows.length)) return <ChartCard eyebrow={eyebrow} title={title}><EmptyState /></ChartCard>;
@@ -497,7 +497,7 @@ function AnnualTrendChart({ eyebrow, series, title }: { eyebrow: string; series:
             {item.points.map((point) => {
               const key = `${item.label}:${point.label}`;
               const active = pinnedPoint === key;
-              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)} onMouseEnter={() => setHoveredMonth(point.label)} onMouseLeave={() => setHoveredMonth("")}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: NPS ${formatSigned(point.nps)} · ${formatNumber(point.respondentCount)} encuestas · Haz clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>;
+              return <g className="cursor-pointer" key={point.label} onClick={() => setPinnedPoint(active ? "" : key)} onMouseEnter={() => setHoveredMonth(point.label)} onMouseLeave={() => setHoveredMonth("")}><circle className="nps-chart-point" cx={point.x} cy={point.y} fill={active ? colors[seriesIndex % colors.length] : "#fff"} r={active ? 7 : 5} stroke={colors[seriesIndex % colors.length]} strokeWidth="3"><title>{`${item.label} · ${point.label}: ${metricLabel} ${formatSigned(point.nps)}% · ${formatNumber(point.respondentCount)} encuestas · Haz clic para fijar`}</title></circle><text fill={colors[seriesIndex % colors.length]} fontSize="8.5" fontWeight="800" textAnchor="middle" x={point.x} y={Math.max(12, point.y - 10)}>{formatSigned(point.nps)}%</text></g>;
             })}
           </g>)}
           {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].map((month, index) => <text fill="#71899b" fontSize="9" fontWeight="600" key={month} textAnchor="middle" x={paddingX + (index * (width - paddingX * 2)) / 11} y={height + 12}>{month}</text>)}
@@ -681,12 +681,38 @@ function DriverChart({ eyebrow, rows, title, variant }: { eyebrow: string; rows:
 }
 
 function DriverContribution({ rows }: { rows: Driver[] }) {
-  const visible = rows.slice(0, 8);
+  const visible = rows;
+  const bars = visible.reduce<Array<Driver & { start: number; end: number }>>((result, row) => {
+    const start = result.at(-1)?.end || 0;
+    return [...result, { ...row, start, end: start + row.percentage }];
+  }, []);
   return (
-    <ChartCard eyebrow="Tasa de promotores" title="% Primary Driver">
-      {visible.length ? <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{visible.map((row) => {
-        return <div className="group rounded-lg border border-[#d8e2e8] bg-[#f9fbfc] p-3 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-3"><span className="truncate text-[11px] font-semibold text-[#25435b]" title={row.label}>{row.label}</span><strong className="shrink-0 text-xs tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 text-[8px] font-bold uppercase tracking-[.06em] text-slate-400"><span>{formatNumber(row.promoters)} promotores / {formatNumber(row.count)} encuestados</span></div></div>;
-      })}<div className="rounded-lg border border-[#a7d4cf] bg-[#edf8f7] px-4 py-2.5 sm:col-span-2 xl:col-span-4"><span className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#087f78]">Cálculo: promotores (score 9–10) / encuestados con el driver primario</span></div></div> : <EmptyState />}
+    <ChartCard eyebrow="Drivers secundarios" title="% Secondary · Servicio de Representante de Ventas">
+      {bars.length ? <div className="mt-6 overflow-x-auto pb-2">
+        <div className="flex min-w-[980px] items-stretch gap-2">
+          {bars.map((row) => (
+            <div className="flex min-w-24 flex-1 flex-col" key={row.label}>
+              <div className="relative h-64 border-b border-slate-300">
+                <span className="absolute left-0 right-0 border-t border-slate-300" style={{ bottom: `${Math.min(100, row.end)}%` }} />
+                <div
+                  className="absolute inset-x-1 bg-gradient-to-b from-[#f2ff00] to-[#dff500] shadow-sm transition hover:brightness-95"
+                  style={{ bottom: `${Math.min(100, row.start)}%`, height: `${Math.max(2, row.percentage)}%` }}
+                  title={`${row.label}: ${row.percentage.toLocaleString("es-CO")}%`}
+                />
+                <strong className="absolute inset-x-0 text-center text-xs font-extrabold text-[#071f33]" style={{ bottom: `calc(${Math.min(100, row.end)}% + 5px)` }}>{row.percentage.toLocaleString("es-CO")}%</strong>
+              </div>
+              <p className="mt-2 line-clamp-4 text-center text-[10px] font-semibold leading-4 text-[#25435b]" title={row.label}>{row.label}</p>
+            </div>
+          ))}
+          <div className="flex min-w-24 flex-1 flex-col">
+            <div className="relative h-64 border-b border-slate-300">
+              <div className="absolute inset-x-1 bottom-0 h-full bg-gradient-to-b from-[#ffe900] to-[#f4cf00]" />
+              <strong className="absolute inset-x-0 top-3 text-center text-base font-extrabold text-white">100%</strong>
+            </div>
+            <p className="mt-2 text-center text-xs font-bold text-[#071f33]">Total</p>
+          </div>
+        </div>
+      </div> : <EmptyState />}
     </ChartCard>
   );
 }
@@ -1140,6 +1166,20 @@ function formatDate(value?: string | null) {
 function formatNumber(value: number) { return value.toLocaleString("es-CO"); }
 function formatPercent(value: number, total: number) { return `${(total ? (value / total) * 100 : 0).toLocaleString("es-CO", { maximumFractionDigits: 1 })}%`; }
 function formatSigned(value: number) { return `${value > 0 ? "+" : ""}${value.toLocaleString("es-CO", { maximumFractionDigits: 1 })}`; }
+function toDeliveryExperienceRows(rows: Group[]) {
+  return rows.map((row) => ({
+    ...row,
+    nps: row.respondentCount ? Number(((row.promoters / row.respondentCount) * 100).toFixed(1)) : 0,
+  }));
+}
+function toDeliveryExperienceSeries(series: TrendSeries[]) {
+  const monthOrder = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const currentMonth = Math.max(-1, ...(series[0]?.rows || []).map((row) => monthOrder.indexOf(row.label)));
+  return series.map((item) => ({
+    ...item,
+    rows: toDeliveryExperienceRows(item.rows.filter((row) => monthOrder.indexOf(row.label) <= currentMonth)),
+  }));
+}
 function normalizeClientCode(value: string) { return value.replace(/\D/g, "").replace(/^0+/, ""); }
 function normalizeTextLabel(value: string) { return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 function readCachedNpsReport() {

@@ -22,6 +22,9 @@ type SeguimientoRow = {
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
+  nombreResponsable?: string;
+  nombreAuxiliar1?: string;
+  nombreAuxiliar2?: string;
 };
 
 type AttendanceRow = {
@@ -34,7 +37,7 @@ type AttendanceRow = {
   cedulaAuxiliar2?: string;
 };
 
-const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,viaje:data->>viaje,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
+const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,viaje:data->>viaje,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
 const ATTENDANCE_SELECT = "contractor,dt:data->>dt,llave:data->>llave,createdAt:data->>createdAt,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
 const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
 

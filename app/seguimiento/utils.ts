@@ -1,6 +1,7 @@
 import type { Vehiculo } from "./types";
 
 export const ROUTE_STATUSES = ["Pendiente por salir", "En ruta", "Pernoctado", "Cargando", "Cambio de fecha", "Recargue", "Retornando", "Finalizado"];
+const ROUTE_DELAY_GRACE_SECONDS = 30 * 60;
 
 export function getVehicleRecordKey(item: Pick<Vehiculo, "fechaDespacho" | "transporte" | "vehiculo">) {
   const dt = normalizeRecordPart(item.transporte);
@@ -60,7 +61,7 @@ export function getPlannedProgress(
   return {
     expected,
     expectedVisited,
-    isBehind: progress < expected,
+    isBehind: elapsedSeconds >= ROUTE_DELAY_GRACE_SECONDS && progress < expected,
     label: `${expected.toFixed(1)}%`,
   };
 }

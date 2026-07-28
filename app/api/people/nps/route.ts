@@ -27,6 +27,7 @@ type Survey = {
   management: string;
   score: number;
   duplicateRows: number;
+  driverPairs: Set<string>;
   primaryDrivers: Set<string>;
   secondaryDrivers: Set<string>;
 };
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
     const session = await requirePeople();
     if (session instanceof NextResponse) return session;
 
-    const dataset = await readServerCache(`supabase:nps-dataset:${session.email || "people"}`, CACHE_TTL_MS, async () => {
+    const dataset = await readServerCache(`supabase:nps-dataset:v2:${session.email || "people"}`, CACHE_TTL_MS, async () => {
       const { rows, total } = await fetchAllNpsRows(session);
       if (!total) throw new Error("La tabla NPS no devolvió filas para este usuario. Ejecuta supabase/nps_access.sql en el SQL Editor de Supabase.");
       return buildDataset(rows, total);
@@ -121,7 +122,10 @@ export async function GET(request: Request) {
         years: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), (survey) => String(survey.year)),
         currentMonths: currentYearMonths(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), filters.year),
         months: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["month", "day", "week"])), (survey) => monthLabel(survey.month), monthOrder),
-        weeks: groupSurveys(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["week", "day"])), (survey) => `S${survey.week}`, weekOrder),
+        weeks: currentYearWeeks(
+          dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "week", "day"])),
+          filters.year,
+        ),
         currentDays: currentMonthDays(dataset.surveys.filter((survey) => matchesFilters(survey, filters, ["year", "month", "day", "week"])), filters),
         days: groupSurveys(filtered, (survey) => String(survey.day), numericOrder),
       },
@@ -154,6 +158,7 @@ export async function GET(request: Request) {
       drivers: {
         primary: groupDrivers(filtered, "primaryDrivers"),
         secondary: groupDrivers(filtered, "secondaryDrivers"),
+        salesRepresentativeSecondary: groupSecondaryDriverDistribution(filtered, "servicio de representante de ventas"),
       },
       detractors,
       source: {
@@ -352,6 +357,7 @@ function buildDataset(rows: NpsRow[], rawRowCount: number) {
       management: clean(row["Sales Sub Region"]),
       score,
       duplicateRows: 0,
+      driverPairs: new Set<string>(),
       primaryDrivers: new Set<string>(),
       secondaryDrivers: new Set<string>(),
     };
@@ -360,6 +366,7 @@ function buildDataset(rows: NpsRow[], rawRowCount: number) {
     const secondary = cleanDriver(row["driver secundary"]);
     if (primary) current.primaryDrivers.add(primary);
     if (secondary) current.secondaryDrivers.add(secondary);
+    if (primary && secondary) current.driverPairs.add(`${primary}\u0000${secondary}`);
     bySurvey.set(key, current);
   });
 
@@ -437,6 +444,25 @@ function groupAnnualMonths(surveys: Survey[]) {
   }));
 }
 
+function groupWeeks(surveys: Survey[]) {
+  const groups = new Map<number, Survey[]>();
+  surveys.forEach((survey) => groups.set(survey.week, [...(groups.get(survey.week) || []), survey]));
+  return Array.from(groups, ([week, rows]) => {
+    const monthCounts = new Map<number, number>();
+    rows.forEach((row) => monthCounts.set(row.month, (monthCounts.get(row.month) || 0) + 1));
+    const month = Array.from(monthCounts).sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] || rows[0]?.month || 0;
+    return {
+      label: `S${week} · ${monthLabel(month)}`,
+      ...summarize(rows, rows.reduce((total, row) => total + row.duplicateRows, 0)),
+    };
+  }).sort((a, b) => Number(a.label.match(/^S(\d+)/)?.[1]) - Number(b.label.match(/^S(\d+)/)?.[1]));
+}
+
+function currentYearWeeks(surveys: Survey[], selectedYear: number | null) {
+  const year = selectedYear || Math.max(0, ...surveys.map((survey) => survey.year));
+  return groupWeeks(surveys.filter((survey) => survey.year === year));
+}
+
 function currentYearMonths(surveys: Survey[], selectedYear: number | null) {
   const latestYear = Math.max(0, ...surveys.map((survey) => survey.year));
   const year = selectedYear || latestYear;
@@ -491,6 +517,22 @@ function groupDrivers(surveys: Survey[], field: "primaryDrivers" | "secondaryDri
     .slice(0, 15);
 }
 
+function groupSecondaryDriverDistribution(surveys: Survey[], primaryDriver: string) {
+  const counts = new Map<string, number>();
+  const expectedPrimary = normalizeDriver(primaryDriver);
+  surveys.forEach((survey) => survey.driverPairs.forEach((pair) => {
+    const [primary, secondary] = pair.split("\u0000");
+    if (normalizeDriver(primary) === expectedPrimary && secondary) counts.set(secondary, (counts.get(secondary) || 0) + 1);
+  }));
+  const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0);
+  return Array.from(counts, ([label, count]) => ({
+    label,
+    count,
+    promoters: 0,
+    percentage: total ? round((count / total) * 100) : 0,
+  })).sort((a, b) => b.percentage - a.percentage || a.label.localeCompare(b.label, "es"));
+}
+
 function isoWeek(date: Date) {
   const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = target.getUTCDay() || 7;
@@ -525,6 +567,10 @@ function cleanDriver(value: unknown) {
   return result && !["-", "pendiente", "sin dato", "n/a"].includes(result.toLowerCase()) ? result : "";
 }
 
+function normalizeDriver(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
 }
@@ -545,6 +591,5 @@ function monthLabel(month: number) {
 const monthOrder = (a: string, b: string) =>
   ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(a) -
   ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"].indexOf(b);
-const weekOrder = (a: string, b: string) => Number(a.slice(1)) - Number(b.slice(1));
 const numericOrder = (a: string, b: string) => Number(a) - Number(b);
 const alphabeticalOrder = (a: string, b: string) => a.localeCompare(b, "es");

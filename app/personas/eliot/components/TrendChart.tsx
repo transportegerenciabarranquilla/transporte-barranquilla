@@ -36,11 +36,19 @@ export function TrendChart({ rows }: { rows: TdRow[] }) {
   const chartWidth = Math.max(900, intervals.length * 105);
   const innerWidth = chartWidth - CHART_PADDING.left - CHART_PADDING.right;
   const innerHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
-  const maxVehicles = Math.max(1, ...intervals.map((group) => group.vehicleCount));
+  const carriers = Array.from(new Set(rows.map((row) => row.carrier || "Sin transportista")));
+  const carrierSeries = carriers.map((carrier) => ({
+    carrier,
+    color: carrierColor(carrier),
+    values: intervals.map((group) => {
+      const carrierRows = group.rows.filter((row) => (row.carrier || "Sin transportista") === carrier);
+      const plateCount = new Set(carrierRows.map((row) => row.plate).filter(Boolean)).size;
+      return plateCount || carrierRows.length;
+    }),
+  }));
+  const maxVehicles = Math.max(1, ...carrierSeries.flatMap((series) => series.values));
   const x = (index: number) => CHART_PADDING.left + (intervals.length <= 1 ? innerWidth / 2 : (index / (intervals.length - 1)) * innerWidth);
   const y = (value: number) => CHART_PADDING.top + innerHeight - (value / maxVehicles) * innerHeight;
-  const linePoints = intervals.map((group, index) => `${x(index)},${y(group.vehicleCount)}`).join(" ");
-  const areaPoints = intervals.length ? `${x(0)},${y(0)} ${linePoints} ${x(intervals.length - 1)},${y(0)}` : "";
 
   return (
     <section className="panel trend-panel-3d w-full overflow-hidden">
@@ -50,7 +58,10 @@ export function TrendChart({ rows }: { rows: TdRow[] }) {
           <h2 className="mt-0.5 text-lg font-black text-[#2d1b4e]">Carros por intervalos de 20 minutos</h2>
           <p className="mt-1 text-xs text-slate-500">Pulsa un punto para consultar placas, DT, viaje y hora exacta.</p>
         </div>
-        <span className="rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-violet-700 ring-1 ring-slate-200">{intervals.length} intervalos</span>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {carrierSeries.map((series) => <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-600" key={series.carrier}><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: series.color }} />{series.carrier}</span>)}
+          <span className="rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-violet-700 ring-1 ring-slate-200">{intervals.length} intervalos</span>
+        </div>
       </div>
 
       {intervals.length ? (
@@ -83,31 +94,23 @@ export function TrendChart({ rows }: { rows: TdRow[] }) {
                 </g>
               );
             })}
-            <polygon className="trend-area-depth" fill="#4c1d95" opacity="0.16" points={areaPoints} />
-            <polygon className="trend-area-face" fill="url(#trend-area-gradient)" points={areaPoints} />
-            <polyline className="trend-line-depth" fill="none" points={linePoints} stroke="#4c1d95" strokeLinejoin="round" strokeWidth="8" transform="translate(0 5)" />
-            <polyline className="trend-line-draw" fill="none" filter="url(#trend-line-shadow)" pathLength="1" points={linePoints} stroke="#7c3aed" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
-            {intervals.map((group, index) => {
-              const selected = selectedInterval === group.interval;
-              const hasSeveral = group.vehicleCount > 1;
-              return (
-                <g
-                  className="trend-point cursor-pointer outline-none"
-                  key={group.interval}
-                  onClick={() => setSelectedInterval(selected ? null : group.interval)}
-                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedInterval(selected ? null : group.interval); }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <ellipse cx={x(index)} cy={y(group.vehicleCount) + 8} fill="#2d1b4e" opacity="0.18" rx={selected ? 9 : 7} ry="3" />
-                  <circle cx={x(index)} cy={y(group.vehicleCount)} fill={selected ? "#7c3aed" : hasSeveral ? "#f59e0b" : "white"} filter="url(#trend-point-shadow)" r={selected ? 8 : 6} stroke={selected ? "#5b21b6" : hasSeveral ? "#d97706" : "#7c3aed"} strokeWidth="3">
-                    <title>{`${intervalLabel(group.interval)}: ${group.vehicleCount} carro${group.vehicleCount === 1 ? "" : "s"}`}</title>
-                  </circle>
-                  <text fill="#5b21b6" fontSize="10" fontWeight="900" textAnchor="middle" x={x(index)} y={y(group.vehicleCount) - 12}>{group.vehicleCount}</text>
-                  <text fill="#475569" fontSize="9" fontWeight="700" textAnchor="middle" x={x(index)} y={CHART_HEIGHT - 19}>{intervalLabel(group.interval)}</text>
-                </g>
-              );
+            {carrierSeries.map((series) => {
+              const points = series.values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
+              return <g key={series.carrier}>
+                <polyline fill="none" filter="url(#trend-line-shadow)" points={points} stroke={series.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
+                {series.values.map((value, index) => {
+                  const group = intervals[index];
+                  const selected = selectedInterval === group.interval;
+                  return <g className="trend-point cursor-pointer outline-none" key={`${series.carrier}:${group.interval}`} onClick={() => setSelectedInterval(selected ? null : group.interval)} role="button" tabIndex={0}>
+                    <circle cx={x(index)} cy={y(value)} fill={selected ? series.color : "white"} filter="url(#trend-point-shadow)" r={selected ? 7 : 5} stroke={series.color} strokeWidth="3">
+                      <title>{`${series.carrier} · ${intervalLabel(group.interval)}: ${value} carro${value === 1 ? "" : "s"}`}</title>
+                    </circle>
+                    {value ? <text fill={series.color} fontSize="9" fontWeight="900" textAnchor="middle" x={x(index)} y={y(value) - 10}>{value}</text> : null}
+                  </g>;
+                })}
+              </g>;
             })}
+            {intervals.map((group, index) => <text fill="#475569" fontSize="9" fontWeight="700" key={group.interval} textAnchor="middle" x={x(index)} y={CHART_HEIGHT - 19}>{intervalLabel(group.interval)}</text>)}
           </svg>
 
           {selectedGroup ? (
@@ -135,4 +138,11 @@ function intervalLabel(interval: number) {
   const start = formatClock(interval).slice(0, 5);
   const end = formatClock(interval + INTERVAL_SECONDS - 1).slice(0, 5);
   return `${start}–${end}`;
+}
+
+function carrierColor(carrier: string) {
+  const normalized = carrier.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (normalized.includes("corona")) return "#16a34a";
+  if (normalized.includes("surti")) return "#2563eb";
+  return "#7c3aed";
 }
