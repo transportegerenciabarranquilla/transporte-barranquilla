@@ -78,7 +78,10 @@ export default function AdminPage() {
   const [dtSearch, setDtSearch] = useState("");
   const [activeTab, setActiveTab] = useState<AdminTab>("resumen");
   const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
+  const [modulacionExportPeriod, setModulacionExportPeriod] = useState<ModulacionExportPeriod>("month");
+  const [asistenciaExportPeriod, setAsistenciaExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [exportingModulaciones, setExportingModulaciones] = useState("");
+  const [exportingAsistencias, setExportingAsistencias] = useState("");
   const [exportError, setExportError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -241,6 +244,38 @@ export default function AdminPage() {
       setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
     } finally {
       setExportingModulaciones("");
+    }
+  }
+
+  async function downloadAsistencias(period: ModulacionExportPeriod, format: ModulacionExportFormat) {
+    const exportKey = `${period}-${format}`;
+    setExportingAsistencias(exportKey);
+    setExportError("");
+
+    try {
+      const params = new URLSearchParams({ period, format });
+      if (selectedContractor !== "Todas") params.set("contractor", selectedContractor);
+      const response = await fetch(`/api/admin/asistencias/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo generar el archivo.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `asistencias.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
+    } finally {
+      setExportingAsistencias("");
     }
   }
 
@@ -569,39 +604,34 @@ export default function AdminPage() {
         {activeTab === "exportar" ? (
           <div className="space-y-5">
             <section className="tech-card rounded-lg p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Descargar modulaciones</p>
-              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Informes en Excel o PDF</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Descargar información</p>
+              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Asistencia y modulación</h2>
               <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                Descarga las modulaciones de{" "}
+                Escoge el período y descarga el informe de{" "}
                 <span className="font-semibold text-[#10223d]">
                   {selectedContractor === "Todas" ? "todos los transportistas" : selectedContractor}
                 </span>
-                , según el filtro de transportista seleccionado arriba.
+                {" "}en Excel o PDF.
               </p>
               {exportError ? (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{exportError}</div>
               ) : null}
-              <div className="mt-5 grid gap-3 lg:grid-cols-3">
-                <ModulacionExportCard
-                  description="Modulaciones registradas durante la fecha actual."
-                  exporting={exportingModulaciones}
-                  onDownload={downloadModulaciones}
-                  period="today"
-                  title="Lo que va del día"
+              <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                <AdminExportCard
+                  description="Registros de asistencia de responsables y auxiliares."
+                  exporting={exportingAsistencias}
+                  onDownload={downloadAsistencias}
+                  onPeriodChange={setAsistenciaExportPeriod}
+                  period={asistenciaExportPeriod}
+                  title="Asistencia"
                 />
-                <ModulacionExportCard
-                  description="Desde el primer día del mes actual hasta hoy."
+                <AdminExportCard
+                  description="Modulaciones registradas para las rutas."
                   exporting={exportingModulaciones}
                   onDownload={downloadModulaciones}
-                  period="month"
-                  title="Lo que va del mes"
-                />
-                <ModulacionExportCard
-                  description="Todas las modulaciones disponibles en el sistema."
-                  exporting={exportingModulaciones}
-                  onDownload={downloadModulaciones}
-                  period="history"
-                  title="Histórico completo"
+                  onPeriodChange={setModulacionExportPeriod}
+                  period={modulacionExportPeriod}
+                  title="Modulación"
                 />
               </div>
             </section>
@@ -642,16 +672,18 @@ export default function AdminPage() {
   );
 }
 
-function ModulacionExportCard({
+function AdminExportCard({
   description,
   exporting,
   onDownload,
+  onPeriodChange,
   period,
   title,
 }: {
   description: string;
   exporting: string;
   onDownload: (period: ModulacionExportPeriod, format: ModulacionExportFormat) => void;
+  onPeriodChange: (period: ModulacionExportPeriod) => void;
   period: ModulacionExportPeriod;
   title: string;
 }) {
@@ -666,6 +698,19 @@ function ModulacionExportCard({
           <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
         </div>
       </div>
+      <label className="mt-4 block">
+        <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Período del informe</span>
+        <select
+          className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-emerald-100"
+          disabled={Boolean(exporting)}
+          onChange={(event) => onPeriodChange(event.target.value as ModulacionExportPeriod)}
+          value={period}
+        >
+          <option value="today">Lo que va del día</option>
+          <option value="month">Lo que va del mes</option>
+          <option value="history">Histórico completo</option>
+        </select>
+      </label>
       <div className="mt-4 grid grid-cols-2 gap-2">
         {(["xlsx", "pdf"] as const).map((format) => {
           const key = `${period}-${format}`;

@@ -82,6 +82,18 @@ type CargoRow = {
   inRoute: number;
 };
 
+type DepartureHistoryRow = {
+  date: string;
+  contractors: Array<{
+    id: string;
+    label: string;
+    total: number;
+    onTime: number;
+    late: number;
+    percentage: number;
+  }>;
+};
+
 const REFRESH_SECONDS = 10;
 const CONTRACTORS = [
   { id: "logisticos", label: "Logísticos", aliases: ["logisticos", "logisticosarenosa"] },
@@ -104,6 +116,8 @@ export default function ManagementPage() {
   const [fileName, setFileName] = useState("");
   const [expandedContractor, setExpandedContractor] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
+  const [historyFrom, setHistoryFrom] = useState(() => `${bogotaToday().slice(0, 7)}-01`);
+  const [historyTo, setHistoryTo] = useState(() => bogotaToday());
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -264,6 +278,25 @@ export default function ManagementPage() {
     })),
     [seguimientoRoutes, selectedDate],
   );
+  const departureHistory = useMemo(() => {
+    const days = new Set(
+      seguimientoRoutes
+        .map(seguimientoDate)
+        .filter((date) => date && (!historyFrom || date >= historyFrom) && (!historyTo || date <= historyTo)),
+    );
+
+    return Array.from(days)
+      .sort()
+      .reverse()
+      .map((date) => ({
+        date,
+        contractors: DEPARTURE_CONTRACTORS.map((contractor) => ({
+          id: contractor.id,
+          label: contractor.label,
+          ...summarizeTrips(seguimientoRoutes, date, contractor.aliases),
+        })),
+      }));
+  }, [historyFrom, historyTo, seguimientoRoutes]);
   const deadline = getDepartureDeadline(selectedDate, now);
   const logisticsTripsInRoute = tripDashboard.find((contractor) => contractor.id === "logisticos")?.departed || 0;
   const identifiedDriversInRoute = dashboard.find((contractor) => contractor.id === "logisticos")?.cargos.find((cargo) => cargo.cargo === "Conductor")?.inRoute || 0;
@@ -447,6 +480,45 @@ export default function ManagementPage() {
           </div>
         </section>
 
+        {!isTvMode ? (
+          <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white/95 shadow-[0_18px_55px_rgba(45,27,78,0.07)]">
+            <div className="border-b border-slate-200 px-5 py-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d76458]">Histórico de cumplimiento</p>
+                  <h2 className="mt-1 text-xl font-bold text-[#102a43]">Salidas del CD por día</h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    Porcentaje = viajes que salieron hasta las 7:00 a. m. ÷ viajes totales del día.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Desde
+                    <input
+                      className="mt-1 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-[#2d1b4e]"
+                      max={historyTo || undefined}
+                      onChange={(event) => setHistoryFrom(event.target.value)}
+                      type="date"
+                      value={historyFrom}
+                    />
+                  </label>
+                  <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Hasta
+                    <input
+                      className="mt-1 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-[#2d1b4e]"
+                      min={historyFrom || undefined}
+                      onChange={(event) => setHistoryTo(event.target.value)}
+                      type="date"
+                      value={historyTo}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <DepartureHistoryChart rows={departureHistory} />
+          </section>
+        ) : null}
+
         <DepartureIntervalsChart compact={isTvMode} records={seguimientoRoutes} selectedDate={selectedDate} />
         {!isTvMode ? <DepartureOffenderTables records={seguimientoRoutes} /> : null}
 
@@ -562,6 +634,102 @@ function formatOperationalTime(value: string | undefined) {
   const time = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (time) return `${time[1].padStart(2, "0")}:${time[2]}${time[3] ? `:${time[3]}` : ""}`;
   return "";
+}
+
+function DepartureHistoryChart({ rows }: { rows: DepartureHistoryRow[] }) {
+  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
+  if (!rows.length) {
+    return <div className="grid min-h-72 place-items-center px-5 text-sm font-semibold text-slate-500">No hay viajes en los días seleccionados.</div>;
+  }
+
+  const chronological = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const series = DEPARTURE_CONTRACTORS.map((contractor, index) => {
+    const values = chronological.map((row) => row.contractors.find((item) => item.id === contractor.id));
+    const total = values.reduce((sum, value) => sum + (value?.total || 0), 0);
+    const onTime = values.reduce((sum, value) => sum + (value?.onTime || 0), 0);
+    return {
+      ...contractor,
+      color: index === 0 ? "#7c3aed" : index === 1 ? "#2563eb" : "#16a34a",
+      total,
+      compliance: total ? Math.round((onTime / total) * 100) : 0,
+      values,
+    };
+  });
+  const visibleSeries = selectedSeries ? series.filter((contractor) => contractor.id === selectedSeries) : series;
+  const width = Math.max(900, chronological.length * 92);
+  const height = 330;
+  const left = 62;
+  const right = 30;
+  const top = 42;
+  const bottom = 62;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const x = (index: number) => chronological.length === 1 ? left + plotWidth / 2 : left + (index / (chronological.length - 1)) * plotWidth;
+  const y = (percentage: number) => top + ((100 - percentage) / 100) * plotHeight;
+
+  return (
+    <div className="p-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {series.map((contractor) => (
+          <button
+            aria-pressed={selectedSeries === contractor.id}
+            className={`rounded-xl border bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+              selectedSeries === contractor.id ? "ring-2 ring-offset-1" : selectedSeries ? "opacity-55" : ""
+            }`}
+            key={contractor.id}
+            onClick={() => setSelectedSeries((current) => current === contractor.id ? null : contractor.id)}
+            style={{ borderColor: selectedSeries === contractor.id ? contractor.color : undefined, "--tw-ring-color": contractor.color } as React.CSSProperties}
+            type="button"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="flex items-center gap-2 text-sm font-black text-[#10223d]">
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: contractor.color }} />
+                {contractor.label}
+              </p>
+              <span className="text-2xl font-black tabular-nums" style={{ color: contractor.color }}>{contractor.compliance}%</span>
+            </div>
+            <p className="mt-1 text-xs font-semibold text-slate-500">{contractor.total} viajes en {chronological.length} días</p>
+          </button>
+        ))}
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/60">
+        <svg aria-label="Porcentaje diario de salida oportuna del CD" className="block h-[330px]" role="img" style={{ minWidth: width }} viewBox={`0 0 ${width} ${height}`}>
+          {[0, 25, 50, 75, 100].map((tick) => {
+            const tickY = y(tick);
+            return (
+              <g key={tick}>
+                <line stroke="#dbe5ef" strokeWidth="1" x1={left} x2={width - right} y1={tickY} y2={tickY} />
+                <text fill="#64748b" fontSize="12" fontWeight="700" textAnchor="end" x={left - 12} y={tickY + 4}>{tick}%</text>
+              </g>
+            );
+          })}
+          {visibleSeries.map((contractor) => {
+            const points = contractor.values.map((value, index) => `${x(index)},${y(value?.percentage || 0)}`).join(" ");
+            return (
+              <g key={contractor.id}>
+                <polyline fill="none" points={points} stroke={contractor.color} strokeLinejoin="round" strokeWidth="4" />
+                {contractor.values.map((value, index) => {
+                  const percentage = value?.percentage || 0;
+                  const pointX = x(index);
+                  const pointY = y(percentage);
+                  return (
+                    <g key={`${contractor.id}-${chronological[index].date}`}>
+                      <circle cx={pointX} cy={pointY} fill="white" r="6" stroke={contractor.color} strokeWidth="4" />
+                      <text fill={contractor.color} fontSize="10" fontWeight="900" textAnchor="middle" x={pointX} y={Math.max(15, pointY - 11 - (contractor.id === "surti" ? 10 : contractor.id === "punto-corona" ? 20 : 0))}>{percentage}%</text>
+                      <title>{`${contractor.label} · ${formatDate(chronological[index].date)}: ${percentage}% · ${value?.onTime || 0} de ${value?.total || 0} viajes hasta las 7:00`}</title>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+          {chronological.map((row, index) => (
+            <text fill="#475569" fontSize="11" fontWeight="800" key={row.date} textAnchor="middle" x={x(index)} y={height - 24}>{formatShortDate(row.date)}</text>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
 }
 
 function DepartureIntervalsChart({ compact = false, records, selectedDate }: { compact?: boolean; records: SeguimientoRoute[]; selectedDate: string }) {

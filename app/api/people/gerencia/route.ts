@@ -54,13 +54,12 @@ export async function GET() {
       readRows<PersonRow>("transporte_barranquilla", "select=CC,NOMBRE,CARGO,CONTRATISTA&order=NOMBRE.asc&limit=1500", headers),
       Promise.all(
         SEGUIMIENTO_CONTRACTORS.map((contractor) =>
-          readRows<SeguimientoRow>(
+          readRowsPaged<SeguimientoRow>(
             "seguimiento_vehiculos",
             new URLSearchParams({
               select: SEGUIMIENTO_SELECT,
               contractor: `eq.${contractor}`,
               order: "updated_at.desc",
-              limit: "1000",
             }).toString(),
             headers,
           ),
@@ -121,4 +120,17 @@ async function readRows<T>(table: string, query: string, headers: Record<string,
   const response = await fetch(supabaseRest(table, `?${query}`), { headers, cache: "no-store" });
   if (!response.ok) throw new Error(await supabaseError(response));
   return (await response.json()) as T[];
+}
+
+async function readRowsPaged<T>(table: string, query: string, headers: Record<string, string>) {
+  const rows: T[] = [];
+  for (let offset = 0; offset < 100_000; offset += 1_000) {
+    const params = new URLSearchParams(query);
+    params.set("limit", "1000");
+    params.set("offset", String(offset));
+    const page = await readRows<T>(table, params.toString(), headers);
+    rows.push(...page);
+    if (page.length < 1_000) break;
+  }
+  return rows;
 }

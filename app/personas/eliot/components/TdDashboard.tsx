@@ -2,8 +2,6 @@
 
 import {
   AlertCircle,
-  BellRing,
-  Clock3,
   CheckCircle2,
   Download,
   FileSpreadsheet,
@@ -30,7 +28,6 @@ import {
   saveSnapshot,
 } from "../lib/db";
 import { hashFileBuffer, parseTdWorkbook } from "../lib/parser";
-import { formatCountdown } from "../lib/time";
 import type { BackupPayload, CrewRole, TdSnapshot } from "../lib/types";
 import { DashboardFiltersPanel, EmptyDashboard, HistoryPanel, PlateCrewTable, RankingsTable, WarningsSummary } from "./DashboardUi";
 import { RankingChart } from "./RankingChart";
@@ -38,7 +35,6 @@ import { RoleSummaryCards } from "./RoleSummaryCards";
 import { TrendChart } from "./TrendChart";
 import { MissingMarksTable } from "./MissingMarksTable";
 
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_FILTERS: DashboardFilters = { query: "", carrier: "todos", plate: "todas", status: "todos" };
 const ROLES: CrewRole[] = ["rr", "aux", "conductor"];
 
@@ -54,7 +50,6 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
-  const [now, setNow] = useState(0);
 
   const refreshSnapshots = useCallback(async (preferredId?: string) => {
     try {
@@ -96,11 +91,6 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const availableDates = useMemo(() => Array.from(new Set(snapshots.map((item) => item.operationalDate))).sort().reverse(), [snapshots]);
   const dateSnapshots = useMemo(() => snapshots.filter((item) => item.operationalDate === activeDate), [activeDate, snapshots]);
   const closedSnapshot = dateSnapshots.find((snapshot) => snapshot.closedAt);
@@ -114,10 +104,6 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
     () => Object.fromEntries(ROLES.map((role) => [role, sortRanking(buildRankings(filteredRows, role).filter((entry) => entry.missingMarks === 0), rankingMode)])) as Record<CrewRole, ReturnType<typeof buildRankings>>,
     [filteredRows, rankingMode],
   );
-  const latestSnapshot = snapshots[0] ?? null;
-  const nextDueAt = latestSnapshot ? new Date(latestSnapshot.uploadedAt).getTime() + TWO_HOURS_MS : 0;
-  const remaining = nextDueAt - now;
-  const cadence = !latestSnapshot ? "empty" : remaining <= 0 ? "overdue" : remaining <= 15 * 60 * 1000 ? "soon" : "ok";
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -150,7 +136,7 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
       await refreshSnapshots(snapshot.id);
       setMessage({
         tone: "success",
-        text: `Corte guardado: ${parsed.rows.length} rutas y ${parsed.warnings.length} advertencia${parsed.warnings.length === 1 ? "" : "s"}. Próxima carga en 2 horas.`,
+        text: `Corte guardado: ${parsed.rows.length} rutas y ${parsed.warnings.length} advertencia${parsed.warnings.length === 1 ? "" : "s"}.`,
       });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible procesar el archivo." });
@@ -251,20 +237,6 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
       </header>
 
       <div className="mx-auto max-w-[1380px] space-y-8 px-4 py-6 sm:px-8 sm:py-9">
-        <section className={`panel flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between ${cadence === "overdue" ? "border-red-200" : cadence === "soon" ? "border-amber-200" : ""}`}>
-          <div className="flex items-center gap-3">
-            <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ${cadence === "overdue" ? "bg-red-50 text-red-600" : cadence === "soon" ? "bg-amber-50 text-amber-600" : "bg-violet-50 text-violet-700"}`}>{cadence === "overdue" ? <BellRing size={20} /> : <Clock3 size={20} />}</span>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Frecuencia de carga</p>
-              <p className="mt-1 font-black text-[#2d1b4e]">{!latestSnapshot ? "Aún no hay un corte cargado" : cadence === "overdue" ? `Carga vencida hace ${formatCountdown(Math.abs(remaining))}` : `Próxima carga en ${formatCountdown(remaining)}`}</p>
-            </div>
-          </div>
-          <div className="text-left text-xs leading-5 text-slate-500 sm:text-right">
-            <p>Último corte: <strong className="text-slate-700">{latestSnapshot ? formatDateTime(latestSnapshot.uploadedAt) : "—"}</strong></p>
-            <p>{latestSnapshot?.fileName || "Carga la plantilla DATA ASISTENCIA"}</p>
-          </div>
-        </section>
-
         {message ? <div className={`flex items-start gap-2 rounded-2xl border px-5 py-4 text-sm font-semibold ${message.tone === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-violet-200 bg-violet-50 text-violet-800"}`}><AlertCircle className="mt-0.5 shrink-0" size={17} />{message.text}</div> : null}
 
         {loading ? <div className="panel grid min-h-64 place-items-center text-sm font-semibold text-slate-500">Cargando información local…</div> : selectedSnapshot ? (
