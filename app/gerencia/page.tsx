@@ -645,12 +645,14 @@ function DepartureHistoryChart({ rows }: { rows: DepartureHistoryRow[] }) {
   const chronological = [...rows].sort((a, b) => a.date.localeCompare(b.date));
   const series = DEPARTURE_CONTRACTORS.map((contractor, index) => {
     const values = chronological.map((row) => row.contractors.find((item) => item.id === contractor.id));
-    const total = values.reduce((sum, value) => sum + (value?.total || 0), 0);
-    const onTime = values.reduce((sum, value) => sum + (value?.onTime || 0), 0);
+    const operationalValues = values.filter((value) => value && value.percentage > 0);
+    const total = operationalValues.reduce((sum, value) => sum + (value?.total || 0), 0);
+    const onTime = operationalValues.reduce((sum, value) => sum + (value?.onTime || 0), 0);
     return {
       ...contractor,
       color: index === 0 ? "#7c3aed" : index === 1 ? "#2563eb" : "#16a34a",
       total,
+      operationalDays: operationalValues.length,
       compliance: total ? Math.round((onTime / total) * 100) : 0,
       values,
     };
@@ -688,10 +690,13 @@ function DepartureHistoryChart({ rows }: { rows: DepartureHistoryRow[] }) {
               </p>
               <span className="text-2xl font-black tabular-nums" style={{ color: contractor.color }}>{contractor.compliance}%</span>
             </div>
-            <p className="mt-1 text-xs font-semibold text-slate-500">{contractor.total} viajes en {chronological.length} días</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">{contractor.total} viajes en {contractor.operationalDays} días con operación</p>
           </button>
         ))}
       </div>
+      <p className="mt-3 text-xs font-semibold text-slate-500">
+        Los días en 0% se muestran en la gráfica, pero se excluyen del porcentaje acumulado de cada contratista.
+      </p>
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/60">
         <svg aria-label="Porcentaje diario de salida oportuna del CD" className="block h-[330px]" role="img" style={{ minWidth: width }} viewBox={`0 0 ${width} ${height}`}>
           {[0, 25, 50, 75, 100].map((tick) => {

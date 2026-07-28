@@ -81,6 +81,8 @@ export default function PuntoCoronaPage() {
   const [selectedDate, setSelectedDate] = useState("");
   const [contractor, setContractor] = useState("");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
@@ -267,21 +269,38 @@ export default function PuntoCoronaPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
-              onChange={(event) => setSelectedDate(event.target.value)}
-              value={activeDate}
+            <label className="relative">
+              <span className="sr-only">Fecha del reporte</span>
+              <input
+                className="h-10 min-w-44 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+                max={availableDates[0] || undefined}
+                min={availableDates.at(-1) || undefined}
+                onChange={(event) => {
+                  const date = event.target.value;
+                  if (date) {
+                    setSelectedDate(date);
+                    setIsHistoryOpen(false);
+                  }
+                  else setIsHistoryOpen(true);
+                }}
+                title="Selecciona una fecha. Limpia el campo para ver el histórico completo."
+                type="date"
+                value={activeDate}
+              />
+            </label>
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] transition hover:bg-slate-50 disabled:text-slate-300"
+              disabled={!historyReports.length}
+              onClick={() => {
+                setHistoryFrom(availableDates.at(-1) || "");
+                setHistoryTo(availableDates[0] || "");
+                setIsHistoryOpen((current) => !current);
+              }}
+              type="button"
             >
-              {availableDates.length ? (
-                availableDates.map((date) => (
-                  <option key={date} value={date}>
-                    {formatDate(date)}
-                  </option>
-                ))
-              ) : (
-                <option value="">Sin reportes</option>
-              )}
-            </select>
+              <History className="h-4 w-4" />
+              {isHistoryOpen ? "Ver día" : "Histórico"}
+            </button>
             <input
               accept=".csv,.xlsx,.xls"
               className="hidden"
@@ -341,18 +360,22 @@ export default function PuntoCoronaPage() {
           </div>
         </div>
 
-        {visibleReport ? (
+        {isHistoryOpen ? (
+          <RangoHistoryCharts
+            from={historyFrom}
+            modulaciones={modulaciones}
+            onFromChange={setHistoryFrom}
+            onSelectDate={(date) => {
+              setSelectedDate(date);
+              setIsHistoryOpen(false);
+            }}
+            onToChange={setHistoryTo}
+            reports={historyReports}
+            to={historyTo}
+          />
+        ) : visibleReport ? (
           <>
             <SummaryGrid modulaciones={modulaciones} report={visibleReport} />
-            <RangoHistory
-              activeDate={activeDate}
-              isOpen={isHistoryOpen}
-              modulaciones={modulaciones}
-              onClose={() => setIsHistoryOpen(false)}
-              onOpen={() => setIsHistoryOpen(true)}
-              onSelectDate={setSelectedDate}
-              reports={historyReports}
-            />
             <Charts modulaciones={modulaciones} report={visibleReport} />
             <StatusCharts
               modulaciones={modulaciones}
@@ -384,6 +407,131 @@ export default function PuntoCoronaPage() {
   );
 }
 
+function RangoHistoryCharts({
+  from,
+  modulaciones,
+  onFromChange,
+  onSelectDate,
+  onToChange,
+  reports,
+  to,
+}: {
+  from: string;
+  modulaciones: ModulacionRegistro[];
+  onFromChange: (value: string) => void;
+  onSelectDate: (value: string) => void;
+  onToChange: (value: string) => void;
+  reports: PuntoCoronaRouteReport[];
+  to: string;
+}) {
+  const rows = reports
+    .filter((report) => (!from || report.operationalDate >= from) && (!to || report.operationalDate <= to))
+    .map((report) => ({
+      date: report.operationalDate,
+      delivery: report.summary.deliveryRangePercent,
+      modulation: getReportModulationStats(report, modulaciones).percent,
+      outside: report.summary.startedRows ? (report.summary.outOfRange / report.summary.startedRows) * 100 : 0,
+      outsideCount: report.summary.outOfRange,
+      inRange: report.summary.inRange,
+      visits: report.summary.startedRows,
+      report,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const totalVisits = rows.reduce((sum, row) => sum + row.visits, 0);
+  const totalInRange = rows.reduce((sum, row) => sum + row.inRange, 0);
+  const totalOutside = rows.reduce((sum, row) => sum + row.outsideCount, 0);
+  const deliveryAverage = totalVisits ? (totalInRange / totalVisits) * 100 : 0;
+  const modulationAverage = rows.length ? rows.reduce((sum, row) => sum + row.modulation, 0) / rows.length : 0;
+  const width = Math.max(900, rows.length * 88);
+  const height = 350;
+  const left = 58;
+  const right = 28;
+  const top = 38;
+  const bottom = 62;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const x = (index: number) => rows.length === 1 ? left + plotWidth / 2 : left + (index / Math.max(1, rows.length - 1)) * plotWidth;
+  const y = (value: number) => top + ((100 - Math.max(0, Math.min(100, value))) / 100) * plotHeight;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <header className="flex flex-col gap-4 border-b border-slate-200 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Evolución histórica</p>
+          <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Entrega en rango por día</h2>
+          <p className="mt-1 text-sm text-slate-500">Compara entrega en rango y modulación real dentro del período seleccionado.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+            Desde
+            <input className="mt-1 block h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d]" max={to || undefined} onChange={(event) => onFromChange(event.target.value)} type="date" value={from} />
+          </label>
+          <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+            Hasta
+            <input className="mt-1 block h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d]" min={from || undefined} onChange={(event) => onToChange(event.target.value)} type="date" value={to} />
+          </label>
+        </div>
+      </header>
+
+      <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
+        <HistoryChartMetric color="#10b981" label="Entrega en rango" value={`${deliveryAverage.toFixed(2)}%`} />
+        <HistoryChartMetric color="#2563eb" label="Modulación real" value={`${modulationAverage.toFixed(2)}%`} />
+        <HistoryChartMetric color="#dc2626" label="Clientes fuera de rango" value={totalOutside.toLocaleString("es-CO")} />
+        <HistoryChartMetric color="#10223d" label="Días consultados" value={String(rows.length)} />
+      </div>
+
+      {rows.length ? (
+        <div className="overflow-x-auto px-5 pb-5">
+          <div className="mb-3 flex flex-wrap gap-5 text-xs font-semibold text-slate-600">
+            <span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Entrega en rango</span>
+            <span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-blue-600" />Modulación real</span>
+            <span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-red-600" />Clientes fuera de rango</span>
+            <span className="text-slate-400">Presiona un punto para abrir ese día.</span>
+          </div>
+          <svg aria-label="Histórico diario de entrega en rango y modulación" className="block h-[350px] rounded-xl border border-slate-100 bg-slate-50/40" role="img" style={{ minWidth: width }} viewBox={`0 0 ${width} ${height}`}>
+            {[0, 25, 50, 75, 100].map((tick) => (
+              <g key={tick}>
+                <line stroke="#dbe5ef" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
+                <text fill="#64748b" fontSize="11" fontWeight="700" textAnchor="end" x={left - 10} y={y(tick) + 4}>{tick}%</text>
+              </g>
+            ))}
+            {[
+              { color: "#10b981", key: "delivery" as const },
+              { color: "#2563eb", key: "modulation" as const },
+              { color: "#dc2626", key: "outside" as const },
+            ].map((series) => (
+              <g key={series.key}>
+                <polyline fill="none" points={rows.map((row, index) => `${x(index)},${y(row[series.key])}`).join(" ")} stroke={series.color} strokeLinejoin="round" strokeWidth="4" />
+                {rows.map((row, index) => (
+                  <g className="cursor-pointer" key={`${series.key}-${row.date}`} onClick={() => onSelectDate(row.date)}>
+                    <circle cx={x(index)} cy={y(row[series.key])} fill="white" r="6" stroke={series.color} strokeWidth="4" />
+                    <text fill={series.color} fontSize="10" fontWeight="900" textAnchor="middle" x={x(index)} y={Math.max(16, y(row[series.key]) - (series.key === "delivery" ? 12 : series.key === "modulation" ? 24 : 36))}>{series.key === "outside" ? row.outsideCount : `${row[series.key].toFixed(1)}%`}</text>
+                    <title>{series.key === "outside" ? `${formatDate(row.date)} · ${row.outsideCount} clientes fuera de rango (${row.outside.toFixed(2)}%)` : `${formatDate(row.date)} · ${row[series.key].toFixed(2)}%`}</title>
+                  </g>
+                ))}
+              </g>
+            ))}
+            {rows.map((row, index) => <text fill="#475569" fontSize="10" fontWeight="800" key={row.date} textAnchor="middle" x={x(index)} y={height - 24}>{formatShortDate(row.date)}</text>)}
+          </svg>
+        </div>
+      ) : (
+        <div className="grid min-h-72 place-items-center px-5 text-sm font-semibold text-slate-500">No hay reportes en el rango de fechas seleccionado.</div>
+      )}
+    </section>
+  );
+}
+
+function HistoryChartMetric({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-slate-500"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />{label}</p>
+      <p className="mt-1 text-2xl font-black tabular-nums" style={{ color }}>{value}</p>
+    </div>
+  );
+}
+
+// Vista tabular anterior conservada para referencia; el panel usa ahora las gráficas históricas.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function RangoHistory({
   activeDate,
   isOpen,
@@ -1275,6 +1423,11 @@ function formatDate(date: string) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function formatShortDate(date: string) {
+  const [, month = "", day = ""] = date.split("-");
+  return `${day}/${month}`;
 }
 
 function formatDateTime(value: string) {

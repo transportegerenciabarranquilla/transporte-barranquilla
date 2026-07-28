@@ -528,6 +528,8 @@ function smoothPath(points: Array<{ x: number; y: number }>) {
   }, `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`);
 }
 
+// Se conserva como variante disponible del gráfico; la vista activa usa la versión comparativa superior.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function DeliveryExperienceChart({ series }: { series: TrendSeries[] }) {
   const [pinnedPoint, setPinnedPoint] = useState("");
   const [hoveredMonth, setHoveredMonth] = useState("");
