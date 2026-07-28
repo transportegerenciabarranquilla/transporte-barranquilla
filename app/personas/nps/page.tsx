@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Database, MapPinned, Navigation, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Upload, X } from "lucide-react";
@@ -18,11 +18,13 @@ type Summary = {
 };
 type Group = Summary & { label: string };
 type TrendSeries = { label: string; rows: Group[] };
-type Driver = { label: string; count: number; percentage: number };
+type Driver = { label: string; count: number; percentage: number; promoters: number };
 type ScoreRow = { score: number; count: number; percentage: number };
 type Detractor = {
   accountId: string;
   date: string;
+  latitude?: number;
+  longitude?: number;
   lastAttention?: string;
   lastRr?: string;
   score: number;
@@ -56,7 +58,7 @@ type CachedNpsReport = { data: NpsData; filters: FilterState; storedAt: number }
 
 const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "" };
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const NPS_REPORT_CACHE_KEY = "people:nps:last-report";
+const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v3";
 const NPS_REPORT_CACHE_TTL_MS = 30 * 60 * 1_000;
 
 export default function NpsPage() {
@@ -162,17 +164,17 @@ export default function NpsPage() {
               <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#527180]">Repositorio central</p><h2 className="mt-1 text-xl font-semibold text-[#0b2235]">Consolidado histórico NPS</h2><p className="mt-1 text-sm text-slate-500">Todas las cifras visibles se calculan desde Supabase.</p></div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700"><CheckCircle2 size={17} />Tabla {data?.source.table || "NPS"} conectada</span>
+              <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700"><CheckCircle2 size={17} />Tabla {data?.source?.table || "NPS"} conectada</span>
               <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void handleNpsUpload(event.target.files?.[0])} ref={uploadInputRef} type="file" />
               <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b2235] px-4 text-sm font-semibold text-white transition hover:bg-[#173f59] disabled:cursor-wait disabled:bg-slate-400" disabled={uploading} onClick={() => uploadInputRef.current?.click()} type="button"><Upload size={16} />{uploading ? "Importando…" : "Subir Excel NPS"}</button>
             </div>
           </div>
           {uploadMessage ? <div className="border-t border-emerald-200 bg-emerald-50 px-5 py-2.5 text-xs font-semibold text-emerald-700">{uploadMessage}</div> : null}
           <div className="grid border-t border-slate-200 bg-[#f7f9fa] sm:grid-cols-4">
-            <RepositoryStat label="Filas almacenadas" value={formatNumber(data?.source.rawRowCount || 0)} />
-            <RepositoryStat label="Encuestas únicas" value={formatNumber(data?.source.respondentCount || 0)} />
-            <RepositoryStat label="Primera encuesta" value={formatDate(data?.source.minDate)} />
-            <RepositoryStat label="Última encuesta" value={formatDate(data?.source.maxDate)} />
+            <RepositoryStat label="Filas almacenadas" value={formatNumber(data?.source?.rawRowCount || 0)} />
+            <RepositoryStat label="Encuestas únicas" value={formatNumber(data?.source?.respondentCount || 0)} />
+            <RepositoryStat label="Primera encuesta" value={formatDate(data?.source?.minDate)} />
+            <RepositoryStat label="Última encuesta" value={formatDate(data?.source?.maxDate)} />
           </div>
         </section>
 
@@ -190,42 +192,42 @@ export default function NpsPage() {
 
         <SectionHeader id="resumen" index="01" title="Resumen ejecutivo" description="Indicadores del filtro seleccionado." />
         <SummaryCards summary={data?.summary} />
-        <NpsOverview cds={data?.segments.cds || []} summary={data?.summary} years={data?.trends.years || []} />
+        <NpsOverview cds={data?.segments?.cds || []} summary={data?.summary} years={data?.trends?.years || []} />
         <ScoreChart rows={data?.scoreDistribution || []} />
 
         <SectionHeader id="evolucion" index="02" title="Evolución del servicio" description="Resultados reales por periodo." />
         <div className="grid gap-4 xl:grid-cols-2">
-          <AnnualTrendChart eyebrow="Comparativo anual" series={data?.trends.annual || []} title="NPS por año" />
-          <TrendChart eyebrow="Evolución del año actual" mode="line" rows={data?.trends.currentMonths || []} title="NPS por mes" />
-          <TrendChart eyebrow="Seguimiento semanal" mode="columns" rows={data?.trends.weeks || []} title="NPS por semana" />
-          <TrendChart eyebrow="Evolución del mes actual" mode="line" rows={data?.trends.currentDays || []} title="NPS por día" />
+          <AnnualTrendChart eyebrow="Comparativo anual" series={data?.trends?.annual || []} title="NPS por año" />
+          <TrendChart eyebrow="Evolución del año actual" mode="line" rows={data?.trends?.currentMonths || []} title="NPS por mes" />
+          <TrendChart eyebrow="Seguimiento semanal" mode="columns" rows={data?.trends?.weeks || []} title="NPS por semana" />
+          <TrendChart eyebrow="Evolución del mes actual" mode="line" rows={data?.trends?.currentDays || []} title="NPS por día" />
         </div>
-        <DailyRatingsChart filters={filters} rows={data?.trends.currentDays || []} sourceMaxDate={data?.source.maxDate} />
-        <DeliveryExperienceChart series={data?.trends.annual || []} />
+        <DailyRatingsChart filters={filters} rows={data?.trends?.currentDays || []} sourceMaxDate={data?.source?.maxDate} />
+        <DeliveryExperienceChart series={data?.trends?.annual || []} />
 
         <SectionHeader id="causas" index="03" title="Causas y factores de impacto" description="Drivers registrados en las encuestas filtradas." />
         <div className="grid gap-4 xl:grid-cols-2">
-          <DriverChart eyebrow="Factores principales" rows={data?.drivers.primary || []} title="Primary Driver" variant="list" />
-          <DriverChart eyebrow="Causas de entrega" rows={data?.drivers.secondary || []} title="Secondary Delivery" variant="grid" />
+          <DriverChart eyebrow="Factores principales" rows={data?.drivers?.primary || []} title="Primary Driver" variant="list" />
+          <DriverChart eyebrow="Causas de entrega" rows={data?.drivers?.secondary || []} title="Secondary Delivery" variant="grid" />
         </div>
-        <DriverContribution rows={data?.drivers.primary || []} />
+        <DriverContribution rows={data?.drivers?.primary || []} />
 
         <SectionHeader id="segmentacion" index="04" title="Segmentación territorial" description="Comparativos por dimensiones presentes en la tabla NPS." />
         <div className="grid gap-4 xl:grid-cols-2">
-          <SegmentBarChart eyebrow="Desempeño comercial" rows={data?.segments.commercialManagers || []} title="NPS por jefe comercial" />
-          <ManagementDonut rows={data?.segments.managements || []} />
+          <SegmentBarChart eyebrow="Desempeño comercial" rows={data?.segments?.commercialManagers || []} title="NPS por jefe comercial" />
+          <ManagementDonut rows={data?.segments?.managements || []} />
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
-          <SegmentBarChart eyebrow="Segmentación comercial" rows={data?.segments.coms || []} title="NPS por COM" />
-          <SegmentBarChart eyebrow="Segmentación geográfica" rows={data?.segments.populations || []} title="NPS por población" />
+          <SegmentBarChart eyebrow="Segmentación comercial" rows={data?.segments?.coms || []} title="NPS por COM" />
+          <SegmentBarChart eyebrow="Segmentación geográfica" rows={data?.segments?.populations || []} title="NPS por población" />
         </div>
-        <SegmentBarChart eyebrow="Actividad comercial" rows={data?.segments.commercialActivities || []} title="NPS por actividad comercial" />
+        <SegmentBarChart eyebrow="Actividad comercial" rows={data?.segments?.commercialActivities || []} title="NPS por actividad comercial" />
 
         <SectionHeader id="detractores" index="05" title="Gestión de detractores" description="Últimas encuestas con calificación de 0 a 6." />
-        <MonthlyDetractorChart rows={data?.trends.months || []} />
-        <DetractorExplorer rows={data?.detractors || []} strata={data?.segments.strata || []} />
+        <MonthlyDetractorChart rows={data?.trends?.months || []} />
+        <DetractorExplorer rows={data?.detractors || []} strata={data?.segments?.strata || []} />
 
-        <CdMapPanel rows={data?.segments.cds || []} />
+        <CdMapPanel rows={data?.detractors || []} />
         <SectionHeader id="datos" index="06" title="Gobierno de datos" description="Trazabilidad del origen consultado." />
         <SourceTable data={data} />
       </section>
@@ -266,12 +268,12 @@ function FilterPanel({ data, fetching, filters, onChange, onReset }: {
         <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100" onClick={onReset}><RotateCcw size={14} />Limpiar</button>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <Filter label="CD"><select value={filters.cd} onChange={(event) => onChange("cd", event.target.value)}><option value="">Todos</option>{data?.options.cds.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
-        <Filter label="Año"><select value={filters.year} onChange={(event) => onChange("year", event.target.value)}><option value="">Todos</option>{data?.options.years.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="CD"><select value={filters.cd} onChange={(event) => onChange("cd", event.target.value)}><option value="">Todos</option>{data?.options?.cds?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="Año"><select value={filters.year} onChange={(event) => onChange("year", event.target.value)}><option value="">Todos</option>{data?.options?.years?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
         <Filter label="Mes"><select value={filters.month} onChange={(event) => onChange("month", event.target.value)}><option value="">Todos</option>{MONTHS.map((value, index) => <option key={value} value={index + 1}>{value}</option>)}</select></Filter>
         <Filter label="Día"><select value={filters.day} onChange={(event) => onChange("day", event.target.value)}><option value="">Todos</option>{Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></Filter>
-        <Filter label="Semana"><select value={filters.week} onChange={(event) => onChange("week", event.target.value)}><option value="">Todas</option>{data?.options.weeks.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
-        <Filter label="Gerencia"><select value={filters.management} onChange={(event) => onChange("management", event.target.value)}><option value="">Todas</option>{data?.options.managements.map((value) => <option key={value} value={value}>{value.replace(/^CO /, "")}</option>)}</select></Filter>
+        <Filter label="Semana"><select value={filters.week} onChange={(event) => onChange("week", event.target.value)}><option value="">Todas</option>{data?.options?.weeks?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
+        <Filter label="Gerencia"><select value={filters.management} onChange={(event) => onChange("management", event.target.value)}><option value="">Todas</option>{data?.options?.managements?.map((value) => <option key={value} value={value}>{value.replace(/^CO /, "")}</option>)}</select></Filter>
       </div>
     </section>
   );
@@ -680,13 +682,11 @@ function DriverChart({ eyebrow, rows, title, variant }: { eyebrow: string; rows:
 
 function DriverContribution({ rows }: { rows: Driver[] }) {
   const visible = rows.slice(0, 8);
-  const total = visible.reduce((sum, row) => sum + row.percentage, 0);
   return (
-    <ChartCard eyebrow="Contribución acumulada" title="% Primary Driver">
-      {visible.length ? <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{visible.map((row, index) => {
-        const cumulative = visible.slice(0, index + 1).reduce((sum, item) => sum + item.percentage, 0);
-        return <div className="group rounded-lg border border-[#d8e2e8] bg-[#f9fbfc] p-3 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-3"><span className="truncate text-[11px] font-semibold text-[#25435b]" title={row.label}>{row.label}</span><strong className="shrink-0 text-xs tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 flex justify-between gap-2 text-[8px] font-bold uppercase tracking-[.06em] text-slate-400"><span>{formatNumber(row.count)} menciones</span><span>Acum. {cumulative.toLocaleString("es-CO")}%</span></div></div>;
-      })}<div className="rounded-lg border border-[#a7d4cf] bg-[#edf8f7] px-4 py-2.5 sm:col-span-2 xl:col-span-4"><div className="flex items-center justify-between gap-4"><span className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#087f78]">Cobertura de los drivers visibles</span><strong className="text-xl text-[#071f33]">{total.toLocaleString("es-CO")}%</strong></div></div></div> : <EmptyState />}
+    <ChartCard eyebrow="Tasa de promotores" title="% Primary Driver">
+      {visible.length ? <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{visible.map((row) => {
+        return <div className="group rounded-lg border border-[#d8e2e8] bg-[#f9fbfc] p-3 transition hover:border-[#9ebac7] hover:bg-white" key={row.label}><div className="mb-2 flex items-start justify-between gap-3"><span className="truncate text-[11px] font-semibold text-[#25435b]" title={row.label}>{row.label}</span><strong className="shrink-0 text-xs tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-[#e8eef2]"><span className="nps-chart-bar block h-full rounded-full bg-gradient-to-r from-[#e5a226] to-[#f2c500]" style={{ width: `${Math.max(3, row.percentage)}%` }} /></div><div className="mt-2 text-[8px] font-bold uppercase tracking-[.06em] text-slate-400"><span>{formatNumber(row.promoters)} promotores / {formatNumber(row.count)} encuestados</span></div></div>;
+      })}<div className="rounded-lg border border-[#a7d4cf] bg-[#edf8f7] px-4 py-2.5 sm:col-span-2 xl:col-span-4"><span className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#087f78]">Cálculo: promotores (score 9–10) / encuestados con el driver primario</span></div></div> : <EmptyState />}
     </ChartCard>
   );
 }
@@ -812,14 +812,8 @@ function MonthlyDetractorChart({ rows }: { rows: Group[] }) {
   );
 }
 
-type CdPoint = Group & { latitude: number; longitude: number };
 type ClientCoordinate = { codigo: string; latitude: number; longitude: number; rawLatitude: number; rawLongitude: number };
-type MapPoint = { label: string; latitude: number; longitude: number };
-
-const CD_LOCATIONS: Record<string, { latitude: number; longitude: number }> = {
-  "CD Galapa": { latitude: 10.92614, longitude: -74.84523 },
-  "CD La Arenosa": { latitude: 10.97439, longitude: -74.7721 },
-};
+type MapPoint = { label: string; latitude: number; longitude: number; score?: number; date?: string };
 
 const MAP_STYLE: StyleSpecification = {
   version: 8,
@@ -835,17 +829,20 @@ const MAP_STYLE: StyleSpecification = {
   layers: [{ id: "open-street-map", type: "raster", source: "openStreetMap" }],
 };
 
-function CdMapPanel({ rows }: { rows: Group[] }) {
-  const points: CdPoint[] = rows.flatMap((row) => {
-    const location = CD_LOCATIONS[row.label];
-    return location ? [{ ...row, ...location }] : [];
-  });
+function CdMapPanel({ rows }: { rows: Detractor[] }) {
+  const points: MapPoint[] = useMemo(() => Array.from(new Map(rows.flatMap((row) =>
+    Number.isFinite(row.latitude) && Number.isFinite(row.longitude)
+      ? [[row.accountId, { label: `Cliente ${row.accountId}`, latitude: row.latitude!, longitude: row.longitude!, score: row.score, date: row.date }] as const]
+      : [],
+  )).values()), [rows]);
   const [selectedLabel, setSelectedLabel] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const [clientCode, setClientCode] = useState("");
   const [clientCoordinate, setClientCoordinate] = useState<ClientCoordinate | null>(null);
   const [coordinateError, setCoordinateError] = useState("");
   const [searchingCoordinate, setSearchingCoordinate] = useState(false);
   const selected = points.find((point) => point.label === selectedLabel) || points[0];
+  const listedPoints = showAll ? points : points.slice(0, 10);
   const mapPoint: MapPoint | undefined = clientCoordinate
     ? { label: `Cliente ${clientCoordinate.codigo}`, latitude: clientCoordinate.latitude, longitude: clientCoordinate.longitude }
     : selected;
@@ -872,42 +869,43 @@ function CdMapPanel({ rows }: { rows: Group[] }) {
 
   return (
     <article className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-end">
-        <div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Distribución geográfica</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">NPS, encuestas y ubicación de clientes</h2><p className="mt-1 text-xs text-slate-500">Selecciona un CD o busca un código de cliente para centrar el mapa.</p></div>
+      <div className="grid gap-3 border-b border-slate-200 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center">
+        <div><p className="text-[9px] font-bold uppercase tracking-[.16em] text-[#527180]">Distribución geográfica</p><h2 className="mt-1 text-lg font-semibold text-[#0b2235]">Ubicación de clientes detractores</h2><p className="mt-1 text-xs text-slate-500">Selecciona un detractor de la lista o busca un código de cliente para centrar el mapa.</p></div>
         <form className="flex gap-2" onSubmit={searchClientCoordinate}>
-          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[#cbd9e3] bg-[#f8fafb] px-3 focus-within:border-[#159b94] focus-within:ring-2 focus-within:ring-[#159b94]/10"><Search className="shrink-0 text-[#527180]" size={16} /><input aria-label="Código del cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#0b2235] outline-none placeholder:font-normal placeholder:text-slate-400" inputMode="numeric" onChange={(event) => setClientCode(event.target.value.replace(/\D/g, ""))} placeholder="Código del cliente" value={clientCode} /></label>
-          <button className="h-11 rounded-xl bg-[#0b2235] px-5 text-xs font-bold text-white transition hover:bg-[#176b73] disabled:cursor-wait disabled:opacity-60" disabled={searchingCoordinate} type="submit">{searchingCoordinate ? "Buscando…" : "Buscar"}</button>
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#cbd9e3] bg-[#f8fafb] px-3 focus-within:border-[#159b94] focus-within:ring-2 focus-within:ring-[#159b94]/10"><Search className="shrink-0 text-[#527180]" size={15} /><input aria-label="Código del cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#0b2235] outline-none placeholder:font-normal placeholder:text-slate-400" inputMode="numeric" onChange={(event) => setClientCode(event.target.value.replace(/\D/g, ""))} placeholder="Código del cliente" value={clientCode} /></label>
+          <button className="h-9 rounded-lg bg-[#0b2235] px-4 text-xs font-bold text-white transition hover:bg-[#176b73] disabled:cursor-wait disabled:opacity-60" disabled={searchingCoordinate} type="submit">{searchingCoordinate ? "Buscando…" : "Buscar"}</button>
         </form>
         {coordinateError ? <p className="text-xs font-semibold text-red-600 lg:col-start-2">{coordinateError}</p> : null}
       </div>
       {mapPoint ? (
-        <div className="grid min-h-[580px] xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="relative min-h-[520px] overflow-hidden bg-[#dcecf3] xl:min-h-[580px]">
-            <CdMap point={mapPoint} />
-            <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/70 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+        <div className="grid min-h-[500px] xl:h-[500px] xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="relative min-h-[440px] overflow-hidden bg-[#dcecf3] xl:min-h-[500px]">
+            <CdMap point={mapPoint} points={points} />
+            <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/70 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur">
               <div className="flex items-start gap-3">
-                <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#176b73] text-white"><MapPinned size={18} /></span>
+                <span className="grid h-8 w-8 place-items-center rounded-md bg-[#176b73] text-white"><MapPinned size={16} /></span>
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-[.12em] text-[#b36b16]">{clientCoordinate ? "Cliente localizado" : "Centro seleccionado"}</p>
-                  <p className="mt-0.5 font-semibold text-[#0b2235]">{mapPoint.label}</p>
-                  {!clientCoordinate && selected ? <p className="mt-1 text-xs text-slate-500">{formatNumber(selected.respondentCount)} encuestas · NPS {formatSigned(selected.nps)}</p> : null}
-                  <div className="mt-2 flex gap-2 font-mono text-[10px] font-semibold tabular-nums text-[#25435b]">
+                  <p className="text-[9px] font-bold uppercase tracking-[.12em] text-[#b36b16]">{clientCoordinate ? "Cliente localizado" : "Detractor seleccionado"}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-[#0b2235]">{mapPoint.label}</p>
+                  {!clientCoordinate && selected ? <p className="mt-1 text-xs text-slate-500">Calificación {selected.score} · {formatDate(selected.date)}</p> : null}
+                  <div className="mt-1.5 flex gap-1.5 font-mono text-[9px] font-semibold tabular-nums text-[#25435b]">
                     <span className="rounded-md bg-[#eaf2f4] px-2 py-1">Lat: {mapPoint.latitude.toFixed(6)}</span>
                     <span className="rounded-md bg-[#eaf2f4] px-2 py-1">Lon: {mapPoint.longitude.toFixed(6)}</span>
                   </div>
                 </div>
               </div>
             </div>
-            <a className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-lg border border-white/70 bg-white/95 px-3 py-2 text-[10px] font-semibold text-[#176b73] shadow-md" href={`https://www.openstreetmap.org/?mlat=${mapPoint.latitude}&mlon=${mapPoint.longitude}#map=16/${mapPoint.latitude}/${mapPoint.longitude}`} rel="noreferrer" target="_blank"><Navigation size={13} />Abrir mapa</a>
+            <a className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-md border border-white/70 bg-white/95 px-2.5 py-1.5 text-[9px] font-semibold text-[#176b73] shadow-md" href={`https://www.openstreetmap.org/?mlat=${mapPoint.latitude}&mlon=${mapPoint.longitude}#map=16/${mapPoint.latitude}/${mapPoint.longitude}`} rel="noreferrer" target="_blank"><Navigation size={12} />Abrir mapa</a>
           </div>
           <div className="flex min-h-0 flex-col border-t border-slate-200 xl:border-l xl:border-t-0">
-            <div className="bg-gradient-to-r from-[#0b2235] to-[#176b73] px-4 py-3.5 text-white"><p className="text-[8px] font-bold uppercase tracking-[.16em] text-white/60">Detalle territorial</p><div className="mt-0.5 flex items-center justify-between gap-3"><h3 className="font-semibold">Encuestas por CD</h3><span className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[9px] font-bold">{points.length} centros</span></div></div>
-            <div className="grid grid-cols-[minmax(0,1fr)_90px_82px] border-b border-slate-200 bg-[#edf2f5] px-3 py-2.5 text-[9px] font-bold uppercase tracking-[.1em] text-slate-500"><span>CD</span><span className="text-center">Encuestas</span><span className="text-right">NPS</span></div>
-            <div className="flex-1 bg-[#f8fafb]">
-              {points.map((point) => {
+            <div className="bg-gradient-to-r from-[#0b2235] to-[#176b73] px-3 py-2.5 text-white"><p className="text-[7px] font-bold uppercase tracking-[.16em] text-white/60">Detalle territorial</p><div className="mt-0.5 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">Clientes detractores</h3><span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[8px] font-bold">{points.length} clientes</span></div></div>
+            <div className="grid grid-cols-[minmax(0,1fr)_56px_76px] border-b border-slate-200 bg-[#edf2f5] px-3 py-2 text-[8px] font-bold uppercase tracking-[.1em] text-slate-500"><span>Cliente</span><span className="text-center">Score</span><span className="text-right">Fecha</span></div>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-[#f8fafb]">
+              {listedPoints.map((point) => {
                 const active = selected.label === point.label;
-                return <button aria-pressed={active && !clientCoordinate} className={`grid w-full grid-cols-[minmax(0,1fr)_90px_82px] items-center border-b px-3 py-3 text-left text-xs transition ${active && !clientCoordinate ? "border-[#9dcfc8] bg-[#dcefed] shadow-[inset_4px_0_0_#176b73]" : "border-slate-100 bg-white hover:bg-[#eef7f6]"}`} key={point.label} onClick={() => { setClientCoordinate(null); setCoordinateError(""); setSelectedLabel(point.label); }}><strong className="text-[#0b2235]">{point.label}</strong><span className="justify-self-center rounded-md border border-slate-200 bg-white px-2 py-1 font-bold tabular-nums text-slate-600">{formatNumber(point.respondentCount)}</span><span className={`justify-self-end rounded-md px-2 py-1 font-bold tabular-nums ${point.nps >= 50 ? "bg-emerald-50 text-emerald-700" : point.nps >= 0 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>{formatSigned(point.nps)}</span></button>;
+                return <button aria-pressed={active && !clientCoordinate} className={`grid w-full grid-cols-[minmax(0,1fr)_56px_76px] items-center border-b px-3 py-2 text-left text-[11px] transition ${active && !clientCoordinate ? "border-[#efb0ac] bg-red-50 shadow-[inset_3px_0_0_#c95850]" : "border-slate-100 bg-white hover:bg-red-50/60"}`} key={point.label} onClick={() => { setClientCoordinate(null); setCoordinateError(""); setSelectedLabel(point.label); }}><strong className="truncate text-[#0b2235]">{point.label}</strong><span className="justify-self-center rounded bg-red-100 px-1.5 py-0.5 font-bold tabular-nums text-red-700">{point.score}</span><span className="justify-self-end text-[9px] font-semibold text-slate-500">{formatDate(point.date)}</span></button>;
               })}
+              {points.length > 10 ? <button className="sticky bottom-0 w-full border-t border-slate-200 bg-white/95 px-4 py-2 text-[10px] font-bold text-[#176b73] backdrop-blur transition hover:bg-[#eef7f6]" onClick={() => setShowAll((value) => !value)} type="button">{showAll ? "Ver menos" : `Ver más (${points.length - 10})`}</button> : null}
             </div>
           </div>
         </div>
@@ -916,10 +914,10 @@ function CdMapPanel({ rows }: { rows: Group[] }) {
   );
 }
 
-function CdMap({ point }: { point: MapPoint }) {
+function CdMap({ point, points }: { point: MapPoint; points: MapPoint[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMapInstance | null>(null);
-  const markerRef = useRef<MapLibreMarker | null>(null);
+  const markerRefs = useRef<MapLibreMarker[]>([]);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const initialPointRef = useRef(point);
   const [mapError, setMapError] = useState("");
@@ -942,11 +940,12 @@ function CdMap({ point }: { point: MapPoint }) {
         });
         map.setMaxZoom(19);
         map.on("error", () => undefined);
-        const marker = new Marker({ color: "#176b73", scale: 1.15 }).setLngLat([initial.longitude, initial.latitude]).addTo(map);
+        markerRefs.current = points.map((item) =>
+          new Marker({ color: "#c95850", scale: 0.9 }).setLngLat([item.longitude, item.latitude]).addTo(map),
+        );
         map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
         map.addControl(new AttributionControl({ compact: true }), "bottom-left");
         mapRef.current = map;
-        markerRef.current = marker;
         resizeObserverRef.current = new ResizeObserver(() => map.resize());
         resizeObserverRef.current.observe(containerRef.current);
         requestAnimationFrame(() => map.resize());
@@ -957,18 +956,17 @@ function CdMap({ point }: { point: MapPoint }) {
     void initialize();
     return () => {
       cancelled = true;
-      markerRef.current?.remove();
+      markerRefs.current.forEach((marker) => marker.remove());
       resizeObserverRef.current?.disconnect();
       mapRef.current?.remove();
-      markerRef.current = null;
+      markerRefs.current = [];
       resizeObserverRef.current = null;
       mapRef.current = null;
     };
-  }, []);
+  }, [points]);
 
   useEffect(() => {
-    markerRef.current?.setLngLat([point.longitude, point.latitude]);
-    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], duration: 1000, essential: true, zoom: point.label.startsWith("Cliente") ? 16 : 13 });
+    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], duration: 1000, essential: true, zoom: 16 });
   }, [point]);
 
   return mapError ? <div className="absolute inset-0 grid place-items-center bg-[#eaf1f4] text-sm font-semibold text-slate-500">{mapError}</div> : <div aria-label={`Mapa de ${point.label}`} className="absolute inset-0 h-full w-full" ref={containerRef} role="img" />;

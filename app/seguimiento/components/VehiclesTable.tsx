@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, progressColor, toDateKey } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
@@ -25,9 +25,10 @@ export function VehiclesTable({
     () => (operationalDate ? vehicles.filter((vehicle) => toDateKey(vehicle.fechaDespacho) === operationalDate) : vehicles),
     [operationalDate, vehicles],
   );
-  const [activeSort, setActiveSort] = useState<"route" | "progress">("route");
+  const [activeSort, setActiveSort] = useState<"route" | "progress" | "time">("route");
   const [routeSortOrder, setRouteSortOrder] = useState<"desc" | "asc">("desc");
   const [progressSortOrder, setProgressSortOrder] = useState<"desc" | "asc">("desc");
+  const [timeSortOrder, setTimeSortOrder] = useState<"desc" | "asc">("desc");
   const [sortedVehicleKeys, setSortedVehicleKeys] = useState(() => sortVehicleKeys(visibleVehicles, "desc"));
   const duplicatedDt = useMemo(() => {
     const counts = new Map<string, number>();
@@ -72,6 +73,13 @@ export function VehiclesTable({
     setActiveSort("progress");
     setProgressSortOrder(nextOrder);
     setSortedVehicleKeys(sortVehicleKeysByProgress(visibleVehicles, nextOrder));
+  }
+
+  function handleSortByTime() {
+    const nextOrder = activeSort === "time" && timeSortOrder === "desc" ? "asc" : "desc";
+    setActiveSort("time");
+    setTimeSortOrder(nextOrder);
+    setSortedVehicleKeys(sortVehicleKeysByTime(visibleVehicles, nextOrder, now));
   }
 
   return (
@@ -131,7 +139,23 @@ export function VehiclesTable({
                   </div>
                 </div>
               </th>
-              <th className="w-24 px-2 py-1.5 text-left">Tiempo</th>
+              <th className="w-24 px-2 py-1.5 text-left">
+                <div className="inline-flex items-center gap-1">
+                  Tiempo
+                  <button
+                    aria-label="Ordenar por tiempo en ruta"
+                    aria-pressed={activeSort === "time"}
+                    className={`inline-grid h-4 w-4 place-items-center rounded transition hover:bg-slate-200 hover:text-slate-700 ${
+                      activeSort === "time" ? "text-cyan-300" : "text-slate-500"
+                    }`}
+                    onClick={handleSortByTime}
+                    title={activeSort === "time" && timeSortOrder === "desc" ? "Menor tiempo primero" : "Mayor tiempo primero"}
+                    type="button"
+                  >
+                    <ArrowUpDown size={10} />
+                  </button>
+                </div>
+              </th>
               <th className="w-32 px-2 py-1.5 text-left">Tiempo planeado</th>
               <th className="w-28 px-2 py-1.5 text-left">Estado</th>
               <th className="w-10 px-1.5 py-1.5 text-right"></th>
@@ -367,6 +391,18 @@ function sortVehicleKeysByProgress(vehicles: Vehiculo[], order: "desc" | "asc") 
     .sort((a, b) => {
       const difference = getProgress(b) - getProgress(a);
       return order === "desc" ? difference : -difference;
+    })
+    .map(getVehicleUiKey);
+}
+
+function sortVehicleKeysByTime(vehicles: Vehiculo[], order: "desc" | "asc", now: Date) {
+  return [...vehicles]
+    .sort((a, b) => {
+      const aSeconds = parseDurationToSeconds(calculateRouteTime(a, now));
+      const bSeconds = parseDurationToSeconds(calculateRouteTime(b, now));
+      if (aSeconds === null) return bSeconds === null ? 0 : 1;
+      if (bSeconds === null) return -1;
+      return order === "desc" ? bSeconds - aSeconds : aSeconds - bSeconds;
     })
     .map(getVehicleUiKey);
 }

@@ -102,11 +102,16 @@ export async function GET(request: Request) {
         secondaryDriver: Array.from(survey.secondaryDrivers)[0] || "Sin dato",
       }));
     const detractorCacheKey = detractorRows.map((row) => `${normalizeDigits(row.accountId)}:${row.date}`).join("|");
-    const detractors = await readServerCache(
+    const enrichedDetractors = await readServerCache(
       `supabase:nps-detractors:v2:${session.email || "people"}:${detractorCacheKey}`,
       5 * 60 * 1_000,
       () => enrichDetractorsWithLastRr(detractorRows, session),
     );
+    const detractorCoordinates = await loadCustomerCoordinates(session, detractorRows.map((row) => row.accountId));
+    const detractors = enrichedDetractors.map((row) => ({
+      ...row,
+      ...detractorCoordinates.get(normalizeDigits(row.accountId)),
+    }));
 
     return NextResponse.json({
       summary: summarize(filtered, filtered.reduce((total, survey) => total + survey.duplicateRows, 0)),
@@ -195,6 +200,31 @@ async function loadCustomerSegments(session: Session, codes: string[]) {
     result.set(code, { commercialActivity, commercialManager, com, population, stratum });
   });
   return result;
+}
+
+async function loadCustomerCoordinates(session: Session, accountIds: string[]) {
+  const codes = Array.from(new Set(accountIds.map(normalizeDigits).filter(Boolean)));
+  if (!codes.length) return new Map<string, { latitude: number; longitude: number }>();
+
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+  const chunks = Array.from({ length: Math.ceil(codes.length / 400) }, (_, index) => codes.slice(index * 400, index * 400 + 400));
+  const pages = await Promise.all(chunks.map(async (chunk) => {
+    const params = new URLSearchParams({
+      select: "CodigoCliente,Longitud_fix,Latitud_fix",
+      CodigoCliente: `in.(${chunk.join(",")})`,
+    });
+    const response = await fetch(supabaseRest("Cordenadas", `?${params.toString()}`), { headers, cache: "no-store" });
+    return response.ok ? (await response.json()) as Record<string, unknown>[] : [];
+  }));
+
+  const coordinates = new Map<string, { latitude: number; longitude: number }>();
+  pages.flat().forEach((row) => {
+    const code = normalizeDigits(row.CodigoCliente);
+    const latitude = normalizeLatitude(Number(row.Latitud_fix));
+    const longitude = normalizeLongitude(Number(row.Longitud_fix));
+    if (code && Number.isFinite(latitude) && Number.isFinite(longitude)) coordinates.set(code, { latitude, longitude });
+  });
+  return coordinates;
 }
 
 async function enrichDetractorsWithLastRr<T extends { accountId: string }>(detractors: T[], session: Session) {
@@ -444,11 +474,20 @@ function groupScores(surveys: Survey[]) {
 }
 
 function groupDrivers(surveys: Survey[], field: "primaryDrivers" | "secondaryDrivers") {
-  const counts = new Map<string, number>();
-  surveys.forEach((survey) => survey[field].forEach((driver) => counts.set(driver, (counts.get(driver) || 0) + 1)));
-  const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0);
-  return Array.from(counts, ([label, count]) => ({ label, count, percentage: total ? round((count / total) * 100) : 0 }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "es"))
+  const groups = new Map<string, { promoters: number; respondents: number }>();
+  surveys.forEach((survey) => survey[field].forEach((driver) => {
+    const group = groups.get(driver) || { promoters: 0, respondents: 0 };
+    group.respondents += 1;
+    if (survey.score >= 9) group.promoters += 1;
+    groups.set(driver, group);
+  }));
+  return Array.from(groups, ([label, group]) => ({
+    label,
+    count: group.respondents,
+    promoters: group.promoters,
+    percentage: group.respondents ? round((group.promoters / group.respondents) * 100) : 0,
+  }))
+    .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"))
     .slice(0, 15);
 }
 
@@ -466,6 +505,19 @@ function clean(value: unknown) {
 
 function normalizeDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
+}
+
+function normalizeLongitude(value: number) {
+  let result = value;
+  while (Math.abs(result) > 180) result /= 10;
+  return result;
+}
+
+function normalizeLatitude(value: number) {
+  let result = value;
+  while (Math.abs(result) > 15) result /= 10;
+  if (Math.abs(result) >= 0.5 && Math.abs(result) < 2) result *= 10;
+  return result;
 }
 
 function cleanDriver(value: unknown) {
