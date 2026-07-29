@@ -62,8 +62,23 @@ export function formatCurrentTime() {
 
 function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle: Vehiculo) {
   const visitados = Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0));
+  const currentStatusTime = Date.parse(currentVehicle.statusUpdatedAt || "");
+  const storedStatusTime = Date.parse(storedVehicle.statusUpdatedAt || "");
+  const keepCurrentStatus =
+    Number.isFinite(currentStatusTime) &&
+    (!Number.isFinite(storedStatusTime) || currentStatusTime > storedStatusTime);
+
   return {
     ...storedVehicle,
     visitados: Math.min(visitados, storedVehicle.clientes || visitados),
+    ...(keepCurrentStatus
+      ? {
+          status: currentVehicle.status,
+          statusUpdatedAt: currentVehicle.statusUpdatedAt,
+          horaSalida: currentVehicle.horaSalida,
+          horaLlegada: currentVehicle.horaLlegada,
+          tiempoRuta: currentVehicle.tiempoRuta,
+        }
+      : {}),
   };
 }

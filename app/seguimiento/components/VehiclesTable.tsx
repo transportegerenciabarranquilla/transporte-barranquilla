@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, hasRecargueValue, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
-import { StatusBadge } from "./StatusBadge";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
 
 export function VehiclesTable({
   vehicles,
@@ -239,7 +238,6 @@ export function VehiclesTable({
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <StatusSelect
-                      hadRecargue={hasRecargueValue(item.recargue)}
                       status={status}
                       onChange={(nextStatus) =>
                         onUpdateVehicle(recordKey, {
@@ -280,14 +278,12 @@ export function VehiclesTable({
   );
 }
 
-function StatusSelect({ hadRecargue, status, onChange }: { hadRecargue: boolean; status: string; onChange: (status: string) => void }) {
+function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {
   return (
-    <div className="relative inline-flex max-w-full flex-col items-start gap-1">
-      <StatusBadge status={status} />
-      {hadRecargue && status !== "Recargue" ? <StatusBadge status="Recargue" /> : null}
+    <div className="inline-flex max-w-full flex-col items-start gap-1">
       <select
         aria-label="Cambiar estado"
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className="h-7 max-w-36 cursor-pointer rounded-md border border-slate-300 bg-white px-2 text-[10px] font-bold text-[#17364d] outline-none transition focus:border-[#159b94] focus:ring-2 focus:ring-[#159b94]/15"
         onChange={(event) => onChange(event.target.value)}
         onClick={(event) => event.stopPropagation()}
         value={status}

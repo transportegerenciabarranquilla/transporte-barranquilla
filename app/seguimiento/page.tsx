@@ -22,7 +22,7 @@ import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, t
 import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
-import { refreshRemoteRecords, waitForRemoteSaves } from "../lib/remoteStore";
+import { refreshRemoteRecords } from "../lib/remoteStore";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY } from "../lib/adminSettings";
 import {
   formatCurrentTime,
@@ -246,63 +246,12 @@ export default function SeguimientoPage() {
     vehiclesRef.current = prepared;
     setVehiculos(prepared);
     if (changes.status !== undefined) {
-      const updatedVehicle = prepared.find((item) => getVehicleUiKey(item) === recordKey);
-      if (updatedVehicle) saveVehicleStatusImmediately(updatedVehicle, changes.status);
+      saveSeguimientoImmediately(prepared, `Estado ${changes.status} guardado en Supabase.`);
     } else if (changes.clientes !== undefined) {
       saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
     } else {
       scheduleSeguimientoSave(prepared);
     }
-  }
-
-  function saveVehicleStatusImmediately(vehicle: Vehiculo, desiredStatus: string) {
-    const saveVersion = ++saveVersionRef.current;
-    pendingLocalSaveRef.current = true;
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-
-    void waitForRemoteSaves("/api/seguimiento")
-      .then(() => fetch("/api/seguimiento", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recordId: vehicle.recordId,
-          changes: {
-            status: desiredStatus,
-            statusUpdatedAt: vehicle.statusUpdatedAt,
-            recargue: vehicle.recargue,
-            horaSalida: vehicle.horaSalida,
-            horaLlegada: vehicle.horaLlegada,
-            tiempoRuta: vehicle.tiempoRuta,
-            clientes: vehicle.clientes,
-            visitados: vehicle.visitados,
-          },
-        }),
-        cache: "no-store",
-      }))
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "No se pudo guardar el estado.");
-        if (saveVersionRef.current !== saveVersion) return;
-        const savedVehicle = body.record as Vehiculo;
-        const nextVehicles = vehiclesRef.current.map((item) =>
-          item.recordId === savedVehicle.recordId ? savedVehicle : item
-        );
-        vehiclesRef.current = nextVehicles;
-        setVehiculos(nextVehicles);
-        setImportMessage(`Estado ${savedVehicle.status} guardado en Supabase.`);
-        await refreshRemoteRecords("/api/seguimiento", { force: true });
-      })
-      .catch((error) => {
-        if (saveVersionRef.current === saveVersion) {
-          setImportMessage(error instanceof Error ? error.message : "No se pudo guardar el estado.");
-        }
-      })
-      .finally(() => {
-        if (saveVersionRef.current === saveVersion) pendingLocalSaveRef.current = false;
-      });
   }
 
   function saveSeguimientoImmediately(records: Vehiculo[], successMessage: string) {
