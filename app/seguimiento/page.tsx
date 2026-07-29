@@ -70,6 +70,8 @@ export default function SeguimientoPage() {
   const [dateLabel, setDateLabel] = useState("");
   const pendingLocalSaveRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
+  const saveVersionRef = useRef(0);
+  const vehiclesRef = useRef<Vehiculo[]>([]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -91,8 +93,16 @@ export default function SeguimientoPage() {
 
   useEffect(() => {
     if (pendingLocalSaveRef.current) return;
-    setVehiculos((current) => mergeStoredVehiclesPreservingProgress(current, storedVehiculos));
+    setVehiculos((current) => {
+      const merged = mergeStoredVehiclesPreservingProgress(current, storedVehiculos);
+      vehiclesRef.current = merged;
+      return merged;
+    });
   }, [storedVehiculos]);
+
+  useEffect(() => {
+    vehiclesRef.current = vehiculos;
+  }, [vehiculos]);
 
   useEffect(() => {
     return () => {
@@ -170,12 +180,12 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
-    void refreshRemoteRecords("/api/seguimiento");
+    void refreshRemoteRecords("/api/seguimiento", { force: true });
     void refreshRemoteRecords("/api/asistencias");
     void refreshRemoteRecords("/api/modulaciones");
     void refreshRemoteRecords("/api/checkins");
     const interval = window.setInterval(() => {
-      void refreshRemoteRecords("/api/seguimiento");
+      void refreshRemoteRecords("/api/seguimiento", { force: true });
       void refreshRemoteRecords("/api/asistencias");
       void refreshRemoteRecords("/api/modulaciones");
       void refreshRemoteRecords("/api/checkins");
@@ -202,7 +212,7 @@ export default function SeguimientoPage() {
 
   function actualizarVisitados(recordKey: string, visitados: number) {
     const prepared = prepareSeguimientoVehicles(
-      vehiculos.map((item) =>
+      vehiclesRef.current.map((item) =>
         getVehicleUiKey(item) === recordKey
           ? {
               ...item,
@@ -212,6 +222,7 @@ export default function SeguimientoPage() {
       ),
     );
 
+    vehiclesRef.current = prepared;
     setVehiculos(prepared);
     scheduleSeguimientoSave(prepared);
   }
@@ -219,7 +230,8 @@ export default function SeguimientoPage() {
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
     const shouldResetAttendance =
       changes.fechaDespacho !== undefined || changes.status === "Pernoctado" || changes.status === "Cambio de fecha";
-    const previousVehicle = vehiculos.find((item) => getVehicleUiKey(item) === recordKey);
+    const currentVehicles = vehiclesRef.current;
+    const previousVehicle = currentVehicles.find((item) => getVehicleUiKey(item) === recordKey);
 
     setVehiculoSeleccionado((current) =>
       current && (vehiculoSeleccionadoKey || getVehicleUiKey(current)) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
@@ -228,16 +240,46 @@ export default function SeguimientoPage() {
     if (previousVehicle) removeStaleRouteData(previousVehicle, shouldResetAttendance);
 
     const prepared = prepareSeguimientoVehicles(
-      vehiculos.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, shouldResetAttendance) : item)),
+      currentVehicles.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, shouldResetAttendance) : item)),
     );
 
+    vehiclesRef.current = prepared;
     setVehiculos(prepared);
-    scheduleSeguimientoSave(prepared);
+    if (changes.clientes !== undefined) {
+      saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
+    } else {
+      scheduleSeguimientoSave(prepared);
+    }
+  }
+
+  function saveSeguimientoImmediately(records: Vehiculo[], successMessage: string) {
+    const saveVersion = ++saveVersionRef.current;
+    pendingLocalSaveRef.current = true;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    void saveSeguimientoVehiculos(records)
+      .then((savedRecords) => {
+        if (saveVersionRef.current !== saveVersion) return;
+        vehiclesRef.current = savedRecords;
+        setVehiculos(savedRecords);
+        setImportMessage(successMessage);
+      })
+      .catch((error) => {
+        if (saveVersionRef.current === saveVersion) {
+          setImportMessage(error instanceof Error ? error.message : "No se pudieron guardar los clientes.");
+        }
+      })
+      .finally(() => {
+        if (saveVersionRef.current === saveVersion) pendingLocalSaveRef.current = false;
+      });
   }
 
   async function guardarSalidaTardia(recordKey: string, changes: Pick<Vehiculo, "causalSalidaTardia" | "comentarioSalidaTardia">) {
     const prepared = prepareSeguimientoVehicles(
-      vehiculos.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, false) : item)),
+      vehiclesRef.current.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, false) : item)),
     );
 
     if (saveTimerRef.current) {
@@ -250,6 +292,7 @@ export default function SeguimientoPage() {
 
     try {
       const savedRecords = await saveSeguimientoVehiculos(prepared);
+      vehiclesRef.current = savedRecords;
       setVehiculos(savedRecords);
       setImportMessage("Salida tardia guardada en Supabase.");
     } catch (error) {
@@ -261,6 +304,7 @@ export default function SeguimientoPage() {
   }
 
   function scheduleSeguimientoSave(records: Vehiculo[]) {
+    const saveVersion = ++saveVersionRef.current;
     pendingLocalSaveRef.current = true;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
 
@@ -270,8 +314,10 @@ export default function SeguimientoPage() {
       } catch (error) {
         setImportMessage(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
       } finally {
-        pendingLocalSaveRef.current = false;
-        saveTimerRef.current = null;
+        if (saveVersionRef.current === saveVersion) {
+          pendingLocalSaveRef.current = false;
+          saveTimerRef.current = null;
+        }
       }
     }, SEGUIMIENTO_SAVE_DEBOUNCE_MS);
   }
@@ -318,10 +364,17 @@ export default function SeguimientoPage() {
       updated.visitados = 0;
     }
 
-    if (changes.status === "En ruta" && !hasTimeValue(updated.horaSalida)) {
-      updated.horaSalida = formatCurrentTime();
+    if (changes.status === "En ruta") {
+      if (!hasTimeValue(updated.horaSalida)) updated.horaSalida = formatCurrentTime();
       updated.horaLlegada = "Pendiente";
       updated.tiempoRuta = "Pendiente";
+    }
+
+    if (changes.status === "Finalizado") {
+      if (!hasTimeValue(updated.horaLlegada)) updated.horaLlegada = formatCurrentTime();
+      updated.visitados = updated.clientes;
+    } else if (hasTimeValue(updated.horaLlegada)) {
+      updated.visitados = updated.clientes;
     }
 
     if (changes.status && isRouteClockBlockedStatus(changes.status)) {
@@ -362,11 +415,13 @@ export default function SeguimientoPage() {
 
   async function confirmDeleteVehicle() {
     if (!deleteCandidateKey) return;
-    const vehicle = vehiculos.find((item) => getVehicleUiKey(item) === deleteCandidateKey);
+    const currentVehicles = vehiclesRef.current;
+    const vehicle = currentVehicles.find((item) => getVehicleUiKey(item) === deleteCandidateKey);
     if (vehicle) removeStaleRouteData(vehicle, true);
 
-    const previousVehicles = vehiculos;
-    const prepared = prepareSeguimientoVehicles(vehiculos.filter((item) => getVehicleUiKey(item) !== deleteCandidateKey));
+    const previousVehicles = currentVehicles;
+    const prepared = prepareSeguimientoVehicles(currentVehicles.filter((item) => getVehicleUiKey(item) !== deleteCandidateKey));
+    vehiclesRef.current = prepared;
     setVehiculos(prepared);
     pendingLocalSaveRef.current = true;
     if (saveTimerRef.current) {
@@ -383,9 +438,11 @@ export default function SeguimientoPage() {
 
     try {
       const savedRecords = await saveSeguimientoVehiculos(prepared, { deleteMissing: true });
+      vehiclesRef.current = savedRecords;
       setVehiculos(savedRecords);
       setImportMessage("DT borrado correctamente.");
     } catch (error) {
+      vehiclesRef.current = previousVehicles;
       setVehiculos(previousVehicles);
       setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el DT.");
     } finally {
@@ -397,7 +454,8 @@ export default function SeguimientoPage() {
     if (!file) return;
 
     try {
-      const imported = await parseSeguimientoFile(file, vehiculos);
+      const currentVehicles = vehiclesRef.current;
+      const imported = await parseSeguimientoFile(file, currentVehicles);
       if (!imported.length) {
         setImportMessage("No se encontraron filas validas en el archivo.");
         return;
@@ -405,9 +463,10 @@ export default function SeguimientoPage() {
 
       setImportMessage("Guardando seguimiento en Supabase...");
 
-      const prepared = prepareSeguimientoVehicles(mergeVehiclesByDt(vehiculos, imported));
+      const prepared = prepareSeguimientoVehicles(mergeVehiclesByDt(currentVehicles, imported));
       const savedRecords = await saveSeguimientoVehiculos(prepared);
 
+      vehiclesRef.current = savedRecords;
       setVehiculos(savedRecords);
       setImportMessage(`${imported.length} registros guardados en Supabase desde ${file.name}.`);
     } catch (error) {
@@ -424,7 +483,7 @@ export default function SeguimientoPage() {
     const nowTime = formatCurrentTime();
     const filteredKeys = new Set(filteredVehicles.map((vehicle) => getVehicleUiKey(vehicle)));
     const prepared = prepareSeguimientoVehicles(
-      vehiculos.map((vehicle) => {
+      vehiclesRef.current.map((vehicle) => {
         if (!filteredKeys.has(getVehicleUiKey(vehicle))) return vehicle;
 
         return {
@@ -437,6 +496,7 @@ export default function SeguimientoPage() {
       }),
     );
 
+    vehiclesRef.current = prepared;
     setVehiculos(prepared);
     scheduleSeguimientoSave(prepared);
     setImportMessage(`${filteredVehicles.length} vehiculos pasaron a En ruta.`);

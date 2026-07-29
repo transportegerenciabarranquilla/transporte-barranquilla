@@ -52,6 +52,28 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
   } satisfies PuntoCoronaRouteReport;
 }
 
+export function mergePuntoCoronaRouteReports(
+  existing: PuntoCoronaRouteReport | null,
+  incoming: PuntoCoronaRouteReport,
+) {
+  if (!existing || existing.id !== incoming.id || existing.kind !== "current") return incoming;
+
+  const rowsById = new Map(existing.rows.map((row) => [row.id, row]));
+  incoming.rows.forEach((row) => rowsById.set(row.id, row));
+  const rows = Array.from(rowsById.values());
+  const matchedDts = new Set(rows.map((row) => normalizeDt(row.dt)).filter(Boolean)).size;
+
+  return {
+    ...incoming,
+    rows,
+    summary: summarizeRows(
+      rows,
+      Math.max(existing.summary.seguimientoDts, incoming.summary.seguimientoDts),
+      matchedDts,
+    ),
+  } satisfies PuntoCoronaRouteReport;
+}
+
 export function createClosureReport(report: PuntoCoronaRouteReport) {
   return {
     ...report,

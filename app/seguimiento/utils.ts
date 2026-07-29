@@ -25,7 +25,14 @@ function normalizeRecordPart(value: string | number | undefined) {
 
 export function getProgress(item: Vehiculo) {
   if (!item.clientes) return 0;
-  return Math.round((item.visitados / item.clientes) * 100);
+  const clientes = Math.max(Number(item.clientes) || 0, 0);
+  const visitados = Math.min(Math.max(Number(item.visitados) || 0, 0), clientes);
+  if (!clientes) return 0;
+  if (visitados >= clientes) return 100;
+
+  // Una ruta incompleta nunca debe redondearse a 100%, porque eso también
+  // hace que getStatus la interprete como finalizada.
+  return Math.min(99, Math.floor((visitados / clientes) * 100));
 }
 
 export function getPlannedProgress(
@@ -103,6 +110,10 @@ function normalizeScaledOperationalValue(value: number, threshold: number) {
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
   if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
   if (item?.status === "Finalizado") return "Finalizado";
+  // Una copia local obsoleta puede conservar "En ruta" después de que
+  // Supabase ya confirmó todos los clientes. Reconciliar únicamente ese
+  // estado evita afectar casos operativos válidos como "Retornando".
+  if (progress >= 100 && item?.status === "En ruta") return "Finalizado";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
   if (hasRecargueValue(item?.recargue)) return "Recargue";
   if (progress === 0) return "Cargando";
@@ -149,6 +160,9 @@ export function toDateKey(value: string | undefined) {
 
 export function calculateRouteTime(vehicle: Pick<Vehiculo, "horaSalida" | "horaLlegada" | "tiempoRuta" | "status">, now = new Date()) {
   if (isRouteClockBlockedStatus(vehicle.status) && !hasTimeValue(vehicle.horaLlegada)) return "Pendiente";
+  if (vehicle.status === "Finalizado" && !hasTimeValue(vehicle.horaLlegada)) {
+    return parseDurationToSeconds(vehicle.tiempoRuta) === null ? "Pendiente" : String(vehicle.tiempoRuta);
+  }
 
   const startSeconds = parseTimeToSeconds(vehicle.horaSalida);
   if (startSeconds === null) return vehicle.tiempoRuta || "Pendiente";

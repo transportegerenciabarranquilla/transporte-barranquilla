@@ -39,7 +39,7 @@ import { CONTRACTORS, normalizeContractorName } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
-import { createClosureReport, parsePuntoCoronaRouteFile } from "./routeReportService";
+import { createClosureReport, mergePuntoCoronaRouteReports, parsePuntoCoronaRouteFile } from "./routeReportService";
 
 const DATA_REFRESH_MS = 30_000;
 const ALLOWED_CONTRACTORS = new Set<string>(CONTRACTORS);
@@ -154,7 +154,14 @@ export default function PuntoCoronaPage() {
     setMessage("");
 
     try {
-      const report = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
+      const parsedReport = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
+      const existingReport =
+        reports.find((item) =>
+          item.contractor === contractor &&
+          item.operationalDate === parsedReport.operationalDate &&
+          item.kind === "current"
+        ) ?? null;
+      const report = mergePuntoCoronaRouteReports(existingReport, parsedReport);
       await savePuntoCoronaRouteReports([report]);
       const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, report);
       setSelectedDate(report.operationalDate);

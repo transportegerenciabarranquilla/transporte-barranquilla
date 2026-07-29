@@ -3,13 +3,14 @@ import { cachedJsonFetch } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
 
 const PEOPLE_CACHE_TTL_MS = 10 * 60 * 1000;
-const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
+const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA,CELULAR";
 
 type PersonaRow = {
   CC?: string | number;
   NOMBRE?: string;
   CARGO?: string;
   CONTRATISTA?: string;
+  CELULAR?: string | number;
 };
 
 export async function GET(request: Request) {

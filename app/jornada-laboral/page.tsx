@@ -8,7 +8,7 @@ import { useStorageSnapshot } from "../lib/storageEvents";
 import { isLogisticosContractor } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
-import { getStatus, getVehicleUiKey, hasTimeValue, toDateKey } from "../seguimiento/utils";
+import { getStatus, getVehicleUiKey, hasTimeValue, ROUTE_STATUSES, toDateKey } from "../seguimiento/utils";
 
 const META_RELEVO_MINUTES = 10 * 60 + 30;
 const SIF_ALERT_MINUTES = 13 * 60;
@@ -20,10 +20,14 @@ const CAUSALES_DESVIO = [
   "Bloqueo de via",
   "Novedades de flota",
   "Investigacion del desvio",
-];
+  "Rutas Dispersas",
+  "Rechazo",
+  "Reubicacion",
+  "Segundo Viaje"
+];  
 
 type JornadaState = "ok" | "warn" | "danger" | "done" | "lateDone" | "empty";
-type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string };
+type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string; CELULAR?: string | number };
 
 export default function JornadaLaboralPage() {
   const router = useRouter();
@@ -34,7 +38,7 @@ export default function JornadaLaboralPage() {
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
-  const [classificationFilter, setClassificationFilter] = useState("");
+  const [operationalStatusFilter, setOperationalStatusFilter] = useState("");
   const [routeTimeSort, setRouteTimeSort] = useState<"" | "desc" | "asc">("");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores] = useState<Persona[]>([]);
@@ -83,9 +87,9 @@ export default function JornadaLaboralPage() {
       const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio} ${row.vehicle.relevador}`.toLowerCase();
       const matchesSearch = !searchTerm || searchable.includes(searchTerm);
       const matchesState = !stateFilter || row.state === stateFilter || (stateFilter === "done" && row.state === "lateDone");
-      const matchesClassification = !classificationFilter || row.clasificacion === classificationFilter;
+      const matchesOperationalStatus = !operationalStatusFilter || row.statusLabel === operationalStatusFilter;
 
-      return matchesSearch && matchesState && matchesClassification;
+      return matchesSearch && matchesState && matchesOperationalStatus;
     });
 
     if (!routeTimeSort) {
@@ -97,7 +101,7 @@ export default function JornadaLaboralPage() {
       if (elapsedDiff !== 0) return elapsedDiff;
       return getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true });
     });
-  }, [classificationFilter, routeTimeSort, rows, search, stateFilter]);
+  }, [operationalStatusFilter, routeTimeSort, rows, search, stateFilter]);
   const selectedVehicle = useMemo(() => {
     if (!selectedVehicleKey) return null;
     return jornadaVehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
@@ -263,13 +267,11 @@ export default function JornadaLaboralPage() {
                 </select>
                 <select
                   className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-[#f5bd19]"
-                  onChange={(event) => setClassificationFilter(event.target.value)}
-                  value={classificationFilter}
+                  onChange={(event) => setOperationalStatusFilter(event.target.value)}
+                  value={operationalStatusFilter}
                 >
-                  <option value="">Toda clasif.</option>
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="No efectivo">No efectivo</option>
-                  <option value="Pendiente">Pendiente</option>
+                  <option value="">Todos los estados</option>
+                  {ROUTE_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
               </div>
             </div>
@@ -304,7 +306,7 @@ export default function JornadaLaboralPage() {
             <table className="w-full min-w-[1120px] table-fixed">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <HeaderCell width="w-[110px]" title="Estado" detail="Jornada" />
+                  <HeaderCell width="w-[120px]" title="Estado" detail="Seguimiento" />
                   <HeaderCell width="w-[88px]" title="Placa" detail="Vehiculo" />
                   <HeaderCell width="w-[64px]" title="Fecha" detail="Despacho" />
                   <HeaderCell width="w-[72px]" title="Salida" detail="Hora ruta" />
@@ -670,16 +672,49 @@ function RelevadorSelect({
 }
 
 function VehiclePeopleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose: () => void }) {
-  const people = getVehiclePeople(vehicle);
+  const people = useMemo(() => getVehiclePeople(vehicle), [vehicle]);
+  const [phones, setPhones] = useState<Record<string, string>>({});
+  const metaRelevo = calculateMetaRelevo(vehicle.horaSalida);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    Promise.all(people.map(async (person) => {
+      const params = new URLSearchParams();
+      if (person.cedula) params.set("cc", person.cedula);
+      else params.set("q", person.nombre);
+      if (vehicle.transportista) params.set("contratista", vehicle.transportista);
+
+      const response = await fetch(`/api/personas?${params.toString()}`, { cache: "no-store", signal: controller.signal });
+      const body = await response.json().catch(() => ({}));
+      const persona = body.persona || (Array.isArray(body.personas) ? body.personas[0] : null);
+      return [vehiclePersonKey(person), cleanPersonValue(persona?.CELULAR)] as const;
+    }))
+      .then((entries) => {
+        if (!controller.signal.aborted) setPhones(Object.fromEntries(entries));
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [people, vehicle.transportista]);
 
   return (
     <div className="fixed inset-0 z-[120] flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
       <aside className="h-full w-full max-w-md overflow-y-auto bg-white shadow-[0_0_70px_rgba(16,34,61,0.24)]">
         <div className="sticky top-0 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-slate-500">Detalle del vehiculo</p>
-              <h2 className="mt-1 text-2xl font-semibold text-[#10223d]">{vehicle.vehiculo || "Sin placa"}</h2>
+              <div className="mt-1 flex flex-wrap items-start gap-x-4 gap-y-1">
+                <h2 className="text-2xl font-semibold text-[#10223d]">{vehicle.vehiculo || "Sin placa"}</h2>
+                <div className="ml-auto pr-2 text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-red-500">Meta relevo</p>
+                  <p className="text-3xl font-extrabold leading-none tabular-nums text-red-600">{metaRelevo}</p>
+                  <p className="mt-1 max-w-44 text-[10px] font-extrabold leading-3 text-black">
+                    La foto de evidencia debe ser antes de la hora meta
+                  </p>
+                </div>
+              </div>
               <p className="mt-1 text-sm text-slate-500">DT {vehicle.transporte || "-"}</p>
             </div>
             <button
@@ -704,7 +739,9 @@ function VehiclePeopleDrawer({ vehicle, onClose }: { vehicle: Vehiculo; onClose:
               <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" key={`${person.rol}-${person.nombre}-${person.cedula || ""}`}>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{person.rol}</p>
                 <p className="mt-1 text-sm font-semibold text-[#10223d]">{person.nombre}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{person.cedula ? `CC ${person.cedula}` : "Sin cedula registrada"}</p>
+                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                  {phones[vehiclePersonKey(person)] ? `Tel. ${phones[vehiclePersonKey(person)]}` : "Sin teléfono registrado"}
+                </p>
               </article>
             ))
           ) : (
@@ -728,7 +765,7 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
     warn: "border-amber-100 bg-amber-50 text-amber-700",
   };
 
-  return <span className={`inline-flex max-w-20 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
+  return <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
 }
 
 function isLogisticosVehicle(vehicle: Vehiculo) {
@@ -742,7 +779,8 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
   const clasificacion = classifyRelevo(vehicle.horaSalida, vehicle.horaInicioRelevo);
   const hasRelevo = relevoSeconds !== null;
   const avance = vehicle.clientes ? Math.min(100, Math.round(((vehicle.visitados || 0) / vehicle.clientes) * 100)) : 0;
-  const isFinished = getStatus(avance, vehicle) === "Finalizado";
+  const operationalStatus = getStatus(avance, vehicle);
+  const isFinished = operationalStatus === "Finalizado";
 
   if (salidaSeconds === null) {
     return {
@@ -754,7 +792,7 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
       metaRelevo,
       requiereRelevo: false,
       state: "empty" as JornadaState,
-      statusLabel: "Sin hora salida",
+      statusLabel: operationalStatus,
       vehicle,
     };
   }
@@ -762,16 +800,6 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
   const elapsedSeconds = getJornadaElapsedSeconds(vehicle, salidaSeconds, relevoSeconds, isFinished, now);
   const alertaSif = elapsedSeconds >= SIF_ALERT_SECONDS;
   const state: JornadaState = hasRelevo ? (alertaSif ? "lateDone" : "done") : alertaSif ? "danger" : elapsedSeconds >= META_RELEVO_SECONDS ? "warn" : "ok";
-  const statusLabel = hasRelevo
-    ? "Relevo realizado"
-    : isFinished
-      ? "Ruta finalizada"
-    : alertaSif
-      ? "Alerta SIF potencial"
-      : elapsedSeconds >= META_RELEVO_SECONDS
-        ? "Pendiente relevo"
-        : "En jornada";
-
   return {
     alertaSif,
     avance,
@@ -781,7 +809,7 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
     metaRelevo,
     requiereRelevo: !hasRelevo && !isFinished && elapsedSeconds >= META_RELEVO_SECONDS,
     state,
-    statusLabel,
+    statusLabel: operationalStatus,
     vehicle,
   };
 }
@@ -1009,6 +1037,10 @@ function getVehiclePeople(vehicle: Vehiculo) {
     seen.add(key);
     return true;
   });
+}
+
+function vehiclePersonKey(person: { rol: string; nombre: string; cedula: string }) {
+  return `${person.rol}-${person.nombre}-${person.cedula}`;
 }
 
 function cleanPersonValue(value: string | undefined) {

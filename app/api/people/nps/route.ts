@@ -53,7 +53,7 @@ type FollowUpRow = {
   responsable?: string;
   transporte?: string;
 };
-type CustomerSegment = { commercialActivity: string; commercialManager: string; com: string; population: string; stratum: string };
+type CustomerSegment = { businessUnit: string; commercialActivity: string; commercialManager: string; com: string; population: string };
 
 const TABLE = "NPS";
 const PAGE_SIZE = 1_000;
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
         score: survey.score,
         cd: survey.cd || survey.ddc || "Sin CD",
         com: customerSegments.get(normalizeDigits(survey.accountId))?.com || "Sin COM",
-        stratum: customerSegments.get(normalizeDigits(survey.accountId))?.stratum || "Sin estrato",
+        businessUnit: customerSegments.get(normalizeDigits(survey.accountId))?.businessUnit || "Sin unidad de negocio",
         management: survey.management || "Sin subregión",
         primaryDriver: Array.from(survey.primaryDrivers)[0] || "Sin dato",
         secondaryDriver: Array.from(survey.secondaryDrivers)[0] || "Sin dato",
@@ -149,15 +149,14 @@ export async function GET(request: Request) {
           filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialActivity),
           (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.commercialActivity || "Sin actividad comercial",
         ),
-        strata: groupSurveys(
-          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.stratum),
-          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.stratum || "Sin estrato",
-          numericOrder,
+        businessUnits: groupSurveys(
+          filtered.filter((survey) => customerSegments.get(normalizeDigits(survey.accountId))?.businessUnit),
+          (survey) => customerSegments.get(normalizeDigits(survey.accountId))?.businessUnit || "Sin unidad de negocio",
         ),
       },
       drivers: {
         primary: groupDrivers(filtered, "primaryDrivers"),
-        secondary: groupDrivers(filtered, "secondaryDrivers"),
+        secondary: groupSecondaryDelivery(filtered, "entregados"),
         salesRepresentativeSecondary: groupSecondaryDriverDistribution(filtered, "servicio de representante de ventas"),
       },
       detractors,
@@ -182,13 +181,9 @@ async function loadCustomerSegments(session: Session, codes: string[]) {
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const chunks = Array.from({ length: Math.ceil(codes.length / 400) }, (_, index) => codes.slice(index * 400, index * 400 + 400));
   const pages = await Promise.all(chunks.map(async (chunk) => {
-    const baseColumns = "CodigoCliente,CodigoZona_Principal,Poblacion,Jefe comercial,SubCanal";
-    const params = new URLSearchParams({ select: `${baseColumns},Estrato`, CodigoCliente: `in.(${chunk.join(",")})` });
-    let response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
-    if (!response.ok) {
-      params.set("select", baseColumns);
-      response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
-    }
+    const columns = "CodigoCliente,CodigoZona_Principal,Poblacion,Jefe comercial,SubCanal,UnidadNegocio";
+    const params = new URLSearchParams({ select: columns, CodigoCliente: `in.(${chunk.join(",")})` });
+    const response = await fetch(supabaseRest("clientes", `?${params.toString()}`), { headers, cache: "no-store" });
     return response.ok ? (await response.json()) as Record<string, unknown>[] : [];
   }));
   const rows = pages.flat();
@@ -197,12 +192,12 @@ async function loadCustomerSegments(session: Session, codes: string[]) {
   rows.forEach((row) => {
     const code = normalizeDigits(row.CodigoCliente);
     if (!code) return;
+    const businessUnit = String(row.UnidadNegocio ?? "").trim();
     const com = String(row.CodigoZona_Principal ?? "").trim();
     const population = String(row.Poblacion ?? "").trim();
     const commercialManager = String(row["Jefe comercial"] ?? "").trim();
     const commercialActivity = String(row.SubCanal ?? "").trim();
-    const stratum = String(row.Estrato ?? "").trim();
-    result.set(code, { commercialActivity, commercialManager, com, population, stratum });
+    result.set(code, { businessUnit, commercialActivity, commercialManager, com, population });
   });
   return result;
 }
@@ -512,6 +507,32 @@ function groupDrivers(surveys: Survey[], field: "primaryDrivers" | "secondaryDri
     count: group.respondents,
     promoters: group.promoters,
     percentage: group.respondents ? round((group.promoters / group.respondents) * 100) : 0,
+  }))
+    .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"))
+    .slice(0, 15);
+}
+
+function groupSecondaryDelivery(surveys: Survey[], primaryDriver: string) {
+  const expectedPrimary = normalizeDriver(primaryDriver);
+  const eligibleSurveys = surveys.filter((survey) =>
+    Array.from(survey.primaryDrivers).some((driver) => normalizeDriver(driver) === expectedPrimary)
+  );
+  const counts = new Map<string, number>();
+
+  eligibleSurveys.forEach((survey) => {
+    const matchingSecondaryDrivers = new Set<string>();
+    survey.driverPairs.forEach((pair) => {
+      const [primary, secondary] = pair.split("\u0000");
+      if (normalizeDriver(primary) === expectedPrimary && secondary) matchingSecondaryDrivers.add(secondary);
+    });
+    matchingSecondaryDrivers.forEach((secondary) => counts.set(secondary, (counts.get(secondary) || 0) + 1));
+  });
+
+  return Array.from(counts, ([label, count]) => ({
+    label,
+    count,
+    promoters: 0,
+    percentage: eligibleSurveys.length ? round((count / eligibleSurveys.length) * 100) : 0,
   }))
     .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"))
     .slice(0, 15);

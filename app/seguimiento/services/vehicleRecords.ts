@@ -8,7 +8,7 @@ import {
 } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import type { Vehiculo } from "../types";
-import { getVehicleRecordKey, normalizeCajasValue, normalizeHlValue } from "../utils";
+import { getVehicleRecordKey, hasTimeValue, normalizeCajasValue, normalizeHlValue } from "../utils";
 
 export function loadSeguimientoVehiculos() {
   if (typeof window === "undefined") return [];
@@ -119,8 +119,17 @@ function prepareVehicles(records: Vehiculo[]) {
   const withoutDuplicates = removeDuplicateDtRecords(records);
   const withIds = ensureVehicleRecordIds(withoutDuplicates);
   const withNumericBoxes = normalizeVehicleBoxes(withIds);
-  const withAttendance = applyAttendanceToVehicles(withNumericBoxes);
+  const withCompletedVisits = normalizeCompletedRouteVisits(withNumericBoxes);
+  const withAttendance = applyAttendanceToVehicles(withCompletedVisits);
   return enrichVehiclesWithModulacion(withAttendance, readModulacionRegistros());
+}
+
+function normalizeCompletedRouteVisits(records: Vehiculo[]) {
+  return records.map((vehicle) =>
+    vehicle.status === "Finalizado" || hasTimeValue(vehicle.horaLlegada)
+      ? { ...vehicle, visitados: Math.max(Number(vehicle.clientes) || 0, 0) }
+      : vehicle
+  );
 }
 
 function normalizeVehicleBoxes(records: Vehiculo[]) {

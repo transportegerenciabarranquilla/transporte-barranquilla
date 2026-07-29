@@ -6,6 +6,7 @@ const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
 const fetchedAt = new Map<string, number>();
 const saveQueues = new Map<string, Promise<void>>();
+const mutationVersions = new Map<string, number>();
 const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
@@ -36,6 +37,7 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
   }
   if (loading.has(endpoint)) return loading.get(endpoint);
 
+  const mutationVersion = mutationVersions.get(endpoint) || 0;
   const request = fetch(endpoint, { cache: "no-store" })
     .then(async (response) => {
       const body = await response.json().catch(() => ({}));
@@ -46,6 +48,9 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
       }
 
       const data = body.records ?? body.persona ?? body.data ?? [];
+      // Si hubo una edición mientras esta lectura estaba en curso, su
+      // respuesta ya es obsoleta y no debe reemplazar la caché optimista.
+      if ((mutationVersions.get(endpoint) || 0) !== mutationVersion) return;
       cache.set(endpoint, Array.isArray(data) ? data : data ? [data] : []);
       fetchedAt.set(endpoint, Date.now());
       notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
@@ -72,6 +77,8 @@ export function saveRemoteRecords<T>(
   records: T[],
   options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string } = {},
 ) {
+  const mutationVersion = (mutationVersions.get(endpoint) || 0) + 1;
+  mutationVersions.set(endpoint, mutationVersion);
   const previousSave = saveQueues.get(endpoint) ?? Promise.resolve();
   const operation = previousSave.catch(() => undefined).then(async () => {
     const previousRecords = cache.get(endpoint);
@@ -96,18 +103,22 @@ export function saveRemoteRecords<T>(
       }
 
       const savedRecords = Array.isArray(body.records) ? body.records : records;
-      cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
-      fetchedAt.set(endpoint, Date.now());
-      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+      if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
+        cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
+        fetchedAt.set(endpoint, Date.now());
+        notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+      }
       return savedRecords as T[];
     } catch (error) {
-      if (previousRecords) {
-        cache.set(endpoint, previousRecords);
-      } else {
-        cache.delete(endpoint);
+      if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
+        if (previousRecords) {
+          cache.set(endpoint, previousRecords);
+        } else {
+          cache.delete(endpoint);
+        }
+        notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
       }
 
-      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
       throw error;
     }
   });
@@ -126,6 +137,7 @@ export async function deleteRemoteRecords<T>(
   ids: string[],
   options: { getKey?: (record: T) => string } = {},
 ) {
+  mutationVersions.set(endpoint, (mutationVersions.get(endpoint) || 0) + 1);
   const previousRecords = cache.get(endpoint) as T[] | undefined;
   const idSet = new Set(ids);
   const getKey = options.getKey ?? ((record: T) => String((record as { id?: string }).id ?? ""));

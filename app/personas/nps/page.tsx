@@ -22,6 +22,7 @@ type Driver = { label: string; count: number; percentage: number; promoters: num
 type ScoreRow = { score: number; count: number; percentage: number };
 type Detractor = {
   accountId: string;
+  businessUnit?: string;
   date: string;
   latitude?: number;
   longitude?: number;
@@ -30,7 +31,6 @@ type Detractor = {
   score: number;
   cd: string;
   com: string;
-  stratum: string;
   management: string;
   primaryDriver: string;
   secondaryDriver: string;
@@ -41,7 +41,7 @@ type NpsData = {
   options: { cds: string[]; years: string[]; managements: string[]; weeks: string[] };
   trends: { annual: TrendSeries[]; years: Group[]; currentMonths: Group[]; months: Group[]; weeks: Group[]; currentDays: Group[]; days: Group[] };
   scoreDistribution: ScoreRow[];
-  segments: { cds: Group[]; commercialActivities: Group[]; commercialManagers: Group[]; coms: Group[]; managements: Group[]; populations: Group[]; strata: Group[] };
+  segments: { businessUnits: Group[]; cds: Group[]; commercialActivities: Group[]; commercialManagers: Group[]; coms: Group[]; managements: Group[]; populations: Group[] };
   drivers: { primary: Driver[]; secondary: Driver[]; salesRepresentativeSecondary: Driver[] };
   detractors: Detractor[];
   source: {
@@ -58,7 +58,7 @@ type CachedNpsReport = { data: NpsData; filters: FilterState; storedAt: number }
 
 const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "" };
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v4";
+const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v7";
 const NPS_REPORT_CACHE_TTL_MS = 30 * 60 * 1_000;
 
 export default function NpsPage() {
@@ -225,7 +225,7 @@ export default function NpsPage() {
 
         <SectionHeader id="detractores" index="05" title="Gestión de detractores" description="Últimas encuestas con calificación de 0 a 6." />
         <MonthlyDetractorChart rows={data?.trends?.months || []} />
-        <DetractorExplorer rows={data?.detractors || []} strata={data?.segments?.strata || []} />
+        <DetractorExplorer businessUnits={data?.segments?.businessUnits || []} rows={data?.detractors || []} />
 
         <CdMapPanel rows={data?.detractors || []} />
         <SectionHeader id="datos" index="06" title="Gobierno de datos" description="Trazabilidad del origen consultado." />
@@ -1011,8 +1011,8 @@ function clampOpenStreetMapTileUrl(url: string) {
   return `${match[1]}19/${x}/${y}.png${match[5] || ""}`;
 }
 
-function DetractorExplorer({ rows, strata }: { rows: Detractor[]; strata: Group[] }) {
-  const [selection, setSelection] = useState<{ type: "com" | "score" | "stratum"; value: string } | null>(null);
+function DetractorExplorer({ businessUnits, rows }: { businessUnits: Group[]; rows: Detractor[] }) {
+  const [selection, setSelection] = useState<{ type: "businessUnit" | "com" | "score"; value: string } | null>(null);
   const [comPage, setComPage] = useState(0);
   const byCom = Array.from(new Set(rows.map((row) => row.com || "Sin COM"))).map((com) => ({
     label: com,
@@ -1033,8 +1033,8 @@ function DetractorExplorer({ rows, strata }: { rows: Detractor[]; strata: Group[
   const selectedRows = selection
     ? rows.filter((row) => selection.type === "com"
       ? (row.com || "Sin COM") === selection.value
-      : selection.type === "stratum"
-        ? (row.stratum || "Sin estrato") === selection.value
+      : selection.type === "businessUnit"
+        ? (row.businessUnit || "Sin unidad de negocio") === selection.value
         : String(row.score) === selection.value)
     : [];
 
@@ -1064,9 +1064,9 @@ function DetractorExplorer({ rows, strata }: { rows: Detractor[]; strata: Group[
             );
           })}</div> : <EmptyState />}
         </ChartCard>
-        <SegmentBarChart eyebrow="Segmentación territorial" onSelect={(row) => setSelection({ type: "stratum", value: row.label })} rows={strata} title="NPS por estrato de zona de negocio" />
+        <SegmentBarChart eyebrow="Segmentación territorial" onSelect={(row) => setSelection({ type: "businessUnit", value: row.label })} rows={businessUnits} title="NPS por unidad de negocio" />
       </div>
-      {selection ? <DetractorTable rows={selectedRows} selectionLabel={selection.type === "score" ? `Score ${selection.value}` : selection.type === "stratum" ? `Estrato ${selection.value}` : selection.value} /> : <div className="rounded-xl border border-dashed border-[#b9cbd5] bg-white/60 px-5 py-6 text-center text-xs font-semibold text-slate-500">Selecciona un COM, score o estrato para ver los clientes detractores.</div>}
+      {selection ? <DetractorTable rows={selectedRows} selectionLabel={selection.type === "score" ? `Score ${selection.value}` : selection.value} /> : <div className="rounded-xl border border-dashed border-[#b9cbd5] bg-white/60 px-5 py-6 text-center text-xs font-semibold text-slate-500">Selecciona un COM, score o unidad de negocio para ver los clientes detractores.</div>}
     </div>
   );
 }
