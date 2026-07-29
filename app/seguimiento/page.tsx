@@ -367,8 +367,19 @@ export default function SeguimientoPage() {
       updated.visitados = 0;
     }
 
+    if (changes.status === "Recargue") {
+      updated.recargue = "Si";
+      updated.status = "En ruta";
+    }
+
     if (changes.status === "En ruta") {
       if (!hasTimeValue(updated.horaSalida)) updated.horaSalida = formatCurrentTime();
+      updated.horaLlegada = "Pendiente";
+      updated.tiempoRuta = "Pendiente";
+    }
+
+    if (changes.status === "Recargue" && !hasTimeValue(updated.horaSalida)) {
+      updated.horaSalida = formatCurrentTime();
       updated.horaLlegada = "Pendiente";
       updated.tiempoRuta = "Pendiente";
     }

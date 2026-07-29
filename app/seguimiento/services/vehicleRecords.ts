@@ -119,9 +119,22 @@ function prepareVehicles(records: Vehiculo[]) {
   const withoutDuplicates = removeDuplicateDtRecords(records);
   const withIds = ensureVehicleRecordIds(withoutDuplicates);
   const withNumericBoxes = normalizeVehicleBoxes(withIds);
-  const withCompletedVisits = normalizeCompletedRouteVisits(withNumericBoxes);
+  const withOperationalStatuses = normalizeLegacyRecargueStatuses(withNumericBoxes);
+  const withCompletedVisits = normalizeCompletedRouteVisits(withOperationalStatuses);
   const withAttendance = applyAttendanceToVehicles(withCompletedVisits);
   return enrichVehiclesWithModulacion(withAttendance, readModulacionRegistros());
+}
+
+function normalizeLegacyRecargueStatuses(records: Vehiculo[]) {
+  return records.map((vehicle) =>
+    vehicle.status === "Recargue"
+      ? {
+          ...vehicle,
+          status: "En ruta",
+          recargue: "Si",
+        }
+      : vehicle
+  );
 }
 
 function normalizeCompletedRouteVisits(records: Vehiculo[]) {

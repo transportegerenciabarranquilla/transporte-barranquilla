@@ -110,12 +110,17 @@ function normalizeScaledOperationalValue(value: number, threshold: number) {
 export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "horaLlegada" | "recargue">) {
   if (hasTimeValue(item?.horaLlegada)) return "Finalizado";
   if (item?.status === "Finalizado") return "Finalizado";
+  // Recargue es un antecedente del vehículo, no un estado operativo
+  // permanente. Las filas antiguas se reanudan visualmente como En ruta.
+  if (item?.status === "Recargue") return "En ruta";
   // Una copia local obsoleta puede conservar "En ruta" después de que
   // Supabase ya confirmó todos los clientes. Reconciliar únicamente ese
   // estado evita afectar casos operativos válidos como "Retornando".
   if (progress >= 100 && item?.status === "En ruta") return "Finalizado";
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
-  if (hasRecargueValue(item?.recargue)) return "Recargue";
+  // El recargue queda como marca histórica en el detalle del vehículo.
+  // Nunca debe reemplazar nuevamente el estado operativo seleccionado.
+  if (hasRecargueValue(item?.recargue)) return "En ruta";
   if (progress === 0) return "Cargando";
   if (progress < 100) return "En ruta";
   return "Finalizado";
