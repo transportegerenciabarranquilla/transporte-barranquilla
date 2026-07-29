@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, hasRecargueValue, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 export function VehiclesTable({
@@ -239,6 +239,7 @@ export function VehiclesTable({
                   </td>
                   <td className="px-2 py-1" onClick={(event) => event.stopPropagation()}>
                     <StatusSelect
+                      hadRecargue={hasRecargueValue(item.recargue)}
                       status={status}
                       onChange={(nextStatus) =>
                         onUpdateVehicle(recordKey, {
@@ -279,10 +280,11 @@ export function VehiclesTable({
   );
 }
 
-function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {
+function StatusSelect({ hadRecargue, status, onChange }: { hadRecargue: boolean; status: string; onChange: (status: string) => void }) {
   return (
-    <div className="relative inline-flex max-w-full">
+    <div className="relative inline-flex max-w-full flex-col items-start gap-1">
       <StatusBadge status={status} />
+      {hadRecargue && status !== "Recargue" ? <StatusBadge status="Recargue" /> : null}
       <select
         aria-label="Cambiar estado"
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0"

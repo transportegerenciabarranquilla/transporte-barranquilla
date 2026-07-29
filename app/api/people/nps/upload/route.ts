@@ -50,8 +50,8 @@ export async function POST(request: Request) {
 
     if (!mappedRows.length) return NextResponse.json({ error: "No se encontraron filas válidas para importar." }, { status: 400 });
 
-    const existing = await readExistingRows(headers, importColumns);
-    const signatures = new Set(existing.map((row) => signature(row, importColumns)));
+    const existing = await readExistingRows(headers, allowedColumns);
+    const signatures = new Set<string>();
     const pending: Record<string, unknown>[] = [];
     let repeatedInFile = 0;
 
@@ -65,14 +65,16 @@ export async function POST(request: Request) {
       pending.push(row);
     });
 
-    for (let index = 0; index < pending.length; index += INSERT_SIZE) {
-      const response = await fetch(supabaseRest(TABLE), {
-        method: "POST",
-        headers: { ...headers, Prefer: "return=minimal" },
-        body: JSON.stringify(pending.slice(index, index + INSERT_SIZE)),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await supabaseError(response));
+    const importedDates = new Set(pending.map((row) => String(row["Survey Completed Date"] || "")).filter(Boolean));
+    const backupRows = existing.filter((row) => importedDates.has(normalizeDate(row["Survey Completed Date"])));
+
+    await deleteRowsForDates(headers, importedDates);
+    try {
+      await insertRows(headers, pending);
+    } catch (error) {
+      await deleteRowsForDates(headers, importedDates);
+      await insertRows(headers, backupRows);
+      throw error;
     }
 
     clearServerCache("supabase:nps-");
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
       fileName: file.name,
       inserted: pending.length,
       received: excelRows.length,
+      replaced: backupRows.length,
       skipped: repeatedInFile,
     });
   } catch (error) {
@@ -87,6 +90,31 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : "No se pudo importar el Excel." },
       { status: 500 },
     );
+  }
+}
+
+async function deleteRowsForDates(headers: Record<string, string>, dates: Set<string>) {
+  if (!dates.size) return;
+  const params = new URLSearchParams({
+    "Survey Completed Date": `in.(${Array.from(dates).join(",")})`,
+  });
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    method: "DELETE",
+    headers: { ...headers, Prefer: "return=minimal" },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(await supabaseError(response));
+}
+
+async function insertRows(headers: Record<string, string>, rows: Record<string, unknown>[]) {
+  for (let index = 0; index < rows.length; index += INSERT_SIZE) {
+    const response = await fetch(supabaseRest(TABLE), {
+      method: "POST",
+      headers: { ...headers, Prefer: "return=minimal" },
+      body: JSON.stringify(rows.slice(index, index + INSERT_SIZE)),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(await supabaseError(response));
   }
 }
 

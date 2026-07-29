@@ -72,6 +72,10 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
   return (cached ?? []) as T[];
 }
 
+export function waitForRemoteSaves(endpoint: string) {
+  return saveQueues.get(endpoint) ?? Promise.resolve();
+}
+
 export function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],

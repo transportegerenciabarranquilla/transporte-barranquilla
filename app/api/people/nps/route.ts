@@ -38,6 +38,7 @@ type Filters = {
   day: number | null;
   week: number | null;
   management: string;
+  primaryDriver: string;
 };
 type OperationalRow = {
   codigoCliente?: string;
@@ -58,6 +59,25 @@ type CustomerSegment = { businessUnit: string; commercialActivity: string; comme
 const TABLE = "NPS";
 const PAGE_SIZE = 1_000;
 const CACHE_TTL_MS = 10 * 60 * 1_000;
+const PRIMARY_DRIVER_OPTIONS = [
+  "Entrega",
+  "Servicio de Representante de Ventas",
+  "Experiencia en la app BEES",
+  "Precios y promociones",
+  "Programa de Puntos",
+  "Pago y crédito",
+  "Atención al cliente",
+  "Refrigeración y materiales",
+];
+const DELIVERY_SECONDARY_OPTIONS = new Set([
+  "Sin selección de pilotos secundarios",
+  "Mis entregas no llegan a tiempo",
+  "Los problemas con productos dañados no son fáciles de solucionar",
+  "Mis entregas no llegan completas",
+  "Los días de entrega disponibles no me van bien",
+  "El conductor es poco profesional",
+  "No puedo seguir el estado del pedido",
+].map(normalizeDriver));
 const SELECT_COLUMNS = [
   "Vendor Account ID",
   "Sales Sub Region",
@@ -74,7 +94,7 @@ export async function GET(request: Request) {
     const session = await requirePeople();
     if (session instanceof NextResponse) return session;
 
-    const dataset = await readServerCache(`supabase:nps-dataset:v2:${session.email || "people"}`, CACHE_TTL_MS, async () => {
+    const dataset = await readServerCache(`supabase:nps-dataset:v4:${session.email || "people"}`, CACHE_TTL_MS, async () => {
       const { rows, total } = await fetchAllNpsRows(session);
       if (!total) throw new Error("La tabla NPS no devolvió filas para este usuario. Ejecuta supabase/nps_access.sql en el SQL Editor de Supabase.");
       return buildDataset(rows, total);
@@ -156,7 +176,7 @@ export async function GET(request: Request) {
       },
       drivers: {
         primary: groupDrivers(filtered, "primaryDrivers"),
-        secondary: groupSecondaryDelivery(filtered, "entregados"),
+        secondary: groupSecondaryDelivery(filtered, filters.primaryDriver || "entrega"),
         salesRepresentativeSecondary: groupSecondaryDriverDistribution(filtered, "servicio de representante de ventas"),
       },
       detractors,
@@ -376,6 +396,10 @@ function buildDataset(rows: NpsRow[], rawRowCount: number) {
       cds: unique(surveys.map((survey) => survey.cd || survey.ddc)),
       years: unique(surveys.map((survey) => String(survey.year))).sort((a, b) => Number(b) - Number(a)),
       managements: unique(surveys.map((survey) => survey.management)),
+      primaryDrivers: unique([
+        ...PRIMARY_DRIVER_OPTIONS,
+        ...surveys.flatMap((survey) => Array.from(survey.primaryDrivers)),
+      ]).filter((driver) => normalizeDriver(driver) !== "#n/d"),
       weeks: unique(surveys.map((survey) => String(survey.week))).sort((a, b) => Number(a) - Number(b)),
     },
   };
@@ -389,6 +413,7 @@ function readFilters(params: URLSearchParams): Filters {
     day: optionalNumber(params.get("day")),
     week: optionalNumber(params.get("week")),
     management: params.get("management") || "",
+    primaryDriver: params.get("primaryDriver") || "Entrega",
   };
 }
 
@@ -495,18 +520,18 @@ function groupScores(surveys: Survey[]) {
 }
 
 function groupDrivers(surveys: Survey[], field: "primaryDrivers" | "secondaryDrivers") {
-  const groups = new Map<string, { promoters: number; respondents: number }>();
+  const counts = new Map<string, number>();
   surveys.forEach((survey) => survey[field].forEach((driver) => {
-    const group = groups.get(driver) || { promoters: 0, respondents: 0 };
-    group.respondents += 1;
-    if (survey.score >= 9) group.promoters += 1;
-    groups.set(driver, group);
+    if (normalizeDriver(driver) === "#n/d") return;
+    counts.set(driver, (counts.get(driver) || 0) + 1);
   }));
-  return Array.from(groups, ([label, group]) => ({
+  const totalSelections = Array.from(counts.values()).reduce((total, count) => total + count, 0);
+
+  return Array.from(counts, ([label, count]) => ({
     label,
-    count: group.respondents,
-    promoters: group.promoters,
-    percentage: group.respondents ? round((group.promoters / group.respondents) * 100) : 0,
+    count,
+    promoters: 0,
+    percentage: totalSelections ? round((count / totalSelections) * 100) : 0,
   }))
     .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"))
     .slice(0, 15);
@@ -523,19 +548,23 @@ function groupSecondaryDelivery(surveys: Survey[], primaryDriver: string) {
     const matchingSecondaryDrivers = new Set<string>();
     survey.driverPairs.forEach((pair) => {
       const [primary, secondary] = pair.split("\u0000");
-      if (normalizeDriver(primary) === expectedPrimary && secondary) matchingSecondaryDrivers.add(secondary);
+      const isExpectedPrimary = normalizeDriver(primary) === expectedPrimary;
+      const isAllowedDeliveryCause =
+        expectedPrimary !== normalizeDriver("entrega") ||
+        DELIVERY_SECONDARY_OPTIONS.has(normalizeDriver(secondary));
+      if (isExpectedPrimary && secondary && isAllowedDeliveryCause) matchingSecondaryDrivers.add(secondary);
     });
     matchingSecondaryDrivers.forEach((secondary) => counts.set(secondary, (counts.get(secondary) || 0) + 1));
   });
 
+  const totalSecondarySelections = Array.from(counts.values()).reduce((total, count) => total + count, 0);
   return Array.from(counts, ([label, count]) => ({
     label,
     count,
     promoters: 0,
-    percentage: eligibleSurveys.length ? round((count / eligibleSurveys.length) * 100) : 0,
+    percentage: totalSecondarySelections ? round((count / totalSecondarySelections) * 100) : 0,
   }))
-    .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"))
-    .slice(0, 15);
+    .sort((a, b) => b.percentage - a.percentage || b.count - a.count || a.label.localeCompare(b.label, "es"));
 }
 
 function groupSecondaryDriverDistribution(surveys: Survey[], primaryDriver: string) {

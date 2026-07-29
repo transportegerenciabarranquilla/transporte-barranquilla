@@ -147,6 +147,61 @@ export async function PUT(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
+
+    const body = (await request.json()) as { recordId?: string; changes?: Partial<Vehiculo> };
+    const recordId = String(body.recordId || "").trim();
+    if (!recordId || !body.changes?.status) {
+      return NextResponse.json({ error: "Falta el registro o el estado a guardar." }, { status: 400 });
+    }
+
+    const params = new URLSearchParams({
+      select: "data",
+      contractor: `eq.${session.contractor}`,
+      record_id: `eq.${recordId}`,
+      limit: "1",
+    });
+    const currentResponse = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+      headers: supabaseUserHeaders(session.accessToken),
+      cache: "no-store",
+    });
+    if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
+    const currentRows = (await currentResponse.json()) as { data: Vehiculo }[];
+    const current = currentRows[0]?.data;
+    if (!current) return NextResponse.json({ error: "No se encontró la ruta en Supabase." }, { status: 404 });
+
+    const data = {
+      ...current,
+      ...body.changes,
+      recordId,
+      statusUpdatedAt: body.changes.statusUpdatedAt || new Date().toISOString(),
+      transportista: session.contractor,
+    };
+    const updateParams = new URLSearchParams({
+      contractor: `eq.${session.contractor}`,
+      record_id: `eq.${recordId}`,
+    });
+    const updateResponse = await fetch(supabaseRest(TABLE, `?${updateParams.toString()}`), {
+      method: "PATCH",
+      headers: supabaseUserHeaders(session.accessToken, { Prefer: "return=minimal" }),
+      body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
+      cache: "no-store",
+    });
+    if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+
+    clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:people-summary:");
+    clearServerCache("supabase:admin-seguimiento:");
+    return NextResponse.json({ record: data });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el estado." }, { status: 500 });
+  }
+}
+
 async function preservePersistedRouteProgress<T extends { record_id: string; data: Vehiculo; updated_at: string }>(
   rows: T[],
   contractor: string,
@@ -174,6 +229,10 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
       Math.max(Number(row.data.visitados || 0), Number(persisted.visitados || 0)),
     );
     const persistedFinished = persisted.status === "Finalizado" || hasStoredTime(persisted.horaLlegada);
+    const persistedStatusIsNewer =
+      Boolean(persisted.statusUpdatedAt) &&
+      Date.parse(persisted.statusUpdatedAt || "") > Date.parse(row.data.statusUpdatedAt || "");
+    const preservePersistedStatus = persistedFinished || persistedStatusIsNewer;
 
     return {
       ...row,
@@ -181,9 +240,11 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
         ...row.data,
         clientes,
         visitados,
-        ...(persistedFinished
+        ...(preservePersistedStatus
           ? {
-              status: "Finalizado",
+              status: persistedFinished ? "Finalizado" : persisted.status,
+              statusUpdatedAt: persisted.statusUpdatedAt,
+              recargue: persisted.recargue || row.data.recargue,
               horaSalida: persisted.horaSalida || row.data.horaSalida,
               horaLlegada: persisted.horaLlegada || row.data.horaLlegada,
               tiempoRuta: persisted.tiempoRuta || row.data.tiempoRuta,

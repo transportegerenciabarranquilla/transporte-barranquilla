@@ -38,7 +38,7 @@ type Detractor = {
 type DetractorClient = { com?: string; nombre?: string };
 type NpsData = {
   summary: Summary;
-  options: { cds: string[]; years: string[]; managements: string[]; weeks: string[] };
+  options: { cds: string[]; years: string[]; managements: string[]; primaryDrivers: string[]; weeks: string[] };
   trends: { annual: TrendSeries[]; years: Group[]; currentMonths: Group[]; months: Group[]; weeks: Group[]; currentDays: Group[]; days: Group[] };
   scoreDistribution: ScoreRow[];
   segments: { businessUnits: Group[]; cds: Group[]; commercialActivities: Group[]; commercialManagers: Group[]; coms: Group[]; managements: Group[]; populations: Group[] };
@@ -53,12 +53,12 @@ type NpsData = {
     maxDate: string | null;
   };
 };
-type FilterState = { cd: string; year: string; month: string; day: string; week: string; management: string };
+type FilterState = { cd: string; year: string; month: string; day: string; week: string; management: string; primaryDriver: string };
 type CachedNpsReport = { data: NpsData; filters: FilterState; storedAt: number };
 
-const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "" };
+const EMPTY_FILTERS: FilterState = { cd: "", year: "", month: "", day: "", week: "", management: "", primaryDriver: "Entrega" };
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v7";
+const NPS_REPORT_CACHE_KEY = "people:nps:last-report:v13";
 const NPS_REPORT_CACHE_TTL_MS = 30 * 60 * 1_000;
 
 export default function NpsPage() {
@@ -130,7 +130,9 @@ export default function NpsPage() {
       const response = await fetch("/api/people/nps/upload", { method: "POST", body: formData });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo importar el Excel.");
-      setUploadMessage(`${formatNumber(body.inserted || 0)} filas nuevas agregadas · ${formatNumber(body.skipped || 0)} ya existían.`);
+      setUploadMessage(
+        `${formatNumber(body.inserted || 0)} filas guardadas · ${formatNumber(body.replaced || 0)} anteriores reemplazadas · ${formatNumber(body.skipped || 0)} duplicadas dentro del archivo omitidas.`,
+      );
       window.sessionStorage.removeItem(NPS_REPORT_CACHE_KEY);
       setRefreshVersion((value) => value + 1);
     } catch (caught) {
@@ -267,13 +269,14 @@ function FilterPanel({ data, fetching, filters, onChange, onReset }: {
         <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#e8f2f3] text-[#176b73]"><SlidersHorizontal size={16} /></span><div><h2 className="text-sm font-semibold text-[#0b2235]">Filtros del informe</h2><p className="text-[10px] text-slate-400">{fetching ? "Actualizando resultados…" : "Todos los resultados y tablas responden a estos filtros"}</p></div></div>
         <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100" onClick={onReset}><RotateCcw size={14} />Limpiar</button>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Filter label="CD"><select value={filters.cd} onChange={(event) => onChange("cd", event.target.value)}><option value="">Todos</option>{data?.options?.cds?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
         <Filter label="Año"><select value={filters.year} onChange={(event) => onChange("year", event.target.value)}><option value="">Todos</option>{data?.options?.years?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
         <Filter label="Mes"><select value={filters.month} onChange={(event) => onChange("month", event.target.value)}><option value="">Todos</option>{MONTHS.map((value, index) => <option key={value} value={index + 1}>{value}</option>)}</select></Filter>
         <Filter label="Día"><select value={filters.day} onChange={(event) => onChange("day", event.target.value)}><option value="">Todos</option>{Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></Filter>
         <Filter label="Semana"><select value={filters.week} onChange={(event) => onChange("week", event.target.value)}><option value="">Todas</option>{data?.options?.weeks?.map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
         <Filter label="Gerencia"><select value={filters.management} onChange={(event) => onChange("management", event.target.value)}><option value="">Todas</option>{data?.options?.managements?.map((value) => <option key={value} value={value}>{value.replace(/^CO /, "")}</option>)}</select></Filter>
+        <Filter label="Primer driver"><select value={filters.primaryDriver} onChange={(event) => onChange("primaryDriver", event.target.value)}>{Array.from(new Set(["Entrega", ...(data?.options?.primaryDrivers || [])])).map((value) => <option key={value} value={value}>{value}</option>)}</select></Filter>
       </div>
     </section>
   );
@@ -653,29 +656,69 @@ function ScoreChart({ rows }: { rows: ScoreRow[] }) {
 }
 
 function DriverChart({ eyebrow, rows, title, variant }: { eyebrow: string; rows: Driver[]; title: string; variant: "list" | "grid" }) {
-  const visible = rows.slice(0, variant === "list" ? 6 : 8);
-  const maximum = Math.max(1, ...visible.map((row) => row.percentage));
+  const visible = rows;
+  const width = 720;
+  const height = 210;
+  const left = 42;
+  const right = 30;
+  const top = 30;
+  const bottom = 28;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const maximum = Math.max(10, Math.ceil(Math.max(...visible.map((row) => row.percentage), 1) / 10) * 10);
+  const x = (index: number) => left + (visible.length <= 1 ? plotWidth / 2 : (index / (visible.length - 1)) * plotWidth);
+  const y = (value: number) => top + plotHeight - (value / maximum) * plotHeight;
+  const points = visible.map((row, index) => `${x(index)},${y(row.percentage)}`).join(" ");
+  const color = variant === "grid" ? "#df952e" : "#356b8e";
+
   return (
     <ChartCard eyebrow={eyebrow} title={title}>
       {visible.length ? (
-        <div className={variant === "grid" ? "mt-8 grid gap-x-6 gap-y-5 sm:grid-cols-2" : "mt-8 space-y-6"}>
-          {visible.map((row, index) => (
-            <div className="group px-2" key={row.label}>
-              <div className="mb-2 flex items-start justify-between gap-4">
-                <span className="text-[13px] font-medium leading-5 text-[#25435b]">{row.label}</span>
-                <strong className="shrink-0 text-sm font-extrabold tabular-nums text-[#071f33]">{row.percentage.toLocaleString("es-CO")}%</strong>
+        <div className="mt-4">
+          <svg aria-label={`${title}, distribución porcentual`} className="block w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
+            {[0, .25, .5, .75, 1].map((ratio) => {
+              const value = maximum * ratio;
+              const lineY = y(value);
+              return (
+                <g key={ratio}>
+                  <line stroke="#dbe5eb" strokeDasharray="4 5" x1={left} x2={width - right} y1={lineY} y2={lineY} />
+                  <text fill="#526d7d" fontSize="9" fontWeight="800" textAnchor="end" x={left - 7} y={lineY + 3}>
+                    {value.toLocaleString("es-CO", { maximumFractionDigits: 1 })}%
+                  </text>
+                </g>
+              );
+            })}
+            <polyline fill="none" points={points} stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
+            {visible.map((row, index) => {
+              const pointX = x(index);
+              const pointY = y(row.percentage);
+              const valueAnchor = index === 0 ? "start" : index === visible.length - 1 ? "end" : "middle";
+              const valueX = index === 0 ? pointX + 8 : index === visible.length - 1 ? pointX - 8 : pointX;
+              return (
+                <g key={row.label}>
+                  <circle className="nps-chart-point" cx={pointX} cy={pointY} fill="#fff" r="5" stroke={color} strokeWidth="3">
+                    <title>{`${row.label}: ${row.percentage.toLocaleString("es-CO")}%`}</title>
+                  </circle>
+                  <text fill="#071f33" fontSize="11" fontWeight="900" textAnchor={valueAnchor} x={valueX} y={Math.max(14, pointY - 11)}>
+                    {row.percentage.toLocaleString("es-CO")}%
+                  </text>
+                  <text fill="#25435b" fontSize="10" fontWeight="900" textAnchor="middle" x={pointX} y={height - 7}>
+                    {index + 1}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+          <div className="mt-1 grid gap-x-5 gap-y-1.5 sm:grid-cols-2">
+            {visible.map((row, index) => (
+              <div className="flex items-start gap-2 text-[11px] font-semibold leading-4 text-[#17364d]" key={row.label}>
+                <span className="mt-0.5 grid h-4 min-w-4 place-items-center rounded-full text-[8px] font-extrabold text-white" style={{ backgroundColor: color }}>
+                  {index + 1}
+                </span>
+                <span>{row.label}</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-[#edf2f6]">
-                <span
-                  className="block h-full rounded-full transition-[width,filter] duration-300 group-hover:brightness-110"
-                  style={{
-                    background: index === 0 && variant === "grid" ? "#df952e" : "#356b8e",
-                    width: `${Math.max(3, (row.percentage / maximum) * 96)}%`,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       ) : <EmptyState />}
     </ChartCard>

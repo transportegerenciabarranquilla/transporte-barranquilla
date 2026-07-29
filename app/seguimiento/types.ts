@@ -31,6 +31,7 @@ export type Vehiculo = {
   validadorPeso: string;
   avanceRuta: string;
   status: string;
+  statusUpdatedAt?: string;
   horaLlegada: string;
   tiempoRuta: string;
   tiempoPlaneado?: string;
