@@ -87,7 +87,11 @@ export default function JornadaLaboralPage() {
       const searchable = `${row.vehicle.vehiculo} ${row.vehicle.transporte} ${row.vehicle.responsable} ${row.vehicle.territorio} ${row.vehicle.relevador}`.toLowerCase();
       const matchesSearch = !searchTerm || searchable.includes(searchTerm);
       const matchesState = !stateFilter || row.state === stateFilter || (stateFilter === "done" && row.state === "lateDone");
-      const matchesOperationalStatus = !operationalStatusFilter || row.statusLabel === operationalStatusFilter;
+      const matchesOperationalStatus =
+        !operationalStatusFilter ||
+        row.statusLabel === operationalStatusFilter ||
+        (operationalStatusFilter === "relevo-efectivo" && row.clasificacion === "Efectivo") ||
+        (operationalStatusFilter === "relevo-no-efectivo" && row.clasificacion === "No efectivo");
 
       return matchesSearch && matchesState && matchesOperationalStatus;
     });
@@ -272,6 +276,8 @@ export default function JornadaLaboralPage() {
                 >
                   <option value="">Todos los estados</option>
                   {ROUTE_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                  <option value="relevo-efectivo">Relevo efectivo</option>
+                  <option value="relevo-no-efectivo">Relevo no efectivo</option>
                 </select>
               </div>
             </div>
