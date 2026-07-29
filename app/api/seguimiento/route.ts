@@ -78,7 +78,7 @@ export async function PUT(request: Request) {
       session.contractor,
     );
 
-    const rows = scopedRecords.map((record, index) => {
+    let rows = scopedRecords.map((record, index) => {
       const recordId = getSeguimientoRecordId(record, session.contractor, index);
       const storedRecord = { ...record };
       delete storedRecord.dispatchDateChanged;
@@ -90,6 +90,7 @@ export async function PUT(request: Request) {
         updated_at: new Date().toISOString(),
       };
     });
+    rows = await preservePersistedRouteProgress(rows, session.contractor, session.accessToken);
     if (rows.length) {
       const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
         method: "POST",
@@ -144,6 +145,57 @@ export async function PUT(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
   }
+}
+
+async function preservePersistedRouteProgress<T extends { record_id: string; data: Vehiculo; updated_at: string }>(
+  rows: T[],
+  contractor: string,
+  accessToken: string,
+) {
+  if (!rows.length) return rows;
+
+  const params = new URLSearchParams({ select: "record_id,data", contractor: `eq.${contractor}` });
+  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
+    headers: supabaseUserHeaders(accessToken),
+    cache: "no-store",
+  });
+  if (!response.ok) return rows;
+
+  const persistedRows = (await response.json()) as { record_id: string; data: Vehiculo }[];
+  const persistedById = new Map(persistedRows.map((row) => [row.record_id, row.data]));
+
+  return rows.map((row) => {
+    const persisted = persistedById.get(row.record_id);
+    if (!persisted) return row;
+
+    const clientes = Math.max(Number(row.data.clientes || 0), Number(persisted.clientes || 0));
+    const visitados = Math.min(
+      clientes,
+      Math.max(Number(row.data.visitados || 0), Number(persisted.visitados || 0)),
+    );
+    const persistedFinished = persisted.status === "Finalizado" || hasStoredTime(persisted.horaLlegada);
+
+    return {
+      ...row,
+      data: {
+        ...row.data,
+        clientes,
+        visitados,
+        ...(persistedFinished
+          ? {
+              status: "Finalizado",
+              horaSalida: persisted.horaSalida || row.data.horaSalida,
+              horaLlegada: persisted.horaLlegada || row.data.horaLlegada,
+              tiempoRuta: persisted.tiempoRuta || row.data.tiempoRuta,
+            }
+          : {}),
+      },
+    };
+  });
+}
+
+function hasStoredTime(value: string | undefined) {
+  return Boolean(value && value !== "Pendiente" && value !== "-");
 }
 
 async function deletePreviousDtCopies(

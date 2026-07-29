@@ -224,7 +224,7 @@ export default function SeguimientoPage() {
 
     vehiclesRef.current = prepared;
     setVehiculos(prepared);
-    scheduleSeguimientoSave(prepared);
+    saveSeguimientoImmediately(prepared, "Clientes visitados guardados en Supabase.");
   }
 
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
@@ -245,8 +245,11 @@ export default function SeguimientoPage() {
 
     vehiclesRef.current = prepared;
     setVehiculos(prepared);
-    if (changes.clientes !== undefined) {
-      saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
+    if (changes.clientes !== undefined || changes.status !== undefined) {
+      const message = changes.status !== undefined
+        ? `Estado ${changes.status} guardado en Supabase.`
+        : "Clientes guardados en Supabase.";
+      saveSeguimientoImmediately(prepared, message);
     } else {
       scheduleSeguimientoSave(prepared);
     }
