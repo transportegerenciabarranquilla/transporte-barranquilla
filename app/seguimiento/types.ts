@@ -24,6 +24,7 @@ export type Vehiculo = {
   clientes: number;
   clientesUpdatedAt?: string;
   visitados: number;
+  visitadosUpdatedAt?: string;
   horaSalida: string;
   causalSalidaTardia?: string;
   comentarioSalidaTardia?: string;

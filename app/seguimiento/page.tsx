@@ -15,7 +15,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
+import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargueValue, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -121,10 +121,13 @@ export default function SeguimientoPage() {
     });
   }, [fechaDtFilter, onlyWithoutResponsible, search, vehiculos]);
 
-  const filteredVehicles = useMemo(
-    () => matchingVehicles.filter((item) => statusFilters.length === 0 || statusFilters.includes(getStatus(getProgress(item), item))),
-    [matchingVehicles, statusFilters],
-  );
+  const filteredVehicles = useMemo(() => {
+    return matchingVehicles.filter((item) => {
+      if (statusFilters.length === 0) return true;
+      const operationalStatus = getStatus(getProgress(item), item);
+      return statusFilters.some((filter) => (filter === "Recargue" ? hasRecargueValue(item.recargue) : operationalStatus === filter));
+    });
+  }, [matchingVehicles, statusFilters]);
 
   const resumen = useMemo(() => {
     const clientes = filteredVehicles.reduce((total, item) => total + item.clientes, 0);
@@ -211,12 +214,14 @@ export default function SeguimientoPage() {
   }, [latestModulacionId, showModulacionAlert]);
 
   function actualizarVisitados(recordKey: string, visitados: number) {
+    const visitadosUpdatedAt = new Date().toISOString();
     const prepared = prepareSeguimientoVehicles(
       vehiclesRef.current.map((item) =>
         getVehicleUiKey(item) === recordKey
           ? {
               ...item,
               visitados: Math.min(Math.max(visitados, 0), item.clientes),
+              visitadosUpdatedAt,
             }
           : item,
       ),
@@ -370,17 +375,11 @@ export default function SeguimientoPage() {
 
     if (changes.status === "Recargue") {
       updated.recargue = "Si";
-      updated.status = "En ruta";
+      updated.status = item.status;
     }
 
     if (changes.status === "En ruta") {
       if (!hasTimeValue(updated.horaSalida)) updated.horaSalida = formatCurrentTime();
-      updated.horaLlegada = "Pendiente";
-      updated.tiempoRuta = "Pendiente";
-    }
-
-    if (changes.status === "Recargue" && !hasTimeValue(updated.horaSalida)) {
-      updated.horaSalida = formatCurrentTime();
       updated.horaLlegada = "Pendiente";
       updated.tiempoRuta = "Pendiente";
     }

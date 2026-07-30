@@ -231,9 +231,17 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
     const clientes = incomingClientesIsNewer
       ? Math.max(Number(row.data.clientes || 0), 0)
       : Math.max(Number(row.data.clientes || 0), Number(persisted.clientes || 0));
+    const incomingVisitadosTime = Date.parse(row.data.visitadosUpdatedAt || "");
+    const persistedVisitadosTime = Date.parse(persisted.visitadosUpdatedAt || "");
+    const incomingVisitadosIsNewer =
+      Number.isFinite(incomingVisitadosTime) &&
+      (!Number.isFinite(persistedVisitadosTime) || incomingVisitadosTime > persistedVisitadosTime);
+    const hasVisitadosTimestamp = Number.isFinite(incomingVisitadosTime) || Number.isFinite(persistedVisitadosTime);
     const visitados = Math.min(
       clientes,
-      Math.max(Number(row.data.visitados || 0), Number(persisted.visitados || 0)),
+      hasVisitadosTimestamp
+        ? Math.max(Number(incomingVisitadosIsNewer ? row.data.visitados : persisted.visitados) || 0, 0)
+        : Math.max(Number(row.data.visitados || 0), Number(persisted.visitados || 0)),
     );
     const persistedFinished = persisted.status === "Finalizado" || hasStoredTime(persisted.horaLlegada);
     const incomingStatusTime = Date.parse(row.data.statusUpdatedAt || "");
@@ -255,6 +263,9 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
           ? row.data.clientesUpdatedAt
           : persisted.clientesUpdatedAt || row.data.clientesUpdatedAt,
         visitados,
+        visitadosUpdatedAt: incomingVisitadosIsNewer
+          ? row.data.visitadosUpdatedAt
+          : persisted.visitadosUpdatedAt || row.data.visitadosUpdatedAt,
         ...(preservePersistedStatus
           ? {
               status: persistedFinished ? "Finalizado" : persisted.status,
@@ -443,13 +454,24 @@ function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
   const clientes = freshestClientesRecord
     ? Math.max(Number(freshestClientesRecord.clientes || 0), 0)
     : Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
-  const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
+  const currentVisitadosTime = Date.parse(current.visitadosUpdatedAt || "");
+  const nextVisitadosTime = Date.parse(next.visitadosUpdatedAt || "");
+  const freshestVisitadosRecord =
+    Number.isFinite(currentVisitadosTime) || Number.isFinite(nextVisitadosTime)
+      ? !Number.isFinite(currentVisitadosTime) || (Number.isFinite(nextVisitadosTime) && nextVisitadosTime > currentVisitadosTime)
+        ? next
+        : current
+      : undefined;
+  const visitados = freshestVisitadosRecord
+    ? Math.max(Number(freshestVisitadosRecord.visitados || 0), 0)
+    : Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {
     ...current,
     ...next,
     clientes,
     clientesUpdatedAt: freshestClientesRecord?.clientesUpdatedAt,
+    visitadosUpdatedAt: freshestVisitadosRecord?.visitadosUpdatedAt,
     visitados: Math.min(visitados, clientes || visitados),
   };
 }

@@ -271,17 +271,9 @@ export function VehicleDrawer({
             <RecargueToggle
               active={hasRecargue}
               onToggle={() =>
-                updateVehicle(
-                  hasRecargue
-                    ? {
-                        recargue: "No",
-                        status: status === "Recargue" ? "En ruta" : vehicle.status,
-                      }
-                    : {
-                        recargue: "Si",
-                        status: status === "Pendiente por salir" || status === "Cargando" ? "En ruta" : vehicle.status,
-                      },
-                )
+                updateVehicle({
+                  recargue: hasRecargue ? "No" : "Si",
+                })
               }
             />
           </div>

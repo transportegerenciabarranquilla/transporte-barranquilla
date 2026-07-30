@@ -116,7 +116,6 @@ export function getStatus(progress: number, item?: Pick<Vehiculo, "status" | "ho
   if (item?.status && ROUTE_STATUSES.includes(item.status)) return item.status;
   // El recargue queda como marca histórica en el detalle del vehículo.
   // Nunca debe reemplazar nuevamente el estado operativo seleccionado.
-  if (hasRecargueValue(item?.recargue)) return "En ruta";
   if (progress === 0) return "Cargando";
   if (progress < 100) return "En ruta";
   return "Finalizado";

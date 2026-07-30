@@ -67,9 +67,17 @@ function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle:
     Number.isFinite(currentClientesTime) &&
     (!Number.isFinite(storedClientesTime) || currentClientesTime > storedClientesTime);
   const clientes = keepCurrentClientes ? currentVehicle.clientes : storedVehicle.clientes;
+  const currentVisitadosTime = Date.parse(currentVehicle.visitadosUpdatedAt || "");
+  const storedVisitadosTime = Date.parse(storedVehicle.visitadosUpdatedAt || "");
+  const keepCurrentVisitados =
+    Number.isFinite(currentVisitadosTime) &&
+    (!Number.isFinite(storedVisitadosTime) || currentVisitadosTime > storedVisitadosTime);
+  const hasVisitadosTimestamp = Number.isFinite(currentVisitadosTime) || Number.isFinite(storedVisitadosTime);
   const visitados = Math.min(
     clientes,
-    Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0)),
+    hasVisitadosTimestamp
+      ? Math.max(Number(keepCurrentVisitados ? currentVehicle.visitados : storedVehicle.visitados) || 0, 0)
+      : Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0)),
   );
   const currentStatusTime = Date.parse(currentVehicle.statusUpdatedAt || "");
   const storedStatusTime = Date.parse(storedVehicle.statusUpdatedAt || "");
@@ -81,6 +89,7 @@ function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle:
     ...storedVehicle,
     clientes,
     visitados,
+    ...(keepCurrentVisitados ? { visitadosUpdatedAt: currentVehicle.visitadosUpdatedAt } : {}),
     ...(keepCurrentClientes ? { clientesUpdatedAt: currentVehicle.clientesUpdatedAt } : {}),
     ...(keepCurrentStatus
       ? {

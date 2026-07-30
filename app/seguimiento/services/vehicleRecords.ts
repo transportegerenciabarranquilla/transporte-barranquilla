@@ -83,7 +83,9 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
   const clientes = currentRecord.clientesUpdatedAt
     ? Math.max(Number(currentRecord.clientes || 0), 0)
     : Math.max(Number(currentRecord.clientes || 0), Number(importedVehicle.clientes || 0));
-  const visitados = Math.max(Number(currentRecord.visitados || 0), Number(importedVehicle.visitados || 0));
+  const visitados = currentRecord.visitadosUpdatedAt
+    ? Math.max(Number(currentRecord.visitados || 0), 0)
+    : Math.max(Number(currentRecord.visitados || 0), Number(importedVehicle.visitados || 0));
 
   return {
     ...currentRecord,
@@ -195,13 +197,24 @@ function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
   const clientes = freshestClientesRecord
     ? Math.max(Number(freshestClientesRecord.clientes || 0), 0)
     : Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
-  const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
+  const currentVisitadosTime = Date.parse(current.visitadosUpdatedAt || "");
+  const nextVisitadosTime = Date.parse(next.visitadosUpdatedAt || "");
+  const freshestVisitadosRecord =
+    Number.isFinite(currentVisitadosTime) || Number.isFinite(nextVisitadosTime)
+      ? !Number.isFinite(currentVisitadosTime) || (Number.isFinite(nextVisitadosTime) && nextVisitadosTime > currentVisitadosTime)
+        ? next
+        : current
+      : undefined;
+  const visitados = freshestVisitadosRecord
+    ? Math.max(Number(freshestVisitadosRecord.visitados || 0), 0)
+    : Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {
     ...current,
     ...next,
     clientes,
     clientesUpdatedAt: freshestClientesRecord?.clientesUpdatedAt,
+    visitadosUpdatedAt: freshestVisitadosRecord?.visitadosUpdatedAt,
     visitados: Math.min(visitados, clientes || visitados),
   };
 }
