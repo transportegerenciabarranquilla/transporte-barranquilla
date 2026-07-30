@@ -11,7 +11,7 @@ import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import { useContractorBrand } from "../../lib/contractorBranding";
 import type { Vehiculo } from "../types";
-import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getStatus, getVehicleRecordKey, hasTimeValue, normalizeCajasTotal } from "../utils";
+import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getStatus, getVehicleRecordKey, hasRecargueValue, hasTimeValue, normalizeCajasTotal } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
 
 export default function SeguimientoGraficasPage() {
@@ -83,7 +83,12 @@ export default function SeguimientoGraficasPage() {
   const statusCounts = useMemo(() => {
     return ROUTE_STATUSES.map((status) => ({
       status,
-      count: rangeVehicles.filter((vehicle) => getVehicleStatus(vehicle) === status).length,
+      count: rangeVehicles.filter((vehicle) => {
+        const hasRecargue = hasRecargueValue(vehicle.recargue);
+        if (status === "Recargue") return hasRecargue;
+        if (status === "Pendiente por salir" && hasRecargue) return false;
+        return getVehicleStatus(vehicle) === status;
+      }).length,
     }));
   }, [rangeVehicles]);
 
