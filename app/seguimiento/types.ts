@@ -22,6 +22,7 @@ export type Vehiculo = {
   cajas: number;
   hl: number;
   clientes: number;
+  clientesUpdatedAt?: string;
   visitados: number;
   horaSalida: string;
   causalSalidaTardia?: string;

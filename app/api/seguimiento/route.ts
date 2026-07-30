@@ -223,22 +223,37 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
     const persisted = persistedById.get(row.record_id);
     if (!persisted) return row;
 
-    const clientes = Math.max(Number(row.data.clientes || 0), Number(persisted.clientes || 0));
+    const incomingClientesTime = Date.parse(row.data.clientesUpdatedAt || "");
+    const persistedClientesTime = Date.parse(persisted.clientesUpdatedAt || "");
+    const incomingClientesIsNewer =
+      Number.isFinite(incomingClientesTime) &&
+      (!Number.isFinite(persistedClientesTime) || incomingClientesTime > persistedClientesTime);
+    const clientes = incomingClientesIsNewer
+      ? Math.max(Number(row.data.clientes || 0), 0)
+      : Math.max(Number(row.data.clientes || 0), Number(persisted.clientes || 0));
     const visitados = Math.min(
       clientes,
       Math.max(Number(row.data.visitados || 0), Number(persisted.visitados || 0)),
     );
     const persistedFinished = persisted.status === "Finalizado" || hasStoredTime(persisted.horaLlegada);
+    const incomingStatusTime = Date.parse(row.data.statusUpdatedAt || "");
+    const persistedStatusTime = Date.parse(persisted.statusUpdatedAt || "");
+    const incomingStatusIsNewer =
+      Number.isFinite(incomingStatusTime) &&
+      (!Number.isFinite(persistedStatusTime) || incomingStatusTime > persistedStatusTime);
     const persistedStatusIsNewer =
-      Boolean(persisted.statusUpdatedAt) &&
-      Date.parse(persisted.statusUpdatedAt || "") > Date.parse(row.data.statusUpdatedAt || "");
-    const preservePersistedStatus = persistedFinished || persistedStatusIsNewer;
+      Number.isFinite(persistedStatusTime) &&
+      (!Number.isFinite(incomingStatusTime) || persistedStatusTime > incomingStatusTime);
+    const preservePersistedStatus = persistedStatusIsNewer || (persistedFinished && !incomingStatusIsNewer);
 
     return {
       ...row,
       data: {
         ...row.data,
         clientes,
+        clientesUpdatedAt: incomingClientesIsNewer
+          ? row.data.clientesUpdatedAt
+          : persisted.clientesUpdatedAt || row.data.clientesUpdatedAt,
         visitados,
         ...(preservePersistedStatus
           ? {
@@ -417,13 +432,24 @@ function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: num
 }
 
 function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
-  const clientes = Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
+  const currentClientesTime = Date.parse(current.clientesUpdatedAt || "");
+  const nextClientesTime = Date.parse(next.clientesUpdatedAt || "");
+  const freshestClientesRecord =
+    Number.isFinite(currentClientesTime) || Number.isFinite(nextClientesTime)
+      ? !Number.isFinite(currentClientesTime) || (Number.isFinite(nextClientesTime) && nextClientesTime > currentClientesTime)
+        ? next
+        : current
+      : undefined;
+  const clientes = freshestClientesRecord
+    ? Math.max(Number(freshestClientesRecord.clientes || 0), 0)
+    : Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
   const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {
     ...current,
     ...next,
     clientes,
+    clientesUpdatedAt: freshestClientesRecord?.clientesUpdatedAt,
     visitados: Math.min(visitados, clientes || visitados),
   };
 }

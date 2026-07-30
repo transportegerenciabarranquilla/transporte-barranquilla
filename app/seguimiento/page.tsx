@@ -353,6 +353,7 @@ export default function SeguimientoPage() {
     }
     const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
     if (changes.status !== undefined) updated.statusUpdatedAt = new Date().toISOString();
+    if (changes.clientes !== undefined) updated.clientesUpdatedAt = new Date().toISOString();
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);
 

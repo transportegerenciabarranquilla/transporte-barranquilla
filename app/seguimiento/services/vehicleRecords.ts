@@ -80,7 +80,9 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
     };
   }
 
-  const clientes = Math.max(Number(currentRecord.clientes || 0), Number(importedVehicle.clientes || 0));
+  const clientes = currentRecord.clientesUpdatedAt
+    ? Math.max(Number(currentRecord.clientes || 0), 0)
+    : Math.max(Number(currentRecord.clientes || 0), Number(importedVehicle.clientes || 0));
   const visitados = Math.max(Number(currentRecord.visitados || 0), Number(importedVehicle.visitados || 0));
 
   return {
@@ -182,13 +184,24 @@ function getUniqueRecordId(baseId: string, usedIds: Set<string>) {
 }
 
 function mergeDuplicateVehicle(current: Vehiculo, next: Vehiculo) {
-  const clientes = Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
+  const currentClientesTime = Date.parse(current.clientesUpdatedAt || "");
+  const nextClientesTime = Date.parse(next.clientesUpdatedAt || "");
+  const freshestClientesRecord =
+    Number.isFinite(currentClientesTime) || Number.isFinite(nextClientesTime)
+      ? !Number.isFinite(currentClientesTime) || (Number.isFinite(nextClientesTime) && nextClientesTime > currentClientesTime)
+        ? next
+        : current
+      : undefined;
+  const clientes = freshestClientesRecord
+    ? Math.max(Number(freshestClientesRecord.clientes || 0), 0)
+    : Math.max(Number(current.clientes || 0), Number(next.clientes || 0));
   const visitados = Math.max(Number(current.visitados || 0), Number(next.visitados || 0));
 
   return {
     ...current,
     ...next,
     clientes,
+    clientesUpdatedAt: freshestClientesRecord?.clientesUpdatedAt,
     visitados: Math.min(visitados, clientes || visitados),
   };
 }

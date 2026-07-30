@@ -61,7 +61,16 @@ export function formatCurrentTime() {
 }
 
 function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle: Vehiculo) {
-  const visitados = Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0));
+  const currentClientesTime = Date.parse(currentVehicle.clientesUpdatedAt || "");
+  const storedClientesTime = Date.parse(storedVehicle.clientesUpdatedAt || "");
+  const keepCurrentClientes =
+    Number.isFinite(currentClientesTime) &&
+    (!Number.isFinite(storedClientesTime) || currentClientesTime > storedClientesTime);
+  const clientes = keepCurrentClientes ? currentVehicle.clientes : storedVehicle.clientes;
+  const visitados = Math.min(
+    clientes,
+    Math.max(Number(currentVehicle.visitados || 0), Number(storedVehicle.visitados || 0)),
+  );
   const currentStatusTime = Date.parse(currentVehicle.statusUpdatedAt || "");
   const storedStatusTime = Date.parse(storedVehicle.statusUpdatedAt || "");
   const keepCurrentStatus =
@@ -70,7 +79,9 @@ function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle:
 
   return {
     ...storedVehicle,
-    visitados: Math.min(visitados, storedVehicle.clientes || visitados),
+    clientes,
+    visitados,
+    ...(keepCurrentClientes ? { clientesUpdatedAt: currentVehicle.clientesUpdatedAt } : {}),
     ...(keepCurrentStatus
       ? {
           status: currentVehicle.status,

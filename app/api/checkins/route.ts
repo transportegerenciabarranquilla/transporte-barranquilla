@@ -36,7 +36,10 @@ export async function PUT(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
-    const { records } = (await request.json()) as { records: CheckinCajasRegistro[] };
+    const { records, deleteMissing = true } = (await request.json()) as {
+      records: CheckinCajasRegistro[];
+      deleteMissing?: boolean;
+    };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
     const rows = records.map((record) => ({
       checkin_id: record.id,
@@ -56,27 +59,29 @@ export async function PUT(request: Request) {
       clearServerCache("supabase:admin-seguimiento:");
     }
 
-    const keepIds = new Set(rows.map((row) => row.checkin_id));
-    const currentParams = new URLSearchParams({ select: "checkin_id", contractor: `eq.${session.contractor}` });
-    const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
-      cache: "no-store",
-    });
-    if (currentResponse.ok) {
-      const current = (await currentResponse.json()) as { checkin_id: string }[];
-      const removed = current.map((row) => row.checkin_id).filter((id) => !keepIds.has(id));
-      if (removed.length) {
-        const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
-        await fetch(
-          supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
-          {
-            method: "DELETE",
-            headers: supabaseUserHeaders(session.accessToken),
-            cache: "no-store",
-          },
-        );
-        clearServerCache(`supabase:${TABLE}:`);
-        clearServerCache("supabase:admin-seguimiento:");
+    if (deleteMissing) {
+      const keepIds = new Set(rows.map((row) => row.checkin_id));
+      const currentParams = new URLSearchParams({ select: "checkin_id", contractor: `eq.${session.contractor}` });
+      const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
+        headers: supabaseUserHeaders(session.accessToken),
+        cache: "no-store",
+      });
+      if (currentResponse.ok) {
+        const current = (await currentResponse.json()) as { checkin_id: string }[];
+        const removed = current.map((row) => row.checkin_id).filter((id) => !keepIds.has(id));
+        if (removed.length) {
+          const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+          await fetch(
+            supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
+            {
+              method: "DELETE",
+              headers: supabaseUserHeaders(session.accessToken),
+              cache: "no-store",
+            },
+          );
+          clearServerCache(`supabase:${TABLE}:`);
+          clearServerCache("supabase:admin-seguimiento:");
+        }
       }
     }
 
@@ -96,5 +101,34 @@ export async function PUT(request: Request) {
     return NextResponse.json({ records });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando check-in." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
+
+    const { ids } = (await request.json()) as { ids?: string[] };
+    const cleanIds = Array.isArray(ids) ? ids.map(String).filter(Boolean) : [];
+    if (!cleanIds.length) return NextResponse.json({ deleted: 0 });
+
+    const filter = cleanIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+    const response = await fetch(
+      supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
+      {
+        method: "DELETE",
+        headers: supabaseUserHeaders(session.accessToken),
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+
+    clearServerCache(`supabase:${TABLE}:`);
+    clearServerCache("supabase:admin-seguimiento:");
+    return NextResponse.json({ deleted: cleanIds.length });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando check-in." }, { status: 500 });
   }
 }

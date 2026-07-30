@@ -1,5 +1,5 @@
 import { normalizeDt } from "./modulacionStorage";
-import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
+import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 
 export const CHECKIN_STORAGE_KEY = "bavaria.checkin.cajas";
 
@@ -19,6 +19,17 @@ export function readCheckinCajasRegistros() {
 
 export function saveCheckinCajasRegistros(records: CheckinCajasRegistro[]) {
   return saveRemoteRecords("/api/checkins", records);
+}
+
+export function saveCheckinCajasRegistro(record: CheckinCajasRegistro) {
+  return saveRemoteRecords("/api/checkins", [record], {
+    extraBody: { deleteMissing: false },
+    mergeByKey: (item) => normalizeDt(item.dt),
+  });
+}
+
+export function deleteCheckinCajasRegistro(record: CheckinCajasRegistro) {
+  return deleteRemoteRecords<CheckinCajasRegistro>("/api/checkins", [record.id]);
 }
 
 export function removeCheckinByDt(dt: string | number | undefined) {
