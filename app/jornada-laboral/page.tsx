@@ -42,6 +42,7 @@ export default function JornadaLaboralPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [operationalStatusFilter, setOperationalStatusFilter] = useState("");
   const [routeTimeSort, setRouteTimeSort] = useState<"" | "desc" | "asc">("");
+  const [metaTimeSort, setMetaTimeSort] = useState<"" | "desc" | "asc">("");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
@@ -98,6 +99,19 @@ export default function JornadaLaboralPage() {
       return matchesSearch && matchesState && matchesOperationalStatus;
     });
 
+    if (metaTimeSort) {
+      return [...filtered].sort((a, b) => {
+        const leftMeta = parseTimeToMinutes(a.metaRelevo);
+        const rightMeta = parseTimeToMinutes(b.metaRelevo);
+        if (leftMeta === null && rightMeta === null) return 0;
+        if (leftMeta === null) return 1;
+        if (rightMeta === null) return -1;
+        const metaDiff = metaTimeSort === "desc" ? rightMeta - leftMeta : leftMeta - rightMeta;
+        if (metaDiff !== 0) return metaDiff;
+        return getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true });
+      });
+    }
+
     if (!routeTimeSort) {
       return filtered;
     }
@@ -107,7 +121,7 @@ export default function JornadaLaboralPage() {
       if (elapsedDiff !== 0) return elapsedDiff;
       return getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true });
     });
-  }, [operationalStatusFilter, routeTimeSort, rows, search, stateFilter]);
+  }, [metaTimeSort, operationalStatusFilter, routeTimeSort, rows, search, stateFilter]);
   const selectedVehicle = useMemo(() => {
     if (!selectedVehicleKey) return null;
     return jornadaVehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
@@ -145,7 +159,13 @@ export default function JornadaLaboralPage() {
   }
 
   function toggleRouteTimeSort() {
+    setMetaTimeSort("");
     setRouteTimeSort((current) => (current === "desc" ? "asc" : "desc"));
+  }
+
+  function toggleMetaTimeSort() {
+    setRouteTimeSort("");
+    setMetaTimeSort((current) => (current === "desc" ? "asc" : "desc"));
   }
 
   async function exportJornadaExcel() {
@@ -447,7 +467,29 @@ export default function JornadaLaboralPage() {
                   </th>
                   <HeaderCell align="center" width="w-[58px]" title="Clientes" detail="Prog." />
                   <HeaderCell align="center" width="w-[58px]" title="Visitados" detail="Aten." />
-                  <HeaderCell width="w-[78px]" title="Meta" detail="+10:30" />
+                  <th className="w-[92px] px-1.5 py-1.5 text-left">
+                    <div className="flex items-center gap-1">
+                      <div className="min-w-0">
+                        <span className="block text-[9px] font-bold uppercase tracking-[0.08em] text-[#10223d]">Meta</span>
+                        <span className="mt-0.5 block truncate text-[8px] font-medium normal-case tracking-normal text-slate-500">+10:30</span>
+                      </div>
+                      <button
+                        aria-label="Ordenar por hora meta"
+                        aria-pressed={Boolean(metaTimeSort)}
+                        className={`inline-grid h-5 w-5 place-items-center rounded transition hover:bg-[#10223d]/15 hover:text-[#0f7c58] ${
+                          metaTimeSort ? "bg-[#10223d]/15 text-[#0f7c58]" : "bg-[#10223d]/10 text-[#10223d]"
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleMetaTimeSort();
+                        }}
+                        title={metaTimeSort === "desc" ? "Hora meta mayor primero" : metaTimeSort === "asc" ? "Hora meta menor primero" : "Ordenar por hora meta"}
+                        type="button"
+                      >
+                        <ArrowUpDown size={11} />
+                      </button>
+                    </div>
+                  </th>
                   <HeaderCell width="w-[132px]" title="Inicio relevo" detail="Editable" />
                   <HeaderCell width="w-[148px]" title="Relevador" detail="Asignado" />
                   <HeaderCell width="w-[90px]" title="Resultado" detail="Efectivo/no" />

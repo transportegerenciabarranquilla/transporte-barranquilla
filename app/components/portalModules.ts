@@ -34,6 +34,14 @@ const modules: PortalModule[] = [
     tone: "from-[#f5bd19] to-[#ff7a1a]",
     accent: "border-l-[#f5bd19]",
   },
+  {
+    id: 10,
+    title: "Graficas",
+    href: "/graficas",
+    detail: "Indicadores y visualizaciones",
+    tone: "from-[#2563eb] to-[#06b6d4]",
+    accent: "border-l-[#2563eb]",
+  },
 ];
 
 const peopleModule: PortalModule = {
@@ -96,6 +104,15 @@ const peopleNpsModule: PortalModule = {
   accent: "border-l-[#0f766e]",
 };
 
+const peopleRtiModule: PortalModule = {
+  id: 11,
+  title: "RTI",
+  href: "/personas/rti",
+  detail: "Modulo reservado para People",
+  tone: "from-[#0f766e] to-[#22c55e]",
+  accent: "border-l-[#0f766e]",
+};
+
 export function getVisiblePortalModules({
   contractor,
   isAdmin,
@@ -108,7 +125,7 @@ export function getVisiblePortalModules({
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
-  if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule];
+  if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule];
   if (isAdmin) return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...baseModules.slice(1)];
   return contractor ? [...baseModules, rangoModule] : baseModules;
 }
