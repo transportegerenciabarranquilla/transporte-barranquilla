@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpDown, CalendarDays, Clock3, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, CalendarDays, Clock3, Download, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { isLogisticosContractor } from "../lib/contractors";
@@ -27,6 +27,7 @@ const CAUSALES_DESVIO = [
 ];  
 
 type JornadaState = "ok" | "warn" | "danger" | "done" | "lateDone" | "empty";
+type ExportPeriod = "day" | "month" | "history";
 type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string; CELULAR?: string | number };
 
 export default function JornadaLaboralPage() {
@@ -34,6 +35,7 @@ export default function JornadaLaboralPage() {
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], loadSeguimientoVehiculos, []);
   const [draftVehiculos, setDraftVehiculos] = useState<Vehiculo[] | null>(null);
   const [selectedDate, setSelectedDate] = useState(getTodayKey);
+  const [exportPeriod, setExportPeriod] = useState<ExportPeriod>("day");
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
@@ -146,6 +148,94 @@ export default function JornadaLaboralPage() {
     setRouteTimeSort((current) => (current === "desc" ? "asc" : "desc"));
   }
 
+  async function exportJornadaExcel() {
+    const periodKey = exportPeriod === "history" ? "historico" : exportPeriod === "month" ? selectedDate.slice(0, 7) : selectedDate;
+    const vehiclesForPeriod = jornadaVehiculos.filter((vehicle) => {
+      if (exportPeriod === "history") return true;
+      const dateKey = toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+      return exportPeriod === "month" ? dateKey.startsWith(`${periodKey}-`) : dateKey === periodKey;
+    });
+
+    if (!vehiclesForPeriod.length) {
+      setMessage(`No hay jornadas para exportar en ${periodKey}.`);
+      return;
+    }
+
+    try {
+      setMessage("Generando Excel...");
+      const XLSX = await import("xlsx");
+      const exportRows = vehiclesForPeriod
+        .map((vehicle) => buildJornadaRow(vehicle, now))
+        .sort((a, b) => {
+          const dateDiff = toDateKey(a.vehicle.fechaDespacho).localeCompare(toDateKey(b.vehicle.fechaDespacho));
+          return dateDiff || getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true });
+        })
+        .map((row) => ({
+          Fecha: toDateKey(row.vehicle.fechaDespacho || row.vehicle.date || row.vehicle.createdAt),
+          DT: row.vehicle.transporte,
+          Viaje: row.vehicle.viaje,
+          Placa: row.vehicle.vehiculo,
+          Estado: row.statusLabel,
+          "Estado jornada": getJornadaStateLabel(row.state),
+          "Hora salida": timeInputValue(row.vehicle.horaSalida) || "",
+          "Tiempo de jornada": row.elapsedLabel,
+          "Meta relevo": row.metaRelevo,
+          "Inicio relevo": timeInputValue(row.vehicle.horaInicioRelevo) || "",
+          "Requiere relevo": row.requiereRelevo ? "Si" : "No",
+          "Alerta SIF": row.alertaSif ? "Si" : "No",
+          "Resultado relevo": row.clasificacion,
+          Relevador: cleanExportValue(row.vehicle.relevador),
+          "Causal desvio": cleanExportValue(row.vehicle.causalDesviado),
+          Investigacion: cleanExportValue(row.vehicle.investigacionDesvio),
+          Responsable: row.vehicle.responsable,
+          "Cedula responsable": row.vehicle.cedulaResponsable || "",
+          "Auxiliar 1": row.vehicle.nombreAuxiliar1 || "",
+          "Cedula auxiliar 1": row.vehicle.cedulaAuxiliar1 || "",
+          "Auxiliar 2": row.vehicle.nombreAuxiliar2 || "",
+          "Cedula auxiliar 2": row.vehicle.cedulaAuxiliar2 || "",
+          Clientes: Number(row.vehicle.clientes || 0),
+          Visitados: Number(row.vehicle.visitados || 0),
+          "Avance (%)": row.avance,
+          "Hora llegada": timeInputValue(row.vehicle.horaLlegada) || "",
+          "Tiempo ruta": cleanExportValue(row.vehicle.tiempoRuta),
+          Territorio: row.vehicle.territorio,
+          Centro: row.vehicle.centro,
+          Transportista: row.vehicle.transportista,
+          Cajas: Number(row.vehicle.cajas || 0),
+          HL: Number(row.vehicle.hl || 0),
+          Recargue: cleanExportValue(row.vehicle.recargue),
+        }));
+
+      const summaryRows = [
+        ["Reporte", "Jornada laboral"],
+        ["Periodo", exportPeriod === "history" ? "Historico completo" : exportPeriod === "month" ? `Mes ${periodKey}` : `Dia ${periodKey}`],
+        ["Rutas", exportRows.length],
+        ["Pendientes de relevo", exportRows.filter((row) => row["Requiere relevo"] === "Si").length],
+        ["Alertas SIF", exportRows.filter((row) => row["Alerta SIF"] === "Si").length],
+        ["Relevos efectivos", exportRows.filter((row) => row["Resultado relevo"] === "Efectivo").length],
+        ["Relevos no efectivos", exportRows.filter((row) => row["Resultado relevo"] === "No efectivo").length],
+      ];
+      const workbook = XLSX.utils.book_new();
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      const detailSheet = XLSX.utils.json_to_sheet(exportRows);
+      summarySheet["!cols"] = [{ wch: 24 }, { wch: 22 }];
+      detailSheet["!cols"] = Object.keys(exportRows[0]).map((header) => ({ wch: Math.min(38, Math.max(12, header.length + 2)) }));
+      detailSheet["!autofilter"] = { ref: detailSheet["!ref"] || "A1:AG1" };
+      detailSheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumen");
+      XLSX.utils.book_append_sheet(workbook, detailSheet, "Detalle jornada");
+
+      const filename =
+        exportPeriod === "history"
+          ? "jornada-laboral-historico-completo.xlsx"
+          : `jornada-laboral-${exportPeriod === "month" ? "mes" : "dia"}-${periodKey}.xlsx`;
+      XLSX.writeFile(workbook, filename, { compression: true });
+      setMessage(`${exportRows.length} jornadas exportadas en ${filename}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo exportar el Excel.");
+    }
+  }
+
   if (canAccessJornada === null) {
     return <main className="min-h-screen" />;
   }
@@ -191,15 +281,34 @@ export default function JornadaLaboralPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Periodo para exportar"
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+              onChange={(event) => setExportPeriod(event.target.value as ExportPeriod)}
+              value={exportPeriod}
+            >
+              <option value="day">Exportar día</option>
+              <option value="month">Exportar mes</option>
+              <option value="history">Exportar histórico</option>
+            </select>
             <label className="relative">
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
               <input
-                className="h-10 rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+                className="h-10 rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                disabled={exportPeriod === "history"}
                 onChange={(event) => setSelectedDate(event.target.value)}
                 type="date"
                 value={selectedDate}
               />
             </label>
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#10223d] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#17345d]"
+              onClick={exportJornadaExcel}
+              type="button"
+            >
+              <Download size={17} />
+              Descargar Excel
+            </button>
             {message ? <span className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm">{message}</span> : null}
           </div>
         </div>
@@ -772,6 +881,23 @@ function StatusBadge({ label, state }: { label: string; state: JornadaState }) {
   };
 
   return <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-4 ${styles[state]}`}>{label}</span>;
+}
+
+function getJornadaStateLabel(state: JornadaState) {
+  const labels: Record<JornadaState, string> = {
+    danger: "Alerta SIF",
+    done: "Relevada",
+    empty: "Sin hora de salida",
+    lateDone: "Relevo con alerta",
+    ok: "En jornada",
+    warn: "Pendiente relevo",
+  };
+
+  return labels[state];
+}
+
+function cleanExportValue(value: string | undefined) {
+  return !value || value === "Pendiente" || value === "-" ? "" : value;
 }
 
 function isLogisticosVehicle(vehicle: Vehiculo) {
