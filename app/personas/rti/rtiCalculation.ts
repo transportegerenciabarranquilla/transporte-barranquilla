@@ -31,6 +31,10 @@ export function isSkuUniverseContainer(container: string, validContainers: Reado
   return Boolean(container) && validContainers.has(container);
 }
 
+export function quantityDifference(outbound: number, returned: number) {
+  return Math.round((outbound - returned) * 10) / 10;
+}
+
 export type SkuBridgeEntry = {
   material: string;
   envase: string;

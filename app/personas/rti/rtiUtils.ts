@@ -1,4 +1,5 @@
 import type { RtiRecord } from "./rtiTypes";
+import { quantityDifference } from "./rtiCalculation";
 
 export function uniqueValues(records: RtiRecord[], field: "responsible" | "reference" | "carrier") {
   return Array.from(new Set(records.map((record) => record[field]).filter(Boolean))).sort((left, right) => left.localeCompare(right, "es-CO"));
@@ -38,7 +39,7 @@ export function aggregateRecords(records: RtiRecord[], keyFor: (record: RtiRecor
     name,
     outbound: result.outbound,
     returned: result.returned,
-    difference: Math.round((result.outbound - result.returned) * 10) / 10,
+    difference: quantityDifference(result.outbound, result.returned),
     percentage: result.outbound ? Math.round((result.returned / result.outbound) * 1_000) / 10 : 0,
   }));
 }

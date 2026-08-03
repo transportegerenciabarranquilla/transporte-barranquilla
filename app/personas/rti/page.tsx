@@ -5,9 +5,9 @@ import { ArrowLeft, BarChart3, Database, LoaderCircle, ShieldAlert, Upload } fro
 import { useRouter } from "next/navigation";
 import { DateInput, FilterSelect, formatChartNumber, MovementBar, PanelHeader } from "./components/RtiVisuals";
 import type { RtiRecord } from "./rtiTypes";
+import { quantityDifference } from "./rtiCalculation";
 import {
   aggregateRecords,
-  differenceColor,
   monthIndex,
   normalizeColumnName,
   parseDatabaseRows,
@@ -39,32 +39,32 @@ function buildDailyMatrix(items: DailyMatrixItem[], totals: Array<{ name: string
 
 function DailyReferenceMatrix({ days, rows }: { days: number[]; rows: DailyMatrixRow[] }) {
   return (
-    <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70 lg:col-span-full">
-      <PanelHeader>Seguimiento diario porcentaje RTI</PanelHeader>
-      <div className="max-h-[520px] overflow-auto p-3">
-        <table className="w-full border-separate border-spacing-0 text-xs" style={{ minWidth: `${Math.max(720, 330 + days.length * 72)}px` }}>
+    <section className="w-full overflow-hidden rounded-2xl border-[3px] border-[#929879] bg-white shadow-md shadow-slate-200/70 lg:col-span-full">
+      <h2 className="bg-[#929879] px-4 py-2.5 text-center text-sm font-black uppercase tracking-wide text-white">Seguimiento diario porcentaje RTI</h2>
+      <div className="max-h-[520px] overflow-auto p-2.5">
+        <table className="w-full border-separate border-spacing-0 text-xs" style={{ minWidth: `${Math.max(760, 360 + days.length * 70)}px` }}>
           <thead className="sticky top-0 z-20">
-            <tr className="bg-slate-700 text-white">
-              <th className="sticky left-0 z-30 min-w-72 border-b border-r border-slate-500 bg-slate-700 px-4 py-3 text-left text-sm font-extrabold">Descripción de envase</th>
+            <tr className="bg-[#656565] text-white">
+              <th className="sticky left-0 z-30 min-w-80 border-b border-r border-slate-800 bg-[#656565] px-4 py-3 text-left text-sm font-extrabold">Descripción de envase</th>
               {days.map((day) => (
-                <th className="min-w-16 border-b border-r border-slate-500 px-3 py-3 text-center text-sm font-extrabold" key={day}>{day}</th>
+                <th className="min-w-16 border-b border-r border-slate-800 px-3 py-3 text-center text-sm font-extrabold" key={day}>{day}</th>
               ))}
-              <th className="min-w-20 border-b border-slate-500 px-3 py-3 text-center text-sm font-extrabold">Total</th>
+              <th className="min-w-20 border-b border-slate-800 px-3 py-3 text-center text-sm font-extrabold">Total</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="font-black">
             {rows.map((row) => (
               <tr key={row.name}>
-                <td className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-600 px-4 py-2.5 font-extrabold uppercase text-white">{row.name}</td>
+                <td className="sticky left-0 z-10 border-b border-r border-slate-800 bg-[#656565] px-2 py-2 text-sm uppercase text-white">{row.name}</td>
                 {days.map((day) => {
                   const percentage = row.percentages.get(day);
                   return (
-                    <td className={`border-b border-r border-white px-3 py-2.5 text-center text-sm font-black ${percentage === undefined ? "bg-slate-100 text-slate-400" : rankingColor(percentage)}`} key={day}>
+                    <td className={`border-b border-r border-slate-700 px-2 py-2 text-center text-sm ${percentage === undefined ? "bg-slate-100 text-slate-400" : percentage >= 100 ? "bg-lime-400 text-slate-950" : percentage >= 85 ? "bg-[#e3c600] text-slate-950" : "bg-red-500 text-white"}`} key={day}>
                       {percentage === undefined ? "—" : `${percentage} %`}
                     </td>
                   );
                 })}
-                <td className={`border-b border-white px-3 py-2.5 text-center text-sm font-black ${rankingColor(row.total)}`}>{row.total} %</td>
+                <td className="border-b border-slate-700 bg-white px-3 py-2 text-center text-sm text-slate-900">{row.total} %</td>
               </tr>
             ))}
             {!rows.length ? <tr><td className="px-4 py-10 text-center font-medium text-slate-500" colSpan={days.length + 2}>Sin resultados</td></tr> : null}
@@ -244,7 +244,7 @@ export default function RtiPage() {
       // Antes este cálculo estaba invertido (retorno - salida), lo que hacía
       // que esta tabla mostrara el signo contrario al resto de la página
       // para el mismo dato.
-      difference: result.outbound - result.returned,
+      difference: quantityDifference(result.outbound, result.returned),
       percentage: result.outbound ? Math.round((result.returned / result.outbound) * 100) : 0,
     }),
   ).sort((left, right) => right.percentage - left.percentage);
@@ -271,15 +271,17 @@ export default function RtiPage() {
     .sort((left, right) => right.percentage - left.percentage || left.name.localeCompare(right.name, "es-CO"));
   const localDifferenceRanking = aggregateRecords(filteredRecords, (record) => record.responsible)
     .map((item) => ({ ...item, carrier: filteredRecords.find((record) => record.responsible === item.name)?.carrier || "Sin transportista" }))
-    .sort((left, right) => left.difference - right.difference);
-  const localBoxDifferences = complianceByReference.map((item) => ({ reference: item.name, value: item.difference }));
+    .sort((left, right) => right.difference - left.difference || left.name.localeCompare(right.name, "es-CO"));
+  const localBoxDifferences = complianceByReference
+    .map((item) => ({ reference: item.name, value: item.difference }))
+    .sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
   const localPackageMovement = complianceByReference.map((item) => ({ reference: item.name, outbound: item.outbound, returned: item.returned }));
   const localSkuReturns = Array.from(
     filteredRecords.reduce((summary, record) => {
-      summary.set(record.material, (summary.get(record.material) || 0) + (record.returned || 0));
+      summary.set(record.reference, (summary.get(record.reference) || 0) + (record.returned || 0));
       return summary;
     }, new Map<string, number>()),
-    ([sku, value]) => ({ sku, value }),
+    ([referenceName, value]) => ({ referenceName, value }),
   );
   const localBoxDifferenceRanking = localDifferenceRanking.map((item) => ({ name: item.name, value: item.difference, carrier: item.carrier }));
   const localDailyRouteRti = aggregateRecords(filteredRecords.filter((record) => record.dt), (record) => record.dt || "")
@@ -309,9 +311,10 @@ export default function RtiPage() {
     1,
     ...displayedPackageMovement.flatMap((item) => [item.outbound, item.returned]),
   );
-  const displayedSkuReturns = localSkuReturns.sort((left, right) => right.value - left.value).slice(0, 15);
+  const displayedSkuReturns = localSkuReturns.sort((left, right) => right.value - left.value).slice(0, 12);
   const skuReturnMax = Math.max(1, ...displayedSkuReturns.map((item) => item.value));
-  const displayedBoxDifferenceRanking = localBoxDifferenceRanking.slice(0, 12);
+  const displayedBoxDifferenceRanking = localBoxDifferenceRanking;
+  const totalBoxDifference = quantityDifference(outboundTotal, returnedTotal);
   const dailyRtiMetrics = localDailyRtiMetrics;
   const displayedDailyRouteRti = localDailyRouteRti.slice(0, 15);
   const localResponsibleDailyItems = buildLocalDailyItems(filteredRecords, (record) => record.responsible);
@@ -535,22 +538,16 @@ export default function RtiPage() {
         <section className="grid w-full items-start gap-4 lg:col-span-full lg:grid-cols-2">
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Porcentaje de cumplimiento RTI por referencia</PanelHeader>
-            <div className="overflow-x-auto p-2">
+            <div className="max-h-[360px] space-y-2 overflow-auto p-4">
               {chartReferences.length ? (
-                <div
-                  className="flex min-h-[185px] items-end gap-3 border-b border-slate-300 px-3 pt-3"
-                  style={{ minWidth: `${Math.max(chartReferences.length * 105, 460)}px` }}
-                >
+                <div className="space-y-3">
                   {chartReferences.map((item) => (
-                    <div className="flex min-w-0 flex-1 flex-col items-center" key={item.name}>
-                      <span className="mb-1 text-[10px] font-bold text-slate-800">{item.percentage} %</span>
-                      <div
-                        className={`w-full max-w-16 rounded-t-sm shadow-sm ${item.percentage >= 100 ? "bg-emerald-500" : "bg-red-500"}`}
-                        style={{ height: `${Math.max(item.percentage * 0.9, 9)}px` }}
-                      />
-                      <span className="mt-2 min-h-11 text-center text-[9px] font-semibold leading-tight text-slate-700">
-                        {item.name}
-                      </span>
+                    <div className="grid grid-cols-[minmax(130px,1fr)_2fr_58px] items-center gap-3" key={item.name}>
+                      <span className="truncate text-[10px] font-bold text-slate-700" title={item.name}>{item.name}</span>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                        <div className={`h-full rounded-full ${performanceColor(item.percentage)}`} style={{ width: `${Math.min(Math.max(item.percentage, 0), 100)}%` }} />
+                      </div>
+                      <span className="text-right text-xs font-black text-slate-900">{item.percentage} %</span>
                     </div>
                   ))}
                 </div>
@@ -562,37 +559,22 @@ export default function RtiPage() {
 
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Cantidad de cajas de diferencia por referencia</PanelHeader>
-            <div className="overflow-x-auto p-2">
-              <div className="relative flex min-h-[185px] min-w-[560px] items-center gap-2 px-2">
-                <div className="absolute inset-x-2 top-1/2 border-t border-slate-300" />
+            <div className="max-h-[360px] overflow-auto p-4">
+              <p className="mb-3 text-[10px] font-semibold text-slate-500">Diferencia = salida − retorno · ordenada por impacto absoluto</p>
+              <div className="space-y-3">
                 {displayedBoxDifferences.map((item) => {
-                  const height = item.value === 0
-                    ? 2
-                    : Math.max((Math.abs(item.value) / displayedBoxDifferenceMax) * 62, 5);
+                  const width = item.value === 0 ? 0 : Math.max((Math.abs(item.value) / displayedBoxDifferenceMax) * 100, 2);
                   return (
-                    <div className="relative z-10 flex h-[160px] min-w-0 flex-1 flex-col items-center" key={item.reference}>
-                      <div className="flex h-1/2 w-full flex-col items-center justify-end">
-                        {item.value >= 0 ? (
-                          <>
-                            <span className="mb-0.5 text-[8px] font-bold text-slate-800">{item.value}</span>
-                            <div className={differenceColor(item.value)} style={{ height: `${height}px`, width: "72%" }} />
-                          </>
-                        ) : null}
+                    <div className="grid grid-cols-[minmax(130px,1fr)_2fr_80px] items-center gap-3" key={item.reference}>
+                      <span className="truncate text-[10px] font-bold text-slate-700" title={item.reference}>{item.reference}</span>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                        <div className={`h-full ${item.value >= 0 ? "bg-amber-400" : "bg-red-500"}`} style={{ width: `${width}%` }} />
                       </div>
-                      <div className="flex h-1/2 w-full flex-col items-center">
-                        {item.value < 0 ? (
-                          <>
-                            <div className={differenceColor(item.value)} style={{ height: `${height}px`, width: "72%" }} />
-                            <span className="mt-0.5 text-[8px] font-bold text-slate-800">{item.value}</span>
-                          </>
-                        ) : null}
-                        <span className="absolute top-[126px] min-h-9 text-center text-[8px] font-semibold leading-tight text-slate-700">
-                          {item.reference}
-                        </span>
-                      </div>
+                      <span className={`text-right text-xs font-black ${item.value >= 0 ? "text-amber-700" : "text-red-600"}`}>{formatChartNumber(item.value)}</span>
                     </div>
                   );
                 })}
+                {!displayedBoxDifferences.length ? <div className="grid min-h-[150px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div> : null}
               </div>
             </div>
           </article>
@@ -679,21 +661,19 @@ export default function RtiPage() {
 
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>SKU retorno</PanelHeader>
-            <div className="overflow-x-auto p-3">
-              <div
-                className="flex min-h-[205px] items-end gap-1 border-b border-slate-300 px-1"
-                style={{ minWidth: `${Math.max(displayedSkuReturns.length * 38, 650)}px` }}
-              >
+            <div className="max-h-[360px] space-y-3 overflow-auto p-4">
+              <p className="text-[10px] font-semibold text-slate-500">Retornos por nombre de envase del catálogo SKU</p>
+              <div className="space-y-3">
                 {displayedSkuReturns.map((item, index) => (
-                  <div className="flex min-w-0 flex-1 flex-col items-center" key={item.sku}>
-                    <span className="mb-1 text-[7px] font-bold text-slate-700">{formatChartNumber(item.value)}</span>
-                    <div
-                      className={`w-full max-w-5 rounded-t-[2px] ${skuBarColor(index)}`}
-                      style={{ height: `${Math.max((item.value / skuReturnMax) * 145, item.value ? 4 : 2)}px` }}
-                    />
-                    <span className="mt-1 text-[7px] font-semibold text-slate-600">{item.sku}</span>
+                  <div className="grid grid-cols-[minmax(150px,1fr)_2fr_78px] items-center gap-3" key={item.referenceName}>
+                    <span className="truncate text-[10px] font-bold text-slate-700" title={item.referenceName}>{item.referenceName}</span>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                      <div className={`h-full rounded-full ${skuBarColor(index)}`} style={{ width: `${Math.max((item.value / skuReturnMax) * 100, item.value ? 2 : 0)}%` }} />
+                    </div>
+                    <span className="text-right text-[10px] font-black text-slate-900">{formatChartNumber(item.value)}</span>
                   </div>
                 ))}
+                {!displayedSkuReturns.length ? <div className="grid min-h-[150px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div> : null}
               </div>
             </div>
           </article>
@@ -701,6 +681,7 @@ export default function RtiPage() {
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Diferencia en cajas</PanelHeader>
               <div className="max-h-[430px] overflow-auto p-3">
+              <p className="mb-2 text-[10px] font-semibold text-slate-500">Diferencia = salida − retorno. Un valor positivo representa cajas pendientes.</p>
               <table className="w-full min-w-[500px] text-[10px]">
                 <thead>
                   <tr className="bg-slate-950 text-white">
@@ -719,6 +700,13 @@ export default function RtiPage() {
                   ))}
                   {!displayedBoxDifferenceRanking.length ? <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={3}>Sin resultados</td></tr> : null}
                 </tbody>
+                <tfoot>
+                  <tr className="sticky bottom-0 bg-slate-900 font-black text-white">
+                    <td className="px-2 py-2">TOTAL DEL FILTRO</td>
+                    <td className="px-2 py-2 text-center">{formatChartNumber(totalBoxDifference)}</td>
+                    <td className="px-2 py-2 text-right text-[9px]">{formatChartNumber(outboundTotal)} − {formatChartNumber(returnedTotal)}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </article>

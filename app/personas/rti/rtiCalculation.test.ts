@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { averageRti, buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
+import { averageRti, buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
 
 test("divide la suma de retornos por la suma de salidas", () => {
   assert.deepEqual(summarizeQuantities([{ outbound: 100, returned: 90 }, { outbound: 300, returned: 240 }]), {
@@ -8,6 +8,11 @@ test("divide la suma de retornos por la suma de salidas", () => {
     returnedTotal: 330,
     rtiPercentage: 82.5,
   });
+});
+
+test("la diferencia en cajas siempre es salida menos retorno", () => {
+  assert.equal(quantityDifference(100, 92), 8);
+  assert.equal(quantityDifference(90, 100), -10);
 });
 
 test("agrupa implícitamente varias filas de la misma llave sin cambiar la razón de totales", () => {

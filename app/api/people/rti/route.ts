@@ -3,7 +3,7 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
 import { readServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
-import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
+import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
 
 const TABLES = ["RACOCIMI1", "RACOCIMI2"] as const;
 const PAGE_SIZE = 1_000;
@@ -65,7 +65,8 @@ export async function GET(request: Request) {
     const skuBridge = buildSkuBridge(skuRows.map(toSkuBridgeEntry));
     const skuByContainer = new Map<string, { descripcionEnvase: string; unidadesEnvase: number | null }>();
     skuBridge.byMaterial.forEach((sku) => {
-      if (!skuByContainer.has(sku.envase)) {
+      const current = skuByContainer.get(sku.envase);
+      if (!current || (!current.descripcionEnvase && sku.descripcionEnvase)) {
         skuByContainer.set(sku.envase, {
           descripcionEnvase: sku.descripcionEnvase,
           unidadesEnvase: sku.unidadesEnvase,
@@ -339,7 +340,7 @@ export async function GET(request: Request) {
         ...(parts ? { Día: parts.day, Mes: parts.month, Año: parts.year } : {}),
         "Cajas reales salida": outbound,
         "Cajas reales retorno": returned,
-        "Diferencia envase retorno": Math.round((outbound - returned) * 10) / 10,
+        "Diferencia envase retorno": quantityDifference(outbound, returned),
         ...(percentage !== null ? { "Porcentaje RTI": Math.round(percentage * 10) / 10 } : {}),
       };
     });
