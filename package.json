@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:rti": "node --experimental-strip-types --test app/personas/rti/rtiCalculation.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.6",

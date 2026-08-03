@@ -80,8 +80,10 @@ export default function AdminPage() {
   const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
   const [modulacionExportPeriod, setModulacionExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [asistenciaExportPeriod, setAsistenciaExportPeriod] = useState<ModulacionExportPeriod>("month");
+  const [seguimientoExportPeriod, setSeguimientoExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [exportingModulaciones, setExportingModulaciones] = useState("");
   const [exportingAsistencias, setExportingAsistencias] = useState("");
+  const [exportingSeguimiento, setExportingSeguimiento] = useState("");
   const [exportError, setExportError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -276,6 +278,37 @@ export default function AdminPage() {
       setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
     } finally {
       setExportingAsistencias("");
+    }
+  }
+
+  async function downloadSeguimiento(period: ModulacionExportPeriod, format: ModulacionExportFormat) {
+    const exportKey = `${period}-${format}`;
+    setExportingSeguimiento(exportKey);
+    setExportError("");
+
+    try {
+      const params = new URLSearchParams({ period, format });
+      if (selectedContractor !== "Todas") params.set("contractor", selectedContractor);
+      const response = await fetch(`/api/admin/seguimiento/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo generar el archivo.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `seguimiento.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
+    } finally {
+      setExportingSeguimiento("");
     }
   }
 
@@ -605,7 +638,7 @@ export default function AdminPage() {
           <div className="space-y-5">
             <section className="tech-card rounded-lg p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Descargar información</p>
-              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Asistencia y modulación</h2>
+              <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Seguimiento, asistencia y modulación</h2>
               <p className="mt-2 max-w-3xl text-sm text-slate-500">
                 Escoge el período y descarga el informe de{" "}
                 <span className="font-semibold text-[#10223d]">
@@ -616,7 +649,15 @@ export default function AdminPage() {
               {exportError ? (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{exportError}</div>
               ) : null}
-              <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                <AdminExportCard
+                  description="Rutas y avance operativo de los vehículos en seguimiento."
+                  exporting={exportingSeguimiento}
+                  onDownload={downloadSeguimiento}
+                  onPeriodChange={setSeguimientoExportPeriod}
+                  period={seguimientoExportPeriod}
+                  title="Seguimiento"
+                />
                 <AdminExportCard
                   description="Registros de asistencia de responsables y auxiliares."
                   exporting={exportingAsistencias}
