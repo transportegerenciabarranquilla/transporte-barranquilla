@@ -3,7 +3,7 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
 import { readServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
-import { buildSkuBridge, positiveMatchingKeys, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
+import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
 
 const TABLES = ["RACOCIMI1", "RACOCIMI2"] as const;
 const PAGE_SIZE = 1_000;
@@ -63,6 +63,15 @@ export async function GET(request: Request) {
     logDebug("Consulta SKU", skuResult.diagnostics);
     logDebug("Consulta SQ01", sqResult.diagnostics);
     const skuBridge = buildSkuBridge(skuRows.map(toSkuBridgeEntry));
+    const skuByContainer = new Map<string, { descripcionEnvase: string; unidadesEnvase: number | null }>();
+    skuBridge.byMaterial.forEach((sku) => {
+      if (!skuByContainer.has(sku.envase)) {
+        skuByContainer.set(sku.envase, {
+          descripcionEnvase: sku.descripcionEnvase,
+          unidadesEnvase: sku.unidadesEnvase,
+        });
+      }
+    });
     const managerByRoute = new Map<string, string>();
     const dateByRoute = new Map<string, string>();
     const carrierByRoute = new Map<string, string>();
@@ -135,11 +144,12 @@ export async function GET(request: Request) {
     const enrichedDatasets = datasets.map((rows, datasetIndex) =>
       rows.map((row) => {
         const materialOriginal = materialKey(row);
-        const sku = datasetIndex === 0 ? skuBridge.byMaterial.get(materialOriginal) : undefined;
+        const outboundSku = datasetIndex === 0 ? skuBridge.byMaterial.get(materialOriginal) : undefined;
+        const skuMetadata = outboundSku ?? (datasetIndex === 1 ? skuByContainer.get(materialOriginal) : undefined);
         const normalizedContainer = datasetIndex === 0
-          ? (sku?.envase || (materialOriginal ? `UNMAPPED-${materialOriginal}` : ""))
+          ? (outboundSku?.envase || (materialOriginal ? `UNMAPPED-${materialOriginal}` : ""))
           : materialOriginal;
-        const product = sku?.descripcionEnvase || "";
+        const product = skuMetadata?.descripcionEnvase || "";
         const route = normalizeRoute(readValue(row, ["Ruta"]));
         const transport = normalizeTransport(readValue(row, ["Transporte", "DT"])) || route;
         const dt = transport || route;
@@ -167,7 +177,7 @@ export async function GET(request: Request) {
           ...(route ? { Ruta: route } : {}),
           ...(materialOriginal ? { "Material original": materialOriginal } : {}),
           ...(normalizedContainer ? { "Envase normalizado": normalizedContainer, "Material/SKU": normalizedContainer } : {}),
-          ...(sku?.unidadesEnvase !== null && sku?.unidadesEnvase !== undefined ? { "Unidades envase": sku.unidadesEnvase } : {}),
+          ...(skuMetadata?.unidadesEnvase !== null && skuMetadata?.unidadesEnvase !== undefined ? { "Unidades envase": skuMetadata.unidadesEnvase } : {}),
           ...(product ? { Producto: product, Envase: product, "Descripción": product, "Descripción de envase": product } : {}),
           ...(dt ? { DT: dt } : {}),
           ...(date ? { "Fecha despacho": date } : {}),
@@ -208,14 +218,13 @@ export async function GET(request: Request) {
       ? enrichedDatasets[1].filter((row) => inDateRange(resolvedReturnedDate(row)))
       : enrichedDatasets[1];
     const attributesByKey = buildAttributesByKey(dateScopedOutbound, dateScopedReturned);
-    const baseOutboundByKey = sumQuantityByRouteAndMaterial(dateScopedOutbound);
-    const baseReturnedByKey = sumQuantityByRouteAndMaterial(dateScopedReturned);
-    const baseMatchingKeys = positiveMatchingKeys(baseOutboundByKey, baseReturnedByKey);
-    const matchingAttributes = Array.from(baseMatchingKeys, (key) => attributesByKey.get(key)).filter((value): value is RtiKeyAttributes => Boolean(value));
+    const skuContainers = new Set(Array.from(skuBridge.byMaterial.values(), (value) => value.envase));
+    const skuUniverseKeys = new Set(Array.from(attributesByKey.keys()).filter((key) => isSkuUniverseContainer(containerFromRouteMaterialKey(key), skuContainers)));
+    const skuUniverseAttributes = Array.from(skuUniverseKeys, (key) => attributesByKey.get(key)).filter((value): value is RtiKeyAttributes => Boolean(value));
     const filterOptions = {
-      responsible: distinctStrings(matchingAttributes.map((value) => value.responsible)),
-      reference: distinctStrings(matchingAttributes.map((value) => value.reference)),
-      carrier: distinctStrings(matchingAttributes.map((value) => value.carrier)),
+      responsible: distinctStrings(skuUniverseAttributes.map((value) => value.responsible)),
+      reference: distinctStrings(skuUniverseAttributes.map((value) => value.reference)),
+      carrier: distinctStrings(skuUniverseAttributes.map((value) => value.carrier)),
     };
     const allowedKeys = new Set(Array.from(attributesByKey, ([key, value]) => ({ key, value }))
       .filter(({ value }) =>
@@ -230,6 +239,24 @@ export async function GET(request: Request) {
     logDebug("Filtro de fecha", { requestedFrom, requestedTo, parsedFrom: fromDate, parsedTo: toDate, dateFilterActive });
     logDebug("Filas posteriores al filtro", { outbound: scopedOutbound.length, returned: scopedReturned.length });
     logDebug("Cantidades posteriores al filtro", { outbound: sumValidQuantities(scopedOutbound), returned: sumValidQuantities(scopedReturned) });
+    if (debug) {
+      const skuEnvases = new Set(Array.from(skuBridge.byMaterial.values(), (value) => value.envase));
+      const returnedSkuEnvaseRows = scopedReturned.filter((row) => {
+        const material = normalizeReference(readValue(row, ["Material original", "Material", "Material/SKU"]));
+        return material.startsWith("350") && skuEnvases.has(material);
+      });
+      const diagnosticOutbound = sumValidQuantities(scopedOutbound);
+      const diagnosticReturned = sumValidQuantities(returnedSkuEnvaseRows);
+      logDebug("RESULTADO RACOCIMI2 350 vs SKU.Envase", {
+        outboundRows: scopedOutbound.length,
+        returnedRowsIncluded: returnedSkuEnvaseRows.length,
+        returnedRowsExcluded: scopedReturned.length - returnedSkuEnvaseRows.length,
+        outbound: diagnosticOutbound,
+        returned: diagnosticReturned,
+        rti: diagnosticOutbound ? Math.round((diagnosticReturned / diagnosticOutbound) * 1_000) / 10 : 0,
+        skuEnvases: Array.from(skuEnvases).sort(),
+      });
+    }
     if (debug) {
       const outboundMissingKey = scopedOutbound.filter((row) => !routeMaterialKey(row)).length;
       const returnedMissingKey = scopedReturned.filter((row) => !routeMaterialKey(row)).length;
@@ -317,13 +344,12 @@ export async function GET(request: Request) {
       };
     });
 
-    const matchingKeys = positiveMatchingKeys(outboundByRouteAndMaterial, returnedByRouteAndMaterial);
     // TEMPORAL:
-    // Todo el dashboard RTI utiliza matchingKeysOnly para mantener
+    // Todo el dashboard RTI utiliza solo el universo SKU para mantener
     // consistencia entre el indicador y las visualizaciones mientras
     // se confirma la medida DAX de Power BI.
-    const matchingRecords = calculatedRti.filter((row) => matchingKeys.has(routeMaterialKey(row)));
-    const summary = { calculationMode: "matchingKeysOnly" as const, ...summarizeCalculatedRows(matchingRecords) };
+    const skuUniverseRecords = calculatedRti.filter((row) => isSkuUniverseContainer(normalizeReference(readValue(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"])), skuContainers));
+    const summary = { calculationMode: "skuMappedOnly" as const, ...summarizeCalculatedRows(skuUniverseRecords) };
 
     const structuredDebug = debug
       ? buildStructuredDebug({
@@ -333,7 +359,7 @@ export async function GET(request: Request) {
           scopedReturned,
           outboundByRouteAndMaterial,
           returnedByRouteAndMaterial,
-          records: matchingRecords,
+          records: skuUniverseRecords,
           summary,
           skuRows,
           skuBridge,
@@ -361,17 +387,18 @@ export async function GET(request: Request) {
       logDebug("Total final de salida (suma sobre calculatedRti)", summary.outboundTotal);
       logDebug("Total final de retorno (suma sobre calculatedRti)", summary.returnedTotal);
       logDebug("RTI final", `${summary.rtiPercentage}%`);
+      logDebug("Escenario RACOCIMI2.Material 350 cruzado con SKU.Envase", structuredDebug?.rtiScenarios.racocimi2SkuEnvaseOnly);
     }
 
     return NextResponse.json({
       // El modo diagnóstico devuelve solo métricas/muestras. Serializar más
       // de cien mil registros junto al debug provocaba respuestas enormes y
       // era la causa más probable del 500 observado tras completar los logs.
-      ...(!debug ? { records: matchingRecords } : {}),
+      ...(!debug ? { records: skuUniverseRecords } : {}),
       summary,
       filterOptions,
       ...(structuredDebug ? { debug: structuredDebug } : {}),
-      total: matchingRecords.length,
+      total: skuUniverseRecords.length,
       skuCatalogRows: skuRows.length,
       matchedRouteManagers: [...scopedOutbound, ...scopedReturned].filter((row) => row["Nombre RR"]).length,
       routeDtCount: routeDts.length,
@@ -686,6 +713,10 @@ function buildRtiScenarios(
   const validContainers = new Set(Array.from(skuBridge.byMaterial.values(), (value) => value.envase));
   const mappedOutbound = (row: Record<string, unknown>) => skuBridge.byMaterial.has(outputText(row, ["Material original"], ""));
   const relatedReturn = (row: Record<string, unknown>) => validContainers.has(normalizeReference(readValue(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"])));
+  const racocimi2SkuEnvase = (row: Record<string, unknown>) => {
+    const material = normalizeReference(readValue(row, ["Material original", "Material", "Material/SKU"]));
+    return material.startsWith("350") && validContainers.has(material);
+  };
   const matchingKeys = positiveMatchingKeys(outboundByKey, returnedByKey);
   const matchingRow = (row: Record<string, unknown>) => matchingKeys.has(routeMaterialKey(row));
   const allOutbound = sumValidQuantities(outboundRows);
@@ -703,6 +734,13 @@ function buildRtiScenarios(
       excludedMaterials: { outbound: [], returned: [] },
     },
     skuMappedOnly: summarizeRows(mappedOutbound, relatedReturn),
+    // Diagnóstico solicitado: SKU filtra únicamente RACOCIMI2.Material por
+    // coincidencia exacta contra SKU.Envase. No modifica el indicador visible.
+    racocimi2SkuEnvaseOnly: {
+      ...summarizeRows(() => true, racocimi2SkuEnvase),
+      rule: "RACOCIMI2.Material startsWith 350 and exists in SKU.Envase; denominator keeps all outbound rows",
+      supportedSkuEnvases: Array.from(validContainers).sort(),
+    },
     matchingKeysOnly: {
       ...matchingRowsSummary,
       outbound: matchingOutbound,
@@ -1152,6 +1190,11 @@ function routeMaterialKey(row: Record<string, unknown>) {
   const transport = normalizeTransport(readValue(row, ["Transporte", "DT"])) || route;
   const container = normalizeReference(readValue(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"]));
   return transport && route && container ? `${transport}:${route}:${container}` : "";
+}
+
+function containerFromRouteMaterialKey(key: string) {
+  const separator = key.lastIndexOf(":");
+  return separator >= 0 ? key.slice(separator + 1) : "";
 }
 
 function toSkuBridgeEntry(row: Record<string, unknown>): SkuBridgeEntry {

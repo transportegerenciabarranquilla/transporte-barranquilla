@@ -27,6 +27,10 @@ export function positiveMatchingKeys(outbound: ReadonlyMap<string, number>, retu
   ));
 }
 
+export function isSkuUniverseContainer(container: string, validContainers: ReadonlySet<string>) {
+  return Boolean(container) && validContainers.has(container);
+}
+
 export type SkuBridgeEntry = {
   material: string;
   envase: string;

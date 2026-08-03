@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { averageRti, buildSkuBridge, positiveMatchingKeys, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
+import { averageRti, buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
 
 test("divide la suma de retornos por la suma de salidas", () => {
   assert.deepEqual(summarizeQuantities([{ outbound: 100, returned: 90 }, { outbound: 300, returned: 240 }]), {
@@ -96,14 +96,25 @@ function aggregateVisible(records: VisibleRecord[], dimension: keyof Pick<Visibl
   return summarizeQuantities(Array.from(groups.values()));
 }
 
-test("una llave solo salida no pertenece al universo visible", () => {
+test("una llave solo salida no pertenece al escenario matchingKeysOnly", () => {
   const keys = positiveMatchingKeys(new Map([["A", 100], ["ONLY_OUT", 25]]), new Map([["A", 90]]));
   assert.equal(keys.has("ONLY_OUT"), false);
 });
 
-test("una llave solo retorno no pertenece al universo visible", () => {
+test("una llave solo retorno no pertenece al escenario matchingKeysOnly", () => {
   const keys = positiveMatchingKeys(new Map([["A", 100]]), new Map([["A", 90], ["ONLY_RETURN", 25]]));
   assert.equal(keys.has("ONLY_RETURN"), false);
+});
+
+test("el universo SKU conserva un envase catalogado aunque exista en un solo lado", () => {
+  const validContainers = new Set(["3500162"]);
+  assert.equal(isSkuUniverseContainer("3500162", validContainers), true);
+});
+
+test("el universo SKU excluye materiales que no son envases del catÃ¡logo", () => {
+  const validContainers = new Set(["3500162"]);
+  assert.equal(isSkuUniverseContainer("22102", validContainers), false);
+  assert.equal(isSkuUniverseContainer("UNMAPPED-22102", validContainers), false);
 });
 
 test("el total por responsables coincide con summary", () => {
