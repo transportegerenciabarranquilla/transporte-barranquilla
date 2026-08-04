@@ -51,3 +51,10 @@ export function isPuntoCoronaContractor(value: string | null | undefined) {
 export function contractorSiteName(value: string | null | undefined) {
   return normalizeContractorName(value).endsWith("arenosa") ? "Arenosa" : "Galapa";
 }
+
+// Exclusión temporal solicitada para el consolidado administrativo de
+// Entrega en rango. Se mantiene centralizada para que pantalla y exportación
+// apliquen exactamente la misma regla.
+export function isAdminRangoExcludedContractor(value: string | null | undefined) {
+  return normalizeContractorName(value) === "puntocoronaarenosa";
+}

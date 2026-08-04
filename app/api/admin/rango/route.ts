@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { contractorLabel } from "../../../lib/contractors";
+import { contractorLabel, isAdminRangoExcludedContractor } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -35,7 +35,11 @@ export async function GET() {
     const url = supabaseRest(TABLE, `?${params.toString()}`);
     const rows = await cachedJsonFetch<ReportRow[]>("supabase:admin-rango:all", LIST_CACHE_TTL_MS, url, { headers });
 
-    return NextResponse.json({ reports: rows.map(normalizeReport).filter(Boolean) });
+    const reports = rows
+      .map(normalizeReport)
+      .filter((report): report is AdminRangoReport => report !== null)
+      .filter((report) => !isAdminRangoExcludedContractor(report.contractor));
+    return NextResponse.json({ reports });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando historial de rango." }, { status: 500 });
   }

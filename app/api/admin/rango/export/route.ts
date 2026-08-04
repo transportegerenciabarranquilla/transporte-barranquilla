@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import type { AsistenciaRegistro } from "../../../../lib/asistenciaStorage";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
-import { contractorLabel, normalizeContractorName } from "../../../../lib/contractors";
+import { contractorLabel, isAdminRangoExcludedContractor, normalizeContractorName } from "../../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../../lib/puntoCoronaRoutesStorage";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
 
@@ -112,6 +112,7 @@ function getPreferredReports(rows: ReportRow[]) {
       rows: row.data.rows,
       timestamp: getTimestamp(row),
     };
+    if (isAdminRangoExcludedContractor(report.contractor)) return;
     const key = `${report.contractor}:${report.operationalDate}`;
     const current = preferred.get(key);
     if (!current || isPreferred(report, current)) preferred.set(key, report);
