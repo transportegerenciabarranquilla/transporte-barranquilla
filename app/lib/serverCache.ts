@@ -41,6 +41,17 @@ export function clearServerCache(prefix?: string) {
   });
 }
 
+export function peekServerCache<T>(key: string) {
+  const current = serverCache.get(key) as CacheEntry<T> | undefined;
+  if (current?.value !== undefined && current.expiresAt > Date.now()) return current.value;
+  if (current && current.expiresAt <= Date.now()) serverCache.delete(key);
+  return undefined;
+}
+
+export function writeServerCache<T>(key: string, value: T, ttlMs: number) {
+  serverCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
 export async function cachedJsonFetch<T>(key: string, ttlMs: number, url: string, init: RequestInit) {
   return readServerCache<T>(key, ttlMs, async () => {
     const response = await fetch(url, { ...init, cache: "no-store" });

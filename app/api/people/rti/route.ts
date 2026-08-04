@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
-import { readServerCache } from "../../../lib/serverCache";
+import { peekServerCache, readServerCache, writeServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
 
@@ -9,7 +9,12 @@ const TABLES = ["RACOCIMI1", "RACOCIMI2"] as const;
 const PAGE_SIZE = 1_000;
 const SUPABASE_TIMEOUT_MS = 30_000;
 const LOOKUP_CONCURRENCY = 4;
+const DATA_PAGE_CONCURRENCY = 8;
 const RTI_SOURCE_CACHE_MS = 5 * 60 * 1_000;
+const RTI_RESPONSE_CACHE_MS = 5 * 60 * 1_000;
+// Cambiar esta versión cuando se modifique la atribución DT -> responsable.
+// Evita servir durante cinco minutos resultados calculados con una regla anterior.
+const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v2";
 
 export async function GET(request: Request) {
   const requestStartedAt = performance.now();
@@ -32,21 +37,37 @@ export async function GET(request: Request) {
     // coincidentes/sin coincidencia, filas inválidas). No afecta la
     // respuesta ni el cálculo, solo imprime logs.
     const debug = params.get("debug") === "1";
+    const responseCacheKey = `rti-response:${RESPONSIBLE_ATTRIBUTION_VERSION}:${session.userId}`;
+    const isUnfilteredOperationalRequest = !debug && !dateFilterActive && !responsibleFilter && !referenceFilter && !carrierFilter;
+    if (isUnfilteredOperationalRequest) {
+      const cachedResponse = peekServerCache<Record<string, unknown>>(responseCacheKey);
+      if (cachedResponse) return NextResponse.json(cachedResponse, { headers: { "X-RTI-Cache": "HIT" } });
+    }
     const logDebug = (label: string, value: unknown) => {
       if (debug) console.log(`[RTI DEBUG] ${label}:`, value);
     };
 
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const relatedHeaders = supabaseAdminHeaders() ?? supabaseHeaders();
-    const sourceBundle = await readServerCache(`rti-source:${session.userId}:${debug ? "audit" : "operational"}`, RTI_SOURCE_CACHE_MS, async () => {
-      const datasets = await Promise.all(TABLES.map((table) => readTable(table, headers)));
+    const sourceBundle = await readServerCache(`rti-source:${RESPONSIBLE_ATTRIBUTION_VERSION}:${session.userId}:${debug ? "audit" : "operational"}`, RTI_SOURCE_CACHE_MS, async () => {
+      const [allDatasets, skuResult] = await Promise.all([
+        Promise.all(TABLES.map((table) => readTable(table, headers))),
+        readSkuCatalog(headers),
+      ]);
+      const sourceSkuBridge = buildSkuBridge(skuResult.rows.map(toSkuBridgeEntry));
+      const sourceContainers = new Set(Array.from(sourceSkuBridge.byMaterial.values(), (value) => value.envase));
+      const datasets = debug
+        ? allDatasets
+        : [
+            allDatasets[0].filter((row) => sourceSkuBridge.byMaterial.has(materialKey(row))),
+            allDatasets[1].filter((row) => sourceContainers.has(materialKey(row))),
+          ];
       const routeDts = Array.from(new Set(
         datasets.flatMap((rows) =>
           rows.flatMap((row) => routeVariants(readValue(row, ["Transporte", "Ruta", "DT"]))),
         ).filter(Boolean),
       ));
-      const [skuResult, attendanceRows, seguimientoRows, registeredPeople, sqResult] = await Promise.all([
-        readSkuCatalog(headers),
+      const [attendanceRows, seguimientoRows, registeredPeople, sqResult] = await Promise.all([
         readAttendanceManagers(relatedHeaders, routeDts),
         readSeguimientoManagers(headers, routeDts),
         readRegisteredPeople(relatedHeaders),
@@ -74,6 +95,8 @@ export async function GET(request: Request) {
       }
     });
     const managerByRoute = new Map<string, string>();
+    const managerSourceByRoute = new Map<string, "tracking" | "attendance">();
+    const trackingManagerKeys = new Set<string>();
     const dateByRoute = new Map<string, string>();
     const carrierByRoute = new Map<string, string>();
     const plateByRoute = new Map<string, string>();
@@ -105,8 +128,14 @@ export async function GET(request: Request) {
       });
       if (!manager) return;
       routeKeys.forEach((dt) => {
-        if (date && !managerByRoute.has(`${dt}:${date}`)) managerByRoute.set(`${dt}:${date}`, manager);
-        if (!managerByRoute.has(dt)) managerByRoute.set(dt, manager);
+        if (date && !managerByRoute.has(`${dt}:${date}`)) {
+          managerByRoute.set(`${dt}:${date}`, manager);
+          managerSourceByRoute.set(`${dt}:${date}`, "attendance");
+        }
+        if (!managerByRoute.has(dt)) {
+          managerByRoute.set(dt, manager);
+          managerSourceByRoute.set(dt, "attendance");
+        }
       });
     });
     seguimientoRows.forEach((row) => {
@@ -120,8 +149,20 @@ export async function GET(request: Request) {
       });
       if (manager) {
         routeKeys.forEach((dt) => {
-          if (date && !managerByRoute.has(`${dt}:${date}`)) managerByRoute.set(`${dt}:${date}`, manager);
-          if (!managerByRoute.has(dt)) managerByRoute.set(dt, manager);
+          // seguimiento es la fuente autoritativa para DT -> responsable.
+          // Las filas llegan ordenadas por updated_at DESC: conservamos la
+          // primera de seguimiento, pero siempre sustituimos asistencias.
+          const datedKey = date ? `${dt}:${date}` : "";
+          if (datedKey && !trackingManagerKeys.has(datedKey)) {
+            managerByRoute.set(datedKey, manager);
+            managerSourceByRoute.set(datedKey, "tracking");
+            trackingManagerKeys.add(datedKey);
+          }
+          if (!trackingManagerKeys.has(dt)) {
+            managerByRoute.set(dt, manager);
+            managerSourceByRoute.set(dt, "tracking");
+            trackingManagerKeys.add(dt);
+          }
         });
       }
       // Se sabe que el vehículo retornó cuando su seguimiento queda en
@@ -164,10 +205,15 @@ export async function GET(request: Request) {
         const date = ownDate || trackingDate || relatedDate;
         const dateSource = ownDate ? "record" : trackingDate ? "tracking" : relatedDate ? "sq01-or-attendance" : "unresolved";
         const rowManager = String(readValue(row, ["Nombre RR", "Responsable", "Nombre responsable"]) || "").trim();
-        const manager = rowManager ||
-          routeKeys.map((key) => managerByRoute.get(`${key}:${date}`)).find(Boolean) ||
-          (!date ? routeKeys.map((key) => managerByRoute.get(key)).find(Boolean) : "") ||
-          "";
+        const datedManagerKey = date
+          ? routeKeys.find((key) => managerByRoute.has(`${key}:${date}`))
+          : undefined;
+        const undatedManagerKey = !date
+          ? routeKeys.find((key) => managerByRoute.has(key))
+          : undefined;
+        const resolvedManagerKey = datedManagerKey ? `${datedManagerKey}:${date}` : undatedManagerKey;
+        const manager = rowManager || (resolvedManagerKey ? managerByRoute.get(resolvedManagerKey) : "") || "";
+        const managerSource = rowManager ? "record" : resolvedManagerKey ? managerSourceByRoute.get(resolvedManagerKey) : undefined;
         const rowCarrier = String(readValue(row, ["Transportista", "Nombre Transportista"]) || "").trim();
         const contractor = rowCarrier || routeKeys.map((key) => carrierByRoute.get(key)).find(Boolean) || contractorByManager.get(normalizePersonName(manager)) || "";
         const plate = String(readValue(row, ["Placa"]) || "").trim() || routeKeys.map((key) => plateByRoute.get(key)).find(Boolean) || "";
@@ -185,6 +231,7 @@ export async function GET(request: Request) {
           "Fuente fecha": dateSource,
           ...(vehicleReturnDate ? { "Fecha retorno vehículo": vehicleReturnDate } : {}),
           ...(manager ? { "Nombre RR": manager } : {}),
+          ...(managerSource ? { "Fuente responsable": managerSource } : {}),
           ...(contractor ? { Transportista: contractor } : {}),
           ...(plate ? { Placa: plate } : {}),
         };
@@ -331,8 +378,18 @@ export async function GET(request: Request) {
       const parts = dateParts(dispatchDate);
       const attributes = attributesByKey.get(key);
       return {
-        ...row,
-        ...(attributes ? { "Nombre RR": attributes.responsible, "Descripción de envase": attributes.reference, Transportista: attributes.carrier } : {}),
+        Transporte: outputText(row, ["Transporte", "DT"], ""),
+        Ruta: outputText(row, ["Ruta"], ""),
+        DT: outputText(row, ["DT", "Transporte", "Ruta"], ""),
+        "Envase normalizado": outputText(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"], ""),
+        "Material/SKU": outputText(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"], ""),
+        "Material original": outputText(row, ["Material original", "Material"], ""),
+        ...(attributes ? {
+          "Nombre RR": attributes.responsible,
+          "Fuente responsable": attributes.responsibleSource,
+          "Descripción de envase": attributes.reference,
+          Transportista: attributes.carrier,
+        } : {}),
         ...(dispatchDate ? { "Fecha despacho": dispatchDate } : {}),
         // Se sobrescriben Día/Mes/Año con los de la fecha de despacho para que
         // el agrupamiento por día del frontend no use por accidente columnas
@@ -391,7 +448,7 @@ export async function GET(request: Request) {
       logDebug("Escenario RACOCIMI2.Material 350 cruzado con SKU.Envase", structuredDebug?.rtiScenarios.racocimi2SkuEnvaseOnly);
     }
 
-    return NextResponse.json({
+    const responsePayload = {
       // El modo diagnóstico devuelve solo métricas/muestras. Serializar más
       // de cien mil registros junto al debug provocaba respuestas enormes y
       // era la causa más probable del 500 observado tras completar los logs.
@@ -403,7 +460,9 @@ export async function GET(request: Request) {
       skuCatalogRows: skuRows.length,
       matchedRouteManagers: [...scopedOutbound, ...scopedReturned].filter((row) => row["Nombre RR"]).length,
       routeDtCount: routeDts.length,
-    });
+    };
+    if (isUnfilteredOperationalRequest) writeServerCache(responseCacheKey, responsePayload, RTI_RESPONSE_CACHE_MS);
+    return NextResponse.json(responsePayload, { headers: { "X-RTI-Cache": "MISS" } });
   } catch (error) {
     console.error("[RTI ERROR]", error);
     const details = process.env.NODE_ENV === "development" && error instanceof Error
@@ -427,7 +486,7 @@ function outputText(row: Record<string, unknown>, aliases: string[], fallback: s
   return String(readValue(row, aliases) || fallback).trim();
 }
 
-type RtiKeyAttributes = { responsible: string; reference: string; carrier: string };
+type RtiKeyAttributes = { responsible: string; reference: string; carrier: string; responsibleSource: string };
 
 function comparableText(value: string) {
   return normalizePersonName(value);
@@ -451,6 +510,7 @@ function attributesFromRow(row: Record<string, unknown>): RtiKeyAttributes {
     responsible: responsibleLabel(readValue(row, ["Nombre RR", "Responsable", "Nombre responsable"])),
     reference: description || outputText(row, ["Envase normalizado", "Material/SKU", "Material", "Envase"], "Sin referencia"),
     carrier: outputText(row, ["Transportista", "Nombre Transportista"], "Sin transportista").replace(/\s+/g, " "),
+    responsibleSource: outputText(row, ["Fuente responsable"], "unresolved"),
   };
 }
 
@@ -586,6 +646,37 @@ function buildStructuredDebug(input: {
     counts[source] = (counts[source] ?? 0) + 1;
     return counts;
   }, {});
+  const responsibleAuditMap = new Map<string, {
+    outbound: number;
+    returned: number;
+    routes: Set<string>;
+    sources: Set<string>;
+  }>();
+  input.records.forEach((row) => {
+    const responsible = responsibleLabel(readValue(row, ["Nombre RR", "Responsable", "Nombre responsable"]));
+    const current = responsibleAuditMap.get(responsible) ?? {
+      outbound: 0,
+      returned: 0,
+      routes: new Set<string>(),
+      sources: new Set<string>(),
+    };
+    current.outbound += Number(row["Cajas reales salida"]) || 0;
+    current.returned += Number(row["Cajas reales retorno"]) || 0;
+    const route = outputText(row, ["DT", "Transporte", "Ruta"], "");
+    const source = outputText(row, ["Fuente responsable"], "unresolved");
+    if (route) current.routes.add(route);
+    current.sources.add(source);
+    responsibleAuditMap.set(responsible, current);
+  });
+  const responsibleAudit = Array.from(responsibleAuditMap, ([responsible, value]) => ({
+    responsible,
+    outbound: value.outbound,
+    returned: value.returned,
+    differenceContainers: value.outbound - value.returned,
+    differenceBoxes: quantityDifference(value.outbound, value.returned),
+    routeCount: value.routes.size,
+    sources: Array.from(value.sources).sort(),
+  })).sort((left, right) => right.differenceBoxes - left.differenceBoxes || left.responsible.localeCompare(right.responsible, "es-CO"));
   return {
     filters: { ...input.filters, requestedFrom: input.requestedFrom, requestedTo: input.requestedTo, parsedFrom: input.filters.from, parsedTo: input.filters.to, dateFilterActive: input.dateFilterActive },
     keyStrategy: "route+normalizedContainer",
@@ -597,6 +688,13 @@ function buildStructuredDebug(input: {
     final: { outbound: input.summary.outboundTotal, returned: input.summary.returnedTotal, rti: input.summary.rtiPercentage },
     rtiScenarios,
     visibleConsistency,
+    responsibleAttribution: {
+      authority: "seguimiento_vehiculos by exact DT+dispatchDate; asistencias_ruta is fallback only",
+      version: RESPONSIBLE_ATTRIBUTION_VERSION,
+      responsibleCount: responsibleAudit.length,
+      unresolvedResponsibleCount: responsibleAudit.filter((item) => comparablePerson(item.responsible) === "sin responsable").length,
+      rows: responsibleAudit,
+    },
     excludedWithoutResolvedDate: {
       outbound: { rows: outboundWithoutDate.length, quantity: sumValidQuantities(outboundWithoutDate) },
       returned: { rows: returnedWithoutDate.length, quantity: sumValidQuantities(returnedWithoutDate) },
@@ -1068,17 +1166,36 @@ async function mapWithConcurrency<T, R>(values: T[], concurrency: number, task: 
 }
 
 async function readTable(table: string, headers: Record<string, string>) {
-  const rows: Record<string, unknown>[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
+  async function readPage(offset: number, includeCount = false) {
     const params = new URLSearchParams({ select: "*", offset: String(offset), limit: String(PAGE_SIZE) });
     const response = await fetchSupabase(supabaseRest(table, `?${params.toString()}`), {
-      headers,
+      headers: includeCount ? { ...headers, Prefer: "count=exact" } : headers,
       cache: "no-store",
     });
     if (!response.ok) throw new Error(`${table}: ${await supabaseError(response)}`);
-    const page = (await response.json()) as Record<string, unknown>[];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
+    return {
+      rows: (await response.json()) as Record<string, unknown>[],
+      total: Number(response.headers.get("content-range")?.match(/\/(\d+)$/)?.[1] ?? Number.NaN),
+    };
+  }
+
+  const firstPage = await readPage(0, true);
+  if (Number.isFinite(firstPage.total)) {
+    const offsets = Array.from(
+      { length: Math.max(0, Math.ceil(firstPage.total / PAGE_SIZE) - 1) },
+      (_, index) => (index + 1) * PAGE_SIZE,
+    );
+    const remainingPages = await mapWithConcurrency(offsets, DATA_PAGE_CONCURRENCY, (offset) => readPage(offset));
+    return [firstPage.rows, ...remainingPages.map((page) => page.rows)].flat();
+  }
+
+  // Compatibilidad con proxies que no exponen Content-Range.
+  const rows = [...firstPage.rows];
+  if (firstPage.rows.length < PAGE_SIZE) return rows;
+  for (let offset = PAGE_SIZE; ; offset += PAGE_SIZE) {
+    const page = await readPage(offset);
+    rows.push(...page.rows);
+    if (page.rows.length < PAGE_SIZE) break;
   }
   return rows;
 }

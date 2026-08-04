@@ -6,6 +6,7 @@ import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders 
 
 const TABLES = ["RACOCIMI1", "RACOCIMI2"] as const;
 const INSERT_SIZE = 300;
+const DELETE_ROUTE_BATCH_SIZE = 100;
 
 export async function POST(request: Request) {
   try {
@@ -14,6 +15,11 @@ export async function POST(request: Request) {
     if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const formData = await request.formData();
+    const targetTable = String(formData.get("targetTable") || "").toUpperCase();
+    if (!TABLES.includes(targetTable as (typeof TABLES)[number])) {
+      return NextResponse.json({ error: "Selecciona RACOCIMI1 o RACOCIMI2 antes de subir el Excel." }, { status: 400 });
+    }
+
     const files = formData.getAll("file").filter((entry): entry is File => entry instanceof File);
     if (!files.length) return NextResponse.json({ error: "Selecciona un archivo Excel." }, { status: 400 });
     for (const file of files) {
@@ -21,49 +27,48 @@ export async function POST(request: Request) {
       if (file.size > 30 * 1024 * 1024) return NextResponse.json({ error: `${file.name}: supera el límite de 30 MB.` }, { status: 413 });
     }
 
+    const table = targetTable as (typeof TABLES)[number];
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const results: Array<{ table: string; sheet: string; fileName: string; inserted: number; deleted?: number }> = [];
-    // Un solo mapa para TODO el lote de archivos de esta petición: cada
-    // tabla se borra una única vez por carga, sin importar cuántos archivos
-    // del lote apunten a la misma tabla. Antes cada archivo se enviaba en
-    // una petición HTTP separada y cada una traía su propio Map, así que el
-    // segundo archivo volvía a borrar (y perdía) lo que el primero acababa
-    // de insertar en la misma tabla.
-    const clearedTables = new Map<string, number | undefined>();
+    const results: Array<{ table: string; sheet: string; fileName: string; rows: number }> = [];
+    const incomingRows: Record<string, unknown>[] = [];
 
     for (const file of files) {
       const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true, type: "array" });
       if (!workbook.SheetNames.length) return NextResponse.json({ error: `${file.name}: el Excel no contiene hojas.` }, { status: 400 });
 
-      const targets = uploadTargets(file.name, workbook.SheetNames);
-      for (const { table, sheetName } of targets) {
+      for (const sheetName of workbook.SheetNames) {
         const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName], {
           defval: null,
           raw: true,
         });
         const rows = rawRows.map(normalizeRow).filter((row) => Object.values(row).some((value) => value !== null && value !== ""));
-        if (!rows.length) {
-          results.push({ table, sheet: sheetName, fileName: file.name, inserted: 0 });
-          continue;
-        }
-        let deleted: number | undefined;
-        if (!clearedTables.has(table)) {
-          deleted = await clearTable(table, headers);
-          clearedTables.set(table, deleted);
-        } else {
-          deleted = clearedTables.get(table);
-        }
-        await insertRows(table, headers, rows);
-        results.push({ table, sheet: sheetName, fileName: file.name, inserted: rows.length, deleted });
+        incomingRows.push(...rows);
+        results.push({ table, sheet: sheetName, fileName: file.name, rows: rows.length });
       }
     }
 
+    const uniqueRows = deduplicateRows(incomingRows);
+    const routes = Array.from(new Set(uniqueRows.map(routeValue).filter(Boolean)));
+    if (!uniqueRows.length) return NextResponse.json({ error: "El Excel no contiene filas para importar." }, { status: 400 });
+    if (!routes.length) {
+      return NextResponse.json({ error: "El Excel no contiene la columna Ruta/DT necesaria para reemplazar la carga sin duplicarla." }, { status: 400 });
+    }
+
+    // RACOCIMI no contiene una fecha o mes propio. Para conservar el
+    // histórico sin duplicar una recarga, se reemplazan solo las rutas/DT
+    // incluidas en el nuevo Excel y se dejan intactas las demás rutas.
+    const deletedRows = await clearRoutes(table, headers, routes);
+    await insertRows(table, headers, uniqueRows);
+
     clearServerCache("rti-source:");
+    clearServerCache("rti-response:");
     return NextResponse.json({
       fileNames: files.map((file) => file.name),
-      replacedTables: Array.from(clearedTables.keys()),
-      inserted: results.reduce((total, result) => total + result.inserted, 0),
-      deletedRows: Array.from(clearedTables.values()).reduce((total: number, count) => total + (count || 0), 0),
+      replacedTables: [table],
+      inserted: uniqueRows.length,
+      deletedRows,
+      replacedRoutes: routes.length,
+      duplicateRowsDiscarded: incomingRows.length - uniqueRows.length,
       results,
     });
   } catch (error) {
@@ -74,33 +79,24 @@ export async function POST(request: Request) {
   }
 }
 
-function uploadTargets(fileName: string, sheetNames: string[]) {
-  if (sheetNames.length === 1) {
-    return [{ table: tableFromFileName(fileName), sheetName: sheetNames[0] }];
+async function clearRoutes(table: string, headers: Record<string, string>, routes: string[]) {
+  let deletedRows = 0;
+  for (let index = 0; index < routes.length; index += DELETE_ROUTE_BATCH_SIZE) {
+    const values = routes.slice(index, index + DELETE_ROUTE_BATCH_SIZE).map(postgrestQuotedValue);
+    const params = new URLSearchParams({ Ruta: `in.(${values.join(",")})` });
+    const response = await fetch(supabaseRest(table, `?${params}`), {
+      method: "DELETE",
+      headers: { ...headers, Prefer: "count=exact,return=minimal" },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`${table}: no se pudieron reemplazar las rutas existentes (${await supabaseError(response)})`);
+    deletedRows += parseContentRangeCount(response.headers.get("content-range")) || 0;
   }
-  return sheetNames.slice(0, TABLES.length).map((sheetName, index) => ({
-    table: TABLES[index],
-    sheetName,
-  }));
+  return deletedRows;
 }
 
-function tableFromFileName(fileName: string): (typeof TABLES)[number] {
-  const normalized = fileName
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
-  if (/\b(3|III)\b|JULIO\s*3|JULIO\s*\(3\)|\(\s*3\s*\)/.test(normalized)) return "RACOCIMI2";
-  return "RACOCIMI1";
-}
-
-async function clearTable(table: string, headers: Record<string, string>) {
-  const response = await fetch(supabaseRest(table, "?Ruta=not.is.null"), {
-    method: "DELETE",
-    headers: { ...headers, Prefer: "count=exact,return=minimal" },
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`${table}: no se pudo borrar la carga anterior (${await supabaseError(response)})`);
-  return parseContentRangeCount(response.headers.get("content-range"));
+function postgrestQuotedValue(value: string) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function parseContentRangeCount(value: string | null) {
@@ -124,6 +120,24 @@ function normalizeRow(rawRow: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(rawRow).map(([header, value]) => [header.trim().replace(/\s+/g, " "), normalizeCell(value)]),
   );
+}
+
+function routeValue(row: Record<string, unknown>) {
+  const entry = Object.entries(row).find(([column]) => ["ruta", "dt", "transporte"].includes(normalizeHeader(column)));
+  return String(entry?.[1] ?? "").trim();
+}
+
+function deduplicateRows(rows: Record<string, unknown>[]) {
+  const unique = new Map<string, Record<string, unknown>>();
+  rows.forEach((row) => {
+    const fingerprint = JSON.stringify(Object.entries(row).sort(([left], [right]) => left.localeCompare(right)));
+    if (!unique.has(fingerprint)) unique.set(fingerprint, row);
+  });
+  return Array.from(unique.values());
+}
+
+function normalizeHeader(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 function normalizeCell(value: unknown) {

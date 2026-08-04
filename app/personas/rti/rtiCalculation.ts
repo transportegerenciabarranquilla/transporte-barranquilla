@@ -1,5 +1,7 @@
 export type QuantityPair = { outbound: number; returned: number };
 
+export const CONTAINERS_PER_BOX = 30;
+
 export type RtiSummary = {
   outboundTotal: number;
   returnedTotal: number;
@@ -32,7 +34,7 @@ export function isSkuUniverseContainer(container: string, validContainers: Reado
 }
 
 export function quantityDifference(outbound: number, returned: number) {
-  return Math.round((outbound - returned) * 10) / 10;
+  return Math.round((outbound - returned) / CONTAINERS_PER_BOX);
 }
 
 export type SkuBridgeEntry = {

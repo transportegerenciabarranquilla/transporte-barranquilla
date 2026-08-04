@@ -10,9 +10,9 @@ test("divide la suma de retornos por la suma de salidas", () => {
   });
 });
 
-test("la diferencia en cajas siempre es salida menos retorno", () => {
-  assert.equal(quantityDifference(100, 92), 8);
-  assert.equal(quantityDifference(90, 100), -10);
+test("la diferencia convierte envases a cajas de 30", () => {
+  assert.equal(quantityDifference(3_000, 2_010), 33);
+  assert.equal(quantityDifference(900, 2_910), -67);
 });
 
 test("agrupa implícitamente varias filas de la misma llave sin cambiar la razón de totales", () => {

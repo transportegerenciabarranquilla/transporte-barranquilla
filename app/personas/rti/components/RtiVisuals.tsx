@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 
 export function PanelHeader({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
   return (
-    <h2 className={`border-b border-white/10 bg-gradient-to-r from-slate-950 via-[#10223d] to-slate-950 text-center font-extrabold uppercase tracking-[0.12em] text-white ${compact ? "px-3 py-2.5 text-[10px]" : "px-4 py-4 text-sm"}`}>
-      {children}
+    <h2 className={`relative isolate overflow-hidden border-b border-cyan-400/40 bg-[linear-gradient(115deg,#020617_0%,#102a43_48%,#071525_100%)] text-center font-extrabold uppercase tracking-[0.12em] text-white shadow-[inset_0_-1px_0_rgba(34,211,238,.3)] before:absolute before:-left-12 before:top-0 before:h-full before:w-40 before:skew-x-[-24deg] before:bg-cyan-400/10 after:absolute after:bottom-0 after:left-1/2 after:h-px after:w-1/3 after:-translate-x-1/2 after:bg-cyan-300 after:shadow-[0_0_14px_2px_rgba(34,211,238,.8)] ${compact ? "px-3 py-2.5 text-[10px]" : "px-4 py-4 text-sm"}`}>
+      <span className="relative z-10 drop-shadow-[0_1px_8px_rgba(103,232,249,.25)]">{children}</span>
     </h2>
   );
 }

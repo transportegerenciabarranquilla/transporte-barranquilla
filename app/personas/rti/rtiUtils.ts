@@ -6,9 +6,9 @@ export function uniqueValues(records: RtiRecord[], field: "responsible" | "refer
 }
 
 export function performanceColor(percentage: number) {
-  if (percentage >= 95) return "bg-gradient-to-r from-emerald-500 to-emerald-400";
-  if (percentage >= 85) return "bg-gradient-to-r from-amber-500 to-yellow-400";
-  return "bg-gradient-to-r from-red-600 to-orange-500";
+  if (percentage >= 95) return "bg-gradient-to-r from-emerald-600 via-emerald-400 to-cyan-300 shadow-[0_0_12px_rgba(16,185,129,.45)]";
+  if (percentage >= 85) return "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 shadow-[0_0_12px_rgba(245,158,11,.4)]";
+  return "bg-gradient-to-r from-red-600 via-rose-500 to-orange-400 shadow-[0_0_12px_rgba(239,68,68,.45)]";
 }
 
 export function differenceColor(value: number) {
@@ -51,7 +51,11 @@ export function percentageBarColor(percentage: number) {
 }
 
 export function skuBarColor(index: number) {
-  return ["bg-emerald-500", "bg-amber-400", "bg-red-500"][index % 3];
+  return [
+    "bg-gradient-to-r from-cyan-600 to-cyan-300 shadow-[0_0_10px_rgba(6,182,212,.35)]",
+    "bg-gradient-to-r from-violet-600 to-fuchsia-400 shadow-[0_0_10px_rgba(139,92,246,.35)]",
+    "bg-gradient-to-r from-amber-500 to-orange-400 shadow-[0_0_10px_rgba(245,158,11,.35)]",
+  ][index % 3];
 }
 
 export function parseDatabaseRows(rows: Record<string, unknown>[]) {

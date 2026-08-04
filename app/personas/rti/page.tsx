@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BarChart3, Database, LoaderCircle, ShieldAlert, Upload } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { DateInput, FilterSelect, formatChartNumber, MovementBar, PanelHeader } from "./components/RtiVisuals";
+import { DateInput, FilterSelect, formatChartNumber, PanelHeader } from "./components/RtiVisuals";
 import type { RtiRecord } from "./rtiTypes";
 import { quantityDifference } from "./rtiCalculation";
 import {
@@ -11,7 +11,6 @@ import {
   monthIndex,
   normalizeColumnName,
   parseDatabaseRows,
-  percentageBarColor,
   performanceColor,
   rankingColor,
   recordDateKey,
@@ -21,6 +20,9 @@ import {
 
 type DailyMatrixItem = { name: string; day: number; percentage: number };
 type DailyMatrixRow = { name: string; percentages: Map<number, number>; total: number };
+type RtiPageCache = { records: RtiRecord[]; databaseRows: number; duplicateRowsRemoved: number };
+
+let rtiPageCache: RtiPageCache | undefined;
 
 function buildDailyMatrix(items: DailyMatrixItem[], totals: Array<{ name: string; percentage: number }>) {
   const totalByName = new Map(totals.map((item) => [item.name, item.percentage]));
@@ -41,7 +43,7 @@ function DailyReferenceMatrix({ days, rows }: { days: number[]; rows: DailyMatri
   return (
     <section className="w-full overflow-hidden rounded-2xl border-[3px] border-[#929879] bg-white shadow-md shadow-slate-200/70 lg:col-span-full">
       <h2 className="bg-[#929879] px-4 py-2.5 text-center text-sm font-black uppercase tracking-wide text-white">Seguimiento diario porcentaje RTI</h2>
-      <div className="max-h-[520px] overflow-auto p-2.5">
+      <div className="max-h-[360px] overflow-auto p-2.5">
         <table className="w-full border-separate border-spacing-0 text-xs" style={{ minWidth: `${Math.max(760, 360 + days.length * 70)}px` }}>
           <thead className="sticky top-0 z-20">
             <tr className="bg-[#656565] text-white">
@@ -75,6 +77,86 @@ function DailyReferenceMatrix({ days, rows }: { days: number[]; rows: DailyMatri
   );
 }
 
+function DailyTrendChart({ data }: { data: Array<{ date: string; day: number; month: number; percentage: number }> }) {
+  if (!data.length) return <div className="grid min-h-[250px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div>;
+  const width = Math.max(760, data.length * 72);
+  const height = 270;
+  const left = 54;
+  const right = 24;
+  const top = 24;
+  const bottom = 46;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const maximum = Math.max(110, Math.ceil(Math.max(...data.map((item) => item.percentage)) / 10) * 10);
+  const xFor = (index: number) => data.length === 1 ? left + chartWidth / 2 : left + (index / (data.length - 1)) * chartWidth;
+  const yFor = (value: number) => top + chartHeight - (Math.max(0, value) / maximum) * chartHeight;
+  const points = data.map((item, index) => `${xFor(index)},${yFor(item.percentage)}`).join(" ");
+  const areaPath = `M ${xFor(0)} ${top + chartHeight} L ${points.replaceAll(",", " ")} L ${xFor(data.length - 1)} ${top + chartHeight} Z`;
+  const labelStep = Math.max(1, Math.ceil(data.length / 12));
+  const gridValues = [0, 25, 50, 75, 100].filter((value) => value <= maximum);
+
+  return (
+    <div className="overflow-x-auto px-3 pb-3 pt-2">
+      <svg aria-label="Tendencia diaria del porcentaje RTI" className="h-[270px]" role="img" style={{ minWidth: `${width}px` }} viewBox={`0 0 ${width} ${height}`}>
+        <defs>
+          <linearGradient id="dailyRtiArea" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.42" />
+            <stop offset="55%" stopColor="#14b8a6" stopOpacity="0.16" />
+            <stop offset="100%" stopColor="#14b8a6" stopOpacity="0.01" />
+          </linearGradient>
+          <pattern height="24" id="dailyTechGrid" patternUnits="userSpaceOnUse" width="24">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#0f766e" strokeOpacity="0.06" strokeWidth="1" />
+          </pattern>
+          <filter height="200%" id="dailyGlow" width="200%" x="-50%" y="-50%">
+            <feGaussianBlur result="blur" stdDeviation="3" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+        <rect fill="url(#dailyTechGrid)" height={chartHeight} rx="14" width={chartWidth} x={left} y={top} />
+        {gridValues.map((value) => (
+          <g key={value}>
+            <line stroke="#e2e8f0" strokeDasharray="4 5" x1={left} x2={width - right} y1={yFor(value)} y2={yFor(value)} />
+            <text fill="#64748b" fontSize="10" fontWeight="700" textAnchor="end" x={left - 10} y={yFor(value) + 4}>{value}%</text>
+          </g>
+        ))}
+        <line stroke="#f59e0b" strokeDasharray="7 5" strokeWidth="1.5" x1={left} x2={width - right} y1={yFor(95)} y2={yFor(95)} />
+        <text fill="#b45309" fontSize="10" fontWeight="800" textAnchor="end" x={width - right} y={yFor(95) - 7}>Meta 95%</text>
+        <path d={areaPath} fill="url(#dailyRtiArea)" />
+        <polyline fill="none" opacity="0.22" points={points} stroke="#22d3ee" strokeLinecap="round" strokeLinejoin="round" strokeWidth="10" />
+        <polyline fill="none" filter="url(#dailyGlow)" points={points} stroke="#0e7490" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+        {data.map((item, index) => (
+          <g key={item.date}>
+            <circle cx={xFor(index)} cy={yFor(item.percentage)} fill={item.percentage >= 95 ? "#10b981" : item.percentage >= 85 ? "#f59e0b" : "#ef4444"} opacity="0.18" r="10" />
+            <circle cx={xFor(index)} cy={yFor(item.percentage)} fill={item.percentage >= 95 ? "#10b981" : item.percentage >= 85 ? "#f59e0b" : "#ef4444"} filter="url(#dailyGlow)" r="5" stroke="white" strokeWidth="2">
+              <title>{item.date}: {item.percentage}%</title>
+            </circle>
+            {index % labelStep === 0 || index === data.length - 1 ? <text fill="#475569" fontSize="10" fontWeight="700" textAnchor="middle" x={xFor(index)} y={height - 18}>{item.day}/{item.month}</text> : null}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function InsightMetric({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: string; tone: "emerald" | "red" | "amber" | "blue" }) {
+  const styles = {
+    emerald: "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white text-emerald-700",
+    red: "border-red-200 bg-gradient-to-br from-red-50 to-white text-red-700",
+    amber: "border-amber-200 bg-gradient-to-br from-amber-50 to-white text-amber-700",
+    blue: "border-blue-200 bg-gradient-to-br from-blue-50 to-white text-blue-700",
+  };
+  return (
+    <article className={`flex min-h-28 items-center gap-3 rounded-2xl border p-4 shadow-sm ${styles[tone]}`}>
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white shadow-sm ring-1 ring-black/5">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-[9px] font-black uppercase tracking-[.12em] opacity-75">{label}</p>
+        <p className="mt-1 truncate text-xs font-black text-slate-900" title={value}>{value}</p>
+        <p className="mt-1 text-lg font-black">{detail}</p>
+      </div>
+    </article>
+  );
+}
+
 function buildLocalDailyItems(records: RtiRecord[], keyFor: (record: RtiRecord) => string) {
   const groups = new Map<string, { name: string; day: number; outbound: number; returned: number }>();
   records.forEach((record) => {
@@ -102,17 +184,20 @@ export default function RtiPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rtiRequestRef = useRef<AbortController | null>(null);
   const [access, setAccess] = useState<"checking" | "allowed" | "denied">("checking");
-  const [records, setRecords] = useState<RtiRecord[]>([]);
-  const [databaseState, setDatabaseState] = useState<"loading" | "connected" | "error">("loading");
-  const [databaseRows, setDatabaseRows] = useState(0);
-  const [duplicateRowsRemoved, setDuplicateRowsRemoved] = useState(0);
+  const [records, setRecords] = useState<RtiRecord[]>(() => rtiPageCache?.records ?? []);
+  const [databaseState, setDatabaseState] = useState<"loading" | "connected" | "error">(() => rtiPageCache ? "connected" : "loading");
+  const [databaseRows, setDatabaseRows] = useState(() => rtiPageCache?.databaseRows ?? 0);
+  const [duplicateRowsRemoved, setDuplicateRowsRemoved] = useState(() => rtiPageCache?.duplicateRowsRemoved ?? 0);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadTarget, setUploadTarget] = useState<"RACOCIMI1" | "RACOCIMI2">("RACOCIMI1");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [responsible, setResponsible] = useState("");
   const [reference, setReference] = useState("");
   const [carrier, setCarrier] = useState("");
+  const [selectedOffender, setSelectedOffender] = useState<{ responsible: string; carrier: string } | null>(null);
+  const [showAllOffenders, setShowAllOffenders] = useState(false);
   const availableDateKeys = records.map(recordDateKey).filter((key) => !key.endsWith("-00")).sort();
   const minAvailableDate = availableDateKeys[0];
   const maxAvailableDate = availableDateKeys.at(-1);
@@ -128,21 +213,30 @@ export default function RtiPage() {
 
   useEffect(() => {
     if (access !== "allowed") return;
-    const debounce = window.setTimeout(() => void loadRtiData(), 350);
+    const debounce = window.setTimeout(() => void loadRtiData(Boolean(rtiPageCache)), rtiPageCache ? 0 : 150);
     return () => {
       window.clearTimeout(debounce);
       rtiRequestRef.current?.abort();
     };
   }, [access]);
 
-  async function loadRtiData() {
+  useEffect(() => {
+    if (!selectedOffender) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedOffender(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedOffender]);
+
+  async function loadRtiData(background = false) {
     rtiRequestRef.current?.abort();
     const controller = new AbortController();
     rtiRequestRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 180_000);
     try {
-      setDatabaseState("loading");
-      setUploadMessage("");
+      if (!background) setDatabaseState("loading");
+      if (!background) setUploadMessage("");
       // Por defecto se consulta todo el histórico cargado (sin filtro de
       // fecha); si el usuario elige un rango en los filtros, se usa ese.
       const query = new URLSearchParams();
@@ -155,14 +249,17 @@ export default function RtiPage() {
       const rawRows = [...(body?.records || body?.tables?.RTI || [])] as Record<string, unknown>[];
       const parsedRecords = parseDatabaseRows(rawRows);
       setRecords(parsedRecords);
-      setDatabaseRows(Number(body?.total) || 0);
       const duplicates = body?.duplicateRowsRemoved || {};
-      setDuplicateRowsRemoved(Object.values(duplicates).reduce((sum: number, value) => sum + (Number(value) || 0), 0));
+      const nextDuplicateRowsRemoved = Object.values(duplicates).reduce((sum: number, value) => sum + (Number(value) || 0), 0);
+      const nextDatabaseRows = Number(body?.total) || 0;
+      setDatabaseRows(nextDatabaseRows);
+      setDuplicateRowsRemoved(nextDuplicateRowsRemoved);
+      rtiPageCache = { records: parsedRecords, databaseRows: nextDatabaseRows, duplicateRowsRemoved: nextDuplicateRowsRemoved };
       setDatabaseState("connected");
     } catch (error) {
       if (controller.signal.aborted && rtiRequestRef.current !== controller) return;
-      setDatabaseState("error");
-      setUploadMessage(
+      if (!background || !rtiPageCache) setDatabaseState("error");
+      if (!background || !rtiPageCache) setUploadMessage(
         controller.signal.aborted
           ? "La consulta RTI tardó demasiado. Intenta nuevamente."
           : error instanceof Error
@@ -185,6 +282,7 @@ export default function RtiPage() {
       // en la misma tabla se pisarían entre sí: el segundo borraría lo que
       // el primero acababa de insertar.
       const formData = new FormData();
+      formData.append("targetTable", uploadTarget);
       Array.from(files).forEach((file) => formData.append("file", file));
       const response = await fetch("/api/people/rti/upload", { method: "POST", body: formData });
       const body = await response.json().catch(() => null);
@@ -192,9 +290,12 @@ export default function RtiPage() {
       const fileNames = Array.isArray(body?.fileNames) ? body.fileNames.join(", ") : "";
       const replacedTables = Array.isArray(body?.replacedTables) ? body.replacedTables.join(", ") : "";
       const deletedRows = Number(body?.deletedRows) || 0;
+      const replacedRoutes = Number(body?.replacedRoutes) || 0;
+      const discardedDuplicates = Number(body?.duplicateRowsDiscarded) || 0;
       setUploadMessage(
-        `${fileNames}: ${body?.inserted || 0} filas${deletedRows ? ` · borró ${deletedRows}` : ""}${replacedTables ? ` · reemplazó ${replacedTables}` : ""}`,
+        `Carga lista · ${replacedTables || uploadTarget} · ${fileNames} · ${body?.inserted || 0} filas · ${replacedRoutes} rutas actualizadas · ${deletedRows} filas anteriores reemplazadas${discardedDuplicates ? ` · ${discardedDuplicates} duplicados descartados` : ""}`,
       );
+      rtiPageCache = undefined;
       await loadRtiData();
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : "No se pudo importar el Excel.");
@@ -248,25 +349,73 @@ export default function RtiPage() {
       percentage: result.outbound ? Math.round((result.returned / result.outbound) * 100) : 0,
     }),
   ).sort((left, right) => right.percentage - left.percentage);
-  const responsibleRanking = Array.from(
+  const offenderRanking = Array.from(
     filteredRecords.reduce((summary, record) => {
-      const current = summary.get(record.responsible) ?? { outbound: 0, returned: 0 };
-      summary.set(record.responsible, {
+      const key = `${record.carrier}\u0000${record.responsible}`;
+      const current = summary.get(key) ?? { responsible: record.responsible, carrier: record.carrier, outbound: 0, returned: 0 };
+      summary.set(key, {
+        responsible: current.responsible,
+        carrier: current.carrier,
         outbound: current.outbound + (record.outbound || 0),
         returned: current.returned + (record.returned || 0),
       });
       return summary;
-    }, new Map<string, { outbound: number; returned: number }>()),
-    ([name, result]) => ({
-      name,
+    }, new Map<string, { responsible: string; carrier: string; outbound: number; returned: number }>()),
+    ([, result]) => ({
+      responsible: result.responsible,
+      carrier: result.carrier,
       percentage: result.outbound ? Math.round((result.returned / result.outbound) * 1_000) / 10 : 0,
     }),
-  ).sort((left, right) => left.percentage - right.percentage);
-  const offenders = responsibleRanking.slice(0, 7).map((item) => ({
-    responsible: item.name,
-    reference: "",
-    percentage: item.percentage,
-  }));
+  ).sort((left, right) => left.percentage - right.percentage || left.responsible.localeCompare(right.responsible, "es-CO"));
+  const responsibleRanking = aggregateRecords(filteredRecords, (record) => record.responsible)
+    .sort((left, right) => left.percentage - right.percentage || left.name.localeCompare(right.name, "es-CO"));
+  const allOffendersByCarrier = Array.from(
+    offenderRanking.reduce((groups, item) => {
+      const rows = groups.get(item.carrier) || [];
+      rows.push(item);
+      groups.set(item.carrier, rows);
+      return groups;
+    }, new Map<string, typeof offenderRanking>()),
+  ).sort(([left], [right]) => left.localeCompare(right, "es-CO"));
+  const hiddenOffenderCount = allOffendersByCarrier.reduce((total, [, rows]) => total + Math.max(rows.length - 20, 0), 0);
+  const offendersByCarrier = allOffendersByCarrier.map(([contractor, rows]) => [
+    contractor,
+    (showAllOffenders ? rows : rows.slice(0, 20)).map((item, index) => ({ ...item, rank: index + 1 })),
+  ] as const);
+  const selectedOffenderReferences = selectedOffender
+    ? aggregateRecords(
+        filteredRecords.filter((record) => record.responsible === selectedOffender.responsible && record.carrier === selectedOffender.carrier),
+        (record) => record.reference,
+      ).sort((left, right) =>
+        (right.outbound - right.returned) - (left.outbound - left.returned) ||
+        right.outbound - left.outbound ||
+        left.name.localeCompare(right.name, "es-CO"),
+      )
+    : [];
+  const mostDispatchedReference = [...selectedOffenderReferences].sort((left, right) => right.outbound - left.outbound)[0];
+  const mostPendingReference = selectedOffenderReferences.find((item) => item.outbound > item.returned);
+  const selectedOffenderDtIssues = selectedOffender
+    ? Array.from(
+        filteredRecords
+          .filter((record) => record.responsible === selectedOffender.responsible && record.carrier === selectedOffender.carrier)
+          .reduce((groups, record) => {
+            const dt = record.dt || "Sin DT";
+            const key = `${dt}\u0000${record.reference}`;
+            const current = groups.get(key) || { dt, reference: record.reference, outbound: 0, returned: 0 };
+            current.outbound += record.outbound || 0;
+            current.returned += record.returned || 0;
+            groups.set(key, current);
+            return groups;
+          }, new Map<string, { dt: string; reference: string; outbound: number; returned: number }>()),
+        ([, item]) => ({
+          ...item,
+          difference: item.outbound - item.returned,
+          percentage: item.outbound ? Math.round((item.returned / item.outbound) * 1_000) / 10 : null,
+        }),
+      )
+        .filter((item) => item.difference !== 0)
+        .sort((left, right) => Math.abs(right.difference) - Math.abs(left.difference) || left.dt.localeCompare(right.dt, "es-CO"))
+    : [];
   const localCarrierMetrics = aggregateRecords(filteredRecords, (record) => record.carrier)
     .sort((left, right) => right.percentage - left.percentage || left.name.localeCompare(right.name, "es-CO"));
   const localDifferenceRanking = aggregateRecords(filteredRecords, (record) => record.responsible)
@@ -275,7 +424,12 @@ export default function RtiPage() {
   const localBoxDifferences = complianceByReference
     .map((item) => ({ reference: item.name, value: item.difference }))
     .sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
-  const localPackageMovement = complianceByReference.map((item) => ({ reference: item.name, outbound: item.outbound, returned: item.returned }));
+  const localPackageMovement = complianceByReference
+    .map((item) => ({ reference: item.name, outbound: item.outbound, returned: item.returned }))
+    .sort((left, right) =>
+      Math.abs(right.outbound - right.returned) - Math.abs(left.outbound - left.returned) ||
+      right.outbound - left.outbound,
+    );
   const localSkuReturns = Array.from(
     filteredRecords.reduce((summary, record) => {
       summary.set(record.reference, (summary.get(record.reference) || 0) + (record.returned || 0));
@@ -317,6 +471,10 @@ export default function RtiPage() {
   const totalBoxDifference = quantityDifference(outboundTotal, returnedTotal);
   const dailyRtiMetrics = localDailyRtiMetrics;
   const displayedDailyRouteRti = localDailyRouteRti.slice(0, 15);
+  const bestReference = complianceByReference[0];
+  const lowestReference = [...complianceByReference].sort((left, right) => left.percentage - right.percentage)[0];
+  const largestDifference = localBoxDifferences[0];
+  const bestCarrier = localCarrierMetrics[0];
   const localResponsibleDailyItems = buildLocalDailyItems(filteredRecords, (record) => record.responsible);
   const localReferenceDailyItems = buildLocalDailyItems(filteredRecords, (record) => record.reference);
   const responsibleDailyRows = buildDailyMatrix(localResponsibleDailyItems, responsibleRanking)
@@ -399,6 +557,19 @@ export default function RtiPage() {
               ref={fileInputRef}
               type="file"
             />
+            <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 shadow-sm">
+              <span className="hidden text-[8px] font-black uppercase tracking-wide text-slate-500 md:inline">Destino</span>
+              <select
+                aria-label="Tabla RACOCIMI de destino"
+                className="bg-transparent text-xs font-black text-slate-800 outline-none"
+                disabled={uploading}
+                onChange={(event) => setUploadTarget(event.target.value as "RACOCIMI1" | "RACOCIMI2")}
+                value={uploadTarget}
+              >
+                <option value="RACOCIMI1">RACOCIMI1 · Salida</option>
+                <option value="RACOCIMI2">RACOCIMI2 · Retorno</option>
+              </select>
+            </label>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
               disabled={uploading}
@@ -412,7 +583,7 @@ export default function RtiPage() {
         </div>
         {uploadMessage ? (
           <div className={`mx-auto max-w-[1500px] px-5 pb-3 text-right text-xs font-semibold sm:px-8 ${
-            uploadMessage.includes("correctamente") ? "text-emerald-700" : "text-red-600"
+            uploadMessage.startsWith("Carga lista") ? "text-emerald-700" : "text-red-600"
           }`}>
             {uploadMessage}
           </div>
@@ -464,10 +635,10 @@ export default function RtiPage() {
           </div>
         </aside>
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_-24px_rgba(15,23,42,.35)]">
+        <section className="h-[500px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_-24px_rgba(15,23,42,.35)]">
           <PanelHeader>Porcentaje de RTI</PanelHeader>
-          <div className="grid min-h-[390px] place-items-center bg-[radial-gradient(circle_at_50%_15%,#f0fdfa_0%,#ffffff_55%)] px-5 pb-6 pt-4">
-            <div className="w-full max-w-[390px]">
+          <div className="grid h-[438px] place-items-center bg-[radial-gradient(circle_at_50%_15%,#f0fdfa_0%,#ffffff_55%)] px-5 pb-5 pt-3">
+            <div className="w-full max-w-[300px]">
               <svg aria-label={`Porcentaje de RTI ${rtiPercentage}%`} className="w-full" role="img" viewBox="0 0 300 205">
                 <title>Porcentaje de RTI</title>
                 <desc>Medidor semicircular con un resultado de {rtiPercentage} por ciento.</desc>
@@ -477,23 +648,27 @@ export default function RtiPage() {
                     <stop offset="50%" stopColor="#facc15" />
                     <stop offset="100%" stopColor="#16a34a" />
                   </linearGradient>
+                  <filter height="180%" id="gaugeGlow" width="180%" x="-40%" y="-40%">
+                    <feGaussianBlur result="blur" stdDeviation="3" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
                 </defs>
                 <path d="M 32 150 A 118 118 0 0 1 268 150" fill="none" pathLength="100" stroke="#e2e8f0" strokeLinecap="round" strokeWidth="34" />
-                <path d="M 32 150 A 118 118 0 0 1 268 150" fill="none" pathLength="100" stroke="url(#rtiGauge)" strokeDasharray={`${gaugePercentage} 100`} strokeLinecap="round" strokeWidth="34" />
-                <line stroke="#0f172a" strokeLinecap="round" strokeWidth="7" x1="150" x2={needleX} y1="150" y2={needleY} />
-                <circle cx="150" cy="150" fill="#ffffff" r="17" stroke="#0f172a" strokeWidth="6" />
+                <path d="M 32 150 A 118 118 0 0 1 268 150" fill="none" filter="url(#gaugeGlow)" pathLength="100" stroke="url(#rtiGauge)" strokeDasharray={`${gaugePercentage} 100`} strokeLinecap="round" strokeWidth="34" />
+                <line filter="url(#gaugeGlow)" stroke="#0f172a" strokeLinecap="round" strokeWidth="7" x1="150" x2={needleX} y1="150" y2={needleY} />
+                <circle cx="150" cy="150" fill="#ffffff" filter="url(#gaugeGlow)" r="17" stroke="#0f172a" strokeWidth="6" />
                 <text fill="#64748b" fontSize="15" fontWeight="600" x="16" y="184">0 %</text>
                 <text fill="#64748b" fontSize="15" fontWeight="600" textAnchor="end" x="284" y="184">100 %</text>
                 <text fill="#0f172a" fontSize="38" fontWeight="700" textAnchor="middle" x="150" y="202">{rtiPercentage} %</text>
               </svg>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center">
                   <p className="text-[9px] font-extrabold uppercase tracking-[.12em] text-amber-700">Envases de salida</p>
-                  <p className="mt-1 text-2xl font-black text-slate-900">{formatChartNumber(outboundTotal)}</p>
+                  <p className="mt-1 text-xl font-black text-slate-900">{formatChartNumber(outboundTotal)}</p>
                 </div>
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center">
                   <p className="text-[9px] font-extrabold uppercase tracking-[.12em] text-emerald-700">Envases retornados</p>
-                  <p className="mt-1 text-2xl font-black text-slate-900">{formatChartNumber(returnedTotal)}</p>
+                  <p className="mt-1 text-xl font-black text-slate-900">{formatChartNumber(returnedTotal)}</p>
                 </div>
               </div>
               {!filteredRecords.length ? <p className="mt-3 text-center text-sm font-medium text-slate-500">Sin datos para los filtros seleccionados.</p> : null}
@@ -501,44 +676,83 @@ export default function RtiPage() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_-24px_rgba(15,23,42,.35)]">
+        <section className="h-[500px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_-24px_rgba(15,23,42,.35)]">
           <PanelHeader>Top Offender</PanelHeader>
-          <div className="overflow-x-auto p-4">
+          <div className="h-[438px] overflow-auto p-4">
             <table className="w-full min-w-[420px] text-sm">
-              <thead>
+              <thead className="sticky top-0 z-20">
                 <tr className="bg-slate-950 text-white">
                   <th className="px-4 py-3 text-left font-semibold">Nombre RR</th>
                   <th className="px-4 py-3 text-right font-semibold">Porcentaje RTI</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {offenders.map((record) => (
-                  <tr className="transition-colors hover:bg-slate-50" key={`${record.responsible}-${record.reference}`}>
-                    <td className="px-4 py-3 font-bold uppercase text-slate-800"><span className="mr-2 inline-grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-[10px] text-slate-500">{offenders.indexOf(record) + 1}</span>{record.responsible}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="relative ml-auto h-9 max-w-52 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
-                        <div className={`absolute inset-y-0 left-0 rounded-full ${performanceColor(record.percentage)}`} style={{ width: `${Math.min(record.percentage, 100)}%` }} />
-                        <span className="relative z-10 flex h-full items-center justify-end px-3 font-black text-slate-950">{record.percentage} %</span>
-                      </div>
-                    </td>
-                  </tr>
+                {offendersByCarrier.map(([contractor, contractorOffenders]) => (
+                  <Fragment key={contractor}>
+                    <tr className="border-y border-slate-200 bg-slate-100">
+                      <th className="px-4 py-2 text-left text-[10px] font-black uppercase tracking-[.12em] text-slate-600" colSpan={2} scope="rowgroup">
+                        Contratista: {contractor}
+                      </th>
+                    </tr>
+                    {contractorOffenders.map((record) => (
+                      <tr
+                        aria-label={`Ver detalle de envases de ${record.responsible}, contratista ${record.carrier}`}
+                        className="cursor-pointer transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+                        key={`${record.carrier}-${record.responsible}`}
+                        onClick={() => setSelectedOffender({ responsible: record.responsible, carrier: record.carrier })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedOffender({ responsible: record.responsible, carrier: record.carrier });
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <td className="px-4 py-3 font-bold uppercase text-slate-800"><span className="mr-2 inline-grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-[10px] text-slate-500">{record.rank}</span>{record.responsible}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="relative ml-auto h-9 max-w-52 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                            <div className={`absolute inset-y-0 left-0 rounded-full ${performanceColor(record.percentage)}`} style={{ width: `${Math.min(record.percentage, 100)}%` }} />
+                            <span className="relative z-10 flex h-full items-center justify-end px-3 font-black text-slate-950">{record.percentage} %</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
-                {!offenders.length ? (
+                {!offenderRanking.length ? (
                   <tr>
                     <td className="px-4 py-12 text-center font-medium text-slate-500" colSpan={2}>Sin resultados</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
+            {hiddenOffenderCount > 0 ? (
+              <button
+                className="mx-auto mt-4 flex items-center gap-2 rounded-full bg-slate-950 px-5 py-2.5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-slate-800"
+                onClick={() => setShowAllOffenders((current) => !current)}
+                type="button"
+              >
+                {showAllOffenders ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                {showAllOffenders ? "Ver menos" : `Ver más (${hiddenOffenderCount})`}
+              </button>
+            ) : null}
           </div>
         </section>
 
         <DailyReferenceMatrix days={referenceDailyDays} rows={referenceDailyRows} />
 
-        <section className="grid w-full items-start gap-4 lg:col-span-full lg:grid-cols-2">
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+        <section className="grid gap-3 sm:grid-cols-2 lg:col-span-full xl:grid-cols-4">
+          <InsightMetric icon={<Trophy size={18} />} label="Mejor referencia" tone="emerald" value={bestReference?.name || "Sin datos"} detail={bestReference ? `${bestReference.percentage} % RTI` : "—"} />
+          <InsightMetric icon={<TrendingDown size={18} />} label="Referencia por mejorar" tone="red" value={lowestReference?.name || "Sin datos"} detail={lowestReference ? `${lowestReference.percentage} % RTI` : "—"} />
+          <InsightMetric icon={<PackageOpen size={18} />} label="Mayor diferencia" tone="amber" value={largestDifference?.reference || "Sin datos"} detail={largestDifference ? `${formatChartNumber(largestDifference.value)} cajas` : "—"} />
+          <InsightMetric icon={<Truck size={18} />} label="Mejor transportista" tone="blue" value={bestCarrier?.name || "Sin datos"} detail={bestCarrier ? `${bestCarrier.percentage} % RTI` : "—"} />
+        </section>
+
+        <section className="grid w-full items-stretch gap-4 rounded-3xl border border-slate-200/80 bg-slate-200/50 p-3 lg:col-span-full lg:grid-cols-2">
+          <article className="h-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Porcentaje de cumplimiento RTI por referencia</PanelHeader>
-            <div className="max-h-[360px] space-y-2 overflow-auto p-4">
+            <div className="h-[322px] space-y-2 overflow-auto p-4">
               {chartReferences.length ? (
                 <div className="space-y-3">
                   {chartReferences.map((item) => (
@@ -557,10 +771,10 @@ export default function RtiPage() {
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+          <article className="h-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Cantidad de cajas de diferencia por referencia</PanelHeader>
-            <div className="max-h-[360px] overflow-auto p-4">
-              <p className="mb-3 text-[10px] font-semibold text-slate-500">Diferencia = salida − retorno · ordenada por impacto absoluto</p>
+            <div className="h-[322px] overflow-auto p-4">
+              <p className="mb-3 text-[10px] font-semibold text-slate-500">Diferencia = (salida − retorno) ÷ 30 envases por caja · ordenada por impacto absoluto</p>
               <div className="space-y-3">
                 {displayedBoxDifferences.map((item) => {
                   const width = item.value === 0 ? 0 : Math.max((Math.abs(item.value) / displayedBoxDifferenceMax) * 100, 2);
@@ -568,9 +782,9 @@ export default function RtiPage() {
                     <div className="grid grid-cols-[minmax(130px,1fr)_2fr_80px] items-center gap-3" key={item.reference}>
                       <span className="truncate text-[10px] font-bold text-slate-700" title={item.reference}>{item.reference}</span>
                       <div className="h-3 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
-                        <div className={`h-full ${item.value >= 0 ? "bg-amber-400" : "bg-red-500"}`} style={{ width: `${width}%` }} />
+                        <div className={`h-full ${item.value > 0 ? "bg-red-500" : item.value < 0 ? "bg-blue-500" : "bg-emerald-400"}`} style={{ width: `${width}%` }} />
                       </div>
-                      <span className={`text-right text-xs font-black ${item.value >= 0 ? "text-amber-700" : "text-red-600"}`}>{formatChartNumber(item.value)}</span>
+                      <span className={`text-right text-xs font-black ${item.value > 0 ? "text-red-600" : item.value < 0 ? "text-blue-600" : "text-emerald-600"}`}>{formatChartNumber(item.value)}</span>
                     </div>
                   );
                 })}
@@ -582,11 +796,11 @@ export default function RtiPage() {
 
         <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70 lg:col-span-full">
           <PanelHeader compact>Porcentaje RTI por día</PanelHeader>
-          <div className="max-h-[520px] overflow-auto p-2">
+          <div className="max-h-[360px] overflow-auto p-2">
             <table className="w-full text-xs" style={{ minWidth: `${Math.max(520, 330 + responsibleDailyDays.length * 68)}px` }}>
-              <thead>
+              <thead className="sticky top-0 z-20">
                 <tr className="bg-slate-950 text-white">
-                  <th className="sticky left-0 z-10 min-w-64 bg-slate-950 px-4 py-2 text-left font-semibold">Nombre RR</th>
+                  <th className="sticky left-0 z-30 min-w-64 bg-slate-950 px-4 py-2 text-left font-semibold">Nombre RR</th>
                   {responsibleDailyDays.map((day) => (
                     <th className="w-16 px-3 py-2 text-center font-semibold" key={day}>Día {day}</th>
                   ))}
@@ -618,54 +832,70 @@ export default function RtiPage() {
           </div>
         </section>
 
-        <section className="grid w-full items-start gap-4 lg:col-span-full lg:grid-cols-2">
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+        <section className="grid w-full items-stretch gap-4 rounded-3xl border border-slate-200/80 bg-slate-200/50 p-3 lg:col-span-full lg:grid-cols-2">
+          <article className="h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Diferencia de envase salida vs retorno</PanelHeader>
-            <div className="overflow-x-auto p-3">
-              <div className="mb-2 flex justify-center gap-4 text-[9px] font-semibold text-slate-600">
+            <div className="h-[352px] overflow-auto p-4">
+              <div className="mb-4 flex justify-center gap-4 text-[10px] font-semibold text-slate-600">
                 <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />Envase salida</span>
                 <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Envase retorno</span>
               </div>
-              <div
-                className="flex min-h-[220px] items-end gap-4 border-b border-slate-300 px-3"
-                style={{ minWidth: `${Math.max(displayedPackageMovement.length * 115, 570)}px` }}
-              >
-                {displayedPackageMovement.map((item) => (
-                  <div className="flex min-w-0 flex-1 flex-col items-center" key={item.reference}>
-                    <div className="flex h-[150px] items-end justify-center gap-2">
-                      <MovementBar color="bg-gradient-to-t from-amber-500 to-yellow-300" max={packageMovementMax} value={item.outbound} />
-                      <MovementBar color="bg-gradient-to-t from-emerald-600 to-emerald-400" max={packageMovementMax} value={item.returned} />
+              <div className="grid gap-3 xl:grid-cols-2">
+                {displayedPackageMovement.map((item) => {
+                  const balance = item.outbound - item.returned;
+                  return (
+                  <div className="grid min-h-16 grid-cols-[minmax(110px,.9fr)_1.4fr] items-center gap-3 rounded-xl border border-cyan-900/10 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_65%,#ecfeff_100%)] p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-[0_10px_24px_-14px_rgba(6,182,212,.7)]" key={item.reference}>
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] font-bold text-slate-700" title={item.reference}>{item.reference}</p>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[8px] font-black ${balance > 0 ? "bg-red-50 text-red-700" : balance < 0 ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {balance > 0 ? `Pendiente ${formatChartNumber(balance)}` : balance < 0 ? `Excedente ${formatChartNumber(Math.abs(balance))}` : "Completo"}
+                      </span>
                     </div>
-                    <span className="mt-2 line-clamp-2 min-h-10 max-w-28 text-center text-[9px] font-semibold leading-tight text-slate-700" title={item.reference}>
-                      {item.reference}
-                    </span>
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-[1fr_70px] items-center gap-2">
+                        <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${(item.outbound / packageMovementMax) * 100}%` }} /></div>
+                        <span className="text-right text-[9px] font-black text-amber-700">{formatChartNumber(item.outbound)}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_70px] items-center gap-2">
+                        <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${(item.returned / packageMovementMax) * 100}%` }} /></div>
+                        <span className="text-right text-[9px] font-black text-emerald-700">{formatChartNumber(item.returned)}</span>
+                      </div>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
+                {!displayedPackageMovement.length ? <div className="grid min-h-[180px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div> : null}
               </div>
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+          <article className="h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Porcentaje RTI por transportista</PanelHeader>
-            <div className="flex min-h-[232px] items-end justify-center gap-5 overflow-x-auto p-4">
-              {displayedCarrierMetrics.map((item) => (
-                <div className="flex w-32 shrink-0 flex-col items-center" key={item.name}>
-                  <span className="mb-1 text-xs font-bold text-slate-800">{item.percentage} %</span>
-                  <div className="w-16 rounded-t-md bg-gradient-to-t from-emerald-700 to-emerald-400 shadow-sm" style={{ height: `${Math.max(item.percentage * 1.25, 5)}px` }} />
-                  <span className="mt-2 text-center text-[9px] font-semibold uppercase leading-tight text-slate-700">{item.name}</span>
-                </div>
+            <div className="grid h-[352px] auto-rows-fr gap-3 overflow-auto p-4 sm:grid-cols-2">
+              {displayedCarrierMetrics.map((item, index) => (
+                <article className="relative flex min-h-32 flex-col justify-between overflow-hidden rounded-2xl border border-cyan-900/10 bg-[radial-gradient(circle_at_100%_0%,rgba(34,211,238,.18),transparent_42%),linear-gradient(135deg,#ffffff,#f8fafc)] p-4 shadow-sm transition duration-200 before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-cyan-400 before:to-transparent hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-16px_rgba(8,145,178,.8)]" key={item.name}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-[10px] font-black text-white">{index + 1}</span>
+                    <span className={`rounded-full px-2.5 py-1 text-sm font-black ${item.percentage >= 95 ? "bg-emerald-100 text-emerald-700" : item.percentage >= 85 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{item.percentage} %</span>
+                  </div>
+                  <p className="mt-3 truncate text-xs font-black uppercase text-slate-800" title={item.name}>{item.name}</p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div className={`h-full rounded-full ${performanceColor(item.percentage)}`} style={{ width: `${Math.min(Math.max(item.percentage, 0), 100)}%` }} />
+                  </div>
+                </article>
               ))}
-              {!displayedCarrierMetrics.length ? <span className="self-center text-sm font-medium text-slate-500">Sin resultados</span> : null}
+              {!displayedCarrierMetrics.length ? <div className="grid min-h-[180px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div> : null}
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+          <article className="h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>SKU retorno</PanelHeader>
-            <div className="max-h-[360px] space-y-3 overflow-auto p-4">
+            <div className="h-[352px] space-y-3 overflow-auto p-4">
               <p className="text-[10px] font-semibold text-slate-500">Retornos por nombre de envase del catálogo SKU</p>
-              <div className="space-y-3">
+              <div className="grid gap-3 xl:grid-cols-2">
                 {displayedSkuReturns.map((item, index) => (
-                  <div className="grid grid-cols-[minmax(150px,1fr)_2fr_78px] items-center gap-3" key={item.referenceName}>
+                  <div className="grid grid-cols-[24px_minmax(100px,1fr)_1.5fr_68px] items-center gap-2.5 rounded-xl border border-violet-100 bg-[linear-gradient(120deg,#ffffff,#faf5ff)] p-2.5 transition hover:border-violet-300 hover:shadow-[0_8px_20px_-16px_rgba(124,58,237,.8)]" key={item.referenceName}>
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[8px] font-black text-slate-500 ring-1 ring-slate-200">{index + 1}</span>
                     <span className="truncate text-[10px] font-bold text-slate-700" title={item.referenceName}>{item.referenceName}</span>
                     <div className="h-3 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
                       <div className={`h-full rounded-full ${skuBarColor(index)}`} style={{ width: `${Math.max((item.value / skuReturnMax) * 100, item.value ? 2 : 0)}%` }} />
@@ -678,12 +908,12 @@ export default function RtiPage() {
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
+          <article className="h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>Diferencia en cajas</PanelHeader>
-              <div className="max-h-[430px] overflow-auto p-3">
-              <p className="mb-2 text-[10px] font-semibold text-slate-500">Diferencia = salida − retorno. Un valor positivo representa cajas pendientes.</p>
+              <div className="h-[352px] overflow-auto p-3">
+              <p className="mb-2 text-[10px] font-semibold text-slate-500">Diferencia = (salida − retorno) ÷ 30. Un valor positivo representa cajas pendientes.</p>
               <table className="w-full min-w-[500px] text-[10px]">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-slate-950 text-white">
                     <th className="px-2 py-2 text-left">Nombre RR</th>
                     <th className="px-2 py-2 text-center">Dif. cajas</th>
@@ -694,7 +924,7 @@ export default function RtiPage() {
                   {displayedBoxDifferenceRanking.map((item) => (
                     <tr className="transition-colors hover:bg-slate-50" key={item.name}>
                       <td className="px-2 py-1.5 font-semibold uppercase text-slate-800">{item.name}</td>
-                      <td className={`px-2 py-1.5 text-center font-bold ${item.value > 0 ? "bg-emerald-500 text-white" : item.value === 0 ? "bg-amber-300 text-slate-950" : "bg-red-500/90 text-white"}`}>{item.value}</td>
+                      <td className={`px-2 py-1.5 text-center font-bold ${item.value > 0 ? "bg-red-500 text-white" : item.value === 0 ? "bg-emerald-100 text-emerald-800" : "bg-blue-500 text-white"}`}>{item.value}</td>
                       <td className="px-2 py-1.5 font-semibold uppercase text-slate-700">{item.carrier}</td>
                     </tr>
                   ))}
@@ -715,33 +945,14 @@ export default function RtiPage() {
         <section className="grid w-full items-start gap-4 lg:col-span-full lg:grid-cols-1">
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70 lg:col-span-2">
             <PanelHeader compact>Porcentaje RTI por día</PanelHeader>
-            <div className="overflow-x-auto px-5 pb-4 pt-6">
-              <div
-                className="flex min-h-[210px] items-end gap-3 border-b border-slate-300"
-                style={{ minWidth: `${Math.max(dailyRtiMetrics.length * 72, 420)}px` }}
-              >
-                {dailyRtiMetrics.map((item) => (
-                  <div className="flex min-w-14 flex-1 flex-col items-center" key={item.date}>
-                    <span className="mb-1 text-[9px] font-bold text-slate-800">{item.percentage} %</span>
-                    <div
-                      className={`w-full max-w-12 rounded-t-sm shadow-sm ${percentageBarColor(item.percentage)}`}
-                      style={{ height: `${Math.max(Math.min(item.percentage, 110) * 1.35, 4)}px` }}
-                    />
-                    <span className="mt-2 pb-2 text-[9px] font-bold text-slate-700">{item.day}/{item.month}</span>
-                  </div>
-                ))}
-                {!dailyRtiMetrics.length ? (
-                  <div className="grid min-h-[190px] w-full place-items-center text-sm font-medium text-slate-500">Sin resultados</div>
-                ) : null}
-              </div>
-            </div>
+            <DailyTrendChart data={dailyRtiMetrics} />
           </article>
 
           <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-200/70">
             <PanelHeader compact>RTI diario por ruta</PanelHeader>
-            <div className="max-h-[520px] overflow-auto p-3">
+            <div className="max-h-[360px] overflow-auto p-3">
               <table className="w-full min-w-[390px] text-[11px]">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-slate-950 text-white">
                     <th className="px-2 py-2 text-left">Ruta</th>
                     <th className="px-2 py-2 text-left">Mes</th>
@@ -770,6 +981,117 @@ export default function RtiPage() {
 
         </section>
       </section>
+      {selectedOffender ? (
+        <div
+          aria-labelledby="offender-detail-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setSelectedOffender(null);
+          }}
+          role="dialog"
+        >
+          <section className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <header className="flex items-start gap-4 bg-slate-950 px-5 py-4 text-white sm:px-6">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-[.18em] text-amber-400">Detalle Top Offender</p>
+                <h2 className="mt-1 truncate text-lg font-black uppercase sm:text-xl" id="offender-detail-title">{selectedOffender.responsible}</h2>
+                <p className="mt-1 text-xs text-slate-300">Contratista: {selectedOffender.carrier} · Envases calculados con los filtros actuales.</p>
+              </div>
+              <button aria-label="Cerrar detalle" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 transition hover:bg-white/20" onClick={() => setSelectedOffender(null)} type="button">
+                <X size={19} />
+              </button>
+            </header>
+
+            <div className="overflow-y-auto p-5 sm:p-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <article className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Envase más despachado</p>
+                  <p className="mt-2 font-black uppercase text-slate-900">{mostDispatchedReference?.name || "Sin datos"}</p>
+                  <p className="mt-1 text-2xl font-black text-amber-700">{formatChartNumber(mostDispatchedReference?.outbound || 0)}</p>
+                  <p className="text-xs font-semibold text-slate-500">envases de salida</p>
+                </article>
+                <article className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-red-700">Mayor cantidad sin retornar</p>
+                  <p className="mt-2 font-black uppercase text-slate-900">{mostPendingReference?.name || "Sin datos"}</p>
+                  <p className="mt-1 text-2xl font-black text-red-700">{formatChartNumber(Math.max((mostPendingReference?.outbound || 0) - (mostPendingReference?.returned || 0), 0))}</p>
+                  <p className="text-xs font-semibold text-slate-500">envases pendientes</p>
+                </article>
+              </div>
+
+              <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full min-w-[650px] text-sm">
+                  <thead className="bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Envase</th>
+                      <th className="px-4 py-3 text-right">Salida</th>
+                      <th className="px-4 py-3 text-right">Retorno</th>
+                      <th className="px-4 py-3 text-right">Pendiente</th>
+                      <th className="px-4 py-3 text-right">RTI</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {selectedOffenderReferences.map((item) => {
+                      const pending = Math.max(item.outbound - item.returned, 0);
+                      return (
+                        <tr className="hover:bg-slate-50" key={item.name}>
+                          <td className="px-4 py-3 font-bold uppercase text-slate-800">{item.name}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
+                          <td className={`px-4 py-3 text-right font-black ${pending > 0 ? "text-red-600" : "text-emerald-600"}`}>{formatChartNumber(pending)}</td>
+                          <td className="px-4 py-3 text-right font-black text-slate-900">{item.outbound ? `${item.percentage} %` : "N/A"}</td>
+                        </tr>
+                      );
+                    })}
+                    {!selectedOffenderReferences.length ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={5}>Sin datos de envases para este responsable.</td></tr> : null}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">Pendiente = salida − retorno. Si el retorno supera la salida, se muestra 0 pendiente.</p>
+
+              <div className="mt-6 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[.15em] text-red-600">Trazabilidad de diferencias</p>
+                  <h3 className="mt-1 text-base font-black uppercase text-slate-900">DT con inconsistencias por envase</h3>
+                </div>
+                <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700">{selectedOffenderDtIssues.length} casos</span>
+              </div>
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="bg-slate-950 text-[10px] font-black uppercase tracking-wide text-white">
+                    <tr>
+                      <th className="px-4 py-3 text-left">DT</th>
+                      <th className="px-4 py-3 text-left">Envase</th>
+                      <th className="px-4 py-3 text-right">Salida</th>
+                      <th className="px-4 py-3 text-right">Retorno</th>
+                      <th className="px-4 py-3 text-right">Diferencia</th>
+                      <th className="px-4 py-3 text-right">RTI</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {selectedOffenderDtIssues.map((item) => (
+                      <tr className="hover:bg-slate-50" key={`${item.dt}-${item.reference}`}>
+                        <td className="px-4 py-3 font-black text-slate-900">{item.dt}</td>
+                        <td className="px-4 py-3 font-bold uppercase text-slate-700">{item.reference}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
+                        <td className={`px-4 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>
+                          {item.difference > 0 ? "+" : ""}{formatChartNumber(item.difference)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">{item.percentage === null ? "N/A" : `${item.percentage} %`}</td>
+                      </tr>
+                    ))}
+                    {!selectedOffenderDtIssues.length ? (
+                      <tr><td className="px-4 py-10 text-center font-medium text-slate-500" colSpan={6}>No se encontraron diferencias entre salida y retorno por DT.</td></tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">Diferencia positiva: envases pendientes. Diferencia negativa: retornos superiores a las salidas del DT.</p>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
