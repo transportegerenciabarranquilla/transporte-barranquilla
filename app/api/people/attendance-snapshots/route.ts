@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
+import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type ClockRow = { identificador?: string; nombreCompleto?: string; cargo?: string; contratista?: string; fechaKey?: string; entrada?: string; salida?: string };
 type AttendanceSnapshot = { operationalDate: string; fileName: string; rows: ClockRow[]; uploadedAt: string; closedAt: string | null };
@@ -10,18 +11,31 @@ const PROFILE_PREFIX = "attendance:";
 
 export async function GET() {
   try {
-    const session = await getPeopleSession();
-    if (session instanceof NextResponse) return session;
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     const response = await fetch(
       supabaseRest("people_profiles", `?select=profile_id,data&profile_id=like.${PROFILE_PREFIX}*&order=profile_id.desc`),
-      { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" },
+      { headers: supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken), cache: "no-store" },
     );
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const records = (await response.json().catch(() => [])) as ProfileRecord[];
-    return NextResponse.json({ snapshots: records.map(toSnapshot).filter(Boolean) });
+    const snapshots = records.map(toSnapshot).filter(Boolean);
+    if (session.isPeople || session.isAdmin) return NextResponse.json({ snapshots });
+    return NextResponse.json({
+      snapshots: snapshots.map((snapshot) => ({
+        ...snapshot,
+        rows: snapshot.rows.filter((row) => sameOperationalContractor(row.contratista, session.contractor)),
+      })),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar la asistencia." }, { status: 500 });
   }
+}
+
+function sameOperationalContractor(rowContractor: string | undefined, sessionContractor: string | undefined) {
+  if (isLogisticosContractor(rowContractor) && isLogisticosContractor(sessionContractor)) return true;
+  if (isPuntoCoronaContractor(rowContractor) && isPuntoCoronaContractor(sessionContractor)) return true;
+  return normalizeContractorName(rowContractor) === normalizeContractorName(sessionContractor);
 }
 
 export async function PUT(request: Request) {

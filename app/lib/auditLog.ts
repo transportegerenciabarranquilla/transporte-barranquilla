@@ -3,7 +3,9 @@ import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders 
 
 export type AuditAction =
   | "asistencia_guardada"
+  | "ausentismo_diario_guardado"
   | "checkin_guardado"
+  | "checklist_diario_guardado"
   | "cierre_punto_corona"
   | "cierre_punto_corona_quitado"
   | "modulacion_eliminada"

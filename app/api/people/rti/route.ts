@@ -21,7 +21,6 @@ export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
-    if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const params = new URL(request.url).searchParams;
     const requestedFrom = params.get("from");
@@ -31,12 +30,13 @@ export async function GET(request: Request) {
     const dateFilterActive = Boolean(fromDate || toDate);
     const responsibleFilter = params.get("responsible")?.trim() || "";
     const referenceFilter = params.get("reference")?.trim() || "";
-    const carrierFilter = params.get("carrier")?.trim() || "";
+    const isContractorSession = !session.isPeople && !session.isAdmin;
+    const carrierFilter = isContractorSession ? contractorLabel(session.contractor) : params.get("carrier")?.trim() || "";
     // Diagnóstico temporal: agregar ?debug=1 a la URL para ver en la consola
     // del servidor cómo se arma el RTI paso a paso (totales, llaves
     // coincidentes/sin coincidencia, filas inválidas). No afecta la
     // respuesta ni el cálculo, solo imprime logs.
-    const debug = params.get("debug") === "1";
+    const debug = !isContractorSession && params.get("debug") === "1";
     const responseCacheKey = `rti-response:${RESPONSIBLE_ATTRIBUTION_VERSION}:${session.userId}`;
     const isUnfilteredOperationalRequest = !debug && !dateFilterActive && !responsibleFilter && !referenceFilter && !carrierFilter;
     if (isUnfilteredOperationalRequest) {
@@ -269,10 +269,13 @@ export async function GET(request: Request) {
     const skuContainers = new Set(Array.from(skuBridge.byMaterial.values(), (value) => value.envase));
     const skuUniverseKeys = new Set(Array.from(attributesByKey.keys()).filter((key) => isSkuUniverseContainer(containerFromRouteMaterialKey(key), skuContainers)));
     const skuUniverseAttributes = Array.from(skuUniverseKeys, (key) => attributesByKey.get(key)).filter((value): value is RtiKeyAttributes => Boolean(value));
+    const optionAttributes = isContractorSession
+      ? skuUniverseAttributes.filter((value) => comparableText(value.carrier) === comparableText(carrierFilter))
+      : skuUniverseAttributes;
     const filterOptions = {
-      responsible: distinctStrings(skuUniverseAttributes.map((value) => value.responsible)),
-      reference: distinctStrings(skuUniverseAttributes.map((value) => value.reference)),
-      carrier: distinctStrings(skuUniverseAttributes.map((value) => value.carrier)),
+      responsible: distinctStrings(optionAttributes.map((value) => value.responsible)),
+      reference: distinctStrings(optionAttributes.map((value) => value.reference)),
+      carrier: distinctStrings(optionAttributes.map((value) => value.carrier)),
     };
     const allowedKeys = new Set(Array.from(attributesByKey, ([key, value]) => ({ key, value }))
       .filter(({ value }) =>

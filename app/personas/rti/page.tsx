@@ -77,6 +77,10 @@ function DailyReferenceMatrix({ days, rows }: { days: number[]; rows: DailyMatri
   );
 }
 
+function formatBoxes(envases: number) {
+  return Math.floor(Math.abs(Number(envases) || 0) / 30).toLocaleString("es-CO");
+}
+
 function DailyTrendChart({ data }: { data: Array<{ date: string; day: number; month: number; percentage: number }> }) {
   if (!data.length) return <div className="grid min-h-[250px] place-items-center text-sm font-medium text-slate-500">Sin resultados</div>;
   const width = Math.max(760, data.length * 72);
@@ -1009,24 +1013,27 @@ export default function RtiPage() {
                   <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Envase más despachado</p>
                   <p className="mt-2 font-black uppercase text-slate-900">{mostDispatchedReference?.name || "Sin datos"}</p>
                   <p className="mt-1 text-2xl font-black text-amber-700">{formatChartNumber(mostDispatchedReference?.outbound || 0)}</p>
-                  <p className="text-xs font-semibold text-slate-500">envases de salida</p>
+                  <p className="text-xs font-semibold text-slate-500">envases de salida <span className="mx-1 text-slate-300">|</span> <strong className="text-amber-700">{formatBoxes(mostDispatchedReference?.outbound || 0)} cajas</strong></p>
                 </article>
                 <article className="rounded-2xl border border-red-200 bg-red-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-wide text-red-700">Mayor cantidad sin retornar</p>
                   <p className="mt-2 font-black uppercase text-slate-900">{mostPendingReference?.name || "Sin datos"}</p>
                   <p className="mt-1 text-2xl font-black text-red-700">{formatChartNumber(Math.max((mostPendingReference?.outbound || 0) - (mostPendingReference?.returned || 0), 0))}</p>
-                  <p className="text-xs font-semibold text-slate-500">envases pendientes</p>
+                  <p className="text-xs font-semibold text-slate-500">envases pendientes <span className="mx-1 text-slate-300">|</span> <strong className="text-red-700">{formatBoxes(Math.max((mostPendingReference?.outbound || 0) - (mostPendingReference?.returned || 0), 0))} cajas</strong></p>
                 </article>
               </div>
 
               <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
-                <table className="w-full min-w-[650px] text-sm">
+                <table className="w-full min-w-[900px] text-sm">
                   <thead className="bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-600">
                     <tr>
                       <th className="px-4 py-3 text-left">Envase</th>
-                      <th className="px-4 py-3 text-right">Salida</th>
-                      <th className="px-4 py-3 text-right">Retorno</th>
-                      <th className="px-4 py-3 text-right">Pendiente</th>
+                      <th className="px-3 py-3 text-right">Salida</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
+                      <th className="px-3 py-3 text-right">Retorno</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
+                      <th className="px-3 py-3 text-right">Pendiente</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
                       <th className="px-4 py-3 text-right">RTI</th>
                     </tr>
                   </thead>
@@ -1036,14 +1043,17 @@ export default function RtiPage() {
                       return (
                         <tr className="hover:bg-slate-50" key={item.name}>
                           <td className="px-4 py-3 font-bold uppercase text-slate-800">{item.name}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
-                          <td className={`px-4 py-3 text-right font-black ${pending > 0 ? "text-red-600" : "text-emerald-600"}`}>{formatChartNumber(pending)}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
+                          <td className="px-3 py-3 text-right font-black text-amber-700">{formatBoxes(item.outbound)}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
+                          <td className="px-3 py-3 text-right font-black text-emerald-700">{formatBoxes(item.returned)}</td>
+                          <td className={`px-3 py-3 text-right font-black ${pending > 0 ? "text-red-600" : "text-emerald-600"}`}>{formatChartNumber(pending)}</td>
+                          <td className={`px-3 py-3 text-right font-black ${pending > 0 ? "text-red-600" : "text-emerald-600"}`}>{formatBoxes(pending)}</td>
                           <td className="px-4 py-3 text-right font-black text-slate-900">{item.outbound ? `${item.percentage} %` : "N/A"}</td>
                         </tr>
                       );
                     })}
-                    {!selectedOffenderReferences.length ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={5}>Sin datos de envases para este responsable.</td></tr> : null}
+                    {!selectedOffenderReferences.length ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={8}>Sin datos de envases para este responsable.</td></tr> : null}
                   </tbody>
                 </table>
               </div>
@@ -1057,14 +1067,17 @@ export default function RtiPage() {
                 <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700">{selectedOffenderDtIssues.length} casos</span>
               </div>
               <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200">
-                <table className="w-full min-w-[760px] text-sm">
+                <table className="w-full min-w-[1050px] text-sm">
                   <thead className="bg-slate-950 text-[10px] font-black uppercase tracking-wide text-white">
                     <tr>
                       <th className="px-4 py-3 text-left">DT</th>
                       <th className="px-4 py-3 text-left">Envase</th>
-                      <th className="px-4 py-3 text-right">Salida</th>
-                      <th className="px-4 py-3 text-right">Retorno</th>
-                      <th className="px-4 py-3 text-right">Diferencia</th>
+                      <th className="px-3 py-3 text-right">Salida</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
+                      <th className="px-3 py-3 text-right">Retorno</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
+                      <th className="px-3 py-3 text-right">Diferencia</th>
+                      <th className="px-3 py-3 text-right">Cajas</th>
                       <th className="px-4 py-3 text-right">RTI</th>
                     </tr>
                   </thead>
@@ -1073,16 +1086,17 @@ export default function RtiPage() {
                       <tr className="hover:bg-slate-50" key={`${item.dt}-${item.reference}`}>
                         <td className="px-4 py-3 font-black text-slate-900">{item.dt}</td>
                         <td className="px-4 py-3 font-bold uppercase text-slate-700">{item.reference}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
-                        <td className={`px-4 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>
-                          {item.difference > 0 ? "+" : ""}{formatChartNumber(item.difference)}
-                        </td>
+                        <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.outbound)}</td>
+                        <td className="px-3 py-3 text-right font-black text-amber-400">{formatBoxes(item.outbound)}</td>
+                        <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
+                        <td className="px-3 py-3 text-right font-black text-emerald-400">{formatBoxes(item.returned)}</td>
+                        <td className={`px-3 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatChartNumber(Math.abs(item.difference))}</td>
+                        <td className={`px-3 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatBoxes(item.difference)}</td>
                         <td className="px-4 py-3 text-right font-black text-slate-900">{item.percentage === null ? "N/A" : `${item.percentage} %`}</td>
                       </tr>
                     ))}
                     {!selectedOffenderDtIssues.length ? (
-                      <tr><td className="px-4 py-10 text-center font-medium text-slate-500" colSpan={6}>No se encontraron diferencias entre salida y retorno por DT.</td></tr>
+                      <tr><td className="px-4 py-10 text-center font-medium text-slate-500" colSpan={9}>No se encontraron diferencias entre salida y retorno por DT.</td></tr>
                     ) : null}
                   </tbody>
                 </table>
