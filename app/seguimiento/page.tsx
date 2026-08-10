@@ -19,7 +19,7 @@ import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargu
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
-import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { deleteSeguimientoVehiculo, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
@@ -35,6 +35,8 @@ import {
 } from "./pageUtils";
 
 const SEGUIMIENTO_DATE_FILTER_KEY = "bavaria.seguimiento.fechaFiltro";
+const SEGUIMIENTO_DATE_FROM_FILTER_KEY = "bavaria.seguimiento.fechaDesdeFiltro";
+const SEGUIMIENTO_DATE_TO_FILTER_KEY = "bavaria.seguimiento.fechaHastaFiltro";
 const MODULACION_ALERT_VISIBLE_MS = 5 * 60 * 1000;
 const DATA_REFRESH_MS = 30_000;
 const SEGUIMIENTO_SAVE_DEBOUNCE_MS = 200;
@@ -59,12 +61,14 @@ export default function SeguimientoPage() {
   
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [fechaDtFilter, setFechaDtFilter] = useState("");
+  const [fechaDesdeFilter, setFechaDesdeFilter] = useState("");
+  const [fechaHastaFilter, setFechaHastaFilter] = useState("");
   const [onlyWithoutResponsible, setOnlyWithoutResponsible] = useState(false);
   
   const [importMessage, setImportMessage] = useState("");
   const [actionsOpen, setActionsOpen] = useState(false);
   const [deleteCandidateKey, setDeleteCandidateKey] = useState<string | null>(null);
+  const [isDeletingVehicle, setIsDeletingVehicle] = useState(false);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
@@ -72,6 +76,7 @@ export default function SeguimientoPage() {
   const saveTimerRef = useRef<number | null>(null);
   const saveVersionRef = useRef(0);
   const vehiclesRef = useRef<Vehiculo[]>([]);
+  const deletingVehicleRef = useRef(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -82,12 +87,16 @@ export default function SeguimientoPage() {
   }, []);
 
   useEffect(() => {
-    const urlDate = new URLSearchParams(window.location.search).get("fecha") || "";
-    const storedDate = sessionStorage.getItem(SEGUIMIENTO_DATE_FILTER_KEY) || "";
-    const nextDate = urlDate || storedDate;
-    if (!nextDate) return;
+    const params = new URLSearchParams(window.location.search);
+    const legacyDate = params.get("fecha") || sessionStorage.getItem(SEGUIMIENTO_DATE_FILTER_KEY) || "";
+    const from = params.get("desde") || sessionStorage.getItem(SEGUIMIENTO_DATE_FROM_FILTER_KEY) || legacyDate;
+    const to = params.get("hasta") || sessionStorage.getItem(SEGUIMIENTO_DATE_TO_FILTER_KEY) || legacyDate;
+    if (!from && !to) return;
 
-    const timeout = window.setTimeout(() => setFechaDtFilter(nextDate), 0);
+    const timeout = window.setTimeout(() => {
+      setFechaDesdeFilter(from);
+      setFechaHastaFilter(to);
+    }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -114,12 +123,14 @@ export default function SeguimientoPage() {
     return vehiculos.filter((item) => {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
       const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
-      const matchesFechaDt = !fechaDtFilter || toDateKey(item.fechaDespacho) === fechaDtFilter;
+      const dispatchDate = toDateKey(item.fechaDespacho);
+      const matchesFrom = !fechaDesdeFilter || dispatchDate >= fechaDesdeFilter;
+      const matchesTo = !fechaHastaFilter || dispatchDate <= fechaHastaFilter;
       const matchesResponsible = !onlyWithoutResponsible || isWithoutResponsible(item);
 
-      return matchesSearch && matchesFechaDt && matchesResponsible;
+      return matchesSearch && matchesFrom && matchesTo && matchesResponsible;
     });
-  }, [fechaDtFilter, onlyWithoutResponsible, search, vehiculos]);
+  }, [fechaDesdeFilter, fechaHastaFilter, onlyWithoutResponsible, search, vehiculos]);
 
   const filteredVehicles = useMemo(() => {
     return matchingVehicles.filter((item) => {
@@ -144,7 +155,8 @@ export default function SeguimientoPage() {
   }, [filteredVehicles]);
 
   const modulacionesHoy = useMemo(() => {
-    const targetDate = fechaDtFilter || getLocalDateKey();
+    const singleDate = fechaDesdeFilter && fechaDesdeFilter === fechaHastaFilter ? fechaDesdeFilter : "";
+    const targetDate = singleDate || getLocalDateKey();
     const operational = getOperationalModulaciones(modulaciones, filteredVehicles);
     const byId = new Map<string, ModulacionRegistro>();
 
@@ -157,13 +169,13 @@ export default function SeguimientoPage() {
     });
 
     return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [fechaDtFilter, filteredVehicles, modulaciones]);
+  }, [fechaDesdeFilter, fechaHastaFilter, filteredVehicles, modulaciones]);
   const latestModulacionId = modulacionesHoy[0]?.id || "";
   const latestModulacionCreatedAt = modulacionesHoy[0]?.createdAt || "";
   const showModulacionAlert =
     modulacionesHoy.length > 0 &&
     !modulacionAlertDismissed &&
-    isViewingToday(fechaDtFilter) &&
+    isViewingToday(fechaDesdeFilter === fechaHastaFilter ? fechaDesdeFilter : "") &&
     isRecentModulacion(latestModulacionCreatedAt);
   const selectedVehicle = useMemo(() => {
     if (!vehiculoSeleccionado) return null;
@@ -347,6 +359,7 @@ export default function SeguimientoPage() {
 
     if (changes.fechaDespacho !== undefined && changes.fechaDespacho !== item.fechaDespacho) {
       updated.dispatchDateChanged = true;
+      updated.dispatchDateUpdatedAt = new Date().toISOString();
     }
 
     if (changes.status === "Cambio de fecha" && changes.fechaDespacho === undefined) {
@@ -355,6 +368,7 @@ export default function SeguimientoPage() {
       updated.date = nextDispatchDate;
       updated.clasificacionOnTime = item.fechaDt === nextDispatchDate ? "On Time" : "No On Time";
       updated.dispatchDateChanged = true;
+      updated.dispatchDateUpdatedAt = new Date().toISOString();
     }
     const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
     if (changes.status !== undefined) updated.statusUpdatedAt = new Date().toISOString();
@@ -424,36 +438,47 @@ export default function SeguimientoPage() {
   }
 
   function borrarVehiculo(recordKey: string) {
+    if (deletingVehicleRef.current) return;
     setDeleteCandidateKey(recordKey);
   }
 
   async function confirmDeleteVehicle() {
-    if (!deleteCandidateKey) return;
+    if (!deleteCandidateKey || deletingVehicleRef.current) return;
+    deletingVehicleRef.current = true;
+    setIsDeletingVehicle(true);
+
+    const candidateKey = deleteCandidateKey;
     const currentVehicles = vehiclesRef.current;
-    const vehicle = currentVehicles.find((item) => getVehicleUiKey(item) === deleteCandidateKey);
-    if (vehicle) removeStaleRouteData(vehicle, true);
+    const vehicle = currentVehicles.find((item) => getVehicleUiKey(item) === candidateKey);
+
+    if (!vehicle?.recordId) {
+      deletingVehicleRef.current = false;
+      setIsDeletingVehicle(false);
+      setDeleteCandidateKey(null);
+      setImportMessage("No se pudo identificar el registro que se debe borrar.");
+      return;
+    }
 
     const previousVehicles = currentVehicles;
-    const prepared = prepareSeguimientoVehicles(currentVehicles.filter((item) => getVehicleUiKey(item) !== deleteCandidateKey));
-    vehiclesRef.current = prepared;
-    setVehiculos(prepared);
+    const prepared = prepareSeguimientoVehicles(currentVehicles.filter((item) => getVehicleUiKey(item) !== candidateKey));
     pendingLocalSaveRef.current = true;
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
 
-    if (vehiculoSeleccionadoKey === deleteCandidateKey) {
-      setVehiculoSeleccionado(null);
-      setVehiculoSeleccionadoKey(null);
-    }
-    setDeleteCandidateKey(null);
     setImportMessage("Borrando DT en Supabase...");
 
     try {
-      const savedRecords = await saveSeguimientoVehiculos(prepared, { deleteMissing: true });
-      vehiclesRef.current = savedRecords;
-      setVehiculos(savedRecords);
+      await deleteSeguimientoVehiculo(vehicle.recordId);
+      vehiclesRef.current = prepared;
+      setVehiculos(prepared);
+      removeStaleRouteData(vehicle, true);
+      if (vehiculoSeleccionadoKey === candidateKey) {
+        setVehiculoSeleccionado(null);
+        setVehiculoSeleccionadoKey(null);
+      }
+      setDeleteCandidateKey(null);
       setImportMessage("DT borrado correctamente.");
     } catch (error) {
       vehiclesRef.current = previousVehicles;
@@ -461,6 +486,8 @@ export default function SeguimientoPage() {
       setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el DT.");
     } finally {
       pendingLocalSaveRef.current = false;
+      deletingVehicleRef.current = false;
+      setIsDeletingVehicle(false);
     }
   }
 
@@ -516,22 +543,26 @@ export default function SeguimientoPage() {
     setImportMessage(`${filteredVehicles.length} vehiculos pasaron a En ruta.`);
   }
 
-  function updateFechaDtFilter(value: string) {
-    setFechaDtFilter(value);
-    if (value) {
-      sessionStorage.setItem(SEGUIMIENTO_DATE_FILTER_KEY, value);
-    } else {
-      sessionStorage.removeItem(SEGUIMIENTO_DATE_FILTER_KEY);
-    }
+  function updateDateRange(from: string, to: string) {
+    setFechaDesdeFilter(from);
+    setFechaHastaFilter(to);
+    sessionStorage.removeItem(SEGUIMIENTO_DATE_FILTER_KEY);
+    if (from) sessionStorage.setItem(SEGUIMIENTO_DATE_FROM_FILTER_KEY, from);
+    else sessionStorage.removeItem(SEGUIMIENTO_DATE_FROM_FILTER_KEY);
+    if (to) sessionStorage.setItem(SEGUIMIENTO_DATE_TO_FILTER_KEY, to);
+    else sessionStorage.removeItem(SEGUIMIENTO_DATE_TO_FILTER_KEY);
   }
 
   function goToGraficas() {
-    const query = fechaDtFilter ? `?fecha=${encodeURIComponent(fechaDtFilter)}` : "";
+    const params = new URLSearchParams();
+    if (fechaDesdeFilter) params.set("desde", fechaDesdeFilter);
+    if (fechaHastaFilter) params.set("hasta", fechaHastaFilter);
+    const query = params.size ? `?${params}` : "";
     router.push(`/seguimiento/graficas${query}`);
   }
 
   async function handleExportDailyVehicles() {
-    const exportDate = fechaDtFilter || getLocalDateKey();
+    const exportDate = fechaHastaFilter || fechaDesdeFilter || getLocalDateKey();
     const vehiclesForDate = vehiculos.filter((vehicle) => getVehicleDateKey(vehicle) === exportDate);
 
     if (!vehiclesForDate.length) {
@@ -692,11 +723,12 @@ export default function SeguimientoPage() {
         </div>
 
         <SeguimientoFilters
-          fechaDtFilter={fechaDtFilter}
+          fechaDesdeFilter={fechaDesdeFilter}
+          fechaHastaFilter={fechaHastaFilter}
           onlyWithoutResponsible={onlyWithoutResponsible}
           search={search}
           statusFilters={statusFilters}
-          onFechaDtChange={updateFechaDtFilter}
+          onDateRangeChange={updateDateRange}
           onOnlyWithoutResponsibleChange={setOnlyWithoutResponsible}
           onSearchChange={setSearch}
           onStatusChange={setStatusFilters}
@@ -704,7 +736,7 @@ export default function SeguimientoPage() {
 
         <VehiclesTable
           vehicles={filteredVehicles}
-          operationalDate={fechaDtFilter}
+          operationalDate=""
           now={now}
           onSelectVehicle={seleccionarVehiculo}
           onDeleteVehicle={borrarVehiculo}
@@ -731,7 +763,10 @@ export default function SeguimientoPage() {
 
       {deleteCandidate ? (
         <DeleteVehicleDialog
-          onCancel={() => setDeleteCandidateKey(null)}
+          isDeleting={isDeletingVehicle}
+          onCancel={() => {
+            if (!deletingVehicleRef.current) setDeleteCandidateKey(null);
+          }}
           onConfirm={confirmDeleteVehicle}
           vehicle={deleteCandidate}
         />
@@ -741,10 +776,12 @@ export default function SeguimientoPage() {
 }
 
 function DeleteVehicleDialog({
+  isDeleting,
   onCancel,
   onConfirm,
   vehicle,
 }: {
+  isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   vehicle: Vehiculo;
@@ -767,7 +804,8 @@ function DeleteVehicleDialog({
             </div>
             <button
               aria-label="Cerrar confirmacion"
-              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-white hover:text-[#10223d]"
+              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-white hover:text-[#10223d] disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={isDeleting}
               onClick={onCancel}
               type="button"
             >
@@ -790,19 +828,21 @@ function DeleteVehicleDialog({
 
         <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-end">
           <button
-            className="h-10 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+            className="h-10 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isDeleting}
             onClick={onCancel}
             type="button"
           >
             Cancelar
           </button>
           <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-wait disabled:bg-red-400"
+            disabled={isDeleting}
             onClick={onConfirm}
             type="button"
           >
             <Trash2 size={16} />
-            Borrar ruta
+            {isDeleting ? "Borrando..." : "Borrar ruta"}
           </button>
         </div>
       </section>

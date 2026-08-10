@@ -118,8 +118,17 @@ async function insertRows(table: string, headers: Record<string, string>, rows: 
 
 function normalizeRow(rawRow: Record<string, unknown>) {
   return Object.fromEntries(
-    Object.entries(rawRow).map(([header, value]) => [header.trim().replace(/\s+/g, " "), normalizeCell(value)]),
+    Object.entries(rawRow).map(([header, value]) => [canonicalHeader(header), normalizeCell(value)]),
   );
+}
+
+function canonicalHeader(header: string) {
+  const cleaned = header.trim().replace(/\s+/g, " ");
+  // Algunos reportes SAP abrevian "Cantidad real" como "Ctd.real".
+  // Supabase exige que las claves del JSON coincidan exactamente con las
+  // columnas de RACOCIMI1/2, así que unificamos el nombre antes de insertar.
+  if (normalizeHeader(cleaned) === "ctd.real") return "Cantidad real";
+  return cleaned;
 }
 
 function routeValue(row: Record<string, unknown>) {

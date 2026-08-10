@@ -107,6 +107,13 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
   return {
     ...currentRecord,
     ...importedVehicle,
+    ...(currentRecord.dispatchDateUpdatedAt
+      ? {
+          fechaDespacho: currentRecord.fechaDespacho,
+          date: currentRecord.date,
+          dispatchDateUpdatedAt: currentRecord.dispatchDateUpdatedAt,
+        }
+      : {}),
     clientes,
     visitados: Math.min(visitados, clientes || visitados),
     capacidad: fixedCapacity,

@@ -13,6 +13,7 @@ const ACTION_LABELS: Record<string, string> = {
   cierre_punto_corona_quitado: "Cierre quitado",
   modulacion_guardada: "Modulacion guardada",
   punto_corona_archivo_subido: "Archivo Rango",
+  seguimiento_eliminado: "DT eliminado",
   seguimiento_guardado: "Seguimiento guardado",
 };
 
@@ -205,6 +206,9 @@ function formatDetails(record: AuditLogRecord) {
     details.archivo ? `Archivo: ${details.archivo}` : "",
     details.records ? `Registros: ${details.records}` : "",
     details.dts ? `DT: ${Array.isArray(details.dts) ? details.dts.slice(0, 4).join(", ") : details.dts}` : "",
+    details.dt ? `DT: ${details.dt}` : "",
+    details.motivo ? `Motivo: ${details.motivo}` : "",
+    details.fechaDespacho ? `Fecha despacho: ${details.fechaDespacho}` : "",
     details.clientes ? `Clientes: ${Array.isArray(details.clientes) ? details.clientes.slice(0, 4).join(", ") : details.clientes}` : "",
     details.fecha ? `Fecha: ${details.fecha}` : "",
     record.recordId ? `ID: ${record.recordId}` : "",

@@ -12,6 +12,8 @@ const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
 const LIST_CACHE_TTL_MS = 30_000;
 const RELATED_CACHE_TTL_MS = 60_000;
+const PAGE_SIZE = 1_000;
+type AuthenticatedSession = NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>;
 const PUBLIC_CONTRACTORS: Record<string, string> = {
   logisticos: "Logisticos",
   puntocorona: "Punto Corona",
@@ -41,12 +43,12 @@ export async function GET(request: Request) {
     );
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<{ contractor?: string; data: Vehiculo }[]>(
-      `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}:${url}`,
+    const rows = await readPagedRowsCached<{ contractor?: string; data: Vehiculo }>(
+      TABLE,
+      params,
+      `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}`,
       LIST_CACHE_TTL_MS,
-      url,
-      { headers: session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders() },
+      session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
     );
     const records = removeDuplicateDtRecords(rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista })));
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
@@ -107,27 +109,21 @@ export async function PUT(request: Request) {
     const changedDateRecords = scopedRecords
       .map((record, index) => ({ record, recordId: rows[index]?.record_id || "" }))
       .filter(({ record }) => record.dispatchDateChanged === true);
-    const duplicateDeleteError = await deletePreviousDtCopies(changedDateRecords, session.contractor, session.accessToken);
+    const duplicateDeleteError = await deletePreviousDtCopies(changedDateRecords, session.contractor, session.accessToken, request, session);
     if (duplicateDeleteError) return NextResponse.json({ error: duplicateDeleteError }, { status: 500 });
 
     const supersededRecordIds = getSupersededRecordIds(scopedRecords, rows);
-    const supersededDeleteError = await deleteSeguimientoRows(supersededRecordIds, session.contractor, session.accessToken);
+    const supersededDeleteError = await deleteSeguimientoRows(supersededRecordIds, session.contractor, session.accessToken, request, session, "Registro reemplazado por una nueva identidad");
     if (supersededDeleteError) return NextResponse.json({ error: supersededDeleteError }, { status: 500 });
 
     if (deleteMissing === true) {
       const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
-      const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates);
+      const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates, request, session);
       if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
     }
 
     const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const savedResponse = await fetch(supabaseRest(TABLE, `?${savedParams.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
-      cache: "no-store",
-    });
-    if (!savedResponse.ok) return NextResponse.json({ error: await supabaseError(savedResponse) }, { status: savedResponse.status });
-
-    const savedRows = (await savedResponse.json()) as { data: Vehiculo }[];
+    const savedRows = await readPagedRows<{ data: Vehiculo }>(TABLE, savedParams, supabaseUserHeaders(session.accessToken));
     await writeAuditLog({
       action: "seguimiento_guardado",
       contractor: session.contractor,
@@ -202,6 +198,33 @@ export async function PATCH(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
+
+    const body = (await request.json()) as { ids?: string[] };
+    const recordIds = Array.from(new Set((body.ids || []).map((id) => String(id).trim()).filter(Boolean)));
+    if (!recordIds.length) return NextResponse.json({ error: "Falta el registro que se debe borrar." }, { status: 400 });
+    if (recordIds.length > 100) return NextResponse.json({ error: "Solo se pueden borrar hasta 100 registros por operación." }, { status: 400 });
+
+    const deleteError = await deleteSeguimientoRows(
+      recordIds,
+      session.contractor,
+      session.accessToken,
+      request,
+      session,
+      "Eliminación manual desde Seguimiento",
+    );
+    if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
+
+    return NextResponse.json({ deleted: recordIds.length });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo borrar el DT." }, { status: 500 });
+  }
+}
+
 async function preservePersistedRouteProgress<T extends { record_id: string; data: Vehiculo; updated_at: string }>(
   rows: T[],
   contractor: string,
@@ -210,13 +233,8 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
   if (!rows.length) return rows;
 
   const params = new URLSearchParams({ select: "record_id,data", contractor: `eq.${contractor}` });
-  const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-    headers: supabaseUserHeaders(accessToken),
-    cache: "no-store",
-  });
-  if (!response.ok) return rows;
-
-  const persistedRows = (await response.json()) as { record_id: string; data: Vehiculo }[];
+  const persistedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, params, supabaseUserHeaders(accessToken)).catch(() => []);
+  if (!persistedRows.length) return rows;
   const persistedById = new Map(persistedRows.map((row) => [row.record_id, row.data]));
 
   return rows.map((row) => {
@@ -253,6 +271,11 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
       Number.isFinite(persistedStatusTime) &&
       (!Number.isFinite(incomingStatusTime) || persistedStatusTime > incomingStatusTime);
     const preservePersistedStatus = persistedStatusIsNewer || (persistedFinished && !incomingStatusIsNewer);
+    const incomingDispatchDateTime = Date.parse(row.data.dispatchDateUpdatedAt || "");
+    const persistedDispatchDateTime = Date.parse(persisted.dispatchDateUpdatedAt || "");
+    const preservePersistedDispatchDate =
+      Number.isFinite(persistedDispatchDateTime) &&
+      (!Number.isFinite(incomingDispatchDateTime) || persistedDispatchDateTime > incomingDispatchDateTime);
 
     return {
       ...row,
@@ -276,6 +299,13 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
               tiempoRuta: persisted.tiempoRuta || row.data.tiempoRuta,
             }
           : {}),
+        ...(preservePersistedDispatchDate
+          ? {
+              fechaDespacho: persisted.fechaDespacho,
+              date: persisted.date,
+              dispatchDateUpdatedAt: persisted.dispatchDateUpdatedAt,
+            }
+          : {}),
       },
     };
   });
@@ -289,10 +319,12 @@ async function deletePreviousDtCopies(
   changedRecords: { record: Vehiculo; recordId: string }[],
   contractor: string,
   accessToken: string,
+  request: Request,
+  session: AuthenticatedSession,
 ) {
   if (!changedRecords.length) return "";
 
-  const headers = getWriteHeaders(accessToken);
+  const headers = getWriteHeaders(accessToken, { Prefer: "return=representation" });
   const uniqueRecords = new Map<string, { dt: string; recordId: string }>();
   changedRecords.forEach(({ record, recordId }) => {
     const dt = String(record.transporte || "").trim();
@@ -311,6 +343,8 @@ async function deletePreviousDtCopies(
       cache: "no-store",
     });
     if (!response.ok) return await supabaseError(response);
+    const deletedRows = await response.json() as Array<{ record_id?: string; data?: Vehiculo }>;
+    for (const row of deletedRows) await logDeletedDt(row, contractor, "Copia anterior eliminada por cambio de fecha", request, session);
   }
 
   clearServerCache(`supabase:${TABLE}:`);
@@ -334,10 +368,10 @@ function getSupersededRecordIds(records: Vehiculo[], rows: { record_id: string }
   );
 }
 
-async function deleteSeguimientoRows(recordIds: string[], contractor: string, accessToken: string) {
+async function deleteSeguimientoRows(recordIds: string[], contractor: string, accessToken: string, request: Request, session: AuthenticatedSession, reason: string) {
   if (!recordIds.length) return "";
 
-  const headers = getWriteHeaders(accessToken);
+  const headers = getWriteHeaders(accessToken, { Prefer: "return=representation" });
   for (const recordId of recordIds) {
     const params = new URLSearchParams({ contractor: `eq.${contractor}`, record_id: `eq.${recordId}` });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
@@ -346,6 +380,8 @@ async function deleteSeguimientoRows(recordIds: string[], contractor: string, ac
       cache: "no-store",
     });
     if (!response.ok) return await supabaseError(response);
+    const deletedRows = await response.json() as Array<{ record_id?: string; data?: Vehiculo }>;
+    for (const row of deletedRows) await logDeletedDt(row, contractor, reason, request, session);
   }
 
   clearServerCache(`supabase:${TABLE}:`);
@@ -354,29 +390,22 @@ async function deleteSeguimientoRows(recordIds: string[], contractor: string, ac
   return "";
 }
 
-async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string, submittedDates: Set<string>) {
+async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string, submittedDates: Set<string>, request: Request, session: AuthenticatedSession) {
   if (!submittedDates.size) return "";
 
   const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${contractor}` });
   const headers = getWriteHeaders(accessToken);
-  const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
-    headers,
-    cache: "no-store",
-  });
-  if (!currentResponse.ok) return await supabaseError(currentResponse);
-
-  const current = (await currentResponse.json()) as { record_id: string; data: Vehiculo }[];
+  const current = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, currentParams, headers);
   const keep = new Set(keepIds);
   const removed = current
     .filter((row) => submittedDates.has(routeDateValue(row.data?.fechaDespacho || row.data?.date || row.data?.createdAt)))
-    .map((row) => row.record_id)
-    .filter((id) => !keep.has(id));
+    .filter((row) => !keep.has(row.record_id));
     if (!removed.length) return "";
 
-  for (const recordId of removed) {
+  for (const row of removed) {
     const params = new URLSearchParams({
       contractor: `eq.${contractor}`,
-      record_id: `eq.${recordId}`,
+      record_id: `eq.${row.record_id}`,
     });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       method: "DELETE",
@@ -385,6 +414,7 @@ async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: strin
     });
 
     if (!response.ok) return await supabaseError(response);
+    await logDeletedDt(row, contractor, "Eliminación manual desde Seguimiento", request, session);
   }
   clearServerCache(`supabase:${TABLE}:`);
   clearServerCache("supabase:people-summary:");
@@ -393,8 +423,27 @@ async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: strin
   return "";
 }
 
-function getWriteHeaders(accessToken: string) {
-  return supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+async function logDeletedDt(row: { record_id?: string; data?: Vehiculo }, contractor: string, reason: string, request: Request, session: AuthenticatedSession) {
+  const vehicle = row.data || ({} as Vehiculo);
+  await writeAuditLog({
+    action: "seguimiento_eliminado",
+    contractor,
+    details: {
+      dt: String(vehicle.transporte || ""),
+      fechaDespacho: String(vehicle.fechaDespacho || vehicle.date || ""),
+      placa: String(vehicle.vehiculo || ""),
+      motivo: reason,
+      eliminadoEn: new Date().toISOString(),
+    },
+    module: "seguimiento",
+    recordId: String(row.record_id || vehicle.recordId || ""),
+    request,
+    session,
+  });
+}
+
+function getWriteHeaders(accessToken: string, extra: Record<string, string> = {}) {
+  return supabaseAdminHeaders(extra) ?? supabaseUserHeaders(accessToken, extra);
 }
 
 function removeDuplicateDtRecords(records: Vehiculo[]) {
@@ -514,12 +563,12 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
   if (contractor) params.set("contractor", `eq.${contractor}`);
 
-  const url = supabaseRest("asistencias_ruta", `?${params.toString()}`);
-  const rows = await cachedJsonFetch<{ contractor?: string; data: AsistenciaRegistro }[]>(
-    `supabase:asistencias_ruta:index:${contractor || "all"}:${url}`,
+  const rows = await readPagedRowsCached<{ contractor?: string; data: AsistenciaRegistro }>(
+    "asistencias_ruta",
+    params,
+    `supabase:asistencias_ruta:index:${contractor || "all"}`,
     RELATED_CACHE_TTL_MS,
-    url,
-    { headers: supabaseAdminHeaders() ?? (accessToken ? supabaseReadHeaders(accessToken) : supabaseHeaders()) },
+    supabaseAdminHeaders() ?? (accessToken ? supabaseReadHeaders(accessToken) : supabaseHeaders()),
   ).catch(() => []);
   rows.forEach((row) => {
     const record = { ...row.data, contratista: row.contractor || row.data.contratista };
@@ -571,6 +620,35 @@ function routeDateValue(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+async function readPagedRows<T>(table: string, baseParams: URLSearchParams, headers: Record<string, string>) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const params = new URLSearchParams(baseParams);
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(offset));
+    const response = await fetch(supabaseRest(table, `?${params.toString()}`), { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(await supabaseError(response));
+    const page = (await response.json()) as T[];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function readPagedRowsCached<T>(table: string, baseParams: URLSearchParams, cachePrefix: string, ttlMs: number, headers: Record<string, string>) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const params = new URLSearchParams(baseParams);
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(offset));
+    const url = supabaseRest(table, `?${params.toString()}`);
+    const page = await cachedJsonFetch<T[]>(`${cachePrefix}:offset:${offset}:${url}`, ttlMs, url, { headers });
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return rows;
 }
 
 async function applyDatabaseCapacities(records: Vehiculo[], accessToken?: string) {

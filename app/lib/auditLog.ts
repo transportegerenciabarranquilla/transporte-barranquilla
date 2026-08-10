@@ -11,6 +11,7 @@ export type AuditAction =
   | "modulacion_eliminada"
   | "modulacion_guardada"
   | "punto_corona_archivo_subido"
+  | "seguimiento_eliminado"
   | "seguimiento_guardado";
 
 export type AuditLogRecord = {

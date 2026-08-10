@@ -71,6 +71,15 @@ const dailyControlModule: PortalModule = {
   accent: "border-l-[#06b6d4]",
 };
 
+const presaleModule: PortalModule = {
+  id: 13,
+  title: "Preventa",
+  href: "/preventa",
+  detail: "Llamadas, reincidencia y confirmacion de entrega",
+  tone: "from-[#7c3aed] to-[#db2777]",
+  accent: "border-l-[#7c3aed]",
+};
+
 const peopleDelaysModule: PortalModule = {
   id: 7,
   title: "Atrasos",
@@ -122,6 +131,15 @@ const peopleRtiModule: PortalModule = {
   accent: "border-l-[#0f766e]",
 };
 
+const peopleZkiModule: PortalModule = {
+  id: 14,
+  title: "ZKI",
+  href: "/personas/zki",
+  detail: "Planeación inteligente de RR, conductores y vehículos",
+  tone: "from-[#0b2235] to-[#0891b2]",
+  accent: "border-l-[#0891b2]",
+};
+
 export function getVisiblePortalModules({
   contractor,
   isAdmin,
@@ -134,10 +152,11 @@ export function getVisiblePortalModules({
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
-  if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule];
+  if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule, peopleZkiModule];
   if (isAdmin) return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...baseModules.slice(1)];
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
-  return contractor ? [...contractorModules, rangoModule, dailyControlModule] : baseModules;
+  const canSeePresale = normalizeContractorName(contractor) === "logisticos";
+  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {

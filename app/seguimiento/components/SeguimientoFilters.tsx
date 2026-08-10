@@ -2,27 +2,32 @@ import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { ROUTE_STATUSES } from "../utils";
 
 export function SeguimientoFilters({
-  fechaDtFilter,
+  fechaDesdeFilter,
+  fechaHastaFilter,
   search,
   onlyWithoutResponsible,
   statusFilters,
-  onFechaDtChange,
+  onDateRangeChange,
   onOnlyWithoutResponsibleChange,
   onSearchChange,
   onStatusChange,
 }: {
-  fechaDtFilter: string;
+  fechaDesdeFilter: string;
+  fechaHastaFilter: string;
   onlyWithoutResponsible: boolean;
   search: string;
   statusFilters: string[];
-  onFechaDtChange: (value: string) => void;
+  onDateRangeChange: (from: string, to: string) => void;
   onOnlyWithoutResponsibleChange: (value: boolean) => void;
   onSearchChange: (value: string) => void;
   onStatusChange: (value: string[]) => void;
 }) {
   const today = getRelativeDateKey(0);
   const tomorrow = getRelativeDateKey(1);
-  const selectedDate = fechaDtFilter;
+  const monthStart = `${today.slice(0, 8)}01`;
+  const isToday = fechaDesdeFilter === today && fechaHastaFilter === today;
+  const isTomorrow = fechaDesdeFilter === tomorrow && fechaHastaFilter === tomorrow;
+  const isCurrentMonth = fechaDesdeFilter === monthStart && fechaHastaFilter === today;
 
   return (
     <div className="relative z-30 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
@@ -31,12 +36,12 @@ export function SeguimientoFilters({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Filtros</p>
           <h2 className="text-base font-semibold text-[#10223d]">Vista operativa</h2>
         </div>
-        {(search || fechaDtFilter || onlyWithoutResponsible || statusFilters.length > 0) ? (
+        {(search || fechaDesdeFilter || fechaHastaFilter || onlyWithoutResponsible || statusFilters.length > 0) ? (
           <button
             className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-[#10223d]"
             onClick={() => {
               onSearchChange("");
-              onFechaDtChange("");
+              onDateRangeChange("", "");
               onOnlyWithoutResponsibleChange(false);
               onStatusChange([]);
             }}
@@ -48,7 +53,7 @@ export function SeguimientoFilters({
         ) : null}
       </div>
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid w-full gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_190px]">
+        <div className="grid w-full gap-3 lg:grid-cols-[minmax(240px,1fr)_auto_minmax(300px,auto)]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -59,35 +64,39 @@ export function SeguimientoFilters({
             />
           </div>
 
-          <div className="grid grid-cols-2 rounded-md border border-slate-200 bg-slate-50 p-1" aria-label="Fecha operativa">
+          <div className="grid grid-cols-3 rounded-md border border-slate-200 bg-slate-50 p-1" aria-label="Fecha operativa">
             <button
               className={`h-9 rounded px-4 text-sm font-semibold transition ${
-                selectedDate === today ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+                isToday ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
               }`}
-              onClick={() => onFechaDtChange(today)}
+              onClick={() => onDateRangeChange(today, today)}
               type="button"
             >
               Hoy
             </button>
             <button
-              className={`h-9 rounded px-4 text-sm font-semibold transition ${
-                selectedDate === tomorrow ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              className={`h-9 rounded px-3 text-sm font-semibold transition ${
+                isCurrentMonth ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
               }`}
-              onClick={() => onFechaDtChange(tomorrow)}
+              onClick={() => onDateRangeChange(monthStart, today)}
+              type="button"
+            >
+              Mes actual
+            </button>
+            <button
+              className={`h-9 rounded px-4 text-sm font-semibold transition ${
+                isTomorrow ? "bg-[#10223d] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              }`}
+              onClick={() => onDateRangeChange(tomorrow, tomorrow)}
               type="button"
             >
               Mañana
             </button>
           </div>
 
-          <div className="relative">
-            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-10 text-sm text-slate-700 outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
-              onChange={(event) => onFechaDtChange(event.target.value)}
-              type="date"
-              value={selectedDate}
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <label className="relative"><span className="sr-only">Desde</span><CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Fecha desde" className="h-11 w-full rounded-md border border-slate-200 bg-white pl-9 pr-2 text-xs text-slate-700 outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10" max={fechaHastaFilter || undefined} onChange={(event) => onDateRangeChange(event.target.value, fechaHastaFilter)} type="date" value={fechaDesdeFilter} /></label>
+            <label className="relative"><span className="sr-only">Hasta</span><CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Fecha hasta" className="h-11 w-full rounded-md border border-slate-200 bg-white pl-9 pr-2 text-xs text-slate-700 outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10" min={fechaDesdeFilter || undefined} onChange={(event) => onDateRangeChange(fechaDesdeFilter, event.target.value)} type="date" value={fechaHastaFilter} /></label>
           </div>
 
         </div>
