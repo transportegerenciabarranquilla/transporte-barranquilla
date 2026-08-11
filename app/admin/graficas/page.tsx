@@ -46,6 +46,7 @@ type ModulationOverviewRecord = {
 };
 
 type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreCompleto?: string; identificador?: string; cargo?: string; contratista?: string; entrada?: string }> };
+type GraphView = "summary" | "ontime" | "refusal" | "people";
 
 export default function AdminGraficasPage() {
   const router = useRouter();
@@ -66,6 +67,7 @@ export default function AdminGraficasPage() {
   const [dailyChecklists, setDailyChecklists] = useState<DailyChecklistRecord[]>([]);
   const [absenteeismRecords, setAbsenteeismRecords] = useState<DailyAbsenteeismRecord[]>([]);
   const [attendanceSnapshots, setAttendanceSnapshots] = useState<AttendanceSnapshot[]>([]);
+  const [activeView, setActiveView] = useState<GraphView>("summary");
 
   useEffect(() => {
     fetch("/api/admin/seguimiento", { cache: "no-store" })
@@ -107,6 +109,10 @@ export default function AdminGraficasPage() {
   const activeDateRange = useMemo(() => getActiveDateRange(autoDateRange, records, dateRange), [autoDateRange, dateRange, records]);
 
   const visibleRecords = useMemo(() => filterRecords(records, activeDateRange, contractor, dtSearch), [activeDateRange, contractor, dtSearch, records]);
+
+  const comparisonRecords = useMemo(() => filterRecords(records, activeDateRange, "Todas", dtSearch), [activeDateRange, dtSearch, records]);
+
+  const onTimeByContractor = useMemo(() => buildOnTimeByContractor(comparisonRecords), [comparisonRecords]);
 
   const visibleRefusalRows = useMemo(
     () => filterRefusalRows(refusalRows, activeDateRange, contractor, dtSearch),
@@ -173,7 +179,7 @@ export default function AdminGraficasPage() {
             </button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Graficas admin</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">Refusal por preventista</h1>
+              <h1 className="text-2xl font-semibold text-[#10223d]">Centro de graficas</h1>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -266,6 +272,27 @@ export default function AdminGraficasPage() {
           </div>
         </section>
 
+        <nav aria-label="Secciones de graficas" className="sticky top-[88px] z-10 mb-6 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/50 backdrop-blur sm:grid-cols-4">
+          {([
+            ["summary", "Resumen", "Indicadores generales"],
+            ["ontime", "On Time", "Vehiculos y salidas"],
+            ["refusal", "Refusal", "Cajas y causales"],
+            ["people", "Personal", "Llegadas tardias"],
+          ] as const).map(([value, label, detail]) => (
+            <button
+              aria-pressed={activeView === value}
+              className={`rounded-xl px-4 py-3 text-left transition ${activeView === value ? "bg-slate-950 text-white shadow-md" : "text-slate-600 hover:bg-slate-100"}`}
+              key={value}
+              onClick={() => setActiveView(value)}
+              type="button"
+            >
+              <span className="block text-xs font-black uppercase tracking-wide">{label}</span>
+              <span className={`mt-0.5 block text-[10px] font-semibold ${activeView === value ? "text-cyan-300" : "text-slate-400"}`}>{detail}</span>
+            </button>
+          ))}
+        </nav>
+
+        {activeView === "summary" ? <>
         <section className="mb-5">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -336,12 +363,32 @@ export default function AdminGraficasPage() {
           <ExecutiveTrendChart data={operationalTrend} />
           <ContractorBenchmarkTable rows={contractorBenchmark} />
         </section>
+        </> : null}
 
-        <section className="mb-5 grid gap-4 xl:grid-cols-[.8fr_1.2fr]">
-          <DeparturePerformanceCard departure={departurePerformance} refusal={totals.refusal} refusalBoxes={totals.refusalFinal} />
-          <LateArrivalRanking rows={lateArrivalRanking} />
+        {activeView === "ontime" ? <>
+        <section className="mb-5 grid gap-4 xl:grid-cols-1">
+          <DeparturePerformanceCard departure={departurePerformance} />
         </section>
 
+        <section className="mb-5">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Seguimiento de vehiculos</p>
+              <h2 className="mt-1 text-xl font-black text-[#10223d]">Cumplimiento On Time por contratista</h2>
+              <p className="mt-1 text-xs text-slate-500">Clasificacion registrada en seguimiento. Los casos sin clasificar no afectan el porcentaje.</p>
+            </div>
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700">
+              {onTimeByContractor.reduce((sum, item) => sum + item.classified, 0).toLocaleString("es-CO")} vehiculos clasificados
+            </span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {onTimeByContractor.map((item) => <OnTimeContractorCard item={item} key={item.contractor} />)}
+          </div>
+          <OnTimeComparisonChart rows={onTimeByContractor} />
+        </section>
+        </> : null}
+
+        {activeView === "refusal" ? <>
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" id="detalle-refusal">
           <Metric icon={<ShieldAlert size={20} />} label="% refusal" value={`${totals.refusal.toLocaleString("es-CO")}%`} tone="red" />
           <Metric icon={<BarChart3 size={20} />} label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
@@ -368,6 +415,13 @@ export default function AdminGraficasPage() {
         </div>
 
         <TopRefusalClientsTable data={topRefusalClients.slice(0, 20)} />
+        </> : null}
+
+        {activeView === "people" ? (
+          <section className="mb-5">
+            <LateArrivalRanking rows={lateArrivalRanking} />
+          </section>
+        ) : null}
 
       </section>
     </main>
@@ -584,6 +638,48 @@ function ContractorBenchmarkTable({ rows }: { rows: BenchmarkRow[] }) {
 
 type DeparturePerformance = { average: string; beforeSeven: number; total: number; percentage: number };
 type LateArrivalRow = { name: string; contractor: string; role: string; lateDays: number; averageSeconds: number; latestSeconds: number };
+type OnTimeContractorRow = { contractor: string; onTime: number; noOnTime: number; unclassified: number; classified: number; percentage: number };
+
+function buildOnTimeByContractor(records: Vehiculo[]): OnTimeContractorRow[] {
+  const contractorOrder = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const groups = new Map<string, Omit<OnTimeContractorRow, "classified" | "percentage">>(
+    contractorOrder.map((contractor) => [contractor, { contractor, onTime: 0, noOnTime: 0, unclassified: 0 }]),
+  );
+  records.forEach((record) => {
+    const contractor = onTimeContractorLabel(record.transportista);
+    const current = groups.get(contractor);
+    if (!current) return;
+    const classification = normalizeContractorName(record.clasificacionOnTime);
+    if (classification === "ontime") current.onTime += 1;
+    else if (classification === "noontime") current.noOnTime += 1;
+    else current.unclassified += 1;
+    groups.set(contractor, current);
+  });
+  return Array.from(groups.values(), (item) => {
+    const classified = item.onTime + item.noOnTime;
+    return { ...item, classified, percentage: ratioPercentage(item.onTime, classified) };
+  });
+}
+
+function onTimeContractorLabel(value: string) {
+  const normalized = normalizeContractorName(value);
+  if (normalized === "logisticos" || normalized === "logisticosarenosa") return "Logisticos";
+  if (["puntocorona", "corona", "puntocoronaarenosa", "coronaarenosa"].includes(normalized)) return "Punto Corona";
+  if (normalized === "surticervezas") return "Surti Cervezas";
+  return value.trim();
+}
+
+function OnTimeContractorCard({ item }: { item: OnTimeContractorRow }) {
+  const onTimeDegrees = item.classified ? item.percentage * 3.6 : 0;
+  return <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_45px_-32px_rgba(15,23,42,.5)]"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-emerald-600">Contratista</p><h3 className="mt-1 text-lg font-black text-slate-950">{item.contractor}</h3><p className="mt-1 text-xs text-slate-500">{item.classified} vehiculos clasificados</p></div><div className="grid h-24 w-24 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#10b981 0deg ${onTimeDegrees}deg, #f43f5e ${onTimeDegrees}deg 360deg)` }}><div className="grid h-[70px] w-[70px] place-items-center rounded-full bg-white text-center shadow-inner"><span className="text-xl font-black text-slate-950">{item.percentage}%</span><span className="-mt-5 text-[8px] font-black uppercase text-slate-400">On Time</span></div></div></div><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-emerald-50 p-3"><p className="text-[9px] font-black uppercase text-emerald-700">On Time</p><p className="mt-1 text-2xl font-black text-emerald-700">{item.onTime}</p></div><div className="rounded-2xl bg-rose-50 p-3"><p className="text-[9px] font-black uppercase text-rose-700">No On Time</p><p className="mt-1 text-2xl font-black text-rose-700">{item.noOnTime}</p></div></div>{item.unclassified ? <p className="mt-3 text-[10px] font-semibold text-amber-700">{item.unclassified} vehiculos sin clasificacion</p> : null}</article>;
+}
+
+function OnTimeComparisonChart({ rows }: { rows: OnTimeContractorRow[] }) {
+  const totalOnTime = rows.reduce((sum, row) => sum + row.onTime, 0);
+  const totalNoOnTime = rows.reduce((sum, row) => sum + row.noOnTime, 0);
+  const consolidated = ratioPercentage(totalOnTime, totalOnTime + totalNoOnTime);
+  return <article className="mt-4 overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-[#07111f] via-[#0b1d32] to-[#10283a] p-6 text-white shadow-2xl"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Comparativo consolidado</p><h3 className="mt-1 text-xl font-black">On Time de las tres contratistas</h3><p className="mt-1 text-xs text-slate-400">Porcentaje calculado sobre vehiculos clasificados en seguimiento</p></div><div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-right"><p className="text-[9px] font-black uppercase text-emerald-300">Total On Time</p><p className="text-3xl font-black text-emerald-300">{consolidated}%</p></div></div><div className="mt-6 space-y-5">{rows.map((row) => <div key={row.contractor}><div className="mb-2 flex items-center justify-between gap-3 text-xs"><span className="font-black">{row.contractor}</span><span className="font-black text-emerald-300">{row.percentage}% <span className="font-semibold text-slate-400">({row.onTime}/{row.classified})</span></span></div><div className="flex h-5 overflow-hidden rounded-full bg-slate-800 ring-1 ring-white/10"><div className="bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${row.percentage}%` }} title={`${row.onTime} On Time`} /><div className="bg-gradient-to-r from-rose-500 to-red-500" style={{ width: `${100 - row.percentage}%` }} title={`${row.noOnTime} No On Time`} /></div></div>)}{!rows.length ? <div className="grid h-36 place-items-center text-sm text-slate-500">No hay clasificaciones On Time en el periodo.</div> : null}</div><div className="mt-5 flex flex-wrap gap-4 border-t border-white/10 pt-4 text-[10px] font-bold text-slate-300"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500" />On Time</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-rose-500" />No On Time</span><span className="ml-auto">{totalOnTime} On Time · {totalNoOnTime} No On Time</span></div></article>;
+}
 
 function buildDeparturePerformance(records: Vehiculo[]): DeparturePerformance {
   const times = records.map((record) => parseClockSeconds(record.horaSalida)).filter((value): value is number => value !== null);
@@ -629,8 +725,8 @@ function formatClockSeconds(value: number) {
   return new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC" }).format(new Date(Date.UTC(2000, 0, 1, hour, minute)));
 }
 
-function DeparturePerformanceCard({ departure, refusal, refusalBoxes }: { departure: DeparturePerformance; refusal: number; refusalBoxes: number }) {
-  return <article className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#07111f] via-[#0b1d32] to-[#112b3c] p-6 text-white shadow-2xl"><div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" /><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-300">Velocidad de salida</p><div className="mt-4 flex items-end justify-between gap-4"><div><p className="text-xs font-bold text-slate-400">Hora promedio</p><p className="mt-1 text-4xl font-black">{departure.average}</p></div><div className="grid h-20 w-20 place-items-center rounded-full border-[7px] border-emerald-400/80 bg-slate-950/50 text-center shadow-[0_0_28px_rgba(52,211,153,.18)]"><span className="text-lg font-black">{departure.percentage}%</span></div></div><p className="mt-3 text-xs text-slate-300"><strong className="text-emerald-300">{departure.beforeSeven}</strong> de {departure.total} rutas salieron antes de las 7:00 a. m.</p><div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/10 pt-5"><div className="rounded-2xl bg-white/5 p-3"><p className="text-[9px] font-black uppercase tracking-wide text-rose-300">Refusal actual</p><p className="mt-1 text-2xl font-black">{refusal.toFixed(1)}%</p></div><div className="rounded-2xl bg-white/5 p-3"><p className="text-[9px] font-black uppercase tracking-wide text-rose-300">Cajas refusal</p><p className="mt-1 text-2xl font-black">{refusalBoxes.toLocaleString("es-CO")}</p></div></div></article>;
+function DeparturePerformanceCard({ departure }: { departure: DeparturePerformance }) {
+  return <article className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#07111f] via-[#0b1d32] to-[#112b3c] p-6 text-white shadow-2xl"><div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" /><div className="relative flex flex-wrap items-center justify-between gap-5"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-300">Velocidad de salida</p><p className="mt-3 text-xs font-bold text-slate-400">Hora promedio</p><p className="mt-1 text-4xl font-black">{departure.average}</p><p className="mt-3 text-xs text-slate-300"><strong className="text-emerald-300">{departure.beforeSeven}</strong> de {departure.total} rutas salieron antes de las 7:00 a. m.</p></div><div className="grid h-28 w-28 place-items-center rounded-full border-[9px] border-emerald-400/80 bg-slate-950/50 text-center shadow-[0_0_28px_rgba(52,211,153,.18)]"><div><span className="text-2xl font-black">{departure.percentage}%</span><span className="block text-[8px] font-black uppercase text-emerald-300">Antes de las 7</span></div></div></div></article>;
 }
 
 function LateArrivalRanking({ rows }: { rows: LateArrivalRow[] }) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, FileSpreadsheet, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DateInput, FilterSelect, formatChartNumber, PanelHeader } from "./components/RtiVisuals";
 import type { RtiRecord } from "./rtiTypes";
@@ -193,6 +193,7 @@ export default function RtiPage() {
   const [databaseRows, setDatabaseRows] = useState(() => rtiPageCache?.databaseRows ?? 0);
   const [duplicateRowsRemoved, setDuplicateRowsRemoved] = useState(() => rtiPageCache?.duplicateRowsRemoved ?? 0);
   const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadTarget, setUploadTarget] = useState<"RACOCIMI1" | "RACOCIMI2">("RACOCIMI1");
   const [dateFrom, setDateFrom] = useState("");
@@ -499,6 +500,103 @@ export default function RtiPage() {
   const needleX = 150 + Math.cos(needleRadians) * 76;
   const needleY = 150 + Math.sin(needleRadians) * 76;
 
+  async function exportDashboardExcel() {
+    if (!filteredRecords.length) {
+      setUploadMessage("No hay datos con los filtros actuales para exportar.");
+      return;
+    }
+    setExporting(true);
+    setUploadMessage("");
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      const appendSheet = (name: string, rows: Record<string, string | number>[], widths: number[]) => {
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        sheet["!cols"] = widths.map((wch) => ({ wch }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name);
+      };
+      appendSheet("Resumen", [
+        { Indicador: "Fecha desde", Valor: dateFrom || "Todo el historico" },
+        { Indicador: "Fecha hasta", Valor: dateTo || "Todo el historico" },
+        { Indicador: "Responsable", Valor: responsible || "Todos" },
+        { Indicador: "Referencia de envase", Valor: reference || "Todas" },
+        { Indicador: "Transportista", Valor: carrier || "Todos" },
+        { Indicador: "Envases de salida", Valor: outboundTotal },
+        { Indicador: "Envases retornados", Valor: returnedTotal },
+        { Indicador: "Envases pendientes", Valor: Math.max(outboundTotal - returnedTotal, 0) },
+        { Indicador: "Diferencia en cajas", Valor: totalBoxDifference },
+        { Indicador: "Porcentaje RTI", Valor: rtiPercentage / 100 },
+      ], [28, 28]);
+      appendSheet("Top Offender", offenderRanking.map((item, index) => ({
+        Posicion: index + 1,
+        Responsable: item.responsible,
+        Transportista: item.carrier,
+        "Porcentaje RTI": item.percentage / 100,
+      })), [10, 36, 28, 18]);
+      appendSheet("Referencias", complianceByReference.map((item) => ({
+        Envase: item.name,
+        Salida: item.outbound,
+        Retorno: item.returned,
+        "Pendiente envases": Math.max(item.outbound - item.returned, 0),
+        "Diferencia cajas": item.difference,
+        "Porcentaje RTI": item.percentage / 100,
+      })), [42, 16, 16, 20, 18, 18]);
+      appendSheet("Responsables", responsibleRanking.map((item) => ({
+        Responsable: item.name,
+        Salida: item.outbound,
+        Retorno: item.returned,
+        "Diferencia cajas": item.difference,
+        "Porcentaje RTI": item.percentage / 100,
+      })), [38, 16, 16, 18, 18]);
+      appendSheet("Transportistas", localCarrierMetrics.map((item) => ({
+        Transportista: item.name,
+        Salida: item.outbound,
+        Retorno: item.returned,
+        "Diferencia cajas": item.difference,
+        "Porcentaje RTI": item.percentage / 100,
+      })), [34, 16, 16, 18, 18]);
+      appendSheet("RTI diario", dailyRtiMetrics.map((item) => ({
+        Fecha: item.date,
+        Dia: item.day,
+        Mes: item.month,
+        "Porcentaje RTI": item.percentage / 100,
+      })), [16, 10, 10, 18]);
+      appendSheet("Detalle DT", filteredRecords.map((record) => ({
+        Fecha: recordDateKey(record),
+        DT: record.dt || "Sin DT",
+        Responsable: record.responsible,
+        Transportista: record.carrier,
+        Envase: record.reference,
+        Salida: record.outbound || 0,
+        Retorno: record.returned || 0,
+        "Diferencia envases": (record.outbound || 0) - (record.returned || 0),
+        "Diferencia cajas": quantityDifference(record.outbound || 0, record.returned || 0),
+        "Porcentaje RTI": record.outbound ? (record.returned || 0) / record.outbound : 0,
+      })), [16, 20, 36, 28, 42, 14, 14, 20, 18, 18]);
+
+      for (const sheet of workbook.SheetNames.map((name) => workbook.Sheets[name])) {
+        const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
+        for (let column = range.s.c; column <= range.e.c; column += 1) {
+          const header = String(sheet[XLSX.utils.encode_cell({ r: 0, c: column })]?.v || "");
+          if (!header.includes("Porcentaje")) continue;
+          for (let row = 1; row <= range.e.r; row += 1) {
+            const cell = sheet[XLSX.utils.encode_cell({ r: row, c: column })];
+            if (cell?.t === "n") cell.z = "0.0%";
+          }
+        }
+        sheet["!autofilter"] = { ref: sheet["!ref"] || "A1:A1" };
+      }
+      const suffix = [dateFrom, dateTo].filter(Boolean).join("-a-") || new Date().toISOString().slice(0, 10);
+      const filename = `reporte-rti-${suffix}.xlsx`;
+      XLSX.writeFile(workbook, filename, { compression: true });
+      setUploadMessage(`Excel generado: ${filename} (${filteredRecords.length} registros filtrados).`);
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : "No se pudo exportar el Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (access === "checking") return <main className="min-h-screen bg-slate-100" />;
 
   if (access === "denied") {
@@ -574,6 +672,15 @@ export default function RtiPage() {
                 <option value="RACOCIMI2">RACOCIMI2 · Retorno</option>
               </select>
             </label>
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+              disabled={exporting || databaseState !== "connected" || !filteredRecords.length}
+              onClick={() => void exportDashboardExcel()}
+              type="button"
+            >
+              {exporting ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+              {exporting ? "Generando..." : "Exportar Excel"}
+            </button>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
               disabled={uploading}

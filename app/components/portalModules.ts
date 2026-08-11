@@ -153,7 +153,10 @@ export function getVisiblePortalModules({
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
   if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule, peopleZkiModule];
-  if (isAdmin) return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...baseModules.slice(1)];
+  if (isAdmin) {
+    const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
+    return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...adminModules];
+  }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = normalizeContractorName(contractor) === "logisticos";
   return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule] : []), rangoModule, dailyControlModule] : baseModules;
