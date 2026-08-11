@@ -2,6 +2,17 @@ export type QuantityPair = { outbound: number; returned: number };
 
 export const CONTAINERS_PER_BOX = 30;
 
+export function returnedContainersFromRacocimi2(
+  quantity: number,
+  unit: string,
+  unitsPerBox: number | null,
+  isProductMaterial: boolean,
+) {
+  const normalizedUnit = unit.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+  if (!isProductMaterial || normalizedUnit !== "CA" || !unitsPerBox || unitsPerBox <= 0) return quantity;
+  return quantity * unitsPerBox;
+}
+
 export type RtiSummary = {
   outboundTotal: number;
   returnedTotal: number;
@@ -49,10 +60,14 @@ export type SkuBridgeValue = Omit<SkuBridgeEntry, "material">;
 export function buildSkuBridge(entries: readonly SkuBridgeEntry[]) {
   const candidates = new Map<string, SkuBridgeEntry[]>();
   entries.forEach((entry) => {
-    if (!entry.material) return;
-    const values = candidates.get(entry.material) ?? [];
-    values.push(entry);
-    candidates.set(entry.material, values);
+    // Corrección confirmada del catálogo: Envase Flint 330R (3500213)
+    // corresponde al material 22613, no al 2160.
+    const material = entry.envase === "3500213" && entry.material === "2160" ? "22613" : entry.material;
+    if (!material) return;
+    const correctedEntry = material === entry.material ? entry : { ...entry, material };
+    const values = candidates.get(material) ?? [];
+    values.push(correctedEntry);
+    candidates.set(material, values);
   });
   const conflicts: Array<{ material: string; envases: string[] }> = [];
   const byMaterial = new Map<string, SkuBridgeValue>();

@@ -413,7 +413,7 @@ export default function RtiPage() {
           }, new Map<string, { dt: string; reference: string; outbound: number; returned: number }>()),
         ([, item]) => ({
           ...item,
-          difference: item.outbound - item.returned,
+          difference: item.returned - item.outbound,
           percentage: item.outbound ? Math.round((item.returned / item.outbound) * 1_000) / 10 : null,
         }),
       )
@@ -1090,8 +1090,8 @@ export default function RtiPage() {
                         <td className="px-3 py-3 text-right font-black text-amber-400">{formatBoxes(item.outbound)}</td>
                         <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatChartNumber(item.returned)}</td>
                         <td className="px-3 py-3 text-right font-black text-emerald-400">{formatBoxes(item.returned)}</td>
-                        <td className={`px-3 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatChartNumber(Math.abs(item.difference))}</td>
-                        <td className={`px-3 py-3 text-right font-black ${item.difference > 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatBoxes(item.difference)}</td>
+                        <td className={`px-3 py-3 text-right font-black ${item.difference < 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatChartNumber(Math.abs(item.difference))}</td>
+                        <td className={`px-3 py-3 text-right font-black ${item.difference < 0 ? "text-red-600" : "text-blue-600"}`}>{item.difference > 0 ? "+" : item.difference < 0 ? "−" : ""}{formatBoxes(item.difference)}</td>
                         <td className="px-4 py-3 text-right font-black text-slate-900">{item.percentage === null ? "N/A" : `${item.percentage} %`}</td>
                       </tr>
                     ))}
@@ -1101,7 +1101,7 @@ export default function RtiPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-3 text-xs text-slate-500">Diferencia positiva: envases pendientes. Diferencia negativa: retornos superiores a las salidas del DT.</p>
+              <p className="mt-3 text-xs text-slate-500">Diferencia = retorno − salida. Un valor negativo indica envases pendientes y uno positivo indica retornos adicionales.</p>
             </div>
           </section>
         </div>

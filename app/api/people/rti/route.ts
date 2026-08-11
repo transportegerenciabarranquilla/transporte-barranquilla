@@ -3,7 +3,7 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
 import { peekServerCache, readServerCache, writeServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
-import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
+import { buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, returnedContainersFromRacocimi2, summarizeQuantities, type RtiSummary, type SkuBridgeEntry } from "../../../personas/rti/rtiCalculation";
 
 const TABLES = ["RACOCIMI1", "RACOCIMI2"] as const;
 const PAGE_SIZE = 1_000;
@@ -14,7 +14,7 @@ const RTI_SOURCE_CACHE_MS = 5 * 60 * 1_000;
 const RTI_RESPONSE_CACHE_MS = 5 * 60 * 1_000;
 // Cambiar esta versión cuando se modifique la atribución DT -> responsable.
 // Evita servir durante cinco minutos resultados calculados con una regla anterior.
-const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v2";
+const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v3-full-product-returns";
 
 export async function GET(request: Request) {
   const requestStartedAt = performance.now();
@@ -60,7 +60,8 @@ export async function GET(request: Request) {
         ? allDatasets
         : [
             allDatasets[0].filter((row) => sourceSkuBridge.byMaterial.has(materialKey(row))),
-            allDatasets[1].filter((row) => sourceContainers.has(materialKey(row))),
+            // RACOCIMI2 puede registrar envase vacío o cajas de producto lleno.
+            allDatasets[1].filter((row) => sourceContainers.has(materialKey(row)) || sourceSkuBridge.byMaterial.has(materialKey(row))),
           ];
       const routeDts = Array.from(new Set(
         datasets.flatMap((rows) =>
@@ -187,10 +188,16 @@ export async function GET(request: Request) {
       rows.map((row) => {
         const materialOriginal = materialKey(row);
         const outboundSku = datasetIndex === 0 ? skuBridge.byMaterial.get(materialOriginal) : undefined;
-        const skuMetadata = outboundSku ?? (datasetIndex === 1 ? skuByContainer.get(materialOriginal) : undefined);
+        const returnedProductSku = datasetIndex === 1 && !skuByContainer.has(materialOriginal) ? skuBridge.byMaterial.get(materialOriginal) : undefined;
+        const skuMetadata = outboundSku ?? returnedProductSku ?? (datasetIndex === 1 ? skuByContainer.get(materialOriginal) : undefined);
+        const isReturnedProduct = datasetIndex === 1 && Boolean(returnedProductSku);
         const normalizedContainer = datasetIndex === 0
           ? (outboundSku?.envase || (materialOriginal ? `UNMAPPED-${materialOriginal}` : ""))
-          : materialOriginal;
+          : (returnedProductSku?.envase || materialOriginal);
+        const rawQuantity = readCantidadReal(row);
+        const normalizedReturnedQuantity = datasetIndex === 1 && rawQuantity !== null
+          ? returnedContainersFromRacocimi2(rawQuantity, String(readValue(row, ["Verif.unidad medida", "Unidad medida", "UM"]) || ""), skuMetadata?.unidadesEnvase ?? null, isReturnedProduct)
+          : null;
         const product = skuMetadata?.descripcionEnvase || "";
         const route = normalizeRoute(readValue(row, ["Ruta"]));
         const transport = normalizeTransport(readValue(row, ["Transporte", "DT"])) || route;
@@ -224,6 +231,7 @@ export async function GET(request: Request) {
           ...(route ? { Ruta: route } : {}),
           ...(materialOriginal ? { "Material original": materialOriginal } : {}),
           ...(normalizedContainer ? { "Envase normalizado": normalizedContainer, "Material/SKU": normalizedContainer } : {}),
+          ...(normalizedReturnedQuantity !== null ? { "Cantidad real normalizada": normalizedReturnedQuantity } : {}),
           ...(skuMetadata?.unidadesEnvase !== null && skuMetadata?.unidadesEnvase !== undefined ? { "Unidades envase": skuMetadata.unidadesEnvase } : {}),
           ...(product ? { Producto: product, Envase: product, "Descripción": product, "Descripción de envase": product } : {}),
           ...(dt ? { DT: dt } : {}),
@@ -1343,7 +1351,7 @@ function sumQuantityByRouteAndMaterial(rows: Record<string, unknown>[]) {
 }
 
 function readCantidadReal(row: Record<string, unknown>) {
-  return parseNumericValue(readValue(row, ["Cantidad real"]));
+  return parseNumericValue(readValue(row, ["Cantidad real normalizada", "Cantidad real"]));
 }
 
 function normalizeDateParam(value: string | null) {

@@ -38,19 +38,21 @@ export async function GET(request: Request) {
     const isGlobalAdminQuery = session?.isAdmin && !publicContractor;
     const params = new URLSearchParams(
       isGlobalAdminQuery
-        ? { select: "contractor,data", order: "updated_at.desc" }
-        : { select: "contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
+        ? { select: "record_id,contractor,data", order: "updated_at.desc" }
+        : { select: "record_id,contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    const rows = await readPagedRowsCached<{ contractor?: string; data: Vehiculo }>(
+    const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo }>(
       TABLE,
       params,
       `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}`,
       LIST_CACHE_TTL_MS,
       session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
     );
-    const records = removeDuplicateDtRecords(rows.map((row) => ({ ...row.data, transportista: row.contractor || row.data.transportista })));
+    const records = removeDuplicateDtRecords(
+      rows.map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista })),
+    );
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
     return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });
   } catch (error) {
@@ -122,8 +124,8 @@ export async function PUT(request: Request) {
       if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
     }
 
-    const savedParams = new URLSearchParams({ select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const savedRows = await readPagedRows<{ data: Vehiculo }>(TABLE, savedParams, supabaseUserHeaders(session.accessToken));
+    const savedParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
+    const savedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, savedParams, supabaseUserHeaders(session.accessToken));
     await writeAuditLog({
       action: "seguimiento_guardado",
       contractor: session.contractor,
@@ -136,7 +138,10 @@ export async function PUT(request: Request) {
       request,
       session,
     });
-    const savedRecords = await applyDatabaseCapacities(removeDuplicateDtRecords(savedRows.map((row) => row.data)), session.accessToken);
+    const savedRecords = await applyDatabaseCapacities(
+      removeDuplicateDtRecords(savedRows.map((row) => ({ ...row.data, recordId: row.record_id }))),
+      session.accessToken,
+    );
     return NextResponse.json({ records: await applyAttendanceToVehicles(savedRecords, session.accessToken, session.contractor) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando seguimiento." }, { status: 500 });
@@ -204,13 +209,42 @@ export async function DELETE(request: Request) {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
 
-    const body = (await request.json()) as { ids?: string[] };
+    const body = (await request.json()) as {
+      ids?: string[];
+      routes?: Array<Pick<Vehiculo, "transporte" | "vehiculo" | "fechaDespacho">>;
+    };
     const recordIds = Array.from(new Set((body.ids || []).map((id) => String(id).trim()).filter(Boolean)));
     if (!recordIds.length) return NextResponse.json({ error: "Falta el registro que se debe borrar." }, { status: 400 });
     if (recordIds.length > 100) return NextResponse.json({ error: "Solo se pueden borrar hasta 100 registros por operación." }, { status: 400 });
 
+    // La vista agrupa las filas duplicadas de un mismo DT. Si se elimina solo
+    // el record_id visible, una copia antigua reaparece en el siguiente GET.
+    const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}` });
+    const currentRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(
+      TABLE,
+      currentParams,
+      supabaseUserHeaders(session.accessToken),
+    );
+    const requestedIds = new Set(recordIds);
+    const requestedRouteDts = new Set((body.routes || []).map((route) => normalizeDt(route.transporte)).filter(Boolean));
+    const requestedRows = currentRows.filter(
+      (row) => requestedIds.has(row.record_id) || requestedRouteDts.has(normalizeDt(row.data?.transporte)),
+    );
+    if (!requestedRows.length) {
+      return NextResponse.json({ error: "El DT ya no existe o no se pudo encontrar en Supabase." }, { status: 404 });
+    }
+
+    const requestedDts = new Set(requestedRows.map((row) => normalizeDt(row.data?.transporte)).filter(Boolean));
+    const idsToDelete = Array.from(
+      new Set(
+        currentRows
+          .filter((row) => requestedIds.has(row.record_id) || requestedDts.has(normalizeDt(row.data?.transporte)))
+          .map((row) => row.record_id),
+      ),
+    );
+
     const deleteError = await deleteSeguimientoRows(
-      recordIds,
+      idsToDelete,
       session.contractor,
       session.accessToken,
       request,
@@ -219,7 +253,17 @@ export async function DELETE(request: Request) {
     );
     if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
 
-    return NextResponse.json({ deleted: recordIds.length });
+    const verificationRows = await readPagedRows<{ record_id: string }>(
+      TABLE,
+      new URLSearchParams({ select: "record_id", contractor: `eq.${session.contractor}` }),
+      supabaseUserHeaders(session.accessToken),
+    );
+    const remainingIds = new Set(verificationRows.map((row) => row.record_id));
+    if (idsToDelete.some((recordId) => remainingIds.has(recordId))) {
+      return NextResponse.json({ error: "Supabase no confirmo el borrado completo del DT. Intenta nuevamente." }, { status: 409 });
+    }
+
+    return NextResponse.json({ deleted: idsToDelete.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo borrar el DT." }, { status: 500 });
   }

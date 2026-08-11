@@ -139,7 +139,7 @@ export function saveRemoteRecords<T>(
 export async function deleteRemoteRecords<T>(
   endpoint: string,
   ids: string[],
-  options: { getKey?: (record: T) => string } = {},
+  options: { extraBody?: Record<string, unknown>; getKey?: (record: T) => string } = {},
 ) {
   mutationVersions.set(endpoint, (mutationVersions.get(endpoint) || 0) + 1);
   const previousRecords = cache.get(endpoint) as T[] | undefined;
@@ -155,7 +155,7 @@ export async function deleteRemoteRecords<T>(
     const response = await fetch(endpoint, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, ...options.extraBody }),
       cache: "no-store",
     });
 

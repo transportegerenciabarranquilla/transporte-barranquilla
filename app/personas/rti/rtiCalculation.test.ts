@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { averageRti, buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
+import { averageRti, buildSkuBridge, isSkuUniverseContainer, positiveMatchingKeys, quantityDifference, returnedContainersFromRacocimi2, summarizeQuantities, type QuantityPair } from "./rtiCalculation.ts";
 
 test("divide la suma de retornos por la suma de salidas", () => {
   assert.deepEqual(summarizeQuantities([{ outbound: 100, returned: 90 }, { outbound: 300, returned: 240 }]), {
@@ -13,6 +13,14 @@ test("divide la suma de retornos por la suma de salidas", () => {
 test("la diferencia convierte envases a cajas de 30", () => {
   assert.equal(quantityDifference(3_000, 2_010), 33);
   assert.equal(quantityDifference(900, 2_910), -67);
+});
+
+test("convierte cajas de producto lleno de RACOCIMI2 en envases retornados", () => {
+  assert.equal(returnedContainersFromRacocimi2(10, "CA", 30, true), 300);
+});
+
+test("no multiplica una fila que ya corresponde al material de envase", () => {
+  assert.equal(returnedContainersFromRacocimi2(300, "CA", 30, false), 300);
 });
 
 test("agrupa implícitamente varias filas de la misma llave sin cambiar la razón de totales", () => {
@@ -58,6 +66,21 @@ test("demuestra que división de totales y AVERAGEX por DT no son equivalentes",
 test("mapea material de producto hacia envase", () => {
   const bridge = buildSkuBridge([{ material: "3128", envase: "3500162", descripcionEnvase: "Envase A", unidadesEnvase: 30 }]);
   assert.equal(bridge.byMaterial.get("3128")?.envase, "3500162");
+});
+
+test("corrige Flint 330R para cruzar 22613 con el envase 3500213", () => {
+  const bridge = buildSkuBridge([{
+    material: "2160",
+    envase: "3500213",
+    descripcionEnvase: "Envase Flint 330R",
+    unidadesEnvase: 30,
+  }]);
+  assert.equal(bridge.byMaterial.has("2160"), false);
+  assert.deepEqual(bridge.byMaterial.get("22613"), {
+    envase: "3500213",
+    descripcionEnvase: "Envase Flint 330R",
+    unidadesEnvase: 30,
+  });
 });
 
 test("permite que varios materiales apunten al mismo envase", () => {

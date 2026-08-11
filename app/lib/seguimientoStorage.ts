@@ -12,9 +12,12 @@ export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteM
   return saveRemoteRecords("/api/seguimiento", records, { extraBody: { deleteMissing: options.deleteMissing === true } });
 }
 
-export async function deleteSeguimientoVehiculo(recordId: string) {
+export async function deleteSeguimientoVehiculo(vehicle: Pick<Vehiculo, "recordId" | "transporte" | "vehiculo" | "fechaDespacho">) {
   await waitForRemoteSaves("/api/seguimiento");
-  return deleteRemoteRecords<Vehiculo>("/api/seguimiento", [recordId], {
+  return deleteRemoteRecords<Vehiculo>("/api/seguimiento", [String(vehicle.recordId || "")], {
+    extraBody: {
+      routes: [{ transporte: vehicle.transporte, vehiculo: vehicle.vehiculo, fechaDespacho: vehicle.fechaDespacho }],
+    },
     getKey: (record) => String(record.recordId || ""),
   });
 }

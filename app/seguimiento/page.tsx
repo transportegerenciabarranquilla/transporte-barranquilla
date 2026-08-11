@@ -470,7 +470,7 @@ export default function SeguimientoPage() {
     setImportMessage("Borrando DT en Supabase...");
 
     try {
-      await deleteSeguimientoVehiculo(vehicle.recordId);
+      await deleteSeguimientoVehiculo(vehicle);
       vehiclesRef.current = prepared;
       setVehiculos(prepared);
       removeStaleRouteData(vehicle, true);
