@@ -74,7 +74,8 @@ export default function AdminPage() {
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
-  const [selectedDate, setSelectedDate] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [dtSearch, setDtSearch] = useState("");
   const [activeTab, setActiveTab] = useState<AdminTab>("resumen");
   const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
@@ -91,16 +92,19 @@ export default function AdminPage() {
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const tab = searchParams.get("tab");
-    const date = searchParams.get("fecha") || searchParams.get("date") || "";
+    const legacyDate = searchParams.get("fecha") || searchParams.get("date") || "";
+    const from = searchParams.get("desde") || legacyDate;
+    const to = searchParams.get("hasta") || legacyDate;
     const dt = searchParams.get("dt") || searchParams.get("q") || "";
     const contractor = searchParams.get("contratista") || "";
     const issue = searchParams.get("alerta") || "";
 
-    if (!tab && !date && !dt && !contractor && !issue) return;
+    if (!tab && !from && !to && !dt && !contractor && !issue) return;
 
     const timeout = window.setTimeout(() => {
       if (isAdminTab(tab)) setActiveTab(tab);
-      if (date) setSelectedDate(date);
+      if (from) setDateFrom(from);
+      if (to) setDateTo(to);
       if (dt) setDtSearch(dt);
       if (contractor) setSelectedContractor(contractor);
       if (isAdminIssueKind(issue)) {
@@ -136,11 +140,12 @@ export default function AdminPage() {
     const targetDt = normalizeDt(dtSearch);
 
     return records.filter((record) => {
-      const matchesDate = !selectedDate || getRecordDate(record) === selectedDate;
+      const recordDate = getRecordDate(record);
+      const matchesDate = (!dateFrom || recordDate >= dateFrom) && (!dateTo || recordDate <= dateTo);
       const matchesDt = !targetDt || normalizeDt(record.transporte).includes(targetDt);
       return matchesDate && matchesDt;
     });
-  }, [dtSearch, records, selectedDate]);
+  }, [dateFrom, dateTo, dtSearch, records]);
 
   const visibleSummaries = useMemo(() => {
     return summaries.map((summary) => {
@@ -207,10 +212,8 @@ export default function AdminPage() {
 
   function goToAdminGraficas() {
     const params = new URLSearchParams();
-    if (selectedDate) {
-      params.set("desde", selectedDate);
-      params.set("hasta", selectedDate);
-    }
+    if (dateFrom) params.set("desde", dateFrom);
+    if (dateTo) params.set("hasta", dateTo);
     if (dtSearch) params.set("dt", dtSearch);
     if (selectedContractor !== "Todas") params.set("contratista", selectedContractor);
     const query = params.toString();
@@ -375,7 +378,7 @@ export default function AdminPage() {
           </div>
           <div className="border-t border-white/10 bg-white/[0.04] px-5 py-3 sm:px-6">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/58">
-              <span className="rounded-md bg-white/10 px-2.5 py-1 text-white">Filtro {selectedDate || "Todas las fechas"}</span>
+              <span className="rounded-md bg-white/10 px-2.5 py-1 text-white">Filtro {dateFrom || dateTo ? `${dateFrom || "Inicio"} — ${dateTo || "Hoy"}` : "Todas las fechas"}</span>
               <span>{selectedContractor === "Todas" ? "Todos los transportistas" : selectedContractor}</span>
               {dtSearch ? <span>DT contiene {dtSearch}</span> : null}
             </div>
@@ -385,17 +388,31 @@ export default function AdminPage() {
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando panel...</div> : null}
 
-        <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_1fr_240px_auto] lg:items-end">
+        <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_240px_auto] xl:items-end">
           <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
             <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
               <CalendarDays size={16} />
-              Filtrar por dia
+              Desde
             </span>
             <input
               className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
-              onChange={(event) => setSelectedDate(event.target.value)}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
               type="date"
-              value={selectedDate}
+              value={dateFrom}
+            />
+          </label>
+          <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
+            <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
+              <CalendarDays size={16} />
+              Hasta
+            </span>
+            <input
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-[#0f7c58]/15"
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              type="date"
+              value={dateTo}
             />
           </label>
           <label className="min-w-[220px] flex-1 text-sm font-semibold text-[#10223d]">
@@ -432,9 +449,10 @@ export default function AdminPage() {
           </label>
           <button
             className="flex h-11 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!selectedDate && !dtSearch && selectedContractor === "Todas" && !activeIssueFilter}
+            disabled={!dateFrom && !dateTo && !dtSearch && selectedContractor === "Todas" && !activeIssueFilter}
             onClick={() => {
-              setSelectedDate("");
+              setDateFrom("");
+              setDateTo("");
               setDtSearch("");
               setSelectedContractor("Todas");
               setActiveIssueFilter("");

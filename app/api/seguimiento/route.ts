@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     );
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo }>(
+    const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
       TABLE,
       params,
       `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}`,
@@ -51,7 +51,9 @@ export async function GET(request: Request) {
       session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
     );
     const records = removeDuplicateDtRecords(
-      rows.map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista })),
+      rows
+        .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
+        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista })),
     );
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
     return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });

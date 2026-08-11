@@ -9,8 +9,8 @@ import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
 import { normalizeCajasTotal, normalizeCajasValue, normalizePuntoCoronaVolumeValue } from "../../../seguimiento/utils";
 
-type Row = { data: Vehiculo; contractor?: string };
-type CheckinRow = { data: CheckinCajasRegistro; contractor?: string };
+type Row = { data: Vehiculo | null; contractor?: string };
+type CheckinRow = { data: CheckinCajasRegistro | null; contractor?: string };
 type AdminCheckin = CheckinCajasRegistro & { contratista?: string };
 type ModulacionListRow = Partial<Record<keyof ModulacionRegistro, unknown>> & { contractor?: string };
 type PuntoCoronaReportRow = {
@@ -66,13 +66,17 @@ export async function GET() {
       const record = fromModulacionListRow(row);
       return { ...record, contratista: contractorLabel(row.contractor || record.contratista) || record.contratista };
     });
-    const checkins = checkinRows.map((row) => ({
-      ...row.data,
-      contratista: contractorLabel(row.contractor || (row.data as CheckinCajasRegistro & { contratista?: string }).contratista),
-    }));
+    const checkins: AdminCheckin[] = checkinRows.flatMap((row) => {
+      if (!row.data) return [];
+      const data = row.data;
+      return [{
+        ...data,
+        contratista: contractorLabel(row.contractor || (data as CheckinCajasRegistro & { contratista?: string }).contratista),
+      }];
+    });
     const modulacionesIndex = indexModulacionesByRoute(modulaciones);
     const checkinsIndex = indexCheckinsByRoute(checkins);
-    const seguimientoRecords = rows.map((row) => {
+    const seguimientoRecords = rows.filter((row): row is Row & { data: Vehiculo } => Boolean(row.data)).map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
       const cajas = readVehicleBoxes(row.data);
       const routeDate = getVehicleDate(row.data);
