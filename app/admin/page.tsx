@@ -82,9 +82,11 @@ export default function AdminPage() {
   const [modulacionExportPeriod, setModulacionExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [asistenciaExportPeriod, setAsistenciaExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [seguimientoExportPeriod, setSeguimientoExportPeriod] = useState<ModulacionExportPeriod>("month");
+  const [refusalExportPeriod, setRefusalExportPeriod] = useState<ModulacionExportPeriod>("month");
   const [exportingModulaciones, setExportingModulaciones] = useState("");
   const [exportingAsistencias, setExportingAsistencias] = useState("");
   const [exportingSeguimiento, setExportingSeguimiento] = useState("");
+  const [exportingRefusal, setExportingRefusal] = useState("");
   const [exportError, setExportError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -312,6 +314,36 @@ export default function AdminPage() {
       setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el archivo.");
     } finally {
       setExportingSeguimiento("");
+    }
+  }
+
+  async function downloadRefusal(period: ModulacionExportPeriod, format: ModulacionExportFormat) {
+    const exportKey = `${period}-${format}`;
+    setExportingRefusal(exportKey);
+    setExportError("");
+    try {
+      const params = new URLSearchParams({ period, format, report: "refusal" });
+      if (selectedContractor !== "Todas") params.set("contractor", selectedContractor);
+      const response = await fetch(`/api/admin/modulaciones/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo generar el informe de refusal.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `refusal.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setExportError(downloadError instanceof Error ? downloadError.message : "No se pudo generar el informe de refusal.");
+    } finally {
+      setExportingRefusal("");
     }
   }
 
@@ -667,7 +699,7 @@ export default function AdminPage() {
               {exportError ? (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{exportError}</div>
               ) : null}
-              <div className="mt-5 grid gap-3 lg:grid-cols-3">
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <AdminExportCard
                   description="Rutas y avance operativo de los vehículos en seguimiento."
                   exporting={exportingSeguimiento}
@@ -691,6 +723,14 @@ export default function AdminPage() {
                   onPeriodChange={setModulacionExportPeriod}
                   period={modulacionExportPeriod}
                   title="Modulación"
+                />
+                <AdminExportCard
+                  description="Refusal final por cliente, causal y preventista responsable."
+                  exporting={exportingRefusal}
+                  onDownload={downloadRefusal}
+                  onPeriodChange={setRefusalExportPeriod}
+                  period={refusalExportPeriod}
+                  title="Refusal"
                 />
               </div>
             </section>
@@ -757,7 +797,7 @@ function AdminExportCard({
           <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
         </div>
       </div>
-      <label className="mt-4 block">
+        <label className="mt-4 block">
         <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Período del informe</span>
         <select
           className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#0f7c58] focus:ring-2 focus:ring-emerald-100"
@@ -766,8 +806,8 @@ function AdminExportCard({
           value={period}
         >
           <option value="today">Lo que va del día</option>
-          <option value="month">Lo que va del mes</option>
-          <option value="history">Histórico completo</option>
+          <option value="month">lo que va del mes</option>
+          <option value="history">Historico</option>
         </select>
       </label>
       <div className="mt-4 grid grid-cols-2 gap-2">
@@ -846,7 +886,7 @@ function AdminTabs({
     { id: "resumen", label: "Resumen", detail: "Totales y contratistas" },
     { id: "detalle", label: "Detalle", detail: `${recordCount} registros` },
     { id: "errores", label: "Errores", detail: `${issueCount} alertas` },
-    { id: "exportar", label: "Exportar", detail: "Excel y PDF" },
+    { id: "exportar", label: "Exportar", detail: "excel y pdf" },
   ];
 
   return (
@@ -869,7 +909,7 @@ function AdminTabs({
 }
 
 type AdminIssue = {
-  detail: string;
+  detail :string;
   kind: AdminIssueKind;
   record: Vehiculo;
   title: string;

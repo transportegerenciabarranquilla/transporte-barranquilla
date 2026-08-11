@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams;
     const period = normalizePeriod(searchParams.get("period"));
     const format = normalizeFormat(searchParams.get("format"));
+    const isRefusalReport = searchParams.get("report") === "refusal";
     const contractor = contractorLabel(searchParams.get("contractor"));
     if (!period || !format) return NextResponse.json({ error: "Formato o período no válido." }, { status: 400 });
 
@@ -37,14 +38,14 @@ export async function GET(request: Request) {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     const rangeLabel = getPeriodLabel(period);
-    const filename = buildFilename(period, contractor, format);
+    const filename = buildFilename(period, contractor, format, isRefusalReport ? "refusal" : "modulaciones");
     if (format === "xlsx") {
-      return new Response(buildWorkbook(records, rangeLabel), {
+      return new Response(isRefusalReport ? buildRefusalWorkbook(records, rangeLabel) : buildWorkbook(records, rangeLabel), {
         headers: downloadHeaders(filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
       });
     }
 
-    return new Response(buildPdf(records, rangeLabel, contractor), {
+    return new Response(isRefusalReport ? buildRefusalPdf(records, rangeLabel, contractor) : buildPdf(records, rangeLabel, contractor), {
       headers: downloadHeaders(filename, "application/pdf"),
     });
   } catch (error) {
@@ -142,6 +143,77 @@ function buildWorkbook(records: ModulacionRegistro[], rangeLabel: string) {
   XLSX.utils.book_append_sheet(workbook, summary, "Resumen");
   XLSX.utils.book_append_sheet(workbook, worksheet, "Modulaciones");
   return XLSX.write(workbook, { bookType: "xlsx", type: "array", compression: true }) as ArrayBuffer;
+}
+
+function buildRefusalWorkbook(records: ModulacionRegistro[], rangeLabel: string) {
+  const values = records.map((record) => ({
+    "Fecha despacho": toExcelDate(getRecordDate(record)),
+    "Fecha registro": toExcelDateTime(record.createdAt),
+    Contratista: contractorLabel(record.contratista),
+    DT: record.dt,
+    "Codigo cliente": record.codigoCliente,
+    Cliente: record.nombreCliente || "",
+    Preventista: record.preventistaNombre || record.preventista || "Sin preventista",
+    "Codigo preventista": record.preventista || "",
+    "Telefono preventista": record.telefonoPreventista || "",
+    "Cajas reportadas": readNumber(record.totalCajas),
+    "Cajas gestionadas": readNumber(record.cajasGestionadas),
+    "Refusal final": Math.max(readNumber(record.totalCajas) - readNumber(record.cajasGestionadas), 0),
+    Causal: record.causal || "Sin causal",
+    Comentario: record.comentarioModulador || record.comentario || "",
+  }));
+  const totalReportadas = records.reduce((sum, record) => sum + readNumber(record.totalCajas), 0);
+  const totalGestionadas = records.reduce((sum, record) => sum + readNumber(record.cajasGestionadas), 0);
+  const totalFinal = Math.max(totalReportadas - totalGestionadas, 0);
+  const workbook = XLSX.utils.book_new();
+  const summary = XLSX.utils.aoa_to_sheet([
+    ["Informe", "Refusal por preventista"], ["Periodo", rangeLabel], ["Fecha de descarga", new Date()],
+    ["Registros", records.length], ["Cajas reportadas", totalReportadas], ["Cajas gestionadas", totalGestionadas],
+    ["Refusal final", totalFinal], ["Pendiente sobre reportadas", totalReportadas ? totalFinal / totalReportadas : 0],
+  ], { cellDates: true });
+  summary["!cols"] = [{ wch: 28 }, { wch: 32 }];
+  if (summary.B3) summary.B3.z = "dd/mm/yyyy hh:mm";
+  if (summary.B8) summary.B8.z = "0.00%";
+  const sheet = XLSX.utils.json_to_sheet(values, { cellDates: true });
+  sheet["!autofilter"] = { ref: sheet["!ref"] || "A1:N1" };
+  sheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  sheet["!cols"] = [16, 19, 22, 14, 16, 30, 28, 18, 21, 18, 18, 16, 28, 42].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(workbook, summary, "Resumen");
+  XLSX.utils.book_append_sheet(workbook, sheet, "Refusal por preventista");
+  return XLSX.write(workbook, { bookType: "xlsx", type: "array", compression: true }) as ArrayBuffer;
+}
+
+function buildRefusalPdf(records: ModulacionRegistro[], rangeLabel: string, contractor: string) {
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const columns = [
+    { label: "Fecha", width: 21 }, { label: "Contratista", width: 29 }, { label: "DT", width: 20 },
+    { label: "Cliente", width: 43 }, { label: "Report.", width: 15 }, { label: "Gest.", width: 14 },
+    { label: "Final", width: 14 }, { label: "Preventista", width: 42 }, { label: "Causal", width: 50 },
+  ];
+  let y = 42;
+  const drawHeader = () => {
+    pdf.setFillColor(9, 21, 37); pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), 29, "F");
+    pdf.setTextColor(255, 255, 255); pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.text("Informe de refusal por preventista", 10, 12);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.text(`${rangeLabel} · ${contractor || "Todos los transportistas"} · ${records.length} registros`, 10, 21);
+    pdf.setFillColor(220, 38, 38); pdf.rect(10, 33, pdf.internal.pageSize.getWidth() - 20, 8, "F");
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(7); let x = 11.5;
+    columns.forEach((column) => { pdf.text(column.label, x, 38.2); x += column.width; });
+    y = 42;
+  };
+  drawHeader();
+  records.forEach((record, index) => {
+    if (y + 11 > pdf.internal.pageSize.getHeight() - 10) { pdf.addPage(); drawHeader(); }
+    if (index % 2 === 0) { pdf.setFillColor(254, 242, 242); pdf.rect(10, y - 1, pdf.internal.pageSize.getWidth() - 20, 10, "F"); }
+    const reportadas = readNumber(record.totalCajas); const gestionadas = readNumber(record.cajasGestionadas);
+    const values = [formatDate(getRegistrationDate(record)), contractorLabel(record.contratista), record.dt,
+      `${record.codigoCliente} ${record.nombreCliente || ""}`.trim(), reportadas, gestionadas, Math.max(reportadas - gestionadas, 0),
+      record.preventistaNombre || record.preventista || "Sin preventista", record.causal || "Sin causal"];
+    pdf.setTextColor(30, 41, 59); pdf.setFont("helvetica", "normal"); pdf.setFontSize(6.5); let x = 11.5;
+    values.forEach((value, columnIndex) => { pdf.text(pdf.splitTextToSize(String(value || "-"), columns[columnIndex].width - 2).slice(0, 2), x, y + 3); x += columns[columnIndex].width; });
+    y += 10;
+  });
+  if (!records.length) { pdf.setTextColor(100, 116, 139); pdf.setFontSize(11); pdf.text("No hay registros de refusal para este periodo.", 10, 55); }
+  return pdf.output("arraybuffer");
 }
 
 function buildPdf(records: ModulacionRegistro[], rangeLabel: string, contractor: string) {
@@ -381,12 +453,12 @@ function getPeriodLabel(period: ExportPeriod) {
   return "Histórico completo";
 }
 
-function buildFilename(period: ExportPeriod, contractor: string, format: ExportFormat) {
+function buildFilename(period: ExportPeriod, contractor: string, format: ExportFormat, reportName = "modulaciones") {
   const periodSlug = period === "today" ? getBogotaDateKey() : period === "month" ? getBogotaDateKey().slice(0, 7) : "historico";
   const contractorSlug = contractor
     ? `-${contractor.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
     : "";
-  return `modulaciones-${periodSlug}${contractorSlug}.${format}`;
+  return `${reportName}-${periodSlug}${contractorSlug}.${format}`;
 }
 
 function downloadHeaders(filename: string, contentType: string) {
