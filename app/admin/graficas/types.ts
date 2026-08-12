@@ -50,6 +50,43 @@ export type GraphDateRange = {
   to: string;
 };
 
+export type ModulationRefusalRecord = {
+  contratista?: string;
+  dt: string;
+  fechaDespacho?: string;
+  fechaDt?: string;
+  createdAt: string;
+  codigoCliente: string;
+  nombreCliente?: string;
+  com?: string;
+  persona?: string;
+  personaNombre?: string;
+  preventista?: string;
+  preventistaNombre?: string;
+  totalCajas: string;
+  cajasGestionadas?: string;
+};
+
+export type RrRefusalSummary = {
+  contractor: string;
+  rr: string;
+  rechazadas: number;
+  pendientes: number;
+  registros: number;
+  clientes: Array<{
+    codigo: string;
+    nombre: string;
+    rechazadas: number;
+    veces: number;
+    fechas: string[];
+  }>;
+};
+
+export type ContractorRefusalTrend = {
+  contractor: string;
+  points: Array<{ date: string; percentage: number; pending: number; dispatched: number }>;
+};
+
 export type LateComment = {
   causal: string;
   comentario: string;

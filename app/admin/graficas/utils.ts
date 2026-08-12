@@ -4,10 +4,54 @@ import type {
   AdminRefusalComRow,
   GraphDateRange,
   LateComment,
+  ModulationRefusalRecord,
+  RrRefusalSummary,
   RefusalCausePreventistaSummary,
   RefusalClientSummary,
   RefusalComSummary,
 } from "./types";
+
+export function filterModulationRecords(records: ModulationRefusalRecord[], range: GraphDateRange, contractor: string, dtSearch: string) {
+  const targetDt = normalizeDt(dtSearch);
+  return records.filter((record) => {
+    const date = getModulationDateKey(record);
+    return isDateInRange(date, range)
+      && (contractor === "Todas" || normalizeTextKey(record.contratista || "") === normalizeTextKey(contractor))
+      && (!targetDt || normalizeDt(record.dt).includes(targetDt));
+  });
+}
+
+export function buildRrRefusalTop(records: ModulationRefusalRecord[]): RrRefusalSummary[] {
+  type ClientRow = RrRefusalSummary["clientes"][number];
+  const groups = new Map<string, RrRefusalSummary & { clientMap: Map<string, ClientRow> }>();
+  records.forEach((record) => {
+    const rr = record.personaNombre?.trim() || record.persona?.trim() || "Sin responsable de ruta";
+    const contractor = record.contratista?.trim() || "Sin contratista";
+    const key = `${normalizeTextKey(contractor)}:${normalizeTextKey(rr)}`;
+    const current = groups.get(key) || { contractor, rr, rechazadas: 0, pendientes: 0, registros: 0, clientes: [], clientMap: new Map() };
+    const rejected = readNumber(record.totalCajas);
+    current.rechazadas += rejected;
+    current.pendientes += Math.max(rejected - readNumber(record.cajasGestionadas), 0);
+    current.registros += 1;
+    const codigo = record.codigoCliente?.trim() || "Sin código";
+    const clientKey = normalizeTextKey(codigo);
+    const client = current.clientMap.get(clientKey) || { codigo, nombre: record.nombreCliente?.trim() || "Cliente sin nombre", rechazadas: 0, veces: 0, fechas: [] };
+    client.rechazadas += rejected;
+    client.veces += 1;
+    const date = getModulationDateKey(record);
+    if (date && !client.fechas.includes(date)) client.fechas.push(date);
+    current.clientMap.set(clientKey, client);
+    groups.set(key, current);
+  });
+  return Array.from(groups.values()).map(({ clientMap, ...row }) => ({
+    ...row,
+    clientes: Array.from(clientMap.values()).sort((a, b) => b.veces - a.veces || b.rechazadas - a.rechazadas),
+  })).sort((a, b) => b.rechazadas - a.rechazadas || a.rr.localeCompare(b.rr, "es")).slice(0, 20);
+}
+
+export function getModulationDateKey(record: ModulationRefusalRecord) {
+  return toDateKeyValue(record.fechaDespacho || record.fechaDt || record.createdAt);
+}
 
 export function getContractors(records: Vehiculo[]) {
   return Array.from(new Set(records.map((record) => record.transportista).filter(Boolean))).sort();

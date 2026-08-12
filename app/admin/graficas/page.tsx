@@ -9,8 +9,11 @@ import { checklistPercentage, type DailyChecklistRecord } from "../../lib/dailyC
 import type { RtiRecord } from "../../personas/rti/rtiTypes";
 import { parseDatabaseRows, recordDateKey } from "../../personas/rti/rtiUtils";
 import type { Vehiculo } from "../../seguimiento/types";
-import { ChartPanel, Metric, MiniStat, RefusalCausePreventistaBars, RefusalComBars, TopRefusalClientsTable } from "./components";
-import type { AdminRefusalComRow } from "./types";
+import { normalizeCajasTotal } from "../../seguimiento/utils";
+import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
+import { normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { ChartPanel, ContractorRefusalHistory, Metric, MiniStat, RrRefusalTop, RefusalCausePreventistaBars, RefusalComBars, TopRefusalClientsTable } from "./components";
+import type { AdminRefusalComRow, ContractorRefusalTrend, ModulationRefusalRecord } from "./types";
 import {
   buildFilteredHref,
   buildGraphTotals,
@@ -19,11 +22,14 @@ import {
   buildRefusalByJefeVentas,
   buildRefusalCauseByPreventista,
   buildTopRefusalClients,
+  buildRrRefusalTop,
+  filterModulationRecords,
   filterRecords,
   filterRefusalRows,
   getActiveDateRange,
   getContractors,
   getInitialGraphFilters,
+  getVehicleDateKey,
   normalizeDateRange,
   toDateKey,
 } from "./utils";
@@ -36,16 +42,16 @@ type RangoOverviewReport = {
   summary: { startedRows: number; inRange: number; outOfRange: number };
 };
 
-type ModulationOverviewRecord = {
+type ModulationOverviewRecord = ModulationRefusalRecord & {
   contratista: string;
   fechaDespacho: string;
   fechaDt: string;
-  createdAt: string;
   totalCajas: string;
   cajasGestionadas: string;
 };
 
 type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreCompleto?: string; identificador?: string; cargo?: string; contratista?: string; entrada?: string }> };
+type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 type GraphView = "summary" | "ontime" | "refusal" | "people";
 
 export default function AdminGraficasPage() {
@@ -62,6 +68,7 @@ export default function AdminGraficasPage() {
   const [error, setError] = useState("");
   const [rangoReports, setRangoReports] = useState<RangoOverviewReport[]>([]);
   const [modulationRecords, setModulationRecords] = useState<ModulationOverviewRecord[]>([]);
+  const [checkinRecords, setCheckinRecords] = useState<AdminCheckinRecord[]>([]);
   const [rtiRecords, setRtiRecords] = useState<RtiRecord[]>([]);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [dailyChecklists, setDailyChecklists] = useState<DailyChecklistRecord[]>([]);
@@ -85,14 +92,16 @@ export default function AdminGraficasPage() {
     Promise.allSettled([
       fetchJson<{ reports?: RangoOverviewReport[] }>("/api/admin/rango"),
       fetchJson<{ records?: ModulationOverviewRecord[] }>("/api/modulaciones"),
+      fetchJson<{ records?: AdminCheckinRecord[] }>("/api/checkins"),
       fetchJson<{ records?: Record<string, unknown>[]; tables?: { RTI?: Record<string, unknown>[] } }>("/api/people/rti"),
       fetchJson<{ records?: DailyChecklistRecord[] }>("/api/daily-checklists"),
       fetchJson<{ records?: DailyAbsenteeismRecord[] }>("/api/daily-absenteeism"),
       fetchJson<{ snapshots?: AttendanceSnapshot[] }>("/api/people/attendance-snapshots"),
     ])
-      .then(([rangoResult, modulationResult, rtiResult, checklistResult, absenteeismResult, attendanceResult]) => {
+      .then(([rangoResult, modulationResult, checkinResult, rtiResult, checklistResult, absenteeismResult, attendanceResult]) => {
         if (rangoResult.status === "fulfilled") setRangoReports(rangoResult.value.reports || []);
         if (modulationResult.status === "fulfilled") setModulationRecords(modulationResult.value.records || []);
+        if (checkinResult.status === "fulfilled") setCheckinRecords(checkinResult.value.records || []);
         if (rtiResult.status === "fulfilled") {
           const rawRows = [...(rtiResult.value.records || rtiResult.value.tables?.RTI || [])] as Record<string, unknown>[];
           setRtiRecords(parseDatabaseRows(rawRows));
@@ -126,6 +135,15 @@ export default function AdminGraficasPage() {
   const refusalCauseByPreventista = useMemo(() => buildRefusalCauseByPreventista(visibleRefusalRows), [visibleRefusalRows]);
 
   const topRefusalClients = useMemo(() => buildTopRefusalClients(visibleRefusalRows), [visibleRefusalRows]);
+  const visibleModulationRefusals = useMemo(
+    () => filterModulationRecords(modulationRecords, activeDateRange, contractor, dtSearch),
+    [activeDateRange, contractor, dtSearch, modulationRecords],
+  );
+  const rrRefusalTop = useMemo(() => buildRrRefusalTop(visibleModulationRefusals), [visibleModulationRefusals]);
+  const refusalHistory = useMemo(
+    () => buildContractorRefusalHistory(records, modulationRecords, checkinRecords, activeDateRange, contractor, dtSearch),
+    [activeDateRange, checkinRecords, contractor, dtSearch, modulationRecords, records],
+  );
 
   const lateComments = useMemo(() => buildLateComments(visibleRecords), [visibleRecords]);
 
@@ -415,6 +433,8 @@ export default function AdminGraficasPage() {
         </div>
 
         <TopRefusalClientsTable data={topRefusalClients.slice(0, 20)} />
+        <RrRefusalTop data={rrRefusalTop} />
+        <ContractorRefusalHistory data={refusalHistory} />
         </> : null}
 
         {activeView === "people" ? (
@@ -509,6 +529,60 @@ function parseMetricNumber(value: string) {
 
 function ratioPercentage(value: number, total: number) {
   return total ? Math.round((value / total) * 1_000) / 10 : 0;
+}
+
+function buildContractorRefusalHistory(
+  vehicleRecords: Vehiculo[],
+  modulationRecords: ModulationOverviewRecord[],
+  checkins: AdminCheckinRecord[],
+  range: { from: string; to: string },
+  selectedContractor: string,
+  dtSearch: string,
+): ContractorRefusalTrend[] {
+  const filteredVehicles = filterRecords(vehicleRecords, range, selectedContractor, dtSearch);
+  const contractorLabels = new Map<string, string>();
+  const vehiclesByGroup = new Map<string, Vehiculo[]>();
+
+  filteredVehicles.forEach((record) => {
+    const contractor = record.transportista?.trim() || "Sin contratista";
+    const contractorKey = normalizeContractorName(contractor);
+    const date = getVehicleDateKey(record);
+    if (!contractorKey || !date) return;
+    contractorLabels.set(contractorKey, contractor);
+    const key = `${contractorKey}:${date}`;
+    vehiclesByGroup.set(key, [...(vehiclesByGroup.get(key) || []), record]);
+  });
+
+  return Array.from(contractorLabels, ([contractorKey, contractor]) => {
+    const dates = new Set<string>();
+    vehiclesByGroup.forEach((_, key) => { if (key.startsWith(`${contractorKey}:`)) dates.add(key.slice(contractorKey.length + 1)); });
+    const points = Array.from(dates).sort().map((date) => {
+      const key = `${contractorKey}:${date}`;
+      const dayVehicles = vehiclesByGroup.get(key) || [];
+      const dispatchedBoxes = normalizeCajasTotal(dayVehicles.reduce((sum, vehicle) => sum + (Number(vehicle.cajas) || 0), 0));
+      const dayModulations = modulationRecords.filter((record) => {
+        const recordContractor = normalizeContractorName(record.contratista || "");
+        const recordDate = (record.fechaDespacho || record.fechaDt || record.createdAt || "").slice(0, 10);
+        return recordContractor === contractorKey && recordDate === date;
+      });
+      const pendingBoxes = dayVehicles.reduce((sum, vehicle) => {
+        const vehicleDt = normalizeDt(vehicle.transporte);
+        const vehicleModulations = dayModulations.filter((record) => normalizeDt(record.dt) === vehicleDt) as ModulacionRegistro[];
+        const checkin = checkins.find((record) =>
+          normalizeDt(record.dt) === vehicleDt
+          && normalizeContractorName(record.contratista || "") === contractorKey
+        );
+        return sum + summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas).cajasPendientes;
+      }, 0);
+      return {
+        date,
+        pending: pendingBoxes,
+        dispatched: dispatchedBoxes,
+        percentage: dispatchedBoxes ? Math.round(pendingBoxes / dispatchedBoxes * 10_000) / 100 : 0,
+      };
+    });
+    return { contractor, points };
+  }).filter((row) => row.points.some((point) => point.pending > 0)).sort((a, b) => a.contractor.localeCompare(b.contractor, "es"));
 }
 
 function OperationalHealthCard({
