@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, FileSpreadsheet, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, FileSpreadsheet, FileText, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DateInput, FilterSelect, formatChartNumber, PanelHeader } from "./components/RtiVisuals";
 import type { RtiRecord } from "./rtiTypes";
@@ -194,6 +194,7 @@ export default function RtiPage() {
   const [duplicateRowsRemoved, setDuplicateRowsRemoved] = useState(() => rtiPageCache?.duplicateRowsRemoved ?? 0);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadTarget, setUploadTarget] = useState<"RACOCIMI1" | "RACOCIMI2">("RACOCIMI1");
   const [dateFrom, setDateFrom] = useState("");
@@ -597,6 +598,52 @@ export default function RtiPage() {
     }
   }
 
+  async function exportDashboardPdf() {
+    if (!filteredRecords.length) { setUploadMessage("No hay datos con los filtros actuales para exportar."); return; }
+    setExportingPdf(true); setUploadMessage("");
+    try {
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = 297; const margin = 14;
+      const period = dateFrom || dateTo ? `${dateFrom || "Inicio"} a ${dateTo || "Fin"}` : "Todo el historico";
+      const filters = `Responsable: ${responsible || "Todos"}  |  Envase: ${reference || "Todos"}  |  Transportista: ${carrier || "Todos"}`;
+      const header = (title: string, page: number) => {
+        pdf.setFillColor(15, 23, 42); pdf.rect(0, 0, pageWidth, 24, "F");
+        pdf.setTextColor(255, 255, 255); pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.text(title, margin, 11);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(203, 213, 225); pdf.text(`${period}  |  ${filters}`, margin, 18, { maxWidth: 245 });
+        pdf.text(`Pagina ${page}`, pageWidth - margin, 18, { align: "right" });
+      };
+      const metric = (x: number, title: string, value: string, color: [number, number, number]) => {
+        pdf.setFillColor(248, 250, 252); pdf.setDrawColor(...color); pdf.roundedRect(x, 33, 62, 30, 3, 3, "FD");
+        pdf.setFontSize(7); pdf.setTextColor(100, 116, 139); pdf.setFont("helvetica", "bold"); pdf.text(title.toUpperCase(), x + 5, 42);
+        pdf.setFontSize(17); pdf.setTextColor(...color); pdf.text(value, x + 5, 55);
+      };
+      const barChart = (title: string, items: Array<{ name: string; value: number }>, x: number, y: number, width: number, height: number, color: [number, number, number], suffix = "%") => {
+        pdf.setDrawColor(226, 232, 240); pdf.setFillColor(255, 255, 255); pdf.roundedRect(x, y, width, height, 3, 3, "FD");
+        pdf.setFontSize(10); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42); pdf.text(title, x + 6, y + 9);
+        const visible = items.slice(0, 8); const max = Math.max(1, ...visible.map((item) => Math.abs(item.value))); const rowHeight = (height - 18) / Math.max(visible.length, 1);
+        visible.forEach((item, index) => { const rowY = y + 17 + index * rowHeight; const label = item.name.length > 24 ? `${item.name.slice(0, 23)}...` : item.name; pdf.setFontSize(6.5); pdf.setTextColor(71, 85, 105); pdf.text(label, x + 6, rowY + 3); pdf.setFillColor(226, 232, 240); pdf.roundedRect(x + width * .42, rowY, width * .43, 4, 1, 1, "F"); pdf.setFillColor(...color); pdf.roundedRect(x + width * .42, rowY, Math.max((Math.abs(item.value) / max) * width * .43, .8), 4, 1, 1, "F"); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42); pdf.text(`${item.value}${suffix}`, x + width - 6, rowY + 3.2, { align: "right" }); });
+      };
+      header("Informe ejecutivo RTI", 1);
+      metric(14, "RTI", `${rtiPercentage}%`, [5, 150, 105]); metric(82, "Envases salida", formatChartNumber(outboundTotal), [217, 119, 6]); metric(150, "Envases retornados", formatChartNumber(returnedTotal), [5, 150, 105]); metric(218, "Diferencia cajas", formatChartNumber(totalBoxDifference), [220, 38, 38]);
+      barChart("RTI por transportista", localCarrierMetrics.map((item) => ({ name: item.name, value: item.percentage })), 14, 72, 130, 116, [37, 99, 235]);
+      barChart("Top Offender", offenderRanking.map((item) => ({ name: `${item.responsible} - ${item.carrier}`, value: item.percentage })), 153, 72, 130, 116, [239, 68, 68]);
+
+      pdf.addPage("a4", "landscape"); header("Referencias y diferencias", 2);
+      barChart("Cumplimiento RTI por referencia", complianceByReference.map((item) => ({ name: item.name, value: item.percentage })), 14, 33, 130, 155, [14, 165, 164]);
+      barChart("Diferencia en cajas por referencia", localBoxDifferences.map((item) => ({ name: item.reference, value: item.value })), 153, 33, 130, 155, [245, 158, 11], "");
+
+      pdf.addPage("a4", "landscape"); header("Evolucion diaria RTI", 3);
+      pdf.setDrawColor(226, 232, 240); pdf.roundedRect(14, 33, 269, 155, 3, 3, "S");
+      const chart = dailyRtiMetrics.slice(-31); const left = 27; const top = 45; const chartW = 245; const chartH = 120; const maxValue = Math.max(110, ...chart.map((item) => item.percentage));
+      [0, 25, 50, 75, 100].forEach((tick) => { const yy = top + chartH - tick / maxValue * chartH; pdf.setDrawColor(226, 232, 240); pdf.line(left, yy, left + chartW, yy); pdf.setFontSize(7); pdf.setTextColor(100, 116, 139); pdf.text(`${tick}%`, left - 3, yy + 2, { align: "right" }); });
+      if (chart.length) { const points = chart.map((item, index) => ({ x: left + index / Math.max(chart.length - 1, 1) * chartW, y: top + chartH - item.percentage / maxValue * chartH })); pdf.setDrawColor(8, 145, 178); pdf.setLineWidth(1.2); points.slice(1).forEach((point, index) => pdf.line(points[index].x, points[index].y, point.x, point.y)); points.forEach((point, index) => { pdf.setFillColor(chart[index].percentage >= 95 ? 16 : 245, chart[index].percentage >= 95 ? 185 : 158, chart[index].percentage >= 95 ? 129 : 11); pdf.circle(point.x, point.y, 1.5, "F"); if (index % Math.max(1, Math.ceil(chart.length / 10)) === 0 || index === chart.length - 1) { pdf.setFontSize(6); pdf.setTextColor(71, 85, 105); pdf.text(`${chart[index].day}/${chart[index].month}`, point.x, top + chartH + 8, { align: "center" }); } }); }
+      const suffix = [dateFrom, dateTo].filter(Boolean).join("-a-") || new Date().toISOString().slice(0, 10);
+      const filename = `informe-rti-${suffix}.pdf`; pdf.save(filename); setUploadMessage(`PDF generado: ${filename}.`);
+    } catch (error) { setUploadMessage(error instanceof Error ? error.message : "No se pudo exportar el PDF."); }
+    finally { setExportingPdf(false); }
+  }
+
   if (access === "checking") return <main className="min-h-screen bg-slate-100" />;
 
   if (access === "denied") {
@@ -674,12 +721,21 @@ export default function RtiPage() {
             </label>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
-              disabled={exporting || databaseState !== "connected" || !filteredRecords.length}
+              disabled={exporting || exportingPdf || databaseState !== "connected" || !filteredRecords.length}
               onClick={() => void exportDashboardExcel()}
               type="button"
             >
               {exporting ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
               {exporting ? "Generando..." : "Exportar Excel"}
+            </button>
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+              disabled={exporting || exportingPdf || databaseState !== "connected" || !filteredRecords.length}
+              onClick={() => void exportDashboardPdf()}
+              type="button"
+            >
+              {exportingPdf ? <LoaderCircle className="animate-spin" size={16} /> : <FileText size={16} />}
+              {exportingPdf ? "Generando..." : "Exportar PDF"}
             </button>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"

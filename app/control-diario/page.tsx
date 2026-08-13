@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Activity, ArrowLeft, Check, ClipboardCheck, Gauge, LoaderCircle, LogIn, LogOut, MapPinCheck, PackageCheck, Pencil, Save, TrendingUp, Users, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Activity, ArrowLeft, Check, ClipboardCheck, Coffee, Gauge, LoaderCircle, LogIn, LogOut, MapPinCheck, PackageCheck, Pencil, Save, TrendingUp, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { DailyAbsenteeismRecord } from "../lib/dailyAbsenteeism";
 import type { DailyChecklistRecord, DailyChecklistType } from "../lib/dailyChecklist";
@@ -11,8 +11,9 @@ function todayBogota() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Am
 type ModulationRecord = { fechaDespacho?: string; fechaDt?: string; createdAt?: string; totalCajas?: string; cajasGestionadas?: string };
 type RangeReport = { operationalDate: string; kind: "current" | "closure"; updatedAt?: string; summary: { startedRows: number; inRange: number; outOfRange: number } };
 type TrackingRecord = { horaSalida?: string; fechaDespacho?: string; fechaDt?: string; cajas?: number; cajasReportadas?: number; cajasRefusalFinal?: number; cajasGestionadas?: number };
-type AttendanceSnapshot = { operationalDate: string; closedAt?: string | null; rows: Array<{ identificador?: string; nombreCompleto?: string; cargo?: string; contratista?: string; entrada?: string }> };
-type DashboardData = { checklists: DailyChecklistRecord[]; absences: DailyAbsenteeismRecord[]; modulations: ModulationRecord[]; ranges: RangeReport[]; tracking: TrackingRecord[]; attendance: AttendanceSnapshot[]; rti: { outboundTotal?: number; returnedTotal?: number; rtiPercentage?: number } };
+type AttendanceRow = { identificador?: string; nombreCompleto?: string; cargo?: string; contratista?: string; fechaKey?: string; entrada?: string; salida?: string; novedad?: string; relevoUsado?: boolean };
+type AttendanceSnapshot = { operationalDate: string; fileName?: string; closedAt?: string | null; rows: AttendanceRow[] };
+type DashboardData = { checklists: DailyChecklistRecord[]; absences: DailyAbsenteeismRecord[]; modulations: ModulationRecord[]; ranges: RangeReport[]; tracking: TrackingRecord[]; attendance: AttendanceSnapshot[]; relays: Record<string, unknown>[]; rti: { outboundTotal?: number; returnedTotal?: number; rtiPercentage?: number } };
 
 export default function DailyControlPage() {
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function DailyControlPage() {
   const [loadingDay, setLoadingDay] = useState(true);
   const [completed, setCompleted] = useState({ departure: false, return: false, absence: false });
   const [editing, setEditing] = useState({ departure: false, return: false, absence: false });
-  const [dashboard, setDashboard] = useState<DashboardData>({ checklists: [], absences: [], modulations: [], ranges: [], tracking: [], attendance: [], rti: {} });
+  const [dashboard, setDashboard] = useState<DashboardData>({ checklists: [], absences: [], modulations: [], ranges: [], tracking: [], attendance: [], relays: [], rti: {} });
   const absencePercentage = useMemo(() => Number(scheduled) ? Math.round((Number(absent) / Number(scheduled)) * 1_000) / 10 : 0, [absent, scheduled]);
   const dayComplete = completed.departure && completed.return && completed.absence && !Object.values(editing).some(Boolean);
   const savedOperationSummary = useMemo(() => {
@@ -57,7 +58,8 @@ export default function DailyControlPage() {
       fetch("/api/people/rti", { cache: "no-store" }).then(async (response) => response.ok ? response.json() : { summary: {} }),
       fetch("/api/seguimiento", { cache: "no-store" }).then(async (response) => response.ok ? response.json() : { records: [] }),
       fetch("/api/people/attendance-snapshots", { cache: "no-store" }).then(async (response) => response.ok ? response.json() : { snapshots: [] }),
-    ]).then(([checklistBody, absenceBody, modulationBody, rangeBody, rtiBody, trackingBody, attendanceBody]) => {
+      fetch("/api/people/relays", { cache: "no-store" }).then(async (response) => response.ok ? response.json() : { records: [] }),
+    ]).then(([checklistBody, absenceBody, modulationBody, rangeBody, rtiBody, trackingBody, attendanceBody, relayBody]) => {
       if (!active) return;
       const checklists = (checklistBody.records || []) as DailyChecklistRecord[];
       const absences = (absenceBody.records || []) as DailyAbsenteeismRecord[];
@@ -70,7 +72,7 @@ export default function DailyControlPage() {
       setAbsent(absenceRecord ? String(absenceRecord.absent) : "");
       setCompleted({ departure: Boolean(departureRecord), return: Boolean(returnRecord), absence: Boolean(absenceRecord) });
       setEditing({ departure: false, return: false, absence: false });
-      setDashboard({ checklists, absences, modulations: modulationBody.records || [], ranges: rangeBody.records || [], tracking: trackingBody.records || [], attendance: attendanceBody.snapshots || [], rti: rtiBody.summary || {} });
+      setDashboard({ checklists, absences, modulations: modulationBody.records || [], ranges: rangeBody.records || [], tracking: trackingBody.records || [], attendance: attendanceBody.snapshots || [], relays: relayBody.records || [], rti: rtiBody.summary || {} });
     }).finally(() => active && setLoadingDay(false));
     return () => { active = false; };
   }, [date]);
@@ -120,19 +122,23 @@ export default function DailyControlPage() {
         </div>}
         {!dayComplete && !loadingDay && (!completed.departure || editing.departure || !completed.return || editing.return) ? <Field label="Observación opcional para los checklists"><textarea className="field mt-1 min-h-24" onChange={(event) => setChecklistObservations(event.target.value)} value={checklistObservations} /></Field> : null}
         {message ? <p className="mt-5 rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-sm font-bold text-cyan-800">{message}</p> : null}
-        {!loadingDay ? <ContractorDashboard data={dashboard} /> : null}
+        {!loadingDay ? <ContractorDashboard data={dashboard} onAttendanceUploaded={(snapshot) => setDashboard((current) => ({ ...current, attendance: [snapshot, ...current.attendance.filter((item) => item.operationalDate !== snapshot.operationalDate)] }))} onRelayUsage={(snapshot) => setDashboard((current) => ({ ...current, attendance: [snapshot, ...current.attendance.filter((item) => item.operationalDate !== snapshot.operationalDate)] }))} /> : null}
       </section>
     </main>
   );
 }
 
-function ContractorDashboard({ data }: { data: DashboardData }) {
+function ContractorDashboard({ data, onAttendanceUploaded, onRelayUsage }: { data: DashboardData; onAttendanceUploaded: (snapshot: AttendanceSnapshot) => void; onRelayUsage: (snapshot: AttendanceSnapshot) => void }) {
   const currentYear = Number(todayBogota().slice(0, 4));
   const [attendanceFrom, setAttendanceFrom] = useState(`${currentYear}-08-01`);
   const [attendanceTo, setAttendanceTo] = useState(`${currentYear}-08-31`);
   const [selectedAbsent, setSelectedAbsent] = useState<AbsenteeRow | null>(null);
+  const [attendanceTemplateType, setAttendanceTemplateType] = useState<"attendance" | "absence">("absence");
+  const [attendanceUpload, setAttendanceUpload] = useState({ loading: false, message: "", error: "" });
+  const attendanceFileRef = useRef<HTMLInputElement>(null);
   const filteredAttendance = useMemo(() => data.attendance.filter((snapshot) => (!attendanceFrom || snapshot.operationalDate >= attendanceFrom) && (!attendanceTo || snapshot.operationalDate <= attendanceTo)), [attendanceFrom, attendanceTo, data.attendance]);
   const absenteeism = useMemo(() => buildAbsenteeism(data.attendance, filteredAttendance), [data.attendance, filteredAttendance]);
+  const effectiveRest = useMemo(() => buildEffectiveRest(filteredAttendance), [filteredAttendance]);
   useEffect(() => setSelectedAbsent(null), [attendanceFrom, attendanceTo]);
   const summary = useMemo(() => {
     const ranges = preferredRangeReports(data.ranges);
@@ -151,7 +157,7 @@ function ContractorDashboard({ data }: { data: DashboardData }) {
     const refusalBoxes = data.tracking.reduce((sum, item) => sum + Math.max(Number(item.cajasRefusalFinal) || Math.max((Number(item.cajasReportadas) || 0) - (Number(item.cajasGestionadas) || 0), 0), 0), 0);
     const reportedBoxes = data.tracking.reduce((sum, item) => sum + (Number(item.cajasReportadas) || 0), 0);
     const trackingBoxes = data.tracking.reduce((sum, item) => sum + (Number(item.cajas) || 0), 0);
-    const lateRanking = buildLateRanking(filteredAttendance);
+    const lateRanking = buildLateRanking(data.attendance, filteredAttendance, data.relays);
     const absenceTrend = [...data.absences].sort((a, b) => a.date.localeCompare(b.date)).slice(-10).map((item) => ({ date: item.date, scheduled: item.scheduled, absent: item.absent, percentage: percent(item.absent, item.scheduled) }));
     const trend = dates.map((trendDate) => {
       const dayRanges = ranges.filter((item) => item.operationalDate === trendDate);
@@ -166,23 +172,75 @@ function ContractorDashboard({ data }: { data: DashboardData }) {
   return <section className="mt-8">
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.18em] text-cyan-700"><Activity size={15} /> Centro de rendimiento</p><h2 className="mt-1 text-2xl font-black text-slate-950">Así va tu operación</h2><p className="mt-1 text-sm text-slate-500">Información acumulada y visible únicamente para tu compañía.</p></div><span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700">Datos actualizados</span></div>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><DashboardMetric icon={<Gauge />} label="RTI" tone="cyan" value={Number(data.rti.rtiPercentage || 0)} detail={`${Number(data.rti.returnedTotal || 0).toLocaleString("es-CO")} retornados`} /><DashboardMetric icon={<PackageCheck />} label="Modulación" tone="violet" value={summary.modulation} detail={`${summary.modulationManaged.toLocaleString("es-CO")} cajas gestionadas`} /><DashboardMetric icon={<MapPinCheck />} label="Entrega en rango" tone="emerald" value={summary.range} detail={`${summary.rangeTotal.toLocaleString("es-CO")} visitas`} /><DashboardMetric icon={<ClipboardCheck />} label="Checklist salida" tone="amber" value={summary.departure} detail={`${data.checklists.filter((item) => item.type === "departure").length} días registrados`} /><DashboardMetric icon={<Users />} inverse label="Ausentismo" tone="red" value={summary.absence} detail={`${summary.absent} de ${summary.scheduled} personas`} /></div>
-    <AttendanceRangeFilter from={attendanceFrom} to={attendanceTo} onFrom={setAttendanceFrom} onTo={setAttendanceTo} onClear={() => { setAttendanceFrom(""); setAttendanceTo(""); }} />
-    <div className="mt-4 grid items-stretch gap-4 xl:grid-cols-2"><LateRanking rows={summary.lateRanking} /><AbsenteeismTable rows={absenteeism} selected={selectedAbsent} onSelect={setSelectedAbsent} /></div>
+    <AttendanceRangeFilter from={attendanceFrom} to={attendanceTo} templateType={attendanceTemplateType} onTemplateType={setAttendanceTemplateType} onFrom={setAttendanceFrom} onTo={setAttendanceTo} onClear={() => { setAttendanceFrom(""); setAttendanceTo(""); }} onUpload={() => attendanceFileRef.current?.click()} uploading={attendanceUpload.loading} />
+    <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadAbsenteeismTemplate(event)} ref={attendanceFileRef} type="file" />
+    {attendanceUpload.message ? <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-700">{attendanceUpload.message}</p> : null}
+    {attendanceUpload.error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">{attendanceUpload.error}</p> : null}
+    <div className="mt-4 grid items-stretch gap-4 lg:grid-cols-2 xl:grid-cols-3"><LateRanking rows={summary.lateRanking} onRelayUsage={saveRelayUsage} /><AbsenteeismTable rows={absenteeism} selected={selectedAbsent} onSelect={setSelectedAbsent} /><EffectiveRestTable rows={effectiveRest} /></div>
     <div className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_.65fr]"><DailyPulseChart data={summary.trend} /><AbsenceTrendChart data={summary.absenceTrend} /></div>
     <div className="mt-4"><DailyHistoryTable checklists={data.checklists} absences={data.absences} /></div>
   </section>;
+
+  async function uploadAbsenteeismTemplate(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setAttendanceUpload({ loading: true, message: "", error: "" });
+    try {
+      if (!/\.(xlsx|xls)$/i.test(file.name)) throw new Error("Selecciona una plantilla Excel .xlsx o .xls.");
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) throw new Error("La plantilla no contiene hojas para procesar.");
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
+      const parsed = rawRows.map(parseAttendanceTemplateRow).filter((row): row is AttendanceRow => Boolean(row));
+      const dates = Array.from(new Set(parsed.map((row) => row.fechaKey).filter(Boolean))) as string[];
+      const operationalDate = dates.length === 1 ? dates[0] : todayBogota();
+      const rows = parsed.filter((row) => row.fechaKey === operationalDate);
+      if (!rows.length) throw new Error("No se encontraron personas con fecha válida en la plantilla.");
+      const response = await fetch("/api/people/attendance-snapshots", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationalDate, fileName: file.name, rows, importMode: attendanceTemplateType }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar la plantilla de ausentismo.");
+      onAttendanceUploaded(body.snapshot);
+      setAttendanceFrom(operationalDate); setAttendanceTo(operationalDate);
+      const templateLabel = attendanceTemplateType === "absence" ? "ausentismo y descanso" : "marcaciones GeoVictoria";
+      setAttendanceUpload({ loading: false, error: "", message: `Plantilla de ${templateLabel} cargada: ${rows.length} personas para ${operationalDate}.` });
+    } catch (error) {
+      setAttendanceUpload({ loading: false, message: "", error: error instanceof Error ? error.message : "No se pudo leer la plantilla." });
+    }
+  }
+
+  async function saveRelayUsage(detail: LateRow["details"][number], usedAsRelay: boolean) {
+    const response = await fetch("/api/people/attendance-snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationalDate: detail.date, personKey: detail.personKey, usedAsRelay }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "No se pudo guardar el uso de relevo.");
+    onRelayUsage(body.snapshot);
+  }
 }
 
-type LateRow = { name: string; role: string; days: number; average: number; total: number; details: Array<{ date: string; seconds: number }> };
-function buildLateRanking(snapshots: AttendanceSnapshot[]) {
+type LateRow = { name: string; role: string; days: number; average: number; total: number; details: Array<{ date: string; seconds: number; personKey: string; hadEffectiveRest: boolean; effectiveEntry?: number; usedAsRelay: boolean }> };
+function buildLateRanking(allSnapshots: AttendanceSnapshot[], snapshots: AttendanceSnapshot[], relays: Record<string, unknown>[]) {
   const groups = new Map<string, LateRow>();
+  const effectiveRestByDate = new Map<string, number>();
+  allSnapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
+    const key = attendancePersonKey(row);
+    const departure = parseClockSeconds(row.salida);
+    if (!key || departure === null) return;
+    const effectiveEntry = addRestDuration(snapshot.operationalDate, departure, parseClockSeconds(row.entrada));
+    effectiveRestByDate.set(`${key}:${effectiveEntry.date}`, effectiveEntry.seconds);
+  }));
   snapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
+    if (!isOperationalAttendanceRole(row.cargo)) return;
     const seconds = parseClockSeconds(row.entrada);
     if (seconds === null || seconds <= 6 * 3600) return;
+    const personKey = attendancePersonKey(row);
+    if (row.relevoUsado || isScheduledRelay(relays, personKey, row.nombreCompleto, snapshot.operationalDate)) return;
+    const effectiveEntry = personKey ? effectiveRestByDate.get(`${personKey}:${snapshot.operationalDate}`) : undefined;
+    if (effectiveEntry !== undefined && effectiveEntry > 6 * 3600) return;
     const name = String(row.nombreCompleto || "Sin nombre").trim();
     const key = name.toLocaleLowerCase("es");
     const current = groups.get(key) || { name, role: String(row.cargo || ""), days: 0, average: 0, total: 0, details: [] };
-    current.days += 1; current.total += seconds; current.average = Math.round(current.total / current.days); current.details.push({ date: snapshot.operationalDate, seconds }); groups.set(key, current);
+    current.days += 1; current.total += seconds; current.average = Math.round(current.total / current.days); current.details.push({ date: snapshot.operationalDate, seconds, personKey, hadEffectiveRest: effectiveEntry !== undefined, effectiveEntry, usedAsRelay: Boolean(row.relevoUsado) }); groups.set(key, current);
   }));
   return Array.from(groups.values()).map((row) => ({ ...row, details: row.details.sort((a, b) => b.date.localeCompare(a.date)) })).sort((a, b) => b.days - a.days || b.average - a.average);
 }
@@ -191,7 +249,7 @@ type AbsenteeRow = { key: string; name: string; role: string; contractor: string
 
 function buildAbsenteeism(allSnapshots: AttendanceSnapshot[], filteredSnapshots: AttendanceSnapshot[]) {
   const people = new Map<string, Omit<AbsenteeRow, "days">>();
-  allSnapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
+  allSnapshots.forEach((snapshot) => snapshot.rows.filter((row) => isOperationalAttendanceRole(row.cargo)).forEach((row) => {
     const key = attendancePersonKey(row);
     if (!key) return;
     const current = people.get(key);
@@ -219,8 +277,68 @@ function attendancePersonKey(row: AttendanceSnapshot["rows"][number]) {
   return name ? `name:${name}` : "";
 }
 
-function AttendanceRangeFilter({ from, onClear, onFrom, onTo, to }: { from: string; to: string; onFrom: (value: string) => void; onTo: (value: string) => void; onClear: () => void }) {
-  return <div className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-cyan-700">Periodo GeoVictoria</p><p className="mt-1 text-xs text-slate-500">Agosto por defecto. Limpia el rango para consultar todo el histórico.</p></div><label className="ml-auto text-[10px] font-black uppercase text-slate-500">Desde<input className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold text-slate-700" type="date" value={from} onChange={(event) => onFrom(event.target.value)} /></label><label className="text-[10px] font-black uppercase text-slate-500">Hasta<input className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold text-slate-700" type="date" value={to} onChange={(event) => onTo(event.target.value)} /></label><button className="h-9 rounded-lg bg-slate-950 px-3 text-xs font-black text-white" onClick={onClear} type="button">Ver histórico</button></div>;
+function isOperationalAttendanceRole(value: unknown) {
+  const role = normalizeTemplateText(value);
+  return role.includes("conductor") || (role.includes("auxiliar") && (role.includes("reparto") || role.includes("ruta") || role === "auxiliar")) || role === "rr" || (role.includes("responsable") && (role.includes("reparto") || role.includes("ruta"))) || role.includes("lider de ruta") || role.includes("lider ruta");
+}
+
+function isScheduledRelay(records: Record<string, unknown>[], personKey: string, personName: unknown, operationalDate: string) {
+  const normalizedName = normalizeTemplateText(personName);
+  return records.some((record) => {
+    const scalarValues = Object.values(record).filter((value) => typeof value === "string" || typeof value === "number").map((value) => String(value ?? "").trim()).filter(Boolean);
+    const id = String(readRecordValue(record, ["identificador", "cedula", "cc", "documento", "numero de documento", "numero documento", "numero identificacion", "id persona"])).replace(/\D/g, "");
+    const name = normalizeTemplateText(readRecordValue(record, ["apellidos y nombres", "nombre completo", "nombre", "empleado", "colaborador"]));
+    const dateValue = readRecordValue(record, ["fecha", "fecha relevo", "dia"]);
+    const recordDate = dateValue ? normalizeTemplateDate(dateValue) : "";
+    const personId = personKey.startsWith("id:") ? personKey.slice(3) : "";
+    const idInAnyColumn = personId && scalarValues.some((value) => value.replace(/\D/g, "") === personId);
+    const normalizedValues = scalarValues.map(normalizeTemplateText);
+    const nameInAnyColumn = normalizedName && (normalizedValues.some((value) => value === normalizedName) || normalizedValues.some((left, index) => normalizedValues.some((right, rightIndex) => index !== rightIndex && (`${left} ${right}` === normalizedName || `${right} ${left}` === normalizedName))));
+    const samePerson = (id && personKey === `id:${id}`) || Boolean(idInAnyColumn) || (name && name === normalizedName) || Boolean(nameInAnyColumn);
+    return samePerson && (!recordDate || recordDate === operationalDate);
+  });
+}
+
+function readRecordValue(record: Record<string, unknown>, names: string[]) {
+  const normalizedNames = names.map(normalizeTemplateText);
+  const entry = Object.entries(record).find(([key]) => normalizedNames.includes(normalizeTemplateText(key)));
+  return String(entry?.[1] ?? "").trim();
+}
+
+function AttendanceRangeFilter({ from, onClear, onFrom, onTemplateType, onTo, onUpload, templateType, to, uploading }: { from: string; to: string; templateType: "attendance" | "absence"; uploading: boolean; onFrom: (value: string) => void; onTo: (value: string) => void; onTemplateType: (value: "attendance" | "absence") => void; onClear: () => void; onUpload: () => void }) {
+  return <div className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-cyan-700">Periodo GeoVictoria</p><p className="mt-1 text-xs text-slate-500">Cruce por identificación, fecha, entrada y última salida.</p></div><label className="ml-auto text-[10px] font-black uppercase text-slate-500">Desde<input className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold text-slate-700" type="date" value={from} onChange={(event) => onFrom(event.target.value)} /></label><label className="text-[10px] font-black uppercase text-slate-500">Hasta<input className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold text-slate-700" type="date" value={to} onChange={(event) => onTo(event.target.value)} /></label><label className="text-[10px] font-black uppercase text-slate-500">Plantilla a subir<select className="mt-1 block h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold normal-case text-slate-700" onChange={(event) => onTemplateType(event.target.value as "attendance" | "absence")} value={templateType}><option value="absence">Ausentismo y descanso</option><option value="attendance">Marcaciones GeoVictoria</option></select></label><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:opacity-50" disabled={uploading} onClick={onUpload} type="button">{uploading ? <LoaderCircle className="animate-spin" size={14} /> : <Upload size={14} />}{uploading ? "Procesando…" : "Escoger Excel"}</button><button className="h-9 rounded-lg bg-slate-950 px-3 text-xs font-black text-white" onClick={onClear} type="button">Ver histórico</button></div>;
+}
+
+type EffectiveRestDetail = { date: string; departure: number; effectiveEntryDate: string; effectiveEntry: number };
+type EffectiveRestRow = { key: string; name: string; role: string; contractor: string; details: EffectiveRestDetail[] };
+
+function buildEffectiveRest(snapshots: AttendanceSnapshot[]) {
+  const groups = new Map<string, EffectiveRestRow>();
+  snapshots.forEach((snapshot) => snapshot.rows.filter((row) => isOperationalAttendanceRole(row.cargo)).forEach((row) => {
+    const key = attendancePersonKey(row);
+    const departure = parseClockSeconds(row.salida);
+    if (!key || departure === null) return;
+    const effective = addRestDuration(snapshot.operationalDate, departure, parseClockSeconds(row.entrada));
+    const current = groups.get(key) || { key, name: String(row.nombreCompleto || "Sin nombre").trim(), role: String(row.cargo || "").trim(), contractor: String(row.contratista || "").trim(), details: [] };
+    current.details.push({ date: snapshot.operationalDate, departure, effectiveEntryDate: effective.date, effectiveEntry: effective.seconds });
+    groups.set(key, current);
+  }));
+  return Array.from(groups.values()).map((row) => ({ ...row, details: row.details.sort((a, b) => b.date.localeCompare(a.date)) })).sort((a, b) => (b.details[0]?.effectiveEntryDate || "").localeCompare(a.details[0]?.effectiveEntryDate || "") || a.name.localeCompare(b.name, "es"));
+}
+
+function addRestDuration(date: string, departure: number, shiftEntry: number | null = null) {
+  const overnightDeparture = shiftEntry !== null && departure < shiftEntry ? 86_400 : 0;
+  const total = overnightDeparture + departure + 10 * 3600 + 10 * 60;
+  const extraDays = Math.floor(total / 86_400);
+  const baseDate = new Date(`${date}T12:00:00`);
+  baseDate.setDate(baseDate.getDate() + extraDays);
+  return { date: new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(baseDate), seconds: total % 86_400 };
+}
+
+function EffectiveRestTable({ rows }: { rows: EffectiveRestRow[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleRows = showAll ? rows : rows.slice(0, 10);
+  return <article className="flex h-[500px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg lg:col-span-2 xl:col-span-1"><div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-white px-3 py-2"><div><p className="flex items-center gap-1 text-[8px] font-black uppercase tracking-[.12em] text-emerald-600"><Coffee size={11} /> Salida + 10 horas 10 minutos</p><h3 className="text-sm font-black">Descanso efectivo</h3><p className="text-[9px] text-slate-500">Hora mínima de entrada después del descanso.</p></div><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">{rows.length}</span></div><div className={`min-h-0 flex-1 ${showAll ? "overflow-auto" : "overflow-hidden"}`}>{rows.length ? visibleRows.map((row, index) => { const detail = row.details[0]; return <div className="grid h-[38px] grid-cols-[24px_1fr_auto] items-center gap-2 border-b border-slate-100 px-3" key={row.key}><span className={`grid h-6 w-6 place-items-center rounded-md text-[10px] font-black ${index < 3 ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span><span className="min-w-0 leading-none"><span className="block truncate text-[10px] font-black text-slate-800">{row.name}</span><span className="mt-0.5 block truncate text-[7px] font-bold uppercase text-slate-400">Salida {formatClockSeconds(detail.departure)} · {detail.date}</span></span><span className="text-right"><strong className="block text-xs text-emerald-700">{formatClockSeconds(detail.effectiveEntry)}</strong><span className="block text-[7px] font-bold text-slate-400">Entrada {detail.effectiveEntryDate}</span></span></div>; }) : <div className="grid h-full place-items-center p-6 text-center text-sm text-slate-400">No hay horas de salida en el periodo para calcular el descanso.</div>}</div>{rows.length > 10 ? <button className="h-[42px] shrink-0 border-t border-slate-200 bg-white text-xs font-black text-emerald-700 hover:bg-emerald-50" onClick={() => setShowAll((value) => !value)} type="button">{showAll ? "Ver menos" : `Ver más (${rows.length - 10})`}</button> : null}</article>;
 }
 
 function AbsenteeismTable({ onSelect, rows, selected }: { rows: AbsenteeRow[]; selected: AbsenteeRow | null; onSelect: (row: AbsenteeRow | null) => void }) {
@@ -234,6 +352,56 @@ function AbsenteeismTable({ onSelect, rows, selected }: { rows: AbsenteeRow[]; s
     </article>
     {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onSelect(null); }} role="dialog"><div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-violet-50 to-white p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-violet-600">Detalle de faltas</p><h4 className="mt-1 text-lg font-black text-slate-900">{selected.name}</h4><p className="text-xs text-slate-500">{selected.role || "Sin cargo"} · {selected.days.length} días sin marcación</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900" onClick={() => onSelect(null)} type="button"><X size={18} /></button></div><div className="max-h-[60vh] overflow-auto p-5"><div className="grid gap-2 sm:grid-cols-2">{selected.days.map((day) => <div className="flex items-center justify-between rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-2" key={day}><span className="text-xs font-bold text-slate-700">{new Date(`${day}T12:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</span><span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-black uppercase text-violet-700">Sin marca</span></div>)}</div></div></div></div> : null}
   </>;
+}
+
+function parseAttendanceTemplateRow(row: Record<string, unknown>): AttendanceRow | null {
+  const identificador = String(readTemplateValue(row, ["identificador", "cedula", "cc", "documento"])).replace(/\D/g, "");
+  const nombres = readTemplateValue(row, ["nombres", "nombre"]);
+  const apellidos = readTemplateValue(row, ["apellidos", "apellido"]);
+  const nombreCompleto = readTemplateValue(row, ["nombre completo", "empleado", "colaborador"]) || [apellidos, nombres].filter(Boolean).join(" ").trim();
+  const fechaKey = normalizeTemplateDate(readTemplateValue(row, ["fecha", "dia"]));
+  if (!identificador && !nombreCompleto) return null;
+  return {
+    identificador,
+    nombreCompleto,
+    cargo: readTemplateValue(row, ["cargo", "puesto"]),
+    contratista: readTemplateValue(row, ["contratista", "empresa"]) || "Logísticos",
+    fechaKey,
+    entrada: readTemplateValue(row, ["entro", "entrada", "hora entrada"]),
+    salida: readTemplateValue(row, ["salio", "salida", "hora salida"], true),
+    novedad: readTemplateRestValue(row),
+  };
+}
+
+function readTemplateRestValue(row: Record<string, unknown>) {
+  const explicit = Object.entries(row).find(([key]) => normalizeTemplateText(key) === "descanso efectivo");
+  if (explicit) {
+    const value = normalizeTemplateText(explicit[1]);
+    if (["si", "x", "1", "true", "descanso", "descanso efectivo"].includes(value)) return "Descanso efectivo";
+  }
+  return readTemplateValue(row, ["novedad", "estado", "status", "motivo", "causal", "observacion"]);
+}
+
+function readTemplateValue(row: Record<string, unknown>, names: string[], preferLast = false) {
+  const normalizedNames = names.map(normalizeTemplateText);
+  const values = Object.entries(row).filter(([key]) => {
+    const normalized = normalizeTemplateText(key);
+    return normalizedNames.some((name) => normalized === name || normalized.startsWith(`${name} `) || normalized.startsWith(`${name}_`));
+  }).map(([, value]) => String(value ?? "").trim()).filter(Boolean);
+  return preferLast ? values.at(-1) || "" : values[0] || "";
+}
+
+function normalizeTemplateText(value: unknown) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function normalizeTemplateDate(value: string) {
+  const text = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const match = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (match) return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 function parseClockSeconds(value: unknown) {
@@ -253,14 +421,23 @@ function parseClockSeconds(value: unknown) {
 }
 function formatClockSeconds(value: number) { const hour = Math.floor(value / 3600) % 24; const minute = Math.floor(value % 3600 / 60); return new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC" }).format(new Date(Date.UTC(2000, 0, 1, hour, minute))); }
 
-function LateRanking({ rows }: { rows: LateRow[] }) {
+function LateRanking({ onRelayUsage, rows }: { rows: LateRow[]; onRelayUsage: (detail: LateRow["details"][number], usedAsRelay: boolean) => Promise<void> }) {
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<LateRow | null>(null);
+  const [relaySaving, setRelaySaving] = useState("");
+  const [relayError, setRelayError] = useState("");
   const visibleRows = showAll ? rows : rows.slice(0, 10);
   return <>
     <article className="flex h-[500px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg"><div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-100 bg-gradient-to-r from-rose-50 to-white px-3 py-2"><div><p className="text-[8px] font-black uppercase tracking-[.12em] text-rose-600">GeoVictoria · después de 6:00 a. m.</p><h3 className="text-sm font-black">Top 10 de llegadas tardías</h3><p className="text-[9px] text-slate-500">Presiona una persona para ver días y horas.</p></div><span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-700">{rows.length}</span></div><div className={`min-h-0 flex-1 ${showAll ? "overflow-auto" : "overflow-hidden"}`}>{rows.length ? visibleRows.map((row, index) => <button className="grid h-[38px] w-full grid-cols-[24px_1fr_auto] items-center gap-2 border-b border-slate-100 px-3 text-left transition hover:bg-rose-50 last:border-0" key={row.name} onClick={() => setSelected(row)} type="button"><span className={`grid h-6 w-6 place-items-center rounded-md text-[10px] font-black ${index < 3 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span><span className="min-w-0 leading-none"><span className="block truncate text-[10px] font-black text-slate-800">{row.name}</span><span className="mt-0.5 block truncate text-[7px] font-bold uppercase text-slate-400">{row.role || "Sin cargo"}</span></span><span className="text-right"><span className="block text-xs font-black leading-none text-rose-600">{row.days} <span className="text-[7px] uppercase text-slate-400">días</span></span><span className="mt-0.5 block text-[8px] font-bold leading-none text-slate-500">Prom. {formatClockSeconds(row.average)}</span></span></button>) : <div className="grid h-full place-items-center p-6 text-center text-sm text-slate-400">Sin llegadas posteriores a las 6:00 a. m. en GeoVictoria.</div>}</div>{rows.length > 10 ? <button className="h-[42px] shrink-0 border-t border-slate-200 bg-white text-xs font-black text-rose-700 hover:bg-rose-50" onClick={() => setShowAll((value) => !value)} type="button">{showAll ? "Ver menos" : `Ver más (${rows.length - 10})`}</button> : null}</article>
-    {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }} role="dialog"><div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-rose-50 to-white p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-rose-600">Detalle de llegadas tardías</p><h4 className="mt-1 text-lg font-black text-slate-900">{selected.name}</h4><p className="text-xs text-slate-500">{selected.role || "Sin cargo"} · {selected.days} días · Promedio {formatClockSeconds(selected.average)}</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900" onClick={() => setSelected(null)} type="button"><X size={18} /></button></div><div className="max-h-[60vh] overflow-auto p-5"><div className="space-y-2">{selected.details.map((detail) => <div className="flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-2" key={`${detail.date}-${detail.seconds}`}><span className="text-xs font-bold capitalize text-slate-700">{new Date(`${detail.date}T12:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</span><span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-black text-rose-700">{formatClockSeconds(detail.seconds)}</span></div>)}</div></div></div></div> : null}
+    {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }} role="dialog"><div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-rose-50 to-white p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-rose-600">Detalle de llegadas tardías</p><h4 className="mt-1 text-lg font-black text-slate-900">{selected.name}</h4><p className="text-xs text-slate-500">{selected.role || "Sin cargo"} · {selected.days} días · Promedio {formatClockSeconds(selected.average)}</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900" onClick={() => setSelected(null)} type="button"><X size={18} /></button></div><div className="max-h-[60vh] overflow-auto p-5"><div className="space-y-2">{selected.details.map((detail) => <div className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-2" key={`${detail.date}-${detail.seconds}`}><div className="flex items-center justify-between gap-3"><span className="text-xs font-bold capitalize text-slate-700">{new Date(`${detail.date}T12:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</span><span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-black text-rose-700">{formatClockSeconds(detail.seconds)}</span></div><div className="mt-2 flex items-center justify-between border-t border-rose-100 pt-2"><span className="text-[10px] font-bold text-slate-500">¿Contaba con descanso efectivo?</span><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${detail.hadEffectiveRest ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{detail.hadEffectiveRest ? `Sí · cumplido a las ${formatClockSeconds(detail.effectiveEntry || 0)}` : "No"}</span></div><div className="mt-2 flex items-center justify-between border-t border-rose-100 pt-2"><span className="text-[10px] font-bold text-slate-500">¿Se utilizó como relevo?</span><span className="flex gap-1"><button className="rounded-lg bg-emerald-600 px-3 py-1 text-[9px] font-black text-white disabled:opacity-50" disabled={Boolean(relaySaving)} onClick={() => void saveRelay(detail, true)} type="button">Sí</button><button className="rounded-lg bg-slate-200 px-3 py-1 text-[9px] font-black text-slate-700 disabled:opacity-50" disabled={Boolean(relaySaving)} onClick={() => void saveRelay(detail, false)} type="button">No</button></span></div></div>)}</div>{relayError ? <p className="mt-3 text-xs font-bold text-red-600">{relayError}</p> : null}</div></div></div> : null}
   </>;
+
+  async function saveRelay(detail: LateRow["details"][number], usedAsRelay: boolean) {
+    setRelaySaving(`${detail.date}:${detail.personKey}`); setRelayError("");
+    try { await onRelayUsage(detail, usedAsRelay); setSelected(null); }
+    catch (error) { setRelayError(error instanceof Error ? error.message : "No se pudo guardar."); }
+    finally { setRelaySaving(""); }
+  }
 }
 
 function DashboardMetric({ detail, icon, inverse, label, tone, value }: { detail: string; icon: ReactNode; inverse?: boolean; label: string; tone: "cyan" | "violet" | "emerald" | "amber" | "red"; value: number }) {
