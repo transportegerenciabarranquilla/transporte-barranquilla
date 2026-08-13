@@ -22,12 +22,17 @@ export async function GET() {
   const capacityRows = capacitiesResponse.ok ? await capacitiesResponse.json() as Record<string, unknown>[] : [];
   const profileRows = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: { available?: boolean; useInZki?: boolean; logistics?: boolean } }> : [];
   const statuses = new Map(profileRows.map((row) => [row.profile_id.replace("zki-vehicle:", ""), { available: row.data?.available !== false, useInZki: row.data?.useInZki ?? row.data?.logistics ?? false }]));
-  const capacities = new Map(capacityRows.map((row) => [normalizePlate(read(row, ["placa", "vehiculo", "vehicle", "plate", "vh"])), readNumber(row, ["capacidad", "capacidad_carga", "peso", "carga"])]));
+  const capacityEntries = capacityRows.map((row): [string, number] => [
+    normalizePlate(read(row, ["Tractor", "Placa Asignada", "placa", "vehiculo", "vehicle", "plate", "vh"])),
+    readNumber(row, ["Peso Máximo", "Peso Maximo", "Peso máximo kg", "Capacidad peso", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "peso", "carga"]),
+  ]).filter(([plate]) => Boolean(plate));
+  const capacities = new Map<string, number>(capacityEntries);
   const vehicleEntries = plateRows.map((row): [string, { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean }] => {
     const plate = normalizePlate(read(row, ["Tractor", "placa", "vehiculo", "vehicle", "plate", "vh"]));
     const contractor = contractorLabel(read(row, ["Nombre 1", "transportista", "transportadora", "contratista", "empresa", "carrier"]));
+    const plateCapacity = readNumber(row, ["Capacidad de carga", "Capacidad", "capacidad_carga", "Peso Máximo", "Peso Maximo", "Peso"]);
     const saved = statuses.get(plate);
-    return [plate, { plate, contractor, capacity: capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? contractor === "Logisticos" }];
+    return [plate, { plate, contractor, capacity: plateCapacity || capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? contractor === "Logisticos" }];
   }).filter(([plate]) => Boolean(plate));
   const records = [...new Map(vehicleEntries).values()];
   return NextResponse.json({ records });

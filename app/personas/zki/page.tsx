@@ -126,7 +126,9 @@ export default function ZkiPage() {
       return !vehicle || (vehicle.available && vehicle.useInZki);
     }));
   }, [allCapacities, vehicleAvailability]);
-  const filteredVehicles = useMemo(() => Object.values(vehicleAvailability).filter((vehicle) => vehicle.plate.includes(normalizePerson(vehicleSearch)) && (vehicleContractor === "Todos" || vehicle.contractor === vehicleContractor)), [vehicleAvailability, vehicleContractor, vehicleSearch]);
+  const filteredVehicles = useMemo(() => Object.values(vehicleAvailability)
+    .map((vehicle) => ({ ...vehicle, capacity: vehicle.capacity || allCapacities.get(vehicle.plate) || 0 }))
+    .filter((vehicle) => vehicle.plate.includes(normalizePerson(vehicleSearch)) && (vehicleContractor === "Todos" || vehicle.contractor === vehicleContractor)), [allCapacities, vehicleAvailability, vehicleContractor, vehicleSearch]);
   const vehicleContractors = useMemo(() => ["Todos", ...new Set(Object.values(vehicleAvailability).map((vehicle) => vehicle.contractor))], [vehicleAvailability]);
   const filteredPersonnel = useMemo(() => {
     const query = normalizePerson(personnelSearch);
