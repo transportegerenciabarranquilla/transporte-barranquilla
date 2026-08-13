@@ -3,15 +3,24 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 const PAGE_SIZE = 1_000;
+const CACHE_TTL_MS = 5 * 60 * 1_000;
+type ZkiPayload = { rows: Record<string, unknown>[]; history: Record<string, unknown>[]; capacities: Record<string, unknown>[]; source: { table: string; rows: number; columns: string[] } };
+let cachedPayload: { expiresAt: number; value: ZkiPayload } | null = null;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+    if (!refresh && cachedPayload && cachedPayload.expiresAt > Date.now()) {
+      return NextResponse.json(cachedPayload.value, { headers: { "X-ZKI-Cache": "HIT" } });
+    }
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const [rows, history, capacities] = await Promise.all([readRows("ZKI", headers), readHistory(headers), readRows("capacidad_carga", headers)]);
-    return NextResponse.json({ rows, history, capacities, source: { table: "ZKI", rows: rows.length, columns: rows[0] ? Object.keys(rows[0]) : [] } });
+    const payload = { rows, history, capacities, source: { table: "ZKI", rows: rows.length, columns: rows[0] ? Object.keys(rows[0]) : [] } };
+    cachedPayload = { value: payload, expiresAt: Date.now() + CACHE_TTL_MS };
+    return NextResponse.json(payload, { headers: { "X-ZKI-Cache": "MISS" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar ZKI." }, { status: 500 });
   }

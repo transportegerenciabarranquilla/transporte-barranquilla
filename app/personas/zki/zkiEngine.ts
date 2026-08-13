@@ -376,8 +376,10 @@ export function capacityMap(rows: RawRow[]) {
   rows.forEach((row) => {
     const sources = [row, ...Object.values(row).filter((value): value is RawRow => Boolean(value) && typeof value === "object" && !Array.isArray(value))];
     const vehicle = sources.map((source) => text(read(source, ["Placa Asignada", "Placa", "Vehículo asignado", "Vehículo", "Vehiculo", "vehicle", "plate", "VH"]))).find(Boolean) || "";
-    const capacity = sources.map((source) => number(read(source, ["Peso Máximo", "Peso Maximo", "Capacidad", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "Carga", "Peso"]))).find((value) => value > 0) || 0;
-    if (vehicle && capacity > 0) result.set(normalizeVehicleKey(vehicle), capacity);
+    const capacity = sources.map((source) => number(read(source, ["Peso Máximo", "Peso Maximo", "Peso máximo kg", "Capacidad", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "Carga", "Peso"]))).find((value) => value > 0) || 0;
+    // Se conserva la placa aunque aún no tenga capacidad configurada para que
+    // pueda clasificarse y administrarse desde ZKI.
+    if (vehicle) result.set(normalizeVehicleKey(vehicle), capacity);
   });
   return result;
 }

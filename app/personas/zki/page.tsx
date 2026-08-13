@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, ShieldX, SlidersHorizontal, Truck, Upload, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, Search, ShieldX, SlidersHorizontal, Trash2, Truck, Upload, UserPlus, Users, X } from "lucide-react";
 import {
   assignUniqueResponsibles,
   assignCompatibleVehicles,
@@ -19,6 +19,19 @@ import {
 } from "./zkiEngine";
 
 type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
+type PersonnelRule = { id: string; name: string; role: "RR" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string };
+type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
+const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v1";
+
+function normalizePerson(value: unknown) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
+function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[]) {
+  const unavailable = rules.filter((person) => !person.available);
+  const blocked = (id: string, name: string) => unavailable.some((person) => (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) || (person.name && normalizePerson(person.name) === normalizePerson(name)));
+  return !blocked(candidate.rrId, candidate.rr) && !blocked(candidate.driverId, candidate.driver) && !blocked(candidate.auxiliaryId, candidate.auxiliary);
+}
 
 export default function ZkiPage() {
   const router = useRouter();
@@ -34,23 +47,66 @@ export default function ZkiPage() {
   const [planningRows, setPlanningRows] = useState<RawRow[]>([]);
   const [territoryRows, setTerritoryRows] = useState<RawRow[]>([]);
   const [showMatrix, setShowMatrix] = useState(false);
+  const [showPersonnel, setShowPersonnel] = useState(false);
+  const [showVehicles, setShowVehicles] = useState(false);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleContractor, setVehicleContractor] = useState("Todos");
+  const [vehicleAvailability, setVehicleAvailability] = useState<Record<string, VehicleStatus>>({});
+  const [vehicleError, setVehicleError] = useState("");
+  const [showAddPerson, setShowAddPerson] = useState(false);
+  const [personnelSearch, setPersonnelSearch] = useState("");
+  const [personnelRules, setPersonnelRules] = useState<PersonnelRule[]>([]);
+  const [personForm, setPersonForm] = useState({ id: "", name: "", role: "RR" as PersonnelRule["role"] });
 
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch("/api/people/zki", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo cargar ZKI.");
-      setData(body as ApiData);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo cargar ZKI.");
-    } finally {
-      setLoading(false);
+  async function loadPersonnel() {
+    const response = await fetch("/api/people/zki/personnel", { cache: "no-store" });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const records = (body.records || []) as PersonnelRule[];
+      setPersonnelRules([...new Map(records.map((person) => [person.id, person])).values()]);
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void loadPersonnel(); }, []);
+
+  async function loadVehicleAvailability() {
+    const response = await fetch("/api/people/zki/vehicles", { cache: "no-store" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setVehicleError(body.error || "No se pudieron cargar las placas."); return; }
+    setVehicleError("");
+    setVehicleAvailability(Object.fromEntries(((body.records || []) as VehicleStatus[]).map((vehicle) => [vehicle.plate, vehicle])));
+  }
+
+  useEffect(() => { void loadVehicleAvailability(); }, []);
+
+  async function load(forceRefresh = false, background = false) {
+    if (!background) setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/people/zki${forceRefresh ? "?refresh=1" : ""}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo cargar ZKI.");
+      setData(body as ApiData);
+      try { sessionStorage.setItem(ZKI_BROWSER_CACHE_KEY, JSON.stringify(body)); } catch { /* La caché es opcional. */ }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo cargar ZKI.");
+    } finally {
+      if (!background) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem(ZKI_BROWSER_CACHE_KEY);
+      if (cached) {
+        setData(JSON.parse(cached) as ApiData);
+        setLoading(false);
+        void load(false, true);
+        return;
+      }
+    } catch { /* Si la copia local falla, se consulta normalmente. */ }
+    void load();
+  }, []);
 
   const trips = useMemo(() => parseTrips(planningRows), [planningRows]);
   const history = useMemo(() => parseCrewHistory(data?.history || []), [data]);
@@ -61,12 +117,27 @@ export default function ZkiPage() {
     () => activeTrip ? territoryClients.filter((row) => row.territoryId === activeTrip.territoryId).map((row) => row.client) : [],
     [activeTrip, territoryClients],
   );
-  const capacities = useMemo(() => capacityMap([...(data?.capacities || []), ...planningRows]), [data?.capacities, planningRows]);
+  const allCapacities = useMemo(() => capacityMap([...(data?.capacities || []), ...(data?.history || []), ...planningRows]), [data?.capacities, data?.history, planningRows]);
+  const capacities = useMemo(() => {
+    const result = new Map(allCapacities);
+    Object.values(vehicleAvailability).forEach((vehicle) => { if (vehicle.capacity > 0) result.set(vehicle.plate, vehicle.capacity); });
+    return new Map([...result].filter(([plate]) => {
+      const vehicle = vehicleAvailability[plate];
+      return !vehicle || (vehicle.available && vehicle.useInZki);
+    }));
+  }, [allCapacities, vehicleAvailability]);
+  const filteredVehicles = useMemo(() => Object.values(vehicleAvailability).filter((vehicle) => vehicle.plate.includes(normalizePerson(vehicleSearch)) && (vehicleContractor === "Todos" || vehicle.contractor === vehicleContractor)), [vehicleAvailability, vehicleContractor, vehicleSearch]);
+  const vehicleContractors = useMemo(() => ["Todos", ...new Set(Object.values(vehicleAvailability).map((vehicle) => vehicle.contractor))], [vehicleAvailability]);
+  const filteredPersonnel = useMemo(() => {
+    const query = normalizePerson(personnelSearch);
+    if (!query) return personnelRules;
+    return personnelRules.filter((person) => normalizePerson(`${person.name} ${person.id} ${person.role}`).includes(query));
+  }, [personnelRules, personnelSearch]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client);
-    const ranked = rankCandidates(trip, history, visits, clientCodes, capacities, settings);
+    const ranked = rankCandidates(trip, history, visits, clientCodes, capacities, settings).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
     return { trip, candidates: ranked };
-  }), [capacities, history, settings, territoryClients, trips, visits]);
+  }), [capacities, history, personnelRules, settings, territoryClients, trips, visits]);
   const planning = useMemo(() => {
     const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })));
     const basePlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({ trip, candidates: ranked, recommendation: assignments.get(trip.id) }));
@@ -74,8 +145,8 @@ export default function ZkiPage() {
     return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
   }, [capacities, rankedPlanning]);
   const candidates = useMemo(
-    () => activeTrip ? rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings) : [],
-    [activeTrip, capacities, clientsForTrip, history, settings, visits],
+    () => activeTrip ? rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules)) : [],
+    [activeTrip, capacities, clientsForTrip, history, personnelRules, settings, visits],
   );
   const viable = candidates.filter((candidate) => candidate.viable);
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
@@ -185,6 +256,54 @@ export default function ZkiPage() {
     XLSX.writeFile(workbook, `asignaciones_zki_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
+  async function addPerson(event: FormEvent) {
+    event.preventDefault();
+    const name = personForm.name.trim(); const id = personForm.id.replace(/\D/g, "");
+    if (!name || !id) { setError("La cédula y el nombre son obligatorios."); return; }
+    const response = await fetch("/api/people/zki/personnel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...personForm, id, name, contractor: "Logisticos", available: true }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "No se pudo agregar la persona."); return; }
+    setPersonnelRules((current) => [...current, body.person as PersonnelRule].sort((a, b) => a.name.localeCompare(b.name, "es")));
+    setPersonForm({ id: "", name: "", role: "Conductor" });
+    setShowAddPerson(false);
+    setError("");
+    setMessage(`${name} fue agregado a la base de datos.`);
+  }
+
+  async function setPersonAvailability(person: PersonnelRule, available: boolean) {
+    const response = await fetch("/api/people/zki/personnel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...person, available }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "No se pudo actualizar la disponibilidad."); return; }
+    setPersonnelRules((current) => current.map((item) => item.id === person.id ? { ...item, available } : item));
+    setError("");
+    setMessage(`${person.name} quedó ${available ? "disponible" : "indisponible"} para la planeación.`);
+  }
+
+  async function removePerson(person: PersonnelRule) {
+    if (!confirm(`¿Eliminar definitivamente a ${person.name} (CC ${person.id}) de la base de datos? Esta acción no se puede deshacer.`)) return;
+    const response = await fetch(`/api/people/zki/personnel?id=${encodeURIComponent(person.id)}`, { method: "DELETE" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "No se pudo eliminar la persona."); return; }
+    setPersonnelRules((current) => current.filter((item) => item.id !== person.id));
+    setMessage(`${person.name} fue eliminado de la base de datos.`);
+  }
+
+  async function updateVehicle(plate: string, changes: Partial<VehicleStatus>) {
+    const current = vehicleAvailability[plate];
+    if (!current) return;
+    const next = { ...current, ...changes };
+    const response = await fetch("/api/people/zki/vehicles", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "No se pudo actualizar el vehículo."); return; }
+    setVehicleAvailability((statuses) => ({ ...statuses, [plate]: next }));
+    setError("");
+    setMessage(`Se actualizó el vehículo ${plate.toUpperCase()} para la planeación.`);
+  }
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#eef2f5] text-slate-900">
       <header className="border-b border-[#17364d] bg-[#0b2235] text-white">
@@ -207,7 +326,9 @@ export default function ZkiPage() {
               <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Fuente operativa</p><h2 className="text-xl font-semibold text-[#0b2235]">Tabla ZKI + histórico de tripulaciones</h2><p className="mt-1 text-sm text-slate-500">Cruza cada zona con RR, conductor y vehículo habitual; el sobrepeso bloquea la opción.</p></div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50" disabled={loading} onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={16} />Actualizar</button>
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50" disabled={loading} onClick={() => void load(true)} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={16} />Actualizar</button>
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 px-4 text-sm font-semibold text-cyan-900 hover:bg-cyan-100" onClick={() => setShowPersonnel(true)} type="button"><UserPlus size={16} />Personal</button>
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100" onClick={() => setShowVehicles(true)} type="button"><Truck size={16} />Vehículos</button>
               <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void upload(event.target.files?.[0])} ref={uploadRef} type="file" />
               <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b2235] px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={uploading} onClick={() => uploadRef.current?.click()} type="button"><Upload size={16} />{uploading ? "Importando…" : "Cargar viajes"}</button>
               <input accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => void uploadTerritories(event.target.files?.[0])} ref={territoryUploadRef} type="file" />
@@ -297,6 +418,67 @@ export default function ZkiPage() {
           </div>
         </section>
       </section>
+      {showPersonnel ? (
+        <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowPersonnel(false); }} role="dialog">
+          <section className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <header className="flex items-center justify-between bg-[#0b2235] px-5 py-4 text-white">
+              <div><p className="text-[9px] font-black uppercase tracking-[.16em] text-cyan-300">Planeación ZKI</p><h2 className="text-lg font-bold">Disponibilidad del personal</h2><p className="text-xs text-slate-300">Personal cargado desde la base de datos.</p></div>
+              <button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10" onClick={() => setShowPersonnel(false)} type="button"><X size={18} /></button>
+            </header>
+            <div className="border-b border-slate-200 bg-slate-50 p-4">
+              <div className="flex gap-2">
+                <label className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                  <input className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setPersonnelSearch(event.target.value)} placeholder="Buscar por nombre, cédula o cargo" value={personnelSearch} />
+                </label>
+                <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-bold text-white hover:bg-cyan-800" onClick={() => setShowAddPerson((current) => !current)} type="button"><UserPlus size={16} />{showAddPerson ? "Cancelar" : "Nueva persona"}</button>
+              </div>
+              {showAddPerson ? <form className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[130px_1fr_130px_auto]" onSubmit={addPerson}>
+                <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, id: event.target.value })} placeholder="Cédula" value={personForm.id} />
+                <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} placeholder="Nombre completo" value={personForm.name} />
+                <select className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, role: event.target.value as PersonnelRule["role"] })} value={personForm.role}><option>RR</option><option>Conductor</option><option>Auxiliar</option></select>
+                <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-bold text-white" type="submit"><UserPlus size={15} />Agregar</button>
+              </form> : null}
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              {filteredPersonnel.length ? <div className="space-y-2">{filteredPersonnel.map((person) => (
+                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-slate-200 p-3" key={person.id}>
+                  <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-800">{person.name}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{person.role} · {person.contractor || "Sin contratista"} · CC {person.id}</p></div>
+                  <button className={`rounded-full px-3 py-1.5 text-[10px] font-black ${person.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} onClick={() => void setPersonAvailability(person, !person.available)} type="button">{person.available ? "Disponible" : "Indisponible"}</button>
+                  <button aria-label={`Eliminar definitivamente a ${person.name}`} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" onClick={() => void removePerson(person)} title="Eliminar de la empresa" type="button"><Trash2 size={15} /></button>
+                </div>
+              ))}</div> : <div className="grid min-h-40 place-items-center text-center text-sm text-slate-400">{personnelSearch ? "No se encontraron personas con esa búsqueda." : "No hay RR, conductores ni auxiliares en la base de datos."}</div>}
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {showVehicles ? (
+        <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowVehicles(false); }} role="dialog">
+          <section className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <header className="flex items-center justify-between bg-[#0b2235] px-5 py-4 text-white">
+              <div><p className="text-[9px] font-black uppercase tracking-[.16em] text-amber-300">Planeación ZKI</p><h2 className="text-lg font-bold">Disponibilidad de vehículos</h2><p className="text-xs text-slate-300">Fuente: tabla placa. Los vehículos externos requieren habilitación.</p></div>
+              <button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10" onClick={() => setShowVehicles(false)} type="button"><X size={18} /></button>
+            </header>
+            <div className="border-b border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-2 sm:grid-cols-[1fr_210px]">
+                <label className="relative block"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setVehicleSearch(event.target.value)} placeholder="Buscar placa" value={vehicleSearch} /></label>
+                <select className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setVehicleContractor(event.target.value)} value={vehicleContractor}>{vehicleContractors.map((contractor) => <option key={contractor}>{contractor}</option>)}</select>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              {vehicleError ? <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{vehicleError}</div> : null}
+              {filteredVehicles.length ? <div className="space-y-2">{filteredVehicles.map((vehicle) => {
+                const isOwn = vehicle.contractor === "Logisticos";
+                return <div className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center" key={vehicle.plate}>
+                  <div><p className="font-mono text-base font-black uppercase text-slate-800">{vehicle.plate}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{vehicle.contractor} · Capacidad: {vehicle.capacity ? `${formatNumber(vehicle.capacity)} kg` : "Sin dato"}</p></div>
+                  <button className={`rounded-full px-3 py-2 text-[10px] font-black ${vehicle.useInZki ? "bg-cyan-100 text-cyan-800" : "bg-slate-200 text-slate-600"}`} onClick={() => void updateVehicle(vehicle.plate, { useInZki: !vehicle.useInZki })} type="button">{vehicle.useInZki ? (isOwn ? "En uso" : "Usar externo") : "No usar"}</button>
+                  <button className={`rounded-full px-3 py-2 text-[10px] font-black ${vehicle.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} onClick={() => void updateVehicle(vehicle.plate, { available: !vehicle.available })} type="button">{vehicle.available ? "Disponible" : "Indisponible"}</button>
+                </div>;
+              })}</div> : <div className="grid min-h-40 place-items-center text-center text-sm text-slate-400">No se encontraron vehículos.</div>}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
