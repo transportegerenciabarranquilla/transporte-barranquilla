@@ -103,6 +103,29 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   return result;
 }
 
+export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?: Candidate }>(plans: T[], capacities: Map<string, number>) {
+  const available = Array.from(capacities, ([key, capacity]) => ({ key, capacity })).filter((item) => item.capacity > 0);
+  const used = new Set<string>();
+  const result = new Map<string, Candidate>();
+  [...plans].sort((a, b) => b.trip.weight - a.trip.weight).forEach(({ trip, recommendation }) => {
+    if (!recommendation) return;
+    const habitualKey = normalizeVehicleKey(recommendation.vehicle);
+    const habitualCapacity = capacities.get(habitualKey) || 0;
+    const habitualFits = habitualKey && !used.has(habitualKey) && habitualCapacity >= trip.weight;
+    const selected = habitualFits
+      ? { key: habitualKey, capacity: habitualCapacity }
+      : available.filter((item) => !used.has(item.key) && item.capacity >= trip.weight).sort((a, b) => a.capacity - b.capacity)[0];
+    if (!selected) {
+      result.set(trip.id, { ...recommendation, vehicle: "Sin placa compatible", capacity: 0, viable: false, reason: `Bloqueado: no hay un vehículo disponible que soporte ${formatKg(trip.weight)} kg.` });
+      return;
+    }
+    used.add(selected.key);
+    const originalPlate = recommendation.vehicle;
+    result.set(trip.id, { ...recommendation, vehicle: selected.key.toUpperCase(), capacity: selected.capacity, viable: true, habitualVehicle: selected.key === habitualKey, reason: selected.key === habitualKey ? recommendation.reason : `Viable por peso: se cambió ${originalPlate || "el vehículo habitual"} por ${selected.key.toUpperCase()} (${formatKg(selected.capacity)} kg).` });
+  });
+  return result;
+}
+
 // Algoritmo húngaro O(n³): maximiza el puntaje de toda la planeación, no el
 // mejor valor aislado de cada territorio. Las columnas adicionales representan
 // asignaciones vacías cuando hay menos RR que viajes.
@@ -273,7 +296,7 @@ export function rankCandidates(
     const driver = latest?.driver || visitIdentity?.driver || "Sin conductor identificado";
     const driverId = latest?.driverId || "";
     const vehicle = latest?.vehicle || visitIdentity?.vehicle || "Sin vehículo identificado";
-    const capacity = capacities.get(normalize(vehicle)) || 0;
+    const capacity = capacities.get(normalizeVehicleKey(vehicle)) || 0;
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
     const viable = hasKnowledge && hasCapacity && trip.weight <= capacity;
@@ -351,11 +374,16 @@ function isAuxiliaryVisit(visit: ZkiVisit) {
 export function capacityMap(rows: RawRow[]) {
   const result = new Map<string, number>();
   rows.forEach((row) => {
-    const vehicle = text(read(row, ["Placa Asignada", "Placa", "Vehículo asignado", "Vehículo", "Vehiculo"]));
-    const capacity = number(read(row, ["Peso Máximo", "Peso Maximo", "Capacidad", "capacidad"]));
-    if (vehicle && capacity > 0) result.set(normalize(vehicle), capacity);
+    const sources = [row, ...Object.values(row).filter((value): value is RawRow => Boolean(value) && typeof value === "object" && !Array.isArray(value))];
+    const vehicle = sources.map((source) => text(read(source, ["Placa Asignada", "Placa", "Vehículo asignado", "Vehículo", "Vehiculo", "vehicle", "plate", "VH"]))).find(Boolean) || "";
+    const capacity = sources.map((source) => number(read(source, ["Peso Máximo", "Peso Maximo", "Capacidad", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "Carga", "Peso"]))).find((value) => value > 0) || 0;
+    if (vehicle && capacity > 0) result.set(normalizeVehicleKey(vehicle), capacity);
   });
   return result;
+}
+
+function normalizeVehicleKey(value: unknown) {
+  return normalize(value).replace(/^vh/, "");
 }
 
 export function read(row: RawRow, aliases: string[]) {

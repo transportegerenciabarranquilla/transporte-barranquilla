@@ -1,12 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
+import { assignCompatibleVehicles, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
 
 test("interpreta las columnas operativas del Excel ZKI", () => {
   const [trip] = parseTrips([{ "Fecha de entrega": "8/6/2026", Número: 1, Nombre: "El Triunfo", Peso: "8547,08", Clientes: 20, "Peso Maximo": 9710 }]);
   assert.equal(trip.zone, "El Triunfo");
   assert.equal(trip.weight, 8547.08);
   assert.equal(trip.clients, 20);
+});
+
+test("mueve la tripulación a otra placa cuando la habitual no soporta el peso", () => {
+  const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 9_500 }])[0];
+  const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "VH-PEQUENO", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 8_000, viable: false, hasKnowledge: true, habitualVehicle: true, reason: "Sobrepeso" } satisfies Candidate;
+  const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 8_000], ["grande", 10_000]])).get(trip.id);
+  assert.equal(assigned?.vehicle, "GRANDE");
+  assert.equal(assigned?.driver, "Conductor");
+  assert.equal(assigned?.viable, true);
 });
 
 test("no interpreta el catálogo territorio-cliente como viajes", () => {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, ShieldX, SlidersHorizontal, Truck, Upload, Users } from "lucide-react";
 import {
   assignUniqueResponsibles,
+  assignCompatibleVehicles,
   capacityMap,
   DEFAULT_ZKI_SETTINGS,
   parseCrewHistory,
@@ -17,7 +18,7 @@ import {
   type ZkiSettings,
 } from "./zkiEngine";
 
-type ApiData = { rows: RawRow[]; history: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
+type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
 
 export default function ZkiPage() {
   const router = useRouter();
@@ -60,7 +61,7 @@ export default function ZkiPage() {
     () => activeTrip ? territoryClients.filter((row) => row.territoryId === activeTrip.territoryId).map((row) => row.client) : [],
     [activeTrip, territoryClients],
   );
-  const capacities = useMemo(() => capacityMap(planningRows), [planningRows]);
+  const capacities = useMemo(() => capacityMap([...(data?.capacities || []), ...planningRows]), [data?.capacities, planningRows]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client);
     const ranked = rankCandidates(trip, history, visits, clientCodes, capacities, settings);
@@ -68,8 +69,10 @@ export default function ZkiPage() {
   }), [capacities, history, settings, territoryClients, trips, visits]);
   const planning = useMemo(() => {
     const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })));
-    return rankedPlanning.map(({ trip, candidates: ranked }) => ({ trip, candidates: ranked, recommendation: assignments.get(trip.id) }));
-  }, [rankedPlanning]);
+    const basePlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({ trip, candidates: ranked, recommendation: assignments.get(trip.id) }));
+    const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities);
+    return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
+  }, [capacities, rankedPlanning]);
   const candidates = useMemo(
     () => activeTrip ? rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings) : [],
     [activeTrip, capacities, clientsForTrip, history, settings, visits],

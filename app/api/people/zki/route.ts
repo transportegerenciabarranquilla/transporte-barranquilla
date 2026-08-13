@@ -10,8 +10,8 @@ export async function GET() {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const [rows, history] = await Promise.all([readRows("ZKI", headers), readHistory(headers)]);
-    return NextResponse.json({ rows, history, source: { table: "ZKI", rows: rows.length, columns: rows[0] ? Object.keys(rows[0]) : [] } });
+    const [rows, history, capacities] = await Promise.all([readRows("ZKI", headers), readHistory(headers), readRows("capacidad_carga", headers)]);
+    return NextResponse.json({ rows, history, capacities, source: { table: "ZKI", rows: rows.length, columns: rows[0] ? Object.keys(rows[0]) : [] } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar ZKI." }, { status: 500 });
   }
