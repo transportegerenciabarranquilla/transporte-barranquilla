@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Activity, ArrowLeft, Check, ClipboardCheck, Coffee, Gauge, LoaderCircle, LogIn, LogOut, MapPinCheck, PackageCheck, Pencil, Save, TrendingUp, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { DailyAbsenteeismRecord } from "../lib/dailyAbsenteeism";
@@ -29,6 +29,12 @@ export default function DailyControlPage() {
   const [completed, setCompleted] = useState({ departure: false, return: false, absence: false });
   const [editing, setEditing] = useState({ departure: false, return: false, absence: false });
   const [dashboard, setDashboard] = useState<DashboardData>({ checklists: [], absences: [], modulations: [], ranges: [], tracking: [], attendance: [], relays: [], rti: {} });
+  const refreshAttendance = useCallback(async () => {
+    const response = await fetch(`/api/people/attendance-snapshots?refresh=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const body = await response.json().catch(() => ({}));
+    setDashboard((current) => ({ ...current, attendance: body.snapshots || [] }));
+  }, []);
   const absencePercentage = useMemo(() => Number(scheduled) ? Math.round((Number(absent) / Number(scheduled)) * 1_000) / 10 : 0, [absent, scheduled]);
   const dayComplete = completed.departure && completed.return && completed.absence && !Object.values(editing).some(Boolean);
   const savedOperationSummary = useMemo(() => {
@@ -76,6 +82,21 @@ export default function DailyControlPage() {
     }).finally(() => active && setLoadingDay(false));
     return () => { active = false; };
   }, [date]);
+
+  useEffect(() => {
+    const refresh = () => void refreshAttendance();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const timer = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshAttendance]);
 
   async function saveChecklist(event: FormEvent, type: DailyChecklistType) {
     event.preventDefault();
@@ -140,6 +161,21 @@ function ContractorDashboard({ data, onAttendanceUploaded, onRelayUsage }: { dat
   const absenteeism = useMemo(() => buildAbsenteeism(data.attendance, filteredAttendance), [data.attendance, filteredAttendance]);
   const effectiveRest = useMemo(() => buildEffectiveRest(filteredAttendance), [filteredAttendance]);
   useEffect(() => setSelectedAbsent(null), [attendanceFrom, attendanceTo]);
+  useEffect(() => {
+    if (!data.attendance.length || filteredAttendance.length || attendanceFrom !== attendanceTo) return;
+    // GeoVictoria nombra el archivo con la fecha de descarga, pero normalmente
+    // sus filas pertenecen al día operativo anterior. Si el día seleccionado
+    // no existe, mostramos la fecha real más reciente guardada en las filas.
+    const latestOperationalDate = data.attendance
+      .map((snapshot) => snapshot.operationalDate)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+    if (latestOperationalDate) {
+      setAttendanceFrom(latestOperationalDate);
+      setAttendanceTo(latestOperationalDate);
+    }
+  }, [attendanceFrom, attendanceTo, data.attendance, filteredAttendance.length]);
   const summary = useMemo(() => {
     const ranges = preferredRangeReports(data.ranges);
     const rangeTotal = ranges.reduce((sum, item) => sum + (item.summary.startedRows || 0), 0);
@@ -230,7 +266,6 @@ function buildLateRanking(allSnapshots: AttendanceSnapshot[], snapshots: Attenda
     effectiveRestByDate.set(`${key}:${effectiveEntry.date}`, effectiveEntry.seconds);
   }));
   snapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
-    if (!isOperationalAttendanceRole(row.cargo)) return;
     const seconds = parseClockSeconds(row.entrada);
     if (seconds === null || seconds <= 6 * 3600) return;
     const personKey = attendancePersonKey(row);
@@ -249,7 +284,7 @@ type AbsenteeRow = { key: string; name: string; role: string; contractor: string
 
 function buildAbsenteeism(allSnapshots: AttendanceSnapshot[], filteredSnapshots: AttendanceSnapshot[]) {
   const people = new Map<string, Omit<AbsenteeRow, "days">>();
-  allSnapshots.forEach((snapshot) => snapshot.rows.filter((row) => isOperationalAttendanceRole(row.cargo)).forEach((row) => {
+  allSnapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
     const key = attendancePersonKey(row);
     if (!key) return;
     const current = people.get(key);
@@ -275,11 +310,6 @@ function attendancePersonKey(row: AttendanceSnapshot["rows"][number]) {
   if (id) return `id:${id}`;
   const name = String(row.nombreCompleto || "").trim().toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return name ? `name:${name}` : "";
-}
-
-function isOperationalAttendanceRole(value: unknown) {
-  const role = normalizeTemplateText(value);
-  return role.includes("conductor") || (role.includes("auxiliar") && (role.includes("reparto") || role.includes("ruta") || role === "auxiliar")) || role === "rr" || (role.includes("responsable") && (role.includes("reparto") || role.includes("ruta"))) || role.includes("lider de ruta") || role.includes("lider ruta");
 }
 
 function isScheduledRelay(records: Record<string, unknown>[], personKey: string, personName: unknown, operationalDate: string) {
@@ -314,7 +344,7 @@ type EffectiveRestRow = { key: string; name: string; role: string; contractor: s
 
 function buildEffectiveRest(snapshots: AttendanceSnapshot[]) {
   const groups = new Map<string, EffectiveRestRow>();
-  snapshots.forEach((snapshot) => snapshot.rows.filter((row) => isOperationalAttendanceRole(row.cargo)).forEach((row) => {
+  snapshots.forEach((snapshot) => snapshot.rows.forEach((row) => {
     const key = attendancePersonKey(row);
     const departure = parseClockSeconds(row.salida);
     if (!key || departure === null) return;

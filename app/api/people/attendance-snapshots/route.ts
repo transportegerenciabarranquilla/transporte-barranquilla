@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
-type ClockRow = { identificador?: string; nombreCompleto?: string; cargo?: string; contratista?: string; fechaKey?: string; entrada?: string; salida?: string; relevoUsado?: boolean };
+type ClockRow = { identificador?: string; nombreCompleto?: string; cargo?: string; contratista?: string; fechaKey?: string; entrada?: string; salida?: string; novedad?: string; relevoUsado?: boolean };
 type AttendanceSnapshot = { operationalDate: string; fileName: string; rows: ClockRow[]; uploadedAt: string; closedAt: string | null };
 type AttendanceRecord = { operational_date: string; contractor: string; file_name: string; rows: ClockRow[] | null; uploaded_at: string; closed_at: string | null };
 
@@ -36,11 +36,17 @@ export async function PUT(request: Request) {
     if (body.rows.some((row) => row.fechaKey !== operationalDate)) return NextResponse.json({ error: "La carga contiene registros de una fecha diferente a la seleccionada." }, { status: 400 });
     const requestedRows = body.rows;
     const contractor = session.isPeople || session.isAdmin ? String(requestedRows[0]?.contratista || "Logísticos").trim() : session.contractor;
-    const rows = requestedRows.map((row) => ({ ...row, contratista: contractor }));
+    const uploadedRows = requestedRows.map((row) => ({ ...row, contratista: contractor }));
 
     const current = await readSnapshot(operationalDate, contractor, session.accessToken);
     if (current instanceof NextResponse) return current;
     if (current?.closedAt && !historicalImport) return NextResponse.json({ error: "La jornada de hoy ya está cerrada." }, { status: 409 });
+    // GeoVictoria es la fuente base. La plantilla histórica de ausentismo y
+    // descanso la complementa sin borrar marcaciones que ya existan. Si no se
+    // carga esa plantilla, las tres tablas continúan usando GeoVictoria.
+    const rows = historicalImport && current
+      ? mergeAttendanceRows(current.rows, uploadedRows)
+      : uploadedRows;
     const snapshot: AttendanceSnapshot = { operationalDate, fileName: body.fileName, rows, uploadedAt: new Date().toISOString(), closedAt: current?.closedAt || null };
     const response = await fetch(supabaseRest("attendance_snapshots", "?on_conflict=operational_date,contractor"), {
       method: "POST",
@@ -92,6 +98,29 @@ function attendanceRowKey(row: ClockRow) {
   if (id) return `id:${id}`;
   const name = String(row.nombreCompleto || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return name ? `name:${name}` : "";
+}
+
+function mergeAttendanceRows(baseRows: ClockRow[], supplementalRows: ClockRow[]) {
+  const merged = new Map<string, ClockRow>();
+  baseRows.forEach((row, index) => merged.set(attendanceRowKey(row) || `base:${index}`, row));
+  supplementalRows.forEach((row, index) => {
+    const key = attendanceRowKey(row) || `supplemental:${index}`;
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, row);
+      return;
+    }
+    merged.set(key, {
+      ...current,
+      ...Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")),
+      // Una celda vacía en la plantilla complementaria no debe eliminar una
+      // marcación real que ya vino de GeoVictoria.
+      entrada: row.entrada?.trim() || current.entrada || "",
+      salida: row.salida?.trim() || current.salida || "",
+      relevoUsado: row.relevoUsado ?? current.relevoUsado,
+    });
+  });
+  return Array.from(merged.values());
 }
 
 async function readSnapshot(operationalDate: string, contractor: string, accessToken: string): Promise<AttendanceSnapshot | NextResponse | null> {

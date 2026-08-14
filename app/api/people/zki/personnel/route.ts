@@ -4,7 +4,8 @@ import { normalizeContractorName } from "../../../../lib/contractors";
 import { readServerCache } from "../../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
 
-type Person = { id: string; name: string; role: "RR" | "Conductor" | "Auxiliar"; available: boolean; contractor: string };
+type Person = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor: string; minimumClients?: number; maximumClients?: number };
+type PersonProfile = { available?: boolean; minimumClients?: number; maximumClients?: number };
 
 export async function GET() {
   const session = await getAuthenticatedSession();
@@ -17,7 +18,7 @@ export async function GET() {
   ]);
   if (!peopleResponse.ok) return NextResponse.json({ error: await supabaseError(peopleResponse) }, { status: peopleResponse.status });
   const people = await peopleResponse.json() as Record<string, unknown>[];
-  const profiles = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: { available?: boolean } }> : [];
+  const profiles = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: PersonProfile }> : [];
   const externalAttendanceCounts = new Map<string, number>();
   attendances.forEach((row) => {
     const contractor = normalizeContractorName(row.contractor);
@@ -25,15 +26,18 @@ export async function GET() {
     if (!id || !contractor || contractor === "logisticos") return;
     externalAttendanceCounts.set(id, (externalAttendanceCounts.get(id) || 0) + 1);
   });
-  const availability = new Map(profiles.map((row) => [row.profile_id.replace("zki-person:", ""), row.data?.available !== false]));
+  const profileById = new Map(profiles.map((row) => [row.profile_id.replace("zki-person:", ""), row.data || {}]));
   const logisticsPeople = people
     .map(toPerson)
     .filter((person): person is Person => Boolean(person))
     .filter((person) => normalizeContractorName(person.contractor) === "logisticos")
-    .filter((person) => person.role !== "RR" || (externalAttendanceCounts.get(person.id) || 0) < 2);
+    .filter((person) => !["RR", "Líder de Ruta"].includes(person.role) || (externalAttendanceCounts.get(person.id) || 0) < 2);
   const uniquePeople = [...new Map(logisticsPeople.map((person) => [person.id, person])).values()];
   const records = uniquePeople
-    .map((person) => ({ ...person, available: availability.get(person.id) ?? true }));
+    .map((person) => {
+      const profile = profileById.get(person.id);
+      return { ...person, available: profile?.available !== false, minimumClients: profile?.minimumClients, maximumClients: profile?.maximumClients };
+    });
   return NextResponse.json({ records });
 }
 
@@ -61,7 +65,12 @@ export async function PUT(request: Request) {
   const id = String(person.id || "").replace(/\D/g, "");
   if (!id) return NextResponse.json({ error: "La cédula es obligatoria." }, { status: 400 });
   const headers = supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
-  const response = await fetch(supabaseRest("people_profiles", "?on_conflict=profile_id"), { method: "POST", headers, body: JSON.stringify({ profile_id: `zki-person:${id}`, contractor: person.contractor || "People", cc: id, data: { available: person.available !== false }, updated_at: new Date().toISOString() }), cache: "no-store" });
+  const hasRange = Number.isFinite(person.minimumClients) && Number.isFinite(person.maximumClients);
+  const minimumClients = hasRange ? Math.max(0, Number(person.minimumClients)) : undefined;
+  const maximumClients = hasRange ? Math.max(Number(minimumClients), Number(person.maximumClients)) : undefined;
+  const data: PersonProfile = { available: person.available !== false };
+  if (hasRange) Object.assign(data, { minimumClients, maximumClients });
+  const response = await fetch(supabaseRest("people_profiles", "?on_conflict=profile_id"), { method: "POST", headers, body: JSON.stringify({ profile_id: `zki-person:${id}`, contractor: person.contractor || "People", cc: id, data, updated_at: new Date().toISOString() }), cache: "no-store" });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
   return NextResponse.json({ ok: true });
 }
@@ -94,7 +103,15 @@ export async function DELETE(request: Request) {
 
 function toPerson(row: Record<string, unknown>): Person | null {
   const roleText = normalize(String(row.CARGO || ""));
-  const role = roleText.includes("conductor") ? "Conductor" : roleText.includes("auxiliar") ? "Auxiliar" : roleText === "rr" || roleText.includes("responsable") || roleText.includes("liderderuta") ? "RR" : null;
+  const role = roleText.includes("conductor")
+    ? "Conductor"
+    : roleText.includes("auxiliar")
+      ? "Auxiliar"
+      : roleText.includes("lider") && roleText.includes("ruta")
+        ? "Líder de Ruta"
+        : roleText === "rr" || roleText.includes("responsable")
+          ? "RR"
+          : null;
   const id = String(row.CC || "").replace(/\D/g, "");
   if (!role || !id) return null;
   return { id, name: String(row.NOMBRE || "Sin nombre"), role, available: true, contractor: String(row.CONTRATISTA || "") };

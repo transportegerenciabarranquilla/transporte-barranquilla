@@ -56,6 +56,8 @@ export type Candidate = {
   auxiliaryId: string;
   auxiliaryZki: number;
   totalZki: number;
+  previousClients?: number;
+  workloadAdjustment?: number;
   capacity: number;
   viable: boolean;
   hasKnowledge: boolean;
@@ -94,7 +96,7 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
     });
     return row;
   });
-  const weights = candidateMatrix.map((row) => row.map((candidate) => candidate ? candidate.totalZki + (candidate.viable ? 1_000 : 0) : 0));
+  const weights = candidateMatrix.map((row) => row.map((candidate) => candidate ? candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.viable ? 1_000 : 0) : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
   assignment.forEach((column, row) => {
@@ -138,10 +140,31 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     }
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     const habitualCapacity = capacities.get(habitualKey) || 0;
-    const habitualFits = habitualKey && !used.has(habitualKey) && habitualCapacity >= trip.weight;
-    const selected = habitualFits
-      ? { key: habitualKey, capacity: habitualCapacity }
-      : available.filter((item) => !used.has(item.key) && item.capacity >= trip.weight).sort((a, b) => a.capacity - b.capacity)[0];
+    // El conductor y su VH son una unidad fija. Un ZKI bajo puede cambiar al
+    // RR, pero nunca debe mover al conductor a otra placa.
+    if (habitualKey) {
+      const alreadyUsed = used.has(habitualKey);
+      if (!alreadyUsed) used.add(habitualKey);
+      const fits = habitualCapacity >= trip.weight && !alreadyUsed;
+      result.set(trip.id, {
+        ...recommendation,
+        vehicle: habitualKey.toUpperCase(),
+        capacity: habitualCapacity,
+        viable: recommendation.hasKnowledge && fits,
+        habitualVehicle: true,
+        reason: alreadyUsed
+          ? `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} aparece en más de un viaje.`
+          : !habitualCapacity
+            ? `Bloqueado: falta capacidad para el VH fijo ${habitualKey.toUpperCase()}; no se cambió al conductor.`
+            : habitualCapacity < trip.weight
+              ? `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} no soporta ${formatKg(trip.weight)}; no se cambió al conductor.`
+              : recommendation.zki < 80
+                ? "Viable con alerta: se conserva conductor y VH; se prioriza cambiar solamente el RR."
+                : recommendation.reason,
+      });
+      return;
+    }
+    const selected = available.filter((item) => !used.has(item.key) && item.capacity >= trip.weight).sort((a, b) => a.capacity - b.capacity)[0];
     if (!selected) {
       result.set(trip.id, { ...recommendation, vehicle: "Sin placa compatible", capacity: 0, viable: false, reason: `Bloqueado: no hay un vehículo disponible que soporte ${formatKg(trip.weight)} kg.` });
       return;
@@ -326,6 +349,7 @@ export function rankCandidates(
     const driverId = latest?.driverId || "";
     const vehicle = latest?.vehicle || visitIdentity?.vehicle || "Sin vehículo identificado";
     const capacity = capacities.get(normalizeVehicleKey(vehicle)) || 0;
+    const previousClients = Math.max(latest?.visited || 0, latest?.clients || 0);
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
     const viable = hasKnowledge && hasCapacity && trip.weight <= capacity;
@@ -344,6 +368,8 @@ export function rankCandidates(
       auxiliaryId: auxiliary.id,
       auxiliaryZki: auxiliary.zki,
       totalZki: Math.round((zki + auxiliary.zki) * 100) / 100,
+      previousClients,
+      workloadAdjustment: 0,
       capacity,
       viable,
       hasKnowledge,
@@ -363,7 +389,7 @@ export function rankCandidates(
     // una probabilidad útil. No se presenta como ZKI 0; la ruta queda marcada
     // sin historial si ningún RR conoce sus clientes.
     .filter((candidate) => candidate.hasKnowledge && candidate.zki > 0)
-    .sort((left, right) => Number(right.viable) - Number(left.viable) || right.totalZki - left.totalZki);
+    .sort((left, right) => Number(right.viable) - Number(left.viable) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
 }
 
 function bestAuxiliary(visits: ZkiVisit[], territoryClients: number, settings: ZkiSettings, responsibleKey: string) {

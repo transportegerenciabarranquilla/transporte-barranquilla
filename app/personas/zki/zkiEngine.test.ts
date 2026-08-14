@@ -9,13 +9,13 @@ test("interpreta las columnas operativas del Excel ZKI", () => {
   assert.equal(trip.clients, 20);
 });
 
-test("mueve la tripulación a otra placa cuando la habitual no soporta el peso", () => {
+test("mantiene conductor y VH juntos aunque la placa habitual no soporte el peso", () => {
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 9_500 }])[0];
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "VH-PEQUENO", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 8_000, viable: false, hasKnowledge: true, habitualVehicle: true, reason: "Sobrepeso" } satisfies Candidate;
   const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 8_000], ["grande", 10_000]])).get(trip.id);
-  assert.equal(assigned?.vehicle, "GRANDE");
+  assert.equal(assigned?.vehicle, "PEQUENO");
   assert.equal(assigned?.driver, "Conductor");
-  assert.equal(assigned?.viable, true);
+  assert.equal(assigned?.viable, false);
 });
 
 test("conserva la placa asignada del viaje y no toma otra del catálogo global", () => {
@@ -30,15 +30,15 @@ test("conserva la placa asignada del viaje y no toma otra del catálogo global",
   assert.equal(assigned?.viable, true);
 });
 
-test("descarta una placa asignada que no existe en la tabla de placas", () => {
+test("no cambia el VH histórico del conductor por una placa global", () => {
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000, "Placa Asignada": "NO-EXISTE" }])[0];
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "HISTORICA-FALSA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
   const assigned = assignCompatibleVehicles(
     [{ trip, recommendation: candidate }],
     new Map([["placareal", 9_000]]),
   ).get(trip.id);
-  assert.equal(assigned?.vehicle, "PLACAREAL");
-  assert.equal(assigned?.viable, true);
+  assert.equal(assigned?.vehicle, "HISTORICAFALSA");
+  assert.equal(assigned?.viable, false);
 });
 
 test("no interpreta el catálogo territorio-cliente como viajes", () => {

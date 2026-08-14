@@ -14,12 +14,14 @@ import {
   parseZkiVisits,
   rankCandidates,
   type Candidate,
+  type CrewHistory,
   type RawRow,
+  type Trip,
   type ZkiSettings,
 } from "./zkiEngine";
 
 type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
-type PersonnelRule = { id: string; name: string; role: "RR" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string };
+type PersonnelRule = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string; minimumClients?: number; maximumClients?: number };
 type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
 const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v2";
 
@@ -41,7 +43,7 @@ function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[
     (person.name && normalizePerson(person.name) === normalizePerson(name));
   // Un RR histórico no puede planearse si ya no pertenece al catálogo
   // vigente de Logísticos (el API depura ese catálogo con asistencias).
-  const activeResponsible = rules.some((person) => person.role === "RR" && person.available && matches(person, candidate.rrId, candidate.rr));
+  const activeResponsible = rules.some((person) => (person.role === "RR" || person.role === "Líder de Ruta") && person.available && matches(person, candidate.rrId, candidate.rr));
   const blocked = (id: string, name: string) => unavailable.some((person) => matches(person, id, name));
   return activeResponsible && !blocked(candidate.driverId, candidate.driver) && !blocked(candidate.auxiliaryId, candidate.auxiliary);
 }
@@ -68,6 +70,8 @@ export default function ZkiPage() {
   const [vehicleError, setVehicleError] = useState("");
   const [showAddPerson, setShowAddPerson] = useState(false);
   const [personnelSearch, setPersonnelSearch] = useState("");
+  const [personnelRole, setPersonnelRole] = useState<"Todos" | PersonnelRule["role"]>("Todos");
+  const [selectedPersonnelId, setSelectedPersonnelId] = useState("");
   const [personnelRules, setPersonnelRules] = useState<PersonnelRule[]>([]);
   const [personForm, setPersonForm] = useState({ id: "", name: "", role: "RR" as PersonnelRule["role"] });
 
@@ -150,22 +154,28 @@ export default function ZkiPage() {
   const vehicleContractors = useMemo(() => ["Todos", ...new Set(Object.values(vehicleAvailability).map((vehicle) => vehicle.contractor))], [vehicleAvailability]);
   const filteredPersonnel = useMemo(() => {
     const query = normalizePerson(personnelSearch);
-    if (!query) return personnelRules;
-    return personnelRules.filter((person) => normalizePerson(`${person.name} ${person.id} ${person.role}`).includes(query));
-  }, [personnelRules, personnelSearch]);
+    return personnelRules.filter((person) =>
+      (personnelRole === "Todos" || person.role === personnelRole) &&
+      (!query || normalizePerson(`${person.name} ${person.id} ${person.role}`).includes(query)),
+    );
+  }, [personnelRole, personnelRules, personnelSearch]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client);
-    const ranked = rankCandidates(trip, history, visits, clientCodes, capacities, settings).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
+    const ranked = applyPersonnelClientRanges(rankCandidates(trip, history, visits, clientCodes, capacities, settings), personnelRules, trip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
     return { trip, candidates: ranked };
   }), [capacities, history, personnelRules, settings, territoryClients, trips, visits]);
   const planning = useMemo(() => {
     const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })));
-    const basePlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({ trip, candidates: ranked, recommendation: assignments.get(trip.id) }));
+    const basePlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({
+      trip,
+      candidates: ranked,
+      recommendation: preserveDriverVehicle(trip, assignments.get(trip.id), history),
+    }));
     const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities);
     return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
-  }, [capacities, rankedPlanning]);
+  }, [capacities, history, rankedPlanning]);
   const candidates = useMemo(
-    () => activeTrip ? rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules)) : [],
+    () => activeTrip ? applyPersonnelClientRanges(rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings), personnelRules, activeTrip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules)) : [],
     [activeTrip, capacities, clientsForTrip, history, personnelRules, settings, visits],
   );
   const viable = candidates.filter((candidate) => candidate.viable);
@@ -304,6 +314,20 @@ export default function ZkiPage() {
     setMessage(`${person.name} quedó ${available ? "disponible" : "indisponible"} para la planeación.`);
   }
 
+  async function savePersonClientRange(person: PersonnelRule, minimumClients: number, maximumClients: number) {
+    const hasRange = Number.isFinite(minimumClients) && Number.isFinite(maximumClients);
+    const next = {
+      ...person,
+      minimumClients: hasRange ? Math.max(0, minimumClients) : undefined,
+      maximumClients: hasRange ? Math.max(minimumClients, maximumClients) : undefined,
+    };
+    const response = await fetch("/api/people/zki/personnel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "No se pudo guardar el rango de clientes."); return; }
+    setPersonnelRules((current) => current.map((item) => item.id === person.id ? next : item));
+    setMessage(hasRange ? `Rango de ${person.name} guardado: ${next.minimumClients} a ${next.maximumClients} clientes.` : `${person.name} quedó sin rango de clientes.`);
+  }
+
   async function removePerson(person: PersonnelRule) {
     if (!confirm(`¿Eliminar definitivamente a ${person.name} (CC ${person.id}) de la base de datos? Esta acción no se puede deshacer.`)) return;
     const response = await fetch(`/api/people/zki/personnel?id=${encodeURIComponent(person.id)}`, { method: "DELETE" });
@@ -402,7 +426,7 @@ export default function ZkiPage() {
                     <tr className={`border-b border-slate-200 align-middle transition hover:bg-cyan-50/70 ${index % 2 ? "bg-slate-50/70" : "bg-white"}`} key={trip.id}>
                       <td className="px-4 py-3.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#10283d] text-sm font-black text-white">{trip.territoryId}</span><p className="mt-1 max-w-24 truncate text-[10px] text-slate-400" title={trip.zone}>{trip.zone}</p></td>
                       <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{formatNumber(trip.weight)} kg</p><p className="mt-1 text-[10px] text-slate-500">Capacidad: {item?.capacity ? `${formatNumber(item.capacity)} kg` : "pendiente"}</p>{item?.capacity ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${trip.weight <= item.capacity ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, (trip.weight / item.capacity) * 100)}%` }} /></div> : null}</td>
-                      <td className="px-4 py-3.5"><p className="font-bold leading-5 text-[#10283d]">{item?.rr || "Sin historial suficiente"}</p>{item ? <ScoreBadge value={item.zki} /> : null}</td>
+                      <td className="px-4 py-3.5"><p className="font-bold leading-5 text-[#10283d]">{item?.rr || "Sin historial suficiente"}</p>{item ? <><ScoreBadge value={item.zki} /><p className="mt-1 text-[10px] font-semibold text-slate-500">Carga anterior: {item.previousClients || 0} clientes{item.workloadAdjustment ? ` · ajuste ${item.workloadAdjustment > 0 ? "+" : ""}${formatNumber(item.workloadAdjustment)}` : ""}</p></> : null}</td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.driver || "Sin conductor"}</p><span className="mt-1 inline-flex rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">{item?.vehicle || "Sin placa"}</span></td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.auxiliary || "Sin auxiliar"}</p>{item ? <ScoreBadge value={item.auxiliaryZki} /> : null}</td>
                       <td className="px-4 py-3.5 text-center">{item ? <span className={`inline-grid min-w-16 place-items-center rounded-xl px-3 py-2 text-base font-black ${item.totalZki >= 160 ? "bg-emerald-100 text-emerald-800" : item.totalZki >= 120 ? "bg-cyan-100 text-cyan-900" : "bg-amber-100 text-amber-800"}`}>{formatNumber(item.totalZki)}</span> : "—"}</td>
@@ -447,28 +471,36 @@ export default function ZkiPage() {
               <button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10" onClick={() => setShowPersonnel(false)} type="button"><X size={18} /></button>
             </header>
             <div className="border-b border-slate-200 bg-slate-50 p-4">
-              <div className="flex gap-2">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto]">
                 <label className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
                   <input className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setPersonnelSearch(event.target.value)} placeholder="Buscar por nombre, cédula o cargo" value={personnelSearch} />
                 </label>
+                <select aria-label="Filtrar personal por cargo" className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setPersonnelRole(event.target.value as "Todos" | PersonnelRule["role"])} value={personnelRole}><option>Todos</option><option>RR</option><option>Líder de Ruta</option><option>Conductor</option><option>Auxiliar</option></select>
                 <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-bold text-white hover:bg-cyan-800" onClick={() => setShowAddPerson((current) => !current)} type="button"><UserPlus size={16} />{showAddPerson ? "Cancelar" : "Nueva persona"}</button>
               </div>
               {showAddPerson ? <form className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[130px_1fr_130px_auto]" onSubmit={addPerson}>
                 <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, id: event.target.value })} placeholder="Cédula" value={personForm.id} />
                 <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} placeholder="Nombre completo" value={personForm.name} />
-                <select className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, role: event.target.value as PersonnelRule["role"] })} value={personForm.role}><option>RR</option><option>Conductor</option><option>Auxiliar</option></select>
+                <select className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, role: event.target.value as PersonnelRule["role"] })} value={personForm.role}><option>RR</option><option>Líder de Ruta</option><option>Conductor</option><option>Auxiliar</option></select>
                 <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-bold text-white" type="submit"><UserPlus size={15} />Agregar</button>
               </form> : null}
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-4">
               {filteredPersonnel.length ? <div className="space-y-2">{filteredPersonnel.map((person) => (
-                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-slate-200 p-3" key={person.id}>
-                  <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-800">{person.name}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{person.role} · {person.contractor || "Sin contratista"} · CC {person.id}</p></div>
-                  <button className={`rounded-full px-3 py-1.5 text-[10px] font-black ${person.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} onClick={() => void setPersonAvailability(person, !person.available)} type="button">{person.available ? "Disponible" : "Indisponible"}</button>
-                  <button aria-label={`Eliminar definitivamente a ${person.name}`} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" onClick={() => void removePerson(person)} title="Eliminar de la empresa" type="button"><Trash2 size={15} /></button>
+                <div className="rounded-xl border border-slate-200 p-3" key={person.id}>
+                  <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
+                    <button className="min-w-0 text-left" onClick={() => setSelectedPersonnelId((current) => current === person.id ? "" : person.id)} type="button"><p className="truncate text-sm font-bold text-slate-800">{person.name}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{person.role} · {person.contractor || "Sin contratista"} · CC {person.id} · {person.minimumClients !== undefined && person.maximumClients !== undefined ? `${person.minimumClients}–${person.maximumClients} clientes` : "Sin rango de clientes"}</p></button>
+                    <button className={`rounded-full px-3 py-1.5 text-[10px] font-black ${person.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} onClick={() => void setPersonAvailability(person, !person.available)} type="button">{person.available ? "Disponible" : "Indisponible"}</button>
+                    <button aria-label={`Eliminar definitivamente a ${person.name}`} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" onClick={() => void removePerson(person)} title="Eliminar de la empresa" type="button"><Trash2 size={15} /></button>
+                  </div>
+                  {selectedPersonnelId === person.id ? <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[1fr_1fr_auto]">
+                    <label className="text-[10px] font-bold uppercase text-slate-500">Clientes mínimos<input className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-3 text-sm" min="0" onChange={(event) => setPersonnelRules((current) => current.map((item) => item.id === person.id ? { ...item, minimumClients: event.target.value === "" ? undefined : Number(event.target.value) } : item))} placeholder="Sin límite" type="number" value={person.minimumClients ?? ""} /></label>
+                    <label className="text-[10px] font-bold uppercase text-slate-500">Clientes máximos<input className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-3 text-sm" min={person.minimumClients ?? 0} onChange={(event) => setPersonnelRules((current) => current.map((item) => item.id === person.id ? { ...item, maximumClients: event.target.value === "" ? undefined : Number(event.target.value) } : item))} placeholder="Sin límite" type="number" value={person.maximumClients ?? ""} /></label>
+                    <button className="h-9 self-end rounded-lg bg-cyan-700 px-4 text-xs font-bold text-white" onClick={() => void savePersonClientRange(person, person.minimumClients ?? Number.NaN, person.maximumClients ?? Number.NaN)} type="button">Guardar rango</button>
+                  </div> : null}
                 </div>
-              ))}</div> : <div className="grid min-h-40 place-items-center text-center text-sm text-slate-400">{personnelSearch ? "No se encontraron personas con esa búsqueda." : "No hay RR, conductores ni auxiliares en la base de datos."}</div>}
+              ))}</div> : <div className="grid min-h-40 place-items-center text-center text-sm text-slate-400">{personnelSearch || personnelRole !== "Todos" ? "No se encontraron personas con esos filtros." : "No hay RR, conductores ni auxiliares en la base de datos."}</div>}
             </div>
           </section>
         </div>
@@ -502,6 +534,34 @@ export default function ZkiPage() {
       ) : null}
     </main>
   );
+}
+
+function applyPersonnelClientRanges(candidates: Candidate[], rules: PersonnelRule[], tripClients: number) {
+  return candidates.flatMap((candidate) => {
+    const rule = rules.find((person) => person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, "") || normalizePerson(person.name) === normalizePerson(candidate.rr));
+    if (rule?.minimumClients === undefined || rule.maximumClients === undefined) return [{ ...candidate, workloadAdjustment: 0 }];
+    const minimum = rule.minimumClients;
+    const maximum = Math.max(minimum, rule.maximumClients);
+    if (tripClients < minimum || tripClients > maximum) return [];
+    const previous = candidate.previousClients || 0;
+    const loadFactor = maximum ? Math.max(0.5, tripClients / maximum) : 1;
+    const adjustment = previous > maximum
+      ? -Math.min(40, (previous - maximum) * 2 * loadFactor)
+      : previous > 0 && previous < minimum
+        ? Math.min(15, (minimum - previous) * loadFactor)
+        : 0;
+    return [{ ...candidate, workloadAdjustment: Math.round(adjustment * 100) / 100 }];
+  }).sort((left, right) => Number(right.viable) - Number(left.viable) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
+}
+
+function preserveDriverVehicle(trip: Trip, candidate: Candidate | undefined, history: CrewHistory[]) {
+  if (!candidate) return undefined;
+  const vehicleKey = normalizePerson(trip.assignedPlate || trip.vehicle || candidate.vehicle);
+  const crew = history
+    .filter((row) => vehicleKey && normalizePerson(row.vehicle) === vehicleKey)
+    .sort((left, right) => right.date.localeCompare(left.date))[0];
+  if (!crew) return candidate;
+  return { ...candidate, driver: crew.driver || candidate.driver, driverId: crew.driverId || candidate.driverId, vehicle: crew.vehicle || candidate.vehicle };
 }
 
 function CandidateRow({ candidate }: { candidate: Candidate }) {
