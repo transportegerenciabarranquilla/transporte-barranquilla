@@ -36,6 +36,7 @@ export type ZkiVisit = {
   driver: string;
   vehicle: string;
   role?: string;
+  count?: number;
 };
 
 export type TerritoryClient = { territoryId: string; client: string };
@@ -109,6 +110,32 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
   const result = new Map<string, Candidate>();
   [...plans].sort((a, b) => b.trip.weight - a.trip.weight).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
+    const assignedKey = normalizeVehicleKey(trip.assignedPlate);
+    // La placa del archivo solo es autoritativa si existe en el catálogo
+    // validado por el llamador (tabla `placas`). Una placa escrita en el Excel
+    // o heredada del historial nunca debe crear un vehículo nuevo de facto.
+    if (assignedKey && capacities.has(assignedKey)) {
+      const assignedCapacity = capacities.get(assignedKey) || 0;
+      const alreadyUsed = used.has(assignedKey);
+      if (!alreadyUsed) used.add(assignedKey);
+      const fits = assignedCapacity > 0 && assignedCapacity >= trip.weight && !alreadyUsed;
+      const reason = alreadyUsed
+        ? `Bloqueado: la placa asignada ${assignedKey.toUpperCase()} aparece en más de un viaje.`
+        : !assignedCapacity
+          ? `Bloqueado: no se encontró la capacidad de la placa asignada ${assignedKey.toUpperCase()}.`
+          : assignedCapacity < trip.weight
+            ? `Bloqueado: ${formatKg(trip.weight)} kg superan la capacidad de la placa asignada ${assignedKey.toUpperCase()} (${formatKg(assignedCapacity)} kg).`
+            : `Viable: conserva la placa asignada ${assignedKey.toUpperCase()} del archivo de planeación.`;
+      result.set(trip.id, {
+        ...recommendation,
+        vehicle: assignedKey.toUpperCase(),
+        capacity: assignedCapacity,
+        viable: fits,
+        habitualVehicle: assignedKey === normalizeVehicleKey(recommendation.vehicle),
+        reason,
+      });
+      return;
+    }
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     const habitualCapacity = capacities.get(habitualKey) || 0;
     const habitualFits = habitualKey && !used.has(habitualKey) && habitualCapacity >= trip.weight;
@@ -226,6 +253,7 @@ export function parseZkiVisits(rows: RawRow[]): ZkiVisit[] {
     driver: text(read(row, ["Conductor", "Nombre conductor", "nombreAuxiliar1"])),
     vehicle: text(read(row, ["Vehículo", "Vehiculo", "Placa"])),
     role: text(read(row, ["Cargo", "Rol", "Role"])),
+    count: Math.max(1, number(read(row, ["Visitas", "Cantidad", "Frecuencia"]))),
   })).filter((row) => {
     const role = normalize(row.role);
     return row.rr && row.client && (!role || role.includes("responsable") || role.includes("auxiliar"));
@@ -271,7 +299,7 @@ export function rankCandidates(
     const visitsByClient = new Map<string, number>();
     rrVisits.forEach((row) => {
       const client = normalize(row.client);
-      if (client) visitsByClient.set(client, (visitsByClient.get(client) || 0) + 1);
+      if (client) visitsByClient.set(client, (visitsByClient.get(client) || 0) + visitCount(row));
     });
     const uniqueVisited = visitsByClient.size;
     const territoryClients = Math.max(trip.clients, territoryClientSet.size);
@@ -279,7 +307,8 @@ export function rankCandidates(
     // La frecuencia mide la intensidad sobre los clientes que el RR sí conoce,
     // no sobre toda la población. Así, 5 visitas a 5 clientes dan frecuencia 1
     // aunque el territorio completo tenga 20 clientes.
-    const frequency = uniqueVisited > 0 ? round2(rrVisits.length / uniqueVisited) : 0;
+    const totalVisits = rrVisits.reduce((total, row) => total + visitCount(row), 0);
+    const frequency = uniqueVisited > 0 ? round2(totalVisits / uniqueVisited) : 0;
     const frequencyScore = clamp((frequency / Math.max(1, settings.frequencyCap)) * 100);
     const depthClients = Array.from(visitsByClient.values()).filter((count) => count >= settings.depthThreshold).length;
     // Profundidad: de los clientes únicos atendidos, qué porcentaje alcanzó el
@@ -349,11 +378,12 @@ function bestAuxiliary(visits: ZkiVisit[], territoryClients: number, settings: Z
     const byClient = new Map<string, number>();
     rows.forEach((row) => {
       const client = normalize(row.client);
-      if (client) byClient.set(client, (byClient.get(client) || 0) + 1);
+      if (client) byClient.set(client, (byClient.get(client) || 0) + visitCount(row));
     });
     const unique = byClient.size;
     const coverage = territoryClients > 0 ? clamp((unique / territoryClients) * 100) : 0;
-    const frequency = unique > 0 ? round2(rows.length / unique) : 0;
+    const totalVisits = rows.reduce((total, row) => total + visitCount(row), 0);
+    const frequency = unique > 0 ? round2(totalVisits / unique) : 0;
     const frequencyScore = clamp((frequency / Math.max(1, settings.frequencyCap)) * 100);
     const deep = Array.from(byClient.values()).filter((count) => count >= settings.depthThreshold).length;
     const depth = unique > 0 ? clamp((deep / unique) * 100) : 0;
@@ -369,6 +399,10 @@ function isResponsibleVisit(visit: ZkiVisit) {
 
 function isAuxiliaryVisit(visit: ZkiVisit) {
   return normalize(visit.role).includes("auxiliar");
+}
+
+function visitCount(visit: ZkiVisit) {
+  return Math.max(1, visit.count || 1);
 }
 
 export function capacityMap(rows: RawRow[]) {

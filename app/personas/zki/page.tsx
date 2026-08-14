@@ -21,7 +21,14 @@ import {
 type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
 type PersonnelRule = { id: string; name: string; role: "RR" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string };
 type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
-const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v1";
+const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v2";
+
+function isApiData(value: unknown): value is ApiData {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ApiData>;
+  return Array.isArray(candidate.rows) && Array.isArray(candidate.history) && Array.isArray(candidate.capacities)
+    && Boolean(candidate.source && typeof candidate.source.rows === "number");
+}
 
 function normalizePerson(value: unknown) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -29,8 +36,14 @@ function normalizePerson(value: unknown) {
 
 function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[]) {
   const unavailable = rules.filter((person) => !person.available);
-  const blocked = (id: string, name: string) => unavailable.some((person) => (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) || (person.name && normalizePerson(person.name) === normalizePerson(name)));
-  return !blocked(candidate.rrId, candidate.rr) && !blocked(candidate.driverId, candidate.driver) && !blocked(candidate.auxiliaryId, candidate.auxiliary);
+  const matches = (person: PersonnelRule, id: string, name: string) =>
+    (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) ||
+    (person.name && normalizePerson(person.name) === normalizePerson(name));
+  // Un RR histórico no puede planearse si ya no pertenece al catálogo
+  // vigente de Logísticos (el API depura ese catálogo con asistencias).
+  const activeResponsible = rules.some((person) => person.role === "RR" && person.available && matches(person, candidate.rrId, candidate.rr));
+  const blocked = (id: string, name: string) => unavailable.some((person) => matches(person, id, name));
+  return activeResponsible && !blocked(candidate.driverId, candidate.driver) && !blocked(candidate.auxiliaryId, candidate.auxiliary);
 }
 
 export default function ZkiPage() {
@@ -86,7 +99,8 @@ export default function ZkiPage() {
       const response = await fetch(`/api/people/zki${forceRefresh ? "?refresh=1" : ""}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo cargar ZKI.");
-      setData(body as ApiData);
+      if (!isApiData(body)) throw new Error("La respuesta de ZKI está incompleta. Actualiza nuevamente.");
+      setData(body);
       try { sessionStorage.setItem(ZKI_BROWSER_CACHE_KEY, JSON.stringify(body)); } catch { /* La caché es opcional. */ }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo cargar ZKI.");
@@ -99,10 +113,14 @@ export default function ZkiPage() {
     try {
       const cached = sessionStorage.getItem(ZKI_BROWSER_CACHE_KEY);
       if (cached) {
-        setData(JSON.parse(cached) as ApiData);
-        setLoading(false);
-        void load(false, true);
-        return;
+        const parsed = JSON.parse(cached) as unknown;
+        if (isApiData(parsed)) {
+          setData(parsed);
+          setLoading(false);
+          void load(false, true);
+          return;
+        }
+        sessionStorage.removeItem(ZKI_BROWSER_CACHE_KEY);
       }
     } catch { /* Si la copia local falla, se consulta normalmente. */ }
     void load();
@@ -119,12 +137,12 @@ export default function ZkiPage() {
   );
   const allCapacities = useMemo(() => capacityMap([...(data?.capacities || []), ...(data?.history || []), ...planningRows]), [data?.capacities, data?.history, planningRows]);
   const capacities = useMemo(() => {
-    const result = new Map(allCapacities);
-    Object.values(vehicleAvailability).forEach((vehicle) => { if (vehicle.capacity > 0) result.set(vehicle.plate, vehicle.capacity); });
-    return new Map([...result].filter(([plate]) => {
-      const vehicle = vehicleAvailability[plate];
-      return !vehicle || (vehicle.available && vehicle.useInZki);
-    }));
+    // La tabla `placas`, representada por vehicleAvailability, es la lista
+    // blanca. Historial, capacidad_carga y el Excel solo aportan capacidad;
+    // nunca pueden incorporar por sí solos una placa a la planeación.
+    return new Map(Object.values(vehicleAvailability)
+      .filter((vehicle) => vehicle.available && vehicle.useInZki)
+      .map((vehicle) => [vehicle.plate, vehicle.capacity || allCapacities.get(vehicle.plate) || 0]));
   }, [allCapacities, vehicleAvailability]);
   const filteredVehicles = useMemo(() => Object.values(vehicleAvailability)
     .map((vehicle) => ({ ...vehicle, capacity: vehicle.capacity || allCapacities.get(vehicle.plate) || 0 }))
@@ -152,6 +170,7 @@ export default function ZkiPage() {
   );
   const viable = candidates.filter((candidate) => candidate.viable);
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
+  const source = data?.source;
 
   async function upload(file?: File) {
     if (!file) return;
@@ -318,8 +337,8 @@ export default function ZkiPage() {
       <section className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-5 sm:px-8">
         {error ? <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertTriangle className="shrink-0" size={19} /><span>{error}</span></div> : null}
         {message ? <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800"><CheckCircle2 size={19} />{message}</div> : null}
-        {data?.source.rows === 0 ? <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900"><p className="font-bold">La consulta autenticada recibió 0 filas de la tabla ZKI.</p><p className="mt-1 text-xs leading-5">Supabase puede mostrar registros en el editor y aun así ocultarlos a la aplicación por RLS. Ejecuta <code className="rounded bg-red-100 px-1">supabase/zki_access.sql</code> en el SQL Editor y luego pulsa Actualizar.</p></div> : null}
-        {data && data.source.rows > 0 && visits.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><p className="font-bold">ZKI contiene {formatNumber(data.source.rows)} filas, pero no se reconocieron las columnas cliente–RR.</p><p className="mt-1 text-xs">Columnas recibidas: {(data.source.columns || []).join(", ") || "sin columnas detectables"}.</p></div> : null}
+        {source?.rows === 0 ? <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900"><p className="font-bold">La consulta autenticada recibió 0 filas de la tabla ZKI.</p><p className="mt-1 text-xs leading-5">Supabase puede mostrar registros en el editor y aun así ocultarlos a la aplicación por RLS. Ejecuta <code className="rounded bg-red-100 px-1">supabase/zki_access.sql</code> en el SQL Editor y luego pulsa Actualizar.</p></div> : null}
+        {source && source.rows > 0 && visits.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><p className="font-bold">ZKI contiene {formatNumber(source.rows)} filas, pero no se reconocieron las columnas cliente–RR.</p><p className="mt-1 text-xs">Columnas recibidas: {(source.columns || []).join(", ") || "sin columnas detectables"}.</p></div> : null}
 
         <section className="rounded-xl border border-slate-300 bg-white shadow-sm">
           <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">

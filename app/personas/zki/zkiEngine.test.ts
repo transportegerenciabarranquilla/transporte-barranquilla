@@ -18,6 +18,29 @@ test("mueve la tripulación a otra placa cuando la habitual no soporta el peso",
   assert.equal(assigned?.viable, true);
 });
 
+test("conserva la placa asignada del viaje y no toma otra del catálogo global", () => {
+  const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000, "Placa Asignada": "COVE-L558" }])[0];
+  const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "PLACA-EXTERNA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
+  const assigned = assignCompatibleVehicles(
+    [{ trip, recommendation: candidate }],
+    new Map([["covel558", 9_000], ["placaexterna", 10_000], ["otraexterna", 12_000]]),
+  ).get(trip.id);
+  assert.equal(assigned?.vehicle, "COVEL558");
+  assert.equal(assigned?.capacity, 9_000);
+  assert.equal(assigned?.viable, true);
+});
+
+test("descarta una placa asignada que no existe en la tabla de placas", () => {
+  const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000, "Placa Asignada": "NO-EXISTE" }])[0];
+  const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "HISTORICA-FALSA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
+  const assigned = assignCompatibleVehicles(
+    [{ trip, recommendation: candidate }],
+    new Map([["placareal", 9_000]]),
+  ).get(trip.id);
+  assert.equal(assigned?.vehicle, "PLACAREAL");
+  assert.equal(assigned?.viable, true);
+});
+
 test("no interpreta el catálogo territorio-cliente como viajes", () => {
   const trips = parseTrips([{ "id territory": 1, "Codigos de cliente": 13994953 }]);
   assert.equal(trips.length, 0);
@@ -41,6 +64,19 @@ test("interpreta Codigo y Nombre de la tabla histórica ZKI", () => {
   assert.equal(visits[0].client, "12518871");
   assert.equal(visits[0].rr, "RR Ejemplo");
   assert.equal(visits[0].rrId, "1010083985");
+  assert.equal(visits[0].count, 1);
+});
+
+test("calcula frecuencia y profundidad desde el histórico compactado", () => {
+  const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 2, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
+  const history = parseCrewHistory([{ nombreResponsable: "RR Uno", vehiculo: "VH-1" }]);
+  const visits = parseZkiVisits([
+    { Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 5 },
+    { Codigo: 101, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 1 },
+  ]);
+  const [candidate] = rankCandidates(trip, history, visits, ["100", "101"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
+  assert.equal(candidate.frequency, 3);
+  assert.equal(candidate.depth, 50);
 });
 
 test("omite cargos distintos de Responsable en el histórico ZKI", () => {
