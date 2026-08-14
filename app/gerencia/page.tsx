@@ -1036,10 +1036,13 @@ function canonicalCargo(value: unknown) {
   const cargo = normalizeText(value);
   if (cargo.includes("conductor")) return "Conductor";
   if (cargo.includes("auxiliar") && (cargo.includes("reparto") || cargo.includes("rr"))) return "Auxiliar de Reparto";
+  // Los líderes deben conservar su propio grupo. Como el tablero se arma con
+  // personas deduplicadas por cédula, moverlos aquí los descuenta del grupo RR
+  // sin sumarlos nuevamente al total general.
+  if (cargo.includes("lider") && cargo.includes("ruta")) return "Líderes de Ruta";
   if (
     (cargo.includes("responsable") && (cargo.includes("reparto") || cargo.includes("ruta") || cargo.includes("rr"))) ||
     cargo === "rr" ||
-    cargo.includes("liderderuta") ||
     (cargo.includes("coordinador") && cargo.includes("ruta"))
   ) return "Responsable de Ruta";
   return "";

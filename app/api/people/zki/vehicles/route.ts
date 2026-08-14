@@ -23,12 +23,12 @@ export async function GET() {
   const profileRows = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: { available?: boolean; useInZki?: boolean; logistics?: boolean } }> : [];
   const statuses = new Map(profileRows.map((row) => [row.profile_id.replace("zki-vehicle:", ""), { available: row.data?.available !== false, useInZki: row.data?.useInZki ?? row.data?.logistics ?? false }]));
   const capacityEntries = capacityRows.map((row): [string, number] => [
-    normalizePlate(read(row, ["Tractor", "Placa Asignada", "placa", "vehiculo", "vehicle", "plate", "vh"])),
+    normalizePlate(read(row, ["placa", "Placa Asignada", "vehiculo", "vehicle", "plate", "vh", "Tractor"])),
     readNumber(row, ["Peso Máximo", "Peso Maximo", "Peso máximo kg", "Capacidad peso", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "peso", "carga"]),
   ]).filter(([plate]) => Boolean(plate));
   const capacities = new Map<string, number>(capacityEntries);
   const vehicleEntries = plateRows.map((row): [string, { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean }] => {
-    const plate = normalizePlate(read(row, ["Tractor", "placa", "vehiculo", "vehicle", "plate", "vh"]));
+    const plate = normalizePlate(read(row, ["placa", "vehiculo", "vehicle", "plate", "vh", "Tractor"]));
     const contractor = contractorLabel(read(row, ["Nombre 1", "transportista", "transportadora", "contratista", "empresa", "carrier"]));
     const plateCapacity = readNumber(row, ["Capacidad de carga", "Capacidad", "capacidad_carga", "Peso Máximo", "Peso Maximo", "Peso"]);
     const saved = statuses.get(plate);
@@ -63,7 +63,13 @@ function read(row: Record<string, unknown>, aliases: string[]) {
   return "";
 }
 function readNumber(row: Record<string, unknown>, aliases: string[]) { const value = Number(read(row, aliases).replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "")); return Number.isFinite(value) ? value : 0; }
-function normalizePlate(value: unknown) { return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^vh/, ""); }
+function normalizePlate(value: unknown) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^vh/, "");
+  // En SAP, Tractor suele venir como CO + placa (p. ej. COJTX435).
+  // El prefijo identifica el equipo, pero no forma parte de la matrícula.
+  const withoutEquipmentPrefix = /^co[a-z]{3}\d{3}$/.test(raw) ? raw.slice(2) : raw;
+  return /^[a-z]{3}\d{3}$/.test(withoutEquipmentPrefix) ? withoutEquipmentPrefix : "";
+}
 function contractorLabel(value: string) {
   const key = normalizeContractorName(value);
   if (key.includes("logistic") || key.includes("logisticaintegral")) return "Logisticos";

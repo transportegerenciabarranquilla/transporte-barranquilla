@@ -23,9 +23,9 @@ test("conserva la placa asignada del viaje y no toma otra del catálogo global",
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "PLACA-EXTERNA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
   const assigned = assignCompatibleVehicles(
     [{ trip, recommendation: candidate }],
-    new Map([["covel558", 9_000], ["placaexterna", 10_000], ["otraexterna", 12_000]]),
+    new Map([["vel558", 9_000], ["placaexterna", 10_000], ["otraexterna", 12_000]]),
   ).get(trip.id);
-  assert.equal(assigned?.vehicle, "COVEL558");
+  assert.equal(assigned?.vehicle, "VEL558");
   assert.equal(assigned?.capacity, 9_000);
   assert.equal(assigned?.viable, true);
 });

@@ -419,7 +419,8 @@ export function capacityMap(rows: RawRow[]) {
 }
 
 function normalizeVehicleKey(value: unknown) {
-  return normalize(value).replace(/^vh/, "");
+  const raw = normalize(value).replace(/^vh/, "");
+  return /^co[a-z]{3}\d{3}$/.test(raw) ? raw.slice(2) : raw;
 }
 
 export function read(row: RawRow, aliases: string[]) {
