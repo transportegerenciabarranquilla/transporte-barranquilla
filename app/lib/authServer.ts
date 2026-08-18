@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
-import { contractorForEmail, isAdminEmail, isPeopleEmail } from "./contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
+import { readSecurityState } from "./securityState";
+import { supabaseUserHeaders } from "./supabaseServer";
 
 export const ACCESS_COOKIE = "bavaria_access_token";
 export const REFRESH_COOKIE = "bavaria_refresh_token";
@@ -14,7 +16,7 @@ type SupabaseRefreshResponse = {
   user?: SupabaseUser;
 };
 
-export async function getAuthenticatedSession() {
+export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean } = {}) {
   const cookieStore = await cookies();
   let accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
@@ -41,7 +43,12 @@ export async function getAuthenticatedSession() {
 
   const email = user.email?.toLowerCase() || "";
   const contractor = contractorForEmail(email);
-  return contractor && user.id ? { accessToken, userId: user.id, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) } : null;
+  if (!contractor || !user.id) return null;
+  if (!options.allowDuringLockdown && !isSecurityOwnerEmail(email)) {
+    const security = await readSecurityState(supabaseUserHeaders(accessToken));
+    if (security.state.active) return null;
+  }
+  return { accessToken, userId: user.id, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) };
 }
 
 async function fetchSupabaseUser(supabaseKey: string, accessToken: string) {

@@ -7,11 +7,17 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
 };
 
 export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
+export const SECURITY_OWNER_EMAIL = "saul808c@gmail.com";
 export const PEOPLE_EMAIL = "people@transporte.com";
 export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
 
 export function isAdminEmail(email: string | null | undefined) {
-  return email?.trim().toLowerCase() === ADMIN_EMAIL;
+  const normalized = email?.trim().toLowerCase();
+  return normalized === ADMIN_EMAIL || normalized === SECURITY_OWNER_EMAIL;
+}
+
+export function isSecurityOwnerEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === SECURITY_OWNER_EMAIL;
 }
 
 export function isPeopleEmail(email: string | null | undefined) {

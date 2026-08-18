@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
-import { contractorForEmail, isAdminEmail, isPeopleEmail } from "../../../lib/contractors";
-import { requireSupabaseKey, SUPABASE_URL } from "../../../lib/supabaseServer";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "../../../lib/contractors";
+import { readSecurityState } from "../../../lib/securityState";
+import { requireSupabaseKey, SUPABASE_URL, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type LoginResponse = { access_token?: string; refresh_token?: string; expires_in?: number; user?: { email?: string }; error_description?: string; msg?: string };
 
@@ -21,6 +22,10 @@ export async function POST(request: Request) {
   const body = (await authResponse.json().catch(() => ({}))) as LoginResponse;
   if (!authResponse.ok || !body.access_token) {
     return NextResponse.json({ error: body.error_description || body.msg || "Correo o contraseña incorrectos." }, { status: 401 });
+  }
+  const security = await readSecurityState(supabaseUserHeaders(body.access_token));
+  if (security.state.active && !isSecurityOwnerEmail(normalizedEmail)) {
+    return NextResponse.json({ error: "La plataforma se encuentra en mantenimiento de seguridad." }, { status: 423 });
   }
 
   const response = NextResponse.json({
