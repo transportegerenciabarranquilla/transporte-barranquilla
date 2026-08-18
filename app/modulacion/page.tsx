@@ -440,9 +440,6 @@ export default function ModulacionPage() {
             onClose={() => setSelectedRegistroId(null)}
             registro={registroSeleccionado}
             selectedVehicle={vehiculoSeleccionado}
-            telefonoCliente={registroSeleccionado.telefonoCliente || telefonosCliente[registroSeleccionado.codigoCliente] || ""}
-            telefonoJefeComercial={registroSeleccionado.telefonoJefeComercial || telefonosJefeComercial[registroSeleccionado.codigoCliente] || ""}
-            telefonoPreventista={registroSeleccionado.telefonoPreventista || telefonosPreventista[registroSeleccionado.codigoCliente] || ""}
             preventistaNombre={registroSeleccionado.preventistaNombre || nombresPreventista[registroSeleccionado.codigoCliente] || ""}
           />
         ) : null}
@@ -753,9 +750,6 @@ function ModulacionDetailModal({
   onClose,
   registro,
   selectedVehicle,
-  telefonoCliente,
-  telefonoJefeComercial,
-  telefonoPreventista,
   preventistaNombre,
   onChangeGestionadas,
   onCommitGestionadas,
@@ -765,9 +759,6 @@ function ModulacionDetailModal({
   onClose: () => void;
   registro: ModulacionRegistro;
   selectedVehicle: Vehiculo | null;
-  telefonoCliente: string;
-  telefonoJefeComercial: string;
-  telefonoPreventista: string;
   preventistaNombre: string;
   gestionadasDraft?: string;
   onChangeGestionadas: (id: string, value: string) => void;
@@ -844,13 +835,10 @@ function ModulacionDetailModal({
               <DetailTile label="Datos del cliente">
                 <p className="text-base font-bold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</p>
                 <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Codigo del cliente {registro.codigoCliente}</p>
-                <DetailLine label="Telefono" value={telefonoCliente || "-"} />
               </DetailTile>
               <DetailTile label="Datos de ventas">
                 <DetailLine label="Jefe" value={registro.jefeComercial || "-"} />
-                <DetailLine label="Tel. jefe" value={telefonoJefeComercial || "-"} />
                 <DetailLine label="Preventista" value={preventistaNombre || registro.preventista || "-"} />
-                <DetailLine label="Tel. preventista" value={telefonoPreventista || "-"} />
               </DetailTile>
               <DetailTile label="Ruta">
                 <DetailLine label="DT" value={registro.dt} />
