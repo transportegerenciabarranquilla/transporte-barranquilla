@@ -13,6 +13,7 @@ export default function ComplaintsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [access, setAccess] = useState<Access>("checking");
   const [canUploadComplaints, setCanUploadComplaints] = useState(false);
+  const [isAdminSession, setIsAdminSession] = useState(false);
   const [records, setRecords] = useState<ComplaintRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -28,7 +29,8 @@ export default function ComplaintsPage() {
       const body = await response.json().catch(() => ({}));
       const contractor = String(body?.session?.contractor || "");
       setAccess(response.ok && (body?.session?.isAdmin || isComplaintsContractor(contractor)) ? "allowed" : "denied");
-      setCanUploadComplaints(response.ok && (body?.session?.isAdmin || normalizeContractorName(contractor) === "logisticos"));
+      setCanUploadComplaints(response.ok && !body?.session?.isAdmin && normalizeContractorName(contractor) === "logisticos");
+      setIsAdminSession(response.ok && Boolean(body?.session?.isAdmin));
     }).catch(() => setAccess("denied"));
   }, []);
 
@@ -129,7 +131,7 @@ export default function ComplaintsPage() {
 
       <section className="mx-auto max-w-[1500px] space-y-5 px-5 py-6 sm:px-8">
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{canUploadComplaints ? "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos." : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las tres transportistas." : canUploadComplaints ? "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos." : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
           {canUploadComplaints ? <div className="flex flex-wrap gap-2">
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => void downloadTemplate()} type="button"><Download size={16} />Descargar plantilla</button>
             <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadFile(event.target.files?.[0])} ref={inputRef} type="file" />
@@ -140,13 +142,13 @@ export default function ComplaintsPage() {
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{message}</p> : null}
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p> : null}
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        {!isAdminSession ? <div className="grid gap-3 sm:grid-cols-3">
           <Metric icon={<MessageSquareWarning />} label="Quejas acumuladas" value={records.length} />
           <Metric icon={<Users />} label="Cruzadas con tripulacion" value={records.filter((record) => record.matched).length} />
           <Metric icon={<FileSpreadsheet />} label="Sin coincidencia" value={records.filter((record) => !record.matched).length} />
-        </div>
+        </div> : null}
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {isAdminSession ? <ComplaintAdminCharts now={now} records={records} /> : <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black text-[#10223d]">Quejas cargadas</h2><p className="text-xs text-slate-500">{visible.length} registros visibles</p></div><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar DT, pedido, placa o persona" value={query} /></div>
           <div className="max-h-[650px] overflow-auto">
             <table className="w-full min-w-[1250px] text-left text-xs">
@@ -155,7 +157,7 @@ export default function ComplaintsPage() {
             </table>
             {!loading && !visible.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
           </div>
-        </section>
+        </section>}
       </section>
       {selected ? <ComplaintModal busy={evidenceBusy} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onUpload={(file) => void uploadEvidence(file)} /> : null}
     </main>
@@ -199,6 +201,92 @@ async function fillEstablishmentsFromClientCodes<T extends { code: unknown; esta
   });
 }
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><span className="grid h-11 w-11 place-items-center rounded-xl bg-red-50 text-red-700">{icon}</span><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="text-2xl font-black text-[#10223d]">{value.toLocaleString("es-CO")}</p></div></article>; }
+
+function ComplaintAdminCharts({ now, records }: { now: number; records: ComplaintRecord[] }) {
+  const contractors = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const groups = contractors.map((contractor) => ({
+    contractor,
+    records: records.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(contractor)),
+  }));
+  const operationalRecords = groups.flatMap((group) => group.records);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-5">
+        <p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Indicadores de cierre</p>
+        <h2 className="mt-1 text-xl font-black text-[#10223d]">Cumplimiento de quejas por transportista</h2>
+        <p className="mt-1 text-xs text-slate-500">Porcentaje de quejas cerradas sobre el total asignado.</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {groups.map((group) => <ComplaintDonut key={group.contractor} label={group.contractor} records={group.records} />)}
+        <ComplaintDonut general label="General · 3 transportistas" records={operationalRecords} />
+      </div>
+      <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-blue-700">Control de tiempos</p><h3 className="mt-1 text-lg font-black text-[#10223d]">Quejas activas por vencimiento</h3><p className="mt-1 text-xs text-slate-500">Distribucion de casos abiertos según su plazo operativo.</p></div>
+          <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider"><span className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-700">Dentro del plazo</span><span className="rounded-full bg-red-100 px-3 py-1.5 text-red-700">Plazo vencido</span></div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead className="bg-[#10223d] text-[10px] uppercase tracking-[.12em] text-white">
+              <tr><th className="px-5 py-3.5">Transportista</th><th className="px-4 py-3.5 text-center">Activas</th><th className="px-4 py-3.5 text-center">Dentro de 48 horas</th><th className="px-4 py-3.5 text-center">Pasadas de 48 horas</th><th className="w-56 px-5 py-3.5">Distribucion</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {groups.map((group) => <ComplaintDeadlineRow key={group.contractor} label={group.contractor} now={now} records={group.records} />)}
+              <ComplaintDeadlineRow general label="General" now={now} records={operationalRecords} />
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComplaintDeadlineRow({ general = false, label, now, records }: { general?: boolean; label: string; now: number; records: ComplaintRecord[] }) {
+  const active = records.filter((record) => !normalizeText(record.status).includes("cerrad") && !["future", "invalid"].includes(record.closingTime));
+  const withinWindow = active.filter((record) => {
+    const deadline = new Date(record.closingTime).getTime();
+    return Number.isFinite(deadline) && deadline > now;
+  }).length;
+  const overdue = active.filter((record) => record.closingTime === "expired" || (Number.isFinite(new Date(record.closingTime).getTime()) && new Date(record.closingTime).getTime() <= now)).length;
+  const percentage = (value: number) => active.length ? Math.round((value / active.length) * 100) : 0;
+
+  return (
+    <tr className={general ? "border-t-2 border-slate-300 bg-slate-100 font-black text-[#10223d]" : "bg-white transition hover:bg-slate-50"}>
+      <td className="px-5 py-4"><div className="flex items-center gap-3"><span className={`h-9 w-1.5 rounded-full ${general ? "bg-[#10223d]" : "bg-blue-500"}`} /><div><p className="font-black">{label}</p><p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Seguimiento de SLA</p></div></div></td>
+      <td className="px-4 py-4 text-center"><b className="text-2xl text-blue-700">{active.length}</b><span className="block text-[10px] font-bold uppercase text-slate-400">casos</span></td>
+      <td className="px-4 py-4 text-center"><b className="text-xl text-emerald-600">{withinWindow}</b><span className="block text-[10px] font-bold text-emerald-700">{percentage(withinWindow)}%</span></td>
+      <td className="px-4 py-4 text-center"><b className="text-xl text-red-600">{overdue}</b><span className="block text-[10px] font-bold text-red-700">{percentage(overdue)}%</span></td>
+      <td className="px-5 py-4"><div className="flex h-3 overflow-hidden rounded-full bg-slate-200" title={`${withinWindow} en plazo · ${overdue} vencidas`}><span className="bg-emerald-500" style={{ width: `${percentage(withinWindow)}%` }} /><span className="bg-red-500" style={{ width: `${percentage(overdue)}%` }} /></div><p className="mt-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-slate-400">100% de activas</p></td>
+    </tr>
+  );
+}
+
+function ComplaintDonut({ general = false, label, records }: { general?: boolean; label: string; records: ComplaintRecord[] }) {
+  const closed = records.filter((record) => normalizeText(record.status).includes("cerrad")).length;
+  const total = records.length;
+  const open = Math.max(total - closed, 0);
+  const percentage = total ? Math.round((closed / total) * 100) : 0;
+  const color = general ? "#10223d" : percentage >= 80 ? "#047857" : percentage >= 50 ? "#d97706" : "#dc2626";
+
+  return (
+    <article className={`rounded-2xl border p-4 ${general ? "border-slate-800 bg-slate-950 text-white" : "border-slate-200 bg-slate-50 text-[#10223d]"}`}>
+      <p className={`text-xs font-black uppercase tracking-[.12em] ${general ? "text-cyan-300" : "text-slate-600"}`}>{label}</p>
+      <div className="mt-4 flex items-center gap-4">
+        <div className="relative grid h-28 w-28 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${color} ${percentage}%, ${general ? "#334155" : "#e2e8f0"} 0)` }}>
+          <div className={`grid h-20 w-20 place-items-center rounded-full ${general ? "bg-slate-950" : "bg-white"}`}>
+            <span className="text-2xl font-black">{percentage}%</span>
+          </div>
+        </div>
+        <div className="min-w-0 space-y-2 text-sm">
+          <p><b className="text-lg">{total}</b><span className={general ? " text-slate-400" : " text-slate-500"}> quejas</span></p>
+          <p className="font-bold text-emerald-600">{closed} cerradas</p>
+          <p className="font-bold text-red-500">{open} abiertas</p>
+        </div>
+      </div>
+    </article>
+  );
+}
 function ClosingCountdown({ deadline, now, status }: { deadline: string; now: number; status: string }) {
   if (normalizeText(status).includes("cerrad")) return <span className="rounded-md bg-emerald-100 px-2 py-1 font-black text-emerald-700">Cerrada</span>;
   if (deadline === "expired") return <span className="inline-block rounded-md bg-red-100 px-2 py-1 font-black leading-4 text-red-700">Plazo vencido<br />Sin cerrar</span>;
