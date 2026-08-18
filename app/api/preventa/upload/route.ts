@@ -9,7 +9,7 @@ const TABLE = "preventa_clientes";
 const ALLOWED = ["logisticos"];
 const aliases = {
   code: ["cliente", "codigo cliente", "codigo del cliente", "codigo", "cod cliente", "customer code"],
-  name: ["nombre cliente", "nombre del cliente", "nombre", "razon social"],
+  name: ["nombre cliente", "nombre del cliente", "nombre", "razon social", "nombre del establecimiento", "establecimiento"],
   phone: ["telefono", "numero de telefono", "telefono cliente", "celular", "phone"],
   refusals: ["rechazos", "veces rechazado", "cantidad rechazos", "numero de rechazos", "rechazos anteriores", "refusal"],
 };
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       if (!code) return;
       const key = code.toLowerCase();
       const current = grouped.get(key) || { name: String(item[columns.name!] ?? "").trim(), phone: String(columns.phone ? item[columns.phone] : clientHistory.get(key)?.phone || "").trim(), products: [] };
-      current.products.push({ order: readCell(item, headers, ["documento"]), customer_order: readCell(item, headers, ["no ped cliente", "pedido cliente"]), material: readCell(item, headers, ["material"]), product: readCell(item, headers, ["material 1", "producto", "descripcion material"]), boxes: readNumber(item, headers, ["cajas"]), hectoliters: readNumber(item, headers, ["hectolitro", "hectolitros"]), net_value: readNumber(item, headers, ["valor neto"]), gross_weight: readNumber(item, headers, ["peso bruto"]) });
+      current.products.push({ order: readCell(item, headers, ["documento"]), customer_order: readCell(item, headers, ["no ped cli", "no ped cliente", "pedido cliente"]), material: readCell(item, headers, ["material"]), product: readCell(item, headers, ["material 1", "producto", "descripcion material"]), boxes: readNumber(item, headers, ["cajas"]), hectoliters: readNumber(item, headers, ["hectolitro", "hectolitros"]), net_value: readNumber(item, headers, ["valor neto"]), gross_weight: readNumber(item, headers, ["peso bruto"]) });
       grouped.set(key, current);
     });
     const rows = Array.from(grouped.entries()).map(([key, client]) => ({ contractor, batch_id: batchId, batch_name: file.name, client_code: key, client_name: client.name, phone: client.phone, previous_refusals: clientHistory.get(key)?.refusals || 0, products: mergeProductLines(client.products) }));

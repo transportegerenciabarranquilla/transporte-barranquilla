@@ -110,6 +110,28 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
   const available = Array.from(capacities, ([key, capacity]) => ({ key, capacity })).filter((item) => item.capacity > 0);
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
+  const assignFallback = (trip: Trip, recommendation: Candidate, reason: string): Candidate => {
+    const selected = available
+      .filter((item) => !used.has(item.key) && item.capacity >= trip.weight)
+      .sort((a, b) => a.capacity - b.capacity)[0];
+    if (!selected) return {
+      ...recommendation,
+      vehicle: "Sin placa disponible",
+      capacity: 0,
+      viable: false,
+      habitualVehicle: false,
+      reason: `${reason} No queda otra placa disponible que soporte ${formatKg(trip.weight)} kg.`,
+    };
+    used.add(selected.key);
+    return {
+      ...recommendation,
+      vehicle: selected.key.toUpperCase(),
+      capacity: selected.capacity,
+      viable: recommendation.hasKnowledge,
+      habitualVehicle: false,
+      reason: `${reason} Se asignó ${selected.key.toUpperCase()} (${formatKg(selected.capacity)} kg) sin cambiar la tripulación.`,
+    };
+  };
   [...plans].sort((a, b) => b.trip.weight - a.trip.weight).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate);
@@ -120,14 +142,7 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
       const assignedCapacity = capacities.get(assignedKey) || 0;
       const alreadyUsed = used.has(assignedKey);
       if (alreadyUsed) {
-        result.set(trip.id, {
-          ...recommendation,
-          vehicle: "Sin placa disponible",
-          capacity: 0,
-          viable: false,
-          habitualVehicle: false,
-          reason: `Bloqueado: la placa asignada ${assignedKey.toUpperCase()} ya fue utilizada en otro viaje.`,
-        });
+        result.set(trip.id, assignFallback(trip, recommendation, `La placa asignada ${assignedKey.toUpperCase()} ya fue utilizada en otro viaje.`));
         return;
       }
       used.add(assignedKey);
@@ -154,26 +169,12 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     // solo puede volver a la planeación si sigue en el catálogo disponible.
     if (habitualKey) {
       if (!capacities.has(habitualKey)) {
-        result.set(trip.id, {
-          ...recommendation,
-          vehicle: "Sin placa disponible",
-          capacity: 0,
-          viable: false,
-          habitualVehicle: false,
-          reason: `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} está marcado como indisponible o fuera de la planeación.`,
-        });
+        result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación.`));
         return;
       }
       const alreadyUsed = used.has(habitualKey);
       if (alreadyUsed) {
-        result.set(trip.id, {
-          ...recommendation,
-          vehicle: "Sin placa disponible",
-          capacity: 0,
-          viable: false,
-          habitualVehicle: false,
-          reason: `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} ya fue utilizado en otro viaje.`,
-        });
+        result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} ya fue utilizado en otro viaje.`));
         return;
       }
       used.add(habitualKey);

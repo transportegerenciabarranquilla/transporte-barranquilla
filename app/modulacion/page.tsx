@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ClipboardList, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
 import {
@@ -36,6 +36,7 @@ export default function ModulacionPage() {
   const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
   const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
   const [gestionadasDrafts, setGestionadasDrafts] = useState<Record<string, string>>({});
+  const requestedClienteCodes = useRef(new Set<string>());
 
   const vehiculosSeguimiento = useMemo(
     () => mergeVehiclesByDt(seguimientoVehiculos, getVehiculosSeguimiento()),
@@ -68,7 +69,7 @@ export default function ModulacionPage() {
   const registrosFiltrados = useMemo(() => {
     return registros
       .filter((registro) => !selectedContractor || registro.contratista === selectedContractor)
-      .filter((registro) => !selectedDate || getLocalDateKey(new Date(registro.createdAt)) === selectedDate)
+      .filter((registro) => !selectedDate || getRegistroDateKey(registro) === selectedDate)
       .filter((registro) => {
         const term = search.trim().toLowerCase();
         if (!term) return true;
@@ -97,19 +98,12 @@ export default function ModulacionPage() {
   }, [registroSeleccionado, vehiculosSeguimiento]);
 
   useEffect(() => {
-    if (
-      !registroSeleccionado?.codigoCliente ||
-      (registroSeleccionado.telefonoCliente && registroSeleccionado.telefonoJefeComercial && registroSeleccionado.telefonoPreventista && registroSeleccionado.preventistaNombre) ||
-      (telefonosCliente[registroSeleccionado.codigoCliente] &&
-        telefonosJefeComercial[registroSeleccionado.codigoCliente] &&
-        telefonosPreventista[registroSeleccionado.codigoCliente] &&
-        nombresPreventista[registroSeleccionado.codigoCliente])
-    ) {
-      return;
-    }
+    const codigoCliente = registroSeleccionado?.codigoCliente;
+    if (!codigoCliente || requestedClienteCodes.current.has(codigoCliente)) return;
+    requestedClienteCodes.current.add(codigoCliente);
 
     const controller = new AbortController();
-    fetch(`/api/clientes?codigo=${encodeURIComponent(registroSeleccionado.codigoCliente)}`, {
+    fetch(`/api/clientes?codigo=${encodeURIComponent(codigoCliente)}`, {
       cache: "no-store",
       signal: controller.signal,
     })
@@ -120,15 +114,15 @@ export default function ModulacionPage() {
         const telefonoJefe = body.cliente?.telefonoJefeComercial || "";
         const telefonoPreventista = body.cliente?.telefonoPreventista || "";
         const preventistaNombre = body.cliente?.preventistaNombre || "";
-        if (telefono) setTelefonosCliente((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefono }));
-        if (telefonoJefe) setTelefonosJefeComercial((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefonoJefe }));
-        if (telefonoPreventista) setTelefonosPreventista((current) => ({ ...current, [registroSeleccionado.codigoCliente]: telefonoPreventista }));
-        if (preventistaNombre) setNombresPreventista((current) => ({ ...current, [registroSeleccionado.codigoCliente]: preventistaNombre }));
+        if (telefono) setTelefonosCliente((current) => ({ ...current, [codigoCliente]: telefono }));
+        if (telefonoJefe) setTelefonosJefeComercial((current) => ({ ...current, [codigoCliente]: telefonoJefe }));
+        if (telefonoPreventista) setTelefonosPreventista((current) => ({ ...current, [codigoCliente]: telefonoPreventista }));
+        if (preventistaNombre) setNombresPreventista((current) => ({ ...current, [codigoCliente]: preventistaNombre }));
       })
-      .catch(() => undefined);
+      .catch(() => requestedClienteCodes.current.delete(codigoCliente));
 
     return () => controller.abort();
-  }, [nombresPreventista, registroSeleccionado, telefonosCliente, telefonosJefeComercial, telefonosPreventista]);
+  }, [registroSeleccionado]);
 
   function updateCajasGestionadasDraft(id: string, value: string) {
     setGestionadasDrafts((current) => ({ ...current, [id]: value.replace(/\D/g, "") }));
@@ -792,15 +786,11 @@ function ModulacionDetailModal({
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#e9f3ff] text-[#10223d]">
               <PackageCheck size={20} />
             </span>
-            <div className="[&>h2:nth-of-type(2)]:hidden">
+            <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f7c58]">Detalle de modulacion</p>
               <h2 className="mt-1 text-xl font-semibold leading-tight text-[#10223d]">{registro.nombreCliente || "Cliente sin nombre"}</h2>
               <p className="mt-0.5 text-sm font-semibold text-slate-500">
-                Cliente {registro.codigoCliente} - DT {registro.dt} - Placa {selectedVehicle?.vehiculo || "-"}
-              </p>
-              <h2 className="mt-1 text-lg font-semibold text-[#10223d]">DT {registro.dt} · Cliente {registro.codigoCliente}</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {formatDate(registro.createdAt)} · {formatTime(registro.createdAt)}
+                Placa {selectedVehicle?.vehiculo || "-"}
               </p>
             </div>
           </div>
@@ -841,7 +831,6 @@ function ModulacionDetailModal({
                 <DetailLine label="Preventista" value={preventistaNombre || registro.preventista || "-"} />
               </DetailTile>
               <DetailTile label="Ruta">
-                <DetailLine label="DT" value={registro.dt} />
                 <DetailLine label="Placa" value={selectedVehicle?.vehiculo || "-"} />
                 <DetailLine label="Contratista" value={registro.contratista || selectedVehicle?.transportista || "-"} />
               </DetailTile>

@@ -80,6 +80,15 @@ const presaleModule: PortalModule = {
   accent: "border-l-[#7c3aed]",
 };
 
+const complaintsModule: PortalModule = {
+  id: 15,
+  title: "Quejas",
+  href: "/quejas",
+  detail: "Carga, cruce por DT y tripulacion",
+  tone: "from-[#b91c1c] to-[#f97316]",
+  accent: "border-l-[#b91c1c]",
+};
+
 const peopleDelaysModule: PortalModule = {
   id: 7,
   title: "Atrasos",
@@ -155,11 +164,11 @@ export function getVisiblePortalModules({
   if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule, peopleZkiModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
-    return [{ ...baseModules[0], href: "/admin" }, managementModule, adminRangoModule, peopleAttendanceModule, ...adminModules];
+    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, peopleAttendanceModule, ...adminModules];
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = normalizeContractorName(contractor) === "logisticos";
-  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule] : []), rangoModule, dailyControlModule] : baseModules;
+  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule, complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {

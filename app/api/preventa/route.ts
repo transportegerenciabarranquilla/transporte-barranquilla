@@ -7,22 +7,30 @@ const TABLE = "preventa_clientes";
 const MODULATIONS_TABLE = "modulaciones_ruta";
 const ALLOWED = ["logisticos"];
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin || !ALLOWED.includes(normalizeContractorName(session.contractor))) return NextResponse.json({ error: "Preventa esta disponible solo para Logisticos." }, { status: 403 });
+    const search = new URL(request.url).searchParams;
+    const from = validDate(search.get("from")) || "";
+    const to = validDate(search.get("to")) || from;
+    if (from && to && from > to) return NextResponse.json({ error: "El rango de fechas no es válido." }, { status: 400 });
     const params = new URLSearchParams({ select: "*", order: "created_at.desc,previous_refusals.desc" });
     if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
+    if (from) params.set("created_at", `gte.${from}T00:00:00-05:00`);
+    if (to) params.append("created_at", `lt.${nextDate(to)}T00:00:00-05:00`);
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const response = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const records = await response.json() as Array<Record<string, unknown>>;
-    const offenders = await readModulationOffenders(headers, session.isAdmin ? undefined : session.contractor);
-    const refusalByClient = new Map(offenders.map((row) => [`${normalizeContractorName(row.contractor)}:${row.client_code.toLowerCase()}`, row.refusals]));
+    // El rango selecciona las plantillas cargadas. El ranking siempre usa todo
+    // el histórico de Modulación de las tres contratistas.
+    const offenders = await readModulationOffenders(headers);
+    const refusalByClient = new Map(offenders.map((row) => [row.client_code.toLowerCase(), row.refusals]));
     const enrichedRecords = records.map((row) => ({
       ...row,
-      previous_refusals: refusalByClient.get(`${normalizeContractorName(String(row.contractor || ""))}:${String(row.client_code || "").trim().toLowerCase()}`) || 0,
+      previous_refusals: refusalByClient.get(String(row.client_code || "").trim().toLowerCase()) || 0,
     }));
     return NextResponse.json({ records: enrichedRecords, offenders, isAdmin: session.isAdmin });
   } catch (error) {
@@ -32,27 +40,39 @@ export async function GET() {
 
 type ModulationClient = { contractor?: string; client_code?: string; client_name?: string; phone?: string; total_boxes?: string | number };
 
-async function readModulationOffenders(headers: Record<string, string>, contractor?: string) {
-  const totals = new Map<string, { contractor: string; client_code: string; client_name: string; phone: string; refusals: number; rejected_boxes: number }>();
+async function readModulationOffenders(headers: Record<string, string>) {
+  const totals = new Map<string, { contractor: string; client_code: string; client_name: string; phone: string; refusals: number; rejected_boxes: number; events: Array<{ date: string; contractor: string; boxes: number }> }>();
   const pageSize = 1_000;
   for (let offset = 0; ; offset += pageSize) {
-    const params = new URLSearchParams({ select: "contractor,client_code:data->>codigoCliente,client_name:data->>nombreCliente,phone:data->>telefonoCliente,total_boxes:data->>totalCajas", limit: String(pageSize), offset: String(offset) });
-    if (contractor) params.set("contractor", `eq.${contractor}`);
+    const params = new URLSearchParams({ select: "contractor,client_code:data->>codigoCliente,client_name:data->>nombreCliente,phone:data->>telefonoCliente,total_boxes:data->>totalCajas,dispatch_date:data->>fechaDespacho,dt_date:data->>fechaDt,record_date:data->>createdAt", limit: String(pageSize), offset: String(offset) });
     const response = await fetch(supabaseRest(MODULATIONS_TABLE, `?${params}`), { headers, cache: "no-store" });
     if (!response.ok) throw new Error(await supabaseError(response));
-    const page = await response.json() as ModulationClient[];
+    const page = await response.json() as Array<ModulationClient & { dispatch_date?: string; dt_date?: string; record_date?: string }>;
     page.forEach((row) => {
       const code = String(row.client_code || "").trim();
-      const rowContractor = String(row.contractor || contractor || "").trim();
+      const rowContractor = String(row.contractor || "").trim();
       if (!code || !rowContractor) return;
-      const key = `${normalizeContractorName(rowContractor)}:${code.toLowerCase()}`;
+      const key = code.toLowerCase();
       const current = totals.get(key);
-      totals.set(key, { contractor: rowContractor, client_code: code, client_name: String(row.client_name || current?.client_name || "").trim(), phone: String(row.phone || current?.phone || "").trim(), refusals: (current?.refusals || 0) + 1, rejected_boxes: (current?.rejected_boxes || 0) + readNumber(row.total_boxes) });
+      const contractors = new Set([...(current?.contractor || "").split(" / ").filter(Boolean), rowContractor]);
+      const boxes = readNumber(row.total_boxes);
+      const date = modulationDate(row.dispatch_date || row.dt_date || row.record_date);
+      totals.set(key, { contractor: Array.from(contractors).join(" / "), client_code: code, client_name: String(row.client_name || current?.client_name || "").trim(), phone: String(row.phone || current?.phone || "").trim(), refusals: (current?.refusals || 0) + 1, rejected_boxes: (current?.rejected_boxes || 0) + boxes, events: [...(current?.events || []), { date, contractor: rowContractor, boxes }] });
     });
     if (page.length < pageSize) break;
   }
-  return Array.from(totals.values()).sort((a, b) => b.refusals - a.refusals);
+  return Array.from(totals.values()).map((row) => ({ ...row, events: row.events.sort((a, b) => b.date.localeCompare(a.date)) })).sort((a, b) => b.refusals - a.refusals || b.rejected_boxes - a.rejected_boxes);
 }
+
+function modulationDate(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  return match ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}` : "Sin fecha";
+}
+
+function validDate(value: string | null) { return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ""; }
+function nextDate(value: string) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
 
 function readNumber(value: unknown) {
   const text = String(value ?? "").trim().replace(/\s/g, "");

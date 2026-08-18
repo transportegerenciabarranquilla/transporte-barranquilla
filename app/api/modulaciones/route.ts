@@ -9,6 +9,7 @@ import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeade
 const TABLE = "modulaciones_ruta";
 const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
 const LIST_CACHE_TTL_MS = 45_000;
+const LIST_PAGE_SIZE = 1_000;
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
 const LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
@@ -23,13 +24,22 @@ export async function GET() {
         ? { select: LIST_SELECT, order: "updated_at.desc" }
         : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
-    const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<ModulacionListRow[]>(
-      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
-      LIST_CACHE_TTL_MS,
-      url,
-      { headers: supabaseReadHeaders(session.accessToken) },
-    );
+    const rows: ModulacionListRow[] = [];
+    const headers = supabaseReadHeaders(session.accessToken);
+    for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
+      const pageParams = new URLSearchParams(params);
+      pageParams.set("limit", String(LIST_PAGE_SIZE));
+      pageParams.set("offset", String(offset));
+      const url = supabaseRest(TABLE, `?${pageParams.toString()}`);
+      const page = await cachedJsonFetch<ModulacionListRow[]>(
+        `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${offset}:${url}`,
+        LIST_CACHE_TTL_MS,
+        url,
+        { headers },
+      );
+      rows.push(...page);
+      if (page.length < LIST_PAGE_SIZE) break;
+    }
     return NextResponse.json({
       records: rows.map((row) => fromListRow(row)),
     });

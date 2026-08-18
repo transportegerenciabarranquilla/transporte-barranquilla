@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BarChart3, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, Trash2, Truck, X } from "lucide-react";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
+import { ComplaintsNotificationAlert } from "./components/ComplaintsNotificationAlert";
+import type { ComplaintRecord } from "../lib/complaints";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
 import { SeguimientoHero } from "./components/SeguimientoHero";
 import { VehicleDrawer } from "./components/VehicleDrawer";
@@ -70,6 +72,8 @@ export default function SeguimientoPage() {
   const [deleteCandidateKey, setDeleteCandidateKey] = useState<string | null>(null);
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
+  const [complaints, setComplaints] = useState<ComplaintRecord[]>([]);
+  const [complaintsDismissed, setComplaintsDismissed] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [dateLabel, setDateLabel] = useState("");
   const pendingLocalSaveRef = useRef(false);
@@ -199,15 +203,26 @@ export default function SeguimientoPage() {
     void refreshRemoteRecords("/api/asistencias");
     void refreshRemoteRecords("/api/modulaciones");
     void refreshRemoteRecords("/api/checkins");
+    void loadComplaints();
     const interval = window.setInterval(() => {
       void refreshRemoteRecords("/api/seguimiento", { force: true });
       void refreshRemoteRecords("/api/asistencias");
       void refreshRemoteRecords("/api/modulaciones");
       void refreshRemoteRecords("/api/checkins");
+      void loadComplaints();
     }, DATA_REFRESH_MS);
 
     return () => window.clearInterval(interval);
   }, []);
+
+  async function loadComplaints() {
+    const response = await fetch("/api/complaints", { cache: "no-store" });
+    if (!response.ok) return;
+    const body = await response.json().catch(() => ({}));
+    setComplaints(Array.isArray(body.records) ? body.records : []);
+  }
+
+  useEffect(() => { setComplaintsDismissed(false); }, [complaints.length]);
 
   useEffect(() => {
     if (!latestModulacionId) return;
@@ -637,6 +652,7 @@ export default function SeguimientoPage() {
         <SeguimientoHero resumen={resumen} brand={brand} />
 
         <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
+        {!complaintsDismissed ? <ComplaintsNotificationAlert complaints={complaints} onClose={() => setComplaintsDismissed(true)} /> : null}
 
         <div className="relative z-40 mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
           <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 transition hover:border-amber-300 hover:bg-amber-50/45">
