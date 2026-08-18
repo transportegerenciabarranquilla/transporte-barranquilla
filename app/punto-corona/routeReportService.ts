@@ -28,6 +28,10 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
   const rows: PuntoCoronaRouteRow[] = [];
   rawRows.forEach((row) => {
     const routeRow = mapRouteRow(row);
+    // Los exportes de BEES pueden incluir recorridos de varios dias. El
+    // reporte visible debe contener unicamente la fecha operativa elegida;
+    // de lo contrario, la primera fila antigua termina mezclada con hoy.
+    if (routeRow.tourDate && routeRow.tourDate !== operationalDate) return;
     const routeDt = normalizeDt(routeRow.dt);
     const vehicle = seguimientoByDt.get(routeDt);
     if (vehicle) rows.push(mergeRouteWithSeguimiento(routeRow, vehicle, routeDt));
@@ -374,9 +378,14 @@ function percentage(value: number, total: number) {
   return total ? Number(((value / total) * 100).toFixed(2)) : 0;
 }
 
-function getOperationalDate(rows: Record<string, unknown>[]) {
-  const date = rows.map((row) => String(row.tour_date ?? "")).find(Boolean);
-  return toDateKey(date || "");
+export function getOperationalDate(rows: Record<string, unknown>[]) {
+  // El archivo llega ordenado por rutas, no necesariamente por fecha. Se
+  // escoge la fecha mas reciente en vez de la primera celda no vacia.
+  return rows
+    .map((row) => toDateKey(String(row.tour_date ?? "")))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || "";
 }
 
 function toDateKey(value: string) {

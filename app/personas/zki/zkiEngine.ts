@@ -119,11 +119,20 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     if (assignedKey && capacities.has(assignedKey)) {
       const assignedCapacity = capacities.get(assignedKey) || 0;
       const alreadyUsed = used.has(assignedKey);
-      if (!alreadyUsed) used.add(assignedKey);
-      const fits = assignedCapacity > 0 && assignedCapacity >= trip.weight && !alreadyUsed;
-      const reason = alreadyUsed
-        ? `Bloqueado: la placa asignada ${assignedKey.toUpperCase()} aparece en más de un viaje.`
-        : !assignedCapacity
+      if (alreadyUsed) {
+        result.set(trip.id, {
+          ...recommendation,
+          vehicle: "Sin placa disponible",
+          capacity: 0,
+          viable: false,
+          habitualVehicle: false,
+          reason: `Bloqueado: la placa asignada ${assignedKey.toUpperCase()} ya fue utilizada en otro viaje.`,
+        });
+        return;
+      }
+      used.add(assignedKey);
+      const fits = assignedCapacity > 0 && assignedCapacity >= trip.weight;
+      const reason = !assignedCapacity
           ? `Bloqueado: no se encontró la capacidad de la placa asignada ${assignedKey.toUpperCase()}.`
           : assignedCapacity < trip.weight
             ? `Bloqueado: ${formatKg(trip.weight)} kg superan la capacidad de la placa asignada ${assignedKey.toUpperCase()} (${formatKg(assignedCapacity)} kg).`
@@ -141,20 +150,41 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     const habitualCapacity = capacities.get(habitualKey) || 0;
     // El conductor y su VH son una unidad fija. Un ZKI bajo puede cambiar al
-    // RR, pero nunca debe mover al conductor a otra placa.
+    // RR, pero nunca debe mover al conductor a otra placa. El VH histórico
+    // solo puede volver a la planeación si sigue en el catálogo disponible.
     if (habitualKey) {
+      if (!capacities.has(habitualKey)) {
+        result.set(trip.id, {
+          ...recommendation,
+          vehicle: "Sin placa disponible",
+          capacity: 0,
+          viable: false,
+          habitualVehicle: false,
+          reason: `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} está marcado como indisponible o fuera de la planeación.`,
+        });
+        return;
+      }
       const alreadyUsed = used.has(habitualKey);
-      if (!alreadyUsed) used.add(habitualKey);
-      const fits = habitualCapacity >= trip.weight && !alreadyUsed;
+      if (alreadyUsed) {
+        result.set(trip.id, {
+          ...recommendation,
+          vehicle: "Sin placa disponible",
+          capacity: 0,
+          viable: false,
+          habitualVehicle: false,
+          reason: `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} ya fue utilizado en otro viaje.`,
+        });
+        return;
+      }
+      used.add(habitualKey);
+      const fits = habitualCapacity >= trip.weight;
       result.set(trip.id, {
         ...recommendation,
         vehicle: habitualKey.toUpperCase(),
         capacity: habitualCapacity,
         viable: recommendation.hasKnowledge && fits,
         habitualVehicle: true,
-        reason: alreadyUsed
-          ? `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} aparece en más de un viaje.`
-          : !habitualCapacity
+        reason: !habitualCapacity
             ? `Bloqueado: falta capacidad para el VH fijo ${habitualKey.toUpperCase()}; no se cambió al conductor.`
             : habitualCapacity < trip.weight
               ? `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} no soporta ${formatKg(trip.weight)}; no se cambió al conductor.`

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowLeft,
+  ArrowUpDown,
   CheckCircle2,
   FileDown,
   FileSpreadsheet,
@@ -959,6 +960,24 @@ function Charts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; 
 
 function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const crews = report.summary.crews;
+  const [sort, setSort] = useState<{ column: "delivery" | "modulation"; order: "asc" | "desc" } | null>(null);
+  const rows = useMemo(() => {
+    const values = crews.map((crew) => ({ crew, modulationStats: getCrewModulationStats(report, crew, modulaciones) }));
+    if (!sort) return values;
+    return values.sort((left, right) => {
+      const leftValue = sort.column === "delivery" ? left.crew.deliveryRangePercent : left.modulationStats.percent;
+      const rightValue = sort.column === "delivery" ? right.crew.deliveryRangePercent : right.modulationStats.percent;
+      const difference = leftValue - rightValue;
+      return sort.order === "asc" ? difference : -difference;
+    });
+  }, [crews, modulaciones, report, sort]);
+
+  function toggleSort(column: "delivery" | "modulation") {
+    setSort((current) => ({
+      column,
+      order: current?.column === column && current.order === "desc" ? "asc" : "desc",
+    }));
+  }
 
   return (
     <div className="data-shell rounded-lg">
@@ -978,17 +997,43 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
               <th className="w-20 px-2 py-1.5 text-right">Iniciadas</th>
               <th className="w-20 px-2 py-1.5 text-right">En rango</th>
               <th className="w-20 px-2 py-1.5 text-right">Fuera</th>
-              <th className="w-24 px-2 py-1.5 text-right">% entrega</th>
+              <th className="w-24 px-2 py-1.5 text-right">
+                <span className="inline-flex items-center justify-end gap-1">
+                  % entrega
+                  <button
+                    aria-label="Ordenar por porcentaje de entrega"
+                    aria-pressed={sort?.column === "delivery"}
+                    className={`inline-grid h-4 w-4 place-items-center rounded transition hover:bg-slate-200 hover:text-slate-700 ${sort?.column === "delivery" ? "text-cyan-300" : "text-slate-500"}`}
+                    onClick={() => toggleSort("delivery")}
+                    title={sort?.column === "delivery" && sort.order === "desc" ? "Menor entrega primero" : "Mayor entrega primero"}
+                    type="button"
+                  >
+                    <ArrowUpDown size={10} />
+                  </button>
+                </span>
+              </th>
               <th className="w-24 px-2 py-1.5 text-right">Moduladas</th>
               <th className="w-36 px-2 py-1.5 text-right">Causales</th>
-              <th className="w-24 px-2 py-1.5 text-right">% mod.</th>
+              <th className="w-24 px-2 py-1.5 text-right">
+                <span className="inline-flex items-center justify-end gap-1">
+                  % mod.
+                  <button
+                    aria-label="Ordenar por porcentaje de modulación"
+                    aria-pressed={sort?.column === "modulation"}
+                    className={`inline-grid h-4 w-4 place-items-center rounded transition hover:bg-slate-200 hover:text-slate-700 ${sort?.column === "modulation" ? "text-cyan-300" : "text-slate-500"}`}
+                    onClick={() => toggleSort("modulation")}
+                    title={sort?.column === "modulation" && sort.order === "desc" ? "Menor modulación primero" : "Mayor modulación primero"}
+                    type="button"
+                  >
+                    <ArrowUpDown size={10} />
+                  </button>
+                </span>
+              </th>
               <th className="w-32 px-2 py-1.5 text-right">Avance seg.</th>
             </tr>
           </thead>
           <tbody>
-            {crews.map((crew) => {
-              const modulationStats = getCrewModulationStats(report, crew, modulaciones);
-
+            {rows.map(({ crew, modulationStats }) => {
               return (
                 <tr key={crew.key}>
                   <td className="px-2 py-1">

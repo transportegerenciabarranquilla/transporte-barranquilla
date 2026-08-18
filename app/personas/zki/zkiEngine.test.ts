@@ -30,15 +30,31 @@ test("conserva la placa asignada del viaje y no toma otra del catálogo global",
   assert.equal(assigned?.viable, true);
 });
 
-test("no cambia el VH histórico del conductor por una placa global", () => {
+test("excluye el VH histórico si está indisponible y no lo cambia por una placa global", () => {
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000, "Placa Asignada": "NO-EXISTE" }])[0];
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "HISTORICA-FALSA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
   const assigned = assignCompatibleVehicles(
     [{ trip, recommendation: candidate }],
     new Map([["placareal", 9_000]]),
   ).get(trip.id);
-  assert.equal(assigned?.vehicle, "HISTORICAFALSA");
+  assert.equal(assigned?.vehicle, "Sin placa disponible");
   assert.equal(assigned?.viable, false);
+  assert.match(assigned?.reason || "", /indisponible/);
+});
+
+test("no repite una placa asignada en dos viajes", () => {
+  const trips = parseTrips([
+    { Número: 1, Nombre: "Zona 1", Peso: 8_000, "Placa Asignada": "VEL588" },
+    { Número: 2, Nombre: "Zona 2", Peso: 7_000, "Placa Asignada": "VEL588" },
+  ]);
+  const candidate = fakeCandidate("RR 1", 100);
+  const assigned = assignCompatibleVehicles(
+    trips.map((trip) => ({ trip, recommendation: { ...candidate } })),
+    new Map([["vel588", 9_000]]),
+  );
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "VEL588");
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "Sin placa disponible");
+  assert.match(assigned.get(trips[1].id)?.reason || "", /ya fue utilizada/);
 });
 
 test("no interpreta el catálogo territorio-cliente como viajes", () => {
