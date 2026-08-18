@@ -34,14 +34,13 @@ export default function AuditoriaAdminPage() {
 
   const visibleRecords = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return records;
-
-    return records.filter((record) => {
+    const filtered = !term ? records : records.filter((record) => {
       const details = JSON.stringify(record.details || {});
       return `${record.contractor} ${record.userEmail} ${record.device} ${record.ipAddress} ${record.recordId} ${details}`
         .toLowerCase()
         .includes(term);
     });
+    return [...filtered].sort((left, right) => Number(right.action === "seguimiento_eliminado") - Number(left.action === "seguimiento_eliminado"));
   }, [records, search]);
 
   async function loadAuditLogs() {
@@ -98,6 +97,13 @@ export default function AuditoriaAdminPage() {
         </div>
 
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
+
+        {visibleRecords.some((record) => record.action === "seguimiento_eliminado") ? (
+          <div className="mb-5 rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em]">Prioridad alta</p>
+            <p className="mt-1 font-semibold">Hay DT eliminados en los resultados. Se muestran primero para revision administrativa.</p>
+          </div>
+        ) : null}
 
         <div className="mb-5 grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm lg:grid-cols-[1fr_1fr_1fr_1.2fr]">
           <label className="text-sm font-semibold text-[#10223d]">
@@ -160,10 +166,10 @@ export default function AuditoriaAdminPage() {
               <tbody className="divide-y divide-slate-100">
                 {visibleRecords.length ? (
                   visibleRecords.map((record) => (
-                    <tr className="hover:bg-slate-50" key={record.id}>
+                    <tr className={record.action === "seguimiento_eliminado" ? "bg-red-50 hover:bg-red-100" : "hover:bg-slate-50"} key={record.id}>
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-700">{formatDateTime(record.createdAt)}</td>
                       <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#10223d]">{record.contractor}</td>
-                      <td className="whitespace-nowrap px-4 py-3">{ACTION_LABELS[record.action] || record.action}</td>
+                      <td className="whitespace-nowrap px-4 py-3">{record.action === "seguimiento_eliminado" ? <span className="rounded-md bg-red-700 px-2 py-1 text-xs font-black text-white">PRIORIDAD · DT eliminado</span> : ACTION_LABELS[record.action] || record.action}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">{record.userEmail || "Sin usuario"}</td>
                       <td className="min-w-44 px-4 py-3 text-slate-600">
                         <p className="font-medium">{record.device || "Sin dispositivo"}</p>
@@ -208,6 +214,7 @@ function formatDetails(record: AuditLogRecord) {
     details.dts ? `DT: ${Array.isArray(details.dts) ? details.dts.slice(0, 4).join(", ") : details.dts}` : "",
     details.dt ? `DT: ${details.dt}` : "",
     details.motivo ? `Motivo: ${details.motivo}` : "",
+    details.prioridad ? `Prioridad: ${details.prioridad}` : "",
     details.fechaDespacho ? `Fecha despacho: ${details.fechaDespacho}` : "",
     details.clientes ? `Clientes: ${Array.isArray(details.clientes) ? details.clientes.slice(0, 4).join(", ") : details.clientes}` : "",
     details.fecha ? `Fecha: ${details.fecha}` : "",

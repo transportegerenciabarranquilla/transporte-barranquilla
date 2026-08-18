@@ -67,7 +67,7 @@ export async function PUT(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
-    const { deleteMissing, records } = (await request.json()) as { deleteMissing?: boolean; records: Vehiculo[] };
+    const { records } = (await request.json()) as { records: Vehiculo[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
 
     const scopedRecords = await applyAttendanceToVehicles(
@@ -110,21 +110,8 @@ export async function PUT(request: Request) {
       clearServerCache("supabase:admin-seguimiento:");
     }
 
-    const changedDateRecords = scopedRecords
-      .map((record, index) => ({ record, recordId: rows[index]?.record_id || "" }))
-      .filter(({ record }) => record.dispatchDateChanged === true);
-    const duplicateDeleteError = await deletePreviousDtCopies(changedDateRecords, session.contractor, session.accessToken, request, session);
-    if (duplicateDeleteError) return NextResponse.json({ error: duplicateDeleteError }, { status: 500 });
-
-    const supersededRecordIds = getSupersededRecordIds(scopedRecords, rows);
-    const supersededDeleteError = await deleteSeguimientoRows(supersededRecordIds, session.contractor, session.accessToken, request, session, "Registro reemplazado por una nueva identidad");
-    if (supersededDeleteError) return NextResponse.json({ error: supersededDeleteError }, { status: 500 });
-
-    if (deleteMissing === true) {
-      const submittedDates = new Set(scopedRecords.map((record) => routeDateValue(record.fechaDespacho || record.date || record.createdAt)).filter(Boolean));
-      const deleteError = await deleteRemovedSeguimientoRows(rows.map((row) => row.record_id), session.contractor, session.accessToken, submittedDates, request, session);
-      if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
-    }
+    // Guardar o volver a importar nunca elimina filas. Los DT solo se borran
+    // mediante DELETE, después de una confirmacion expresa en la interfaz.
 
     const savedParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
     const savedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, savedParams, supabaseUserHeaders(session.accessToken));
@@ -228,19 +215,19 @@ export async function DELETE(request: Request) {
       supabaseUserHeaders(session.accessToken),
     );
     const requestedIds = new Set(recordIds);
-    const requestedRouteDts = new Set((body.routes || []).map((route) => normalizeDt(route.transporte)).filter(Boolean));
+    const requestedRouteKeys = new Set((body.routes || []).map((route) => deletionRouteKey(route)).filter(Boolean));
     const requestedRows = currentRows.filter(
-      (row) => requestedIds.has(row.record_id) || requestedRouteDts.has(normalizeDt(row.data?.transporte)),
+      (row) => requestedIds.has(row.record_id) || requestedRouteKeys.has(deletionRouteKey(row.data)),
     );
     if (!requestedRows.length) {
       return NextResponse.json({ error: "El DT ya no existe o no se pudo encontrar en Supabase." }, { status: 404 });
     }
 
-    const requestedDts = new Set(requestedRows.map((row) => normalizeDt(row.data?.transporte)).filter(Boolean));
+    const requestedKeys = new Set(requestedRows.map((row) => deletionRouteKey(row.data)).filter(Boolean));
     const idsToDelete = Array.from(
       new Set(
         currentRows
-          .filter((row) => requestedIds.has(row.record_id) || requestedDts.has(normalizeDt(row.data?.transporte)))
+          .filter((row) => requestedIds.has(row.record_id) || requestedKeys.has(deletionRouteKey(row.data)))
           .map((row) => row.record_id),
       ),
     );
@@ -361,6 +348,9 @@ function hasStoredTime(value: string | undefined) {
   return Boolean(value && value !== "Pendiente" && value !== "-");
 }
 
+/* Legacy deletion helpers are intentionally kept unreachable as migration
+ * documentation. Saving/importing must never invoke them. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function deletePreviousDtCopies(
   changedRecords: { record: Vehiculo; recordId: string }[],
   contractor: string,
@@ -399,6 +389,7 @@ async function deletePreviousDtCopies(
   return "";
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getSupersededRecordIds(records: Vehiculo[], rows: { record_id: string }[]) {
   const activeIds = new Set(rows.map((row) => row.record_id));
 
@@ -436,6 +427,7 @@ async function deleteSeguimientoRows(recordIds: string[], contractor: string, ac
   return "";
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function deleteRemovedSeguimientoRows(keepIds: string[], contractor: string, accessToken: string, submittedDates: Set<string>, request: Request, session: AuthenticatedSession) {
   if (!submittedDates.size) return "";
 
@@ -479,6 +471,7 @@ async function logDeletedDt(row: { record_id?: string; data?: Vehiculo }, contra
       fechaDespacho: String(vehicle.fechaDespacho || vehicle.date || ""),
       placa: String(vehicle.vehiculo || ""),
       motivo: reason,
+      prioridad: "alta",
       eliminadoEn: new Date().toISOString(),
     },
     module: "seguimiento",
@@ -505,7 +498,8 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
     }
 
     const contractorKey = normalizeContractorName(record.transportista);
-    const uniqueKey = `${contractorKey}:${dt || fallbackKey}`;
+    const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
+    const uniqueKey = `${contractorKey}:${dt || fallbackKey}:${dateKey || "sin-fecha"}`;
     const current = recordsByRoute.get(uniqueKey);
     if (!current) {
       recordsByRoute.set(uniqueKey, record);
@@ -521,6 +515,14 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
   });
 
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
+}
+
+function deletionRouteKey(record: Partial<Pick<Vehiculo, "transporte" | "vehiculo" | "fechaDespacho" | "date" | "createdAt">> | undefined) {
+  if (!record) return "";
+  const dt = normalizeDt(record.transporte);
+  const plate = String(record.vehiculo || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const date = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
+  return date && (dt || plate) ? `${dt || plate}:${date}` : "";
 }
 
 function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: number) {

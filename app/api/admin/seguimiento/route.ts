@@ -151,15 +151,22 @@ async function fetchAdminRowsByContractor<T>(
   cacheKey: string,
 ) {
   const groups = await Promise.all(
-    CONTRACTORS.map((contractor) => {
-      const params = new URLSearchParams({
-        select,
-        contractor: `eq.${contractor}`,
-        order,
-        limit: String(limit),
-      });
-      const url = supabaseRest(table, `?${params.toString()}`);
-      return cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
+    CONTRACTORS.map(async (contractor) => {
+      const records: T[] = [];
+      for (let offset = 0; ; offset += limit) {
+        const params = new URLSearchParams({
+          select,
+          contractor: `eq.${contractor}`,
+          order,
+          limit: String(limit),
+          offset: String(offset),
+        });
+        const url = supabaseRest(table, `?${params.toString()}`);
+        const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
+        records.push(...page);
+        if (page.length < limit) break;
+      }
+      return records;
     }),
   );
 

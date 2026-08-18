@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../../lib/auditLog";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import type { ComplaintRecord } from "../../../lib/complaints";
-import { isLogisticosContractor } from "../../../lib/contractors";
+import { isComplaintsContractor, normalizeContractorName } from "../../../lib/contractors";
 import { SUPABASE_URL, supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 const TABLE = "route_complaints";
@@ -13,7 +13,7 @@ const ALLOWED_TYPES = new Set(["application/pdf", "image/png"]);
 export async function POST(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-  if (!session.isAdmin && !isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
   const file = form.get("file");
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const current = await readComplaint(id, headers);
   if (!current) return NextResponse.json({ error: "Queja no encontrada." }, { status: 404 });
+  if (!session.isAdmin && !isComplaintsUploader(session.contractor) && current.contractor !== session.contractor) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${id.replace(/[^a-zA-Z0-9_-]/g, "_")}/${Date.now()}-${safeName}`;
   const storageResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path.split("/").map(encodeURIComponent).join("/")}`, {
@@ -48,10 +49,11 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-  if (!session.isAdmin && !isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const id = new URL(request.url).searchParams.get("id") || "";
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const current = await readComplaint(id, headers);
+  if (current && !session.isAdmin && !isComplaintsUploader(session.contractor) && current.contractor !== session.contractor) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const evidence = current?.data.evidence;
   if (!evidence?.path) return NextResponse.json({ error: "La queja no tiene evidencia." }, { status: 404 });
   const storageResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${BUCKET}/${evidence.path.split("/").map(encodeURIComponent).join("/")}`, { headers, cache: "no-store" });
@@ -65,4 +67,8 @@ async function readComplaint(id: string, headers: Record<string, string>) {
   const response = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
   if (!response.ok) throw new Error(await supabaseError(response));
   return (await response.json() as Array<{ contractor: string; data: ComplaintRecord }>)[0] ?? null;
+}
+
+function isComplaintsUploader(contractor: string | null | undefined) {
+  return normalizeContractorName(contractor) === "logisticos";
 }

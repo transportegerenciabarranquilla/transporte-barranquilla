@@ -59,27 +59,13 @@ export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo
 }
 
 export function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
-  const importedDts = new Set(imported.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
-  const currentByDt = new Map<string, Vehiculo>();
-  current.forEach((vehicle) => {
-    const dt = normalizeDt(vehicle.transporte);
-    if (dt && !currentByDt.has(dt)) currentByDt.set(dt, vehicle);
-  });
-  // Un DT puede cambiar de fecha entre la planeacion y el despacho. Si se
-  // conserva la fila anterior y se agrega otra con la fecha nueva, la API
-  // termina deduplicando por DT y puede quedarse con la version vieja (por
-  // ejemplo, cajas = 0). Retiramos primero todo DT que venga en el archivo y
-  // luego insertamos una sola version actualizada.
-  const records = new Map(
-    current
-      .filter((vehicle) => !importedDts.has(normalizeDt(vehicle.transporte)))
-      .map((vehicle) => [getVehicleRecordKey(vehicle), vehicle]),
-  );
+  // Un numero de DT puede volver a usarse en otra fecha. Solo se reemplaza la
+  // misma ruta (DT + fecha); el historial de otros dias debe permanecer.
+  const records = new Map(current.map((vehicle) => [getVehicleRecordKey(vehicle), vehicle]));
   const capacityByPlate = createCapacityByPlate(current);
 
   imported.forEach((vehicle) => {
-    const dt = normalizeDt(vehicle.transporte);
-    const currentRecord = (dt ? currentByDt.get(dt) : undefined) ?? records.get(getVehicleRecordKey(vehicle));
+    const currentRecord = records.get(getVehicleRecordKey(vehicle));
     const fixedCapacity = getFixedCapacity(vehicle.vehiculo, capacityByPlate, vehicle.capacidad);
     const merged = mergeImportedVehicle(currentRecord, vehicle, fixedCapacity);
 

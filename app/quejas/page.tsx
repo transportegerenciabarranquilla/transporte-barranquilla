@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
+import { isComplaintsContractor, normalizeContractorName } from "../lib/contractors";
 
 type Access = "checking" | "allowed" | "denied";
 
@@ -11,6 +12,7 @@ export default function ComplaintsPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [access, setAccess] = useState<Access>("checking");
+  const [canUploadComplaints, setCanUploadComplaints] = useState(false);
   const [records, setRecords] = useState<ComplaintRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -24,8 +26,9 @@ export default function ComplaintsPage() {
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" }).then(async (response) => {
       const body = await response.json().catch(() => ({}));
-      const contractor = String(body?.session?.contractor || "").toLowerCase();
-      setAccess(response.ok && (body?.session?.isAdmin || contractor.startsWith("logisticos")) ? "allowed" : "denied");
+      const contractor = String(body?.session?.contractor || "");
+      setAccess(response.ok && (body?.session?.isAdmin || isComplaintsContractor(contractor)) ? "allowed" : "denied");
+      setCanUploadComplaints(response.ok && (body?.session?.isAdmin || normalizeContractorName(contractor) === "logisticos"));
     }).catch(() => setAccess("denied"));
   }, []);
 
@@ -113,7 +116,7 @@ export default function ComplaintsPage() {
   }
 
   if (access === "checking") return <main className="min-h-screen bg-slate-50" />;
-  if (access === "denied") return <main className="grid min-h-screen place-items-center bg-slate-50 p-6"><section className="text-center"><AlertTriangle className="mx-auto text-amber-500" size={38} /><h1 className="mt-4 text-xl font-black text-slate-900">Modulo no disponible</h1><p className="mt-2 text-sm text-slate-500">Quejas esta habilitado para administracion y Logisticos.</p></section></main>;
+  if (access === "denied") return <main className="grid min-h-screen place-items-center bg-slate-50 p-6"><section className="text-center"><AlertTriangle className="mx-auto text-amber-500" size={38} /><h1 className="mt-4 text-xl font-black text-slate-900">Modulo no disponible</h1><p className="mt-2 text-sm text-slate-500">Quejas esta habilitado para administracion, Logisticos, Punto Corona y Surti Cervezas.</p></section></main>;
 
   return (
     <main className="min-h-screen bg-[#eef2f5] text-slate-900">
@@ -126,12 +129,12 @@ export default function ComplaintsPage() {
 
       <section className="mx-auto max-w-[1500px] space-y-5 px-5 py-6 sm:px-8">
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">Carga la plantilla con el formato operativo de quejas y consulta todos sus campos en una sola tabla.</p></div>
-          <div className="flex flex-wrap gap-2">
+          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{canUploadComplaints ? "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos." : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
+          {canUploadComplaints ? <div className="flex flex-wrap gap-2">
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => void downloadTemplate()} type="button"><Download size={16} />Descargar plantilla</button>
             <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadFile(event.target.files?.[0])} ref={inputRef} type="file" />
             <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-bold text-white disabled:opacity-50" disabled={uploading} onClick={() => inputRef.current?.click()} type="button">{uploading ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}{uploading ? "Cargando" : "Subir quejas"}</button>
-          </div>
+          </div> : null}
         </section>
 
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{message}</p> : null}
@@ -148,7 +151,7 @@ export default function ComplaintsPage() {
           <div className="max-h-[650px] overflow-auto">
             <table className="w-full min-w-[1250px] text-left text-xs">
               <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo para cierre</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{visible.map((record) => <tr className={record.matched ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => setSelected(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || "Sin cruce"}</span></td></tr>)}</tbody>
+              <tbody className="divide-y divide-slate-100">{visible.map((record) => <tr className={record.matched ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => setSelected(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (record.matched ? "Cruce confirmado" : "Sin cruce")}</span></td></tr>)}</tbody>
             </table>
             {!loading && !visible.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
           </div>
@@ -198,6 +201,9 @@ async function fillEstablishmentsFromClientCodes<T extends { code: unknown; esta
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><span className="grid h-11 w-11 place-items-center rounded-xl bg-red-50 text-red-700">{icon}</span><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="text-2xl font-black text-[#10223d]">{value.toLocaleString("es-CO")}</p></div></article>; }
 function ClosingCountdown({ deadline, now, status }: { deadline: string; now: number; status: string }) {
   if (normalizeText(status).includes("cerrad")) return <span className="rounded-md bg-emerald-100 px-2 py-1 font-black text-emerald-700">Cerrada</span>;
+  if (deadline === "expired") return <span className="inline-block rounded-md bg-red-100 px-2 py-1 font-black leading-4 text-red-700">Plazo vencido<br />Sin cerrar</span>;
+  if (deadline === "future") return <span className="inline-block rounded-md bg-amber-100 px-2 py-1 font-black leading-4 text-amber-800">Fecha no vigente<br />Sin cerrar</span>;
+  if (deadline === "invalid") return <span className="text-slate-400">Sin fecha valida</span>;
   const remaining = new Date(deadline).getTime() - now;
   if (!deadline || !Number.isFinite(remaining)) return <span className="text-slate-400">Sin cronometro</span>;
   if (remaining <= 0) return <span className="rounded-md bg-red-100 px-2 py-1 font-black text-red-700">Vencida</span>;

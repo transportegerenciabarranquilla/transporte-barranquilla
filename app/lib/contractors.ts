@@ -58,6 +58,10 @@ export function contractorSiteName(value: string | null | undefined) {
   return normalizeContractorName(value).endsWith("arenosa") ? "Arenosa" : "Galapa";
 }
 
+export function isComplaintsContractor(value: string | null | undefined) {
+  return ["logisticos", "puntocorona", "surticervezas"].includes(normalizeContractorName(value));
+}
+
 // Exclusión temporal solicitada para el consolidado administrativo de
 // Entrega en rango. Se mantiene centralizada para que pantalla y exportación
 // apliquen exactamente la misma regla.

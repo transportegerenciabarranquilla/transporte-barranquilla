@@ -1,4 +1,4 @@
-import { contractorSiteName, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors";
+import { contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors";
 
 export type PortalModule = {
   id: number;
@@ -168,7 +168,7 @@ export function getVisiblePortalModules({
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = normalizeContractorName(contractor) === "logisticos";
-  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule, complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
+  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {
