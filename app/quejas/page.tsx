@@ -114,7 +114,8 @@ export default function ComplaintsPage() {
       const response = await fetch("/api/complaints/evidence", { method: "POST", body: form });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo subir la evidencia.");
-      setSelected(body.record); setRecords((current) => current.map((record) => record.id === selected.id ? body.record : record));
+      const record = { ...selected, ...body.record };
+      setSelected(record); setRecords((current) => current.map((item) => item.id === selected.id ? { ...item, ...record } : item));
       setMessage("Evidencia guardada correctamente.");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo subir la evidencia."); }
     finally { setEvidenceBusy(false); }
@@ -127,7 +128,8 @@ export default function ComplaintsPage() {
       const response = await fetch("/api/complaints", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, action: "close" }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo cerrar la queja.");
-      setSelected(body.record); setRecords((current) => current.map((record) => record.id === selected.id ? body.record : record));
+      const record = { ...selected, ...body.record };
+      setSelected(record); setRecords((current) => current.map((item) => item.id === selected.id ? { ...item, ...record } : item));
       setMessage("La queja quedo cerrada.");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo cerrar la queja."); }
     finally { setEvidenceBusy(false); }
