@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, FileText, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, FileText, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, WalletCards, X } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
 import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
@@ -396,6 +396,14 @@ export default function AdminPage() {
                 >
                   <History size={16} />
                   Auditoria
+                </button>
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-violet-300/30 bg-violet-400/15 px-4 text-sm font-semibold text-violet-100 transition hover:bg-violet-400/25"
+                  onClick={() => router.push("/admin/cashell")}
+                  type="button"
+                >
+                  <WalletCards size={16} />
+                  Acuerdo Cashell
                 </button>
               </div>
             </div>
