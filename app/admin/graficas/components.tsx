@@ -3,19 +3,41 @@ import { Table2, X } from "lucide-react";
 import type { ContractorRefusalTrend, RrRefusalSummary, RefusalCausePreventistaSummary, RefusalClientSummary, RefusalComSummary } from "./types";
 import { formatDateLabel } from "./utils";
 
-export function TopRefusalClientsTable({ data }: { data: RefusalClientSummary[] }) {
+export function TopRefusalClientsTable({
+  causales,
+  data,
+  onCausalChange,
+  selectedCausal,
+}: {
+  causales: string[];
+  data: RefusalClientSummary[];
+  onCausalChange: (causal: string) => void;
+  selectedCausal: string;
+}) {
   const groups = [data.slice(0, 5), data.slice(5, 10), data.slice(10, 15), data.slice(15, 20)];
 
   return (
     <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div className="flex items-center gap-2 text-[#10223d]">
           <span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white">
             <Table2 size={15} />
           </span>
           <h2 className="text-xs font-semibold">Top 20 clientes que mas rechazan</h2>
         </div>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Por cajas reportadas</span>
+        <div className="flex items-center gap-2">
+          <label className="text-[9px] font-bold uppercase tracking-[0.08em] text-slate-500" htmlFor="top-client-causal">Causal</label>
+          <select
+            className="h-8 max-w-56 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-semibold text-[#10223d] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+            id="top-client-causal"
+            onChange={(event) => onCausalChange(event.target.value)}
+            value={selectedCausal}
+          >
+            <option value="Todas">Todas las causales</option>
+            {causales.map((causal) => <option key={causal} value={causal}>{causal}</option>)}
+          </select>
+          <span className="hidden text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:inline">Por cajas reportadas</span>
+        </div>
       </div>
       {data.length ? (
         <div className="grid gap-2 p-3 lg:grid-cols-4">

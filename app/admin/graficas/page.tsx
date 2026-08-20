@@ -75,6 +75,7 @@ export default function AdminGraficasPage() {
   const [absenteeismRecords, setAbsenteeismRecords] = useState<DailyAbsenteeismRecord[]>([]);
   const [attendanceSnapshots, setAttendanceSnapshots] = useState<AttendanceSnapshot[]>([]);
   const [activeView, setActiveView] = useState<GraphView>("summary");
+  const [clientCausal, setClientCausal] = useState("Todas");
 
   useEffect(() => {
     fetch("/api/admin/seguimiento", { cache: "no-store" })
@@ -128,13 +129,20 @@ export default function AdminGraficasPage() {
     [activeDateRange, contractor, dtSearch, refusalRows],
   );
 
-  const refusalByCom = useMemo(() => buildRefusalByCom(visibleRefusalRows), [visibleRefusalRows]);
+  const clientCausalRows = useMemo(
+    () => clientCausal === "Todas" ? visibleRefusalRows : visibleRefusalRows.filter((row) => (row.causal?.trim() || "Sin causal") === clientCausal),
+    [clientCausal, visibleRefusalRows],
+  );
 
-  const refusalByJefeVentas = useMemo(() => buildRefusalByJefeVentas(visibleRefusalRows), [visibleRefusalRows]);
+  const availableRefusalCauses = useMemo(() => buildRefusalCauseByPreventista(visibleRefusalRows), [visibleRefusalRows]);
 
-  const refusalCauseByPreventista = useMemo(() => buildRefusalCauseByPreventista(visibleRefusalRows), [visibleRefusalRows]);
+  const refusalByCom = useMemo(() => buildRefusalByCom(clientCausalRows), [clientCausalRows]);
 
-  const topRefusalClients = useMemo(() => buildTopRefusalClients(visibleRefusalRows), [visibleRefusalRows]);
+  const refusalByJefeVentas = useMemo(() => buildRefusalByJefeVentas(clientCausalRows), [clientCausalRows]);
+
+  const refusalCauseByPreventista = useMemo(() => buildRefusalCauseByPreventista(clientCausalRows), [clientCausalRows]);
+
+  const topRefusalClients = useMemo(() => buildTopRefusalClients(clientCausalRows), [clientCausalRows]);
   const visibleModulationRefusals = useMemo(
     () => filterModulationRecords(modulationRecords, activeDateRange, contractor, dtSearch),
     [activeDateRange, contractor, dtSearch, modulationRecords],
@@ -180,6 +188,7 @@ export default function AdminGraficasPage() {
     setAutoDateRange(false);
     setDateRange({ from: today, to: today });
     setDtSearch("");
+    setClientCausal("Todas");
   }
 
   return (
@@ -414,6 +423,22 @@ export default function AdminGraficasPage() {
           <Metric icon={<Table2 size={20} />} label="Rutas filtradas" value={totals.rutas.toLocaleString("es-CO")} tone="blue" />
         </div>
 
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-violet-700">Filtro de las tablas</p>
+            <p className="text-xs font-semibold text-[#10223d]">Mostrar resultados por causal de rechazo</p>
+          </div>
+          <select
+            aria-label="Filtrar tablas por causal"
+            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-[#10223d] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 sm:w-72"
+            onChange={(event) => setClientCausal(event.target.value)}
+            value={clientCausal}
+          >
+            <option value="Todas">Todas las causales</option>
+            {availableRefusalCauses.map((item) => <option key={item.causal} value={item.causal}>{item.causal}</option>)}
+          </select>
+        </div>
+
         <div className="mb-4 grid gap-3 xl:grid-cols-3">
           <ChartPanel icon={<BarChart3 size={16} />} title="Refusal por preventista">
             <RefusalComBars data={refusalByCom.slice(0, 8)} emptyText="Sin datos de refusal por preventista para este filtro." />
@@ -432,7 +457,12 @@ export default function AdminGraficasPage() {
           <MiniStat label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
         </div>
 
-        <TopRefusalClientsTable data={topRefusalClients.slice(0, 20)} />
+        <TopRefusalClientsTable
+          causales={availableRefusalCauses.map((item) => item.causal)}
+          data={topRefusalClients.slice(0, 20)}
+          onCausalChange={setClientCausal}
+          selectedCausal={clientCausal}
+        />
         <RrRefusalTop data={rrRefusalTop} />
         <ContractorRefusalHistory data={refusalHistory} />
         </> : null}
