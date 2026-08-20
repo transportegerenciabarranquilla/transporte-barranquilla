@@ -36,7 +36,7 @@ export function TopRefusalClientsTable({
             <option value="Todas">Todas las causales</option>
             {causales.map((causal) => <option key={causal} value={causal}>{causal}</option>)}
           </select>
-          <span className="hidden text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:inline">Por cajas reportadas</span>
+          <span className="hidden text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:inline">Por rechazo final</span>
         </div>
       </div>
       {data.length ? (
@@ -58,6 +58,7 @@ export function TopRefusalClientsTable({
                         <p className="truncate text-[9px] leading-3 text-slate-400">
                           Fecha modulo: {formatDateLabel(row.date)}
                         </p>
+                        {row.gestionadas > 0 ? <p className="truncate text-[8px] font-semibold leading-3 text-emerald-600">{row.gestionadas.toLocaleString("es-CO")} cajas reubicadas</p> : null}
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-right">
                         <div>
@@ -65,8 +66,8 @@ export function TopRefusalClientsTable({
                           <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400">veces</p>
                         </div>
                         <div>
-                          <p className="text-[11px] font-bold leading-4 text-red-700">{row.reportadas.toLocaleString("es-CO")}</p>
-                          <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400">cajas</p>
+                          <p className="text-[11px] font-bold leading-4 text-red-700">{row.pendientes.toLocaleString("es-CO")}</p>
+                          <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400">final</p>
                         </div>
                       </div>
                     </div>

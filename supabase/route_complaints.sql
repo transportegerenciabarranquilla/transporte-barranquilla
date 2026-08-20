@@ -141,7 +141,7 @@ create policy "quejas actualiza admin logisticos" on public.route_complaints for
 );
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('complaint-evidence', 'complaint-evidence', false, 5242880, array['application/pdf', 'image/png'])
+values ('complaint-evidence', 'complaint-evidence', false, 5242880, array['application/pdf', 'image/png', 'image/jpeg'])
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "evidencias quejas lectura" on storage.objects;
@@ -155,8 +155,8 @@ create policy "evidencias quejas lectura" on storage.objects for select to authe
 drop policy if exists "evidencias quejas carga" on storage.objects;
 create policy "evidencias quejas carga" on storage.objects for insert to authenticated with check (
   bucket_id = 'complaint-evidence' and lower(coalesce(auth.jwt() ->> 'email', '')) in (
-    'admin@bavaria-seguimiento.com', 'saul808c@gmail.com', 'logisticos@bavaria-seguimiento.com',
-    'puntocorona@bavaria-seguimiento.com', 'surticervezas@bavaria-seguimiento.com'
+    'logisticos@bavaria-seguimiento.com', 'puntocorona@bavaria-seguimiento.com',
+    'surticervezas@bavaria-seguimiento.com'
   )
 );
 

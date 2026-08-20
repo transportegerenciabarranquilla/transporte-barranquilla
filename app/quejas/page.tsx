@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
 import { isComplaintsContractor, normalizeContractorName } from "../lib/contractors";
@@ -11,6 +11,7 @@ type Access = "checking" | "allowed" | "denied";
 export default function ComplaintsPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const refreshingRef = useRef(false);
   const [access, setAccess] = useState<Access>("checking");
   const [canUploadComplaints, setCanUploadComplaints] = useState(false);
   const [isAdminSession, setIsAdminSession] = useState(false);
@@ -28,6 +29,7 @@ export default function ComplaintsPage() {
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState<ComplaintRecord | null>(null);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" }).then(async (response) => {
@@ -42,16 +44,41 @@ export default function ComplaintsPage() {
   useEffect(() => { if (access === "allowed") void loadRecords(); }, [access]);
 
   useEffect(() => {
+    if (access !== "allowed" || !isAdminSession) return;
+    const refresh = () => { if (!document.hidden) void loadRecords(true); };
+    const interval = window.setInterval(refresh, 3_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [access, isAdminSession]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  async function loadRecords() {
-    setLoading(true);
-    const response = await fetch("/api/complaints", { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok) setRecords(body.records || []); else setError(body.error || "No se pudieron consultar las quejas.");
-    setLoading(false);
+  async function loadRecords(silent = false) {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    if (!silent) setLoading(true);
+    try {
+      const response = await fetch(`/api/complaints?refresh=${Date.now()}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const nextRecords = body.records || [];
+        setRecords(nextRecords);
+        setSelected((current) => current ? nextRecords.find((record: ComplaintRecord) => record.id === current.id) || current : null);
+      } else if (!silent) setError(body.error || "No se pudieron consultar las quejas.");
+    } catch {
+      if (!silent) setError("No se pudieron consultar las quejas.");
+    } finally {
+      refreshingRef.current = false;
+      if (!silent) setLoading(false);
+    }
   }
 
   async function downloadTemplate() {
@@ -105,6 +132,18 @@ export default function ComplaintsPage() {
   }, [contractorFilter, dateFrom, dateTo, matchFilter, query, records, statusFilter]);
 
   function clearFilters() { setQuery(""); setStatusFilter("all"); setContractorFilter("all"); setMatchFilter("all"); setDateFrom(""); setDateTo(""); }
+
+  async function exportComplaints(format: "excel" | "pdf") {
+    if (!visible.length) { setError("No hay quejas visibles para exportar."); return; }
+    setExporting(format); setError(""); setMessage("");
+    try {
+      if (format === "excel") await exportComplaintsExcel(visible);
+      else await exportComplaintsPdf(visible);
+      setMessage(`${visible.length} quejas exportadas en ${format === "excel" ? "Excel" : "PDF"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo generar la exportacion.");
+    } finally { setExporting(null); }
+  }
 
   async function uploadEvidence(file?: File) {
     if (!selected || !file) return;
@@ -164,11 +203,15 @@ export default function ComplaintsPage() {
       <section className="mx-auto max-w-[1500px] space-y-5 px-5 py-6 sm:px-8">
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
           <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las tres transportistas." : canUploadComplaints ? "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos." : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
-          {canUploadComplaints ? <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("excel")} type="button">{exporting === "excel" ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}Exportar Excel</button>
+            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("pdf")} type="button">{exporting === "pdf" ? <LoaderCircle className="animate-spin" size={16} /> : <FileText size={16} />}Exportar PDF</button>
+            {canUploadComplaints ? <>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => void downloadTemplate()} type="button"><Download size={16} />Descargar plantilla</button>
             <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadFile(event.target.files?.[0])} ref={inputRef} type="file" />
             <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-bold text-white disabled:opacity-50" disabled={uploading} onClick={() => inputRef.current?.click()} type="button">{uploading ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}{uploading ? "Cargando" : "Subir quejas"}</button>
-          </div> : null}
+            </> : null}
+          </div>
         </section>
 
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{message}</p> : null}
@@ -182,16 +225,7 @@ export default function ComplaintsPage() {
           <Metric icon={<FileSpreadsheet />} label="Sin tripulacion" value={visible.filter((record) => !hasComplaintCrew(record)).length} />
         </div> : null}
 
-        {isAdminSession ? <ComplaintAdminCharts now={now} records={visible} /> : <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-4"><h2 className="font-black text-[#10223d]">Quejas cargadas</h2><p className="text-xs text-slate-500">{visible.length} registros visibles</p></div>
-          <div className="max-h-[650px] overflow-auto">
-            <table className="w-full min-w-[1250px] text-left text-xs">
-              <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo para cierre</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{visible.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => setSelected(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
-            </table>
-            {!loading && !visible.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
-          </div>
-        </section>}
+        {isAdminSession ? <ComplaintAdminCharts now={now} records={visible} /> : <ComplaintRecordsTable loading={loading} now={now} onSelect={setSelected} records={visible} />}
       </section>
       {selected ? <ComplaintModal busy={evidenceBusy} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onSaveComment={(comments) => void saveComment(comments)} onUpload={(file) => void uploadEvidence(file)} /> : null}
     </main>
@@ -204,6 +238,19 @@ type ComplaintFiltersProps = {
   setContractorFilter: (value: string) => void; setDateFrom: (value: string) => void; setDateTo: (value: string) => void;
   setMatchFilter: (value: string) => void; setQuery: (value: string) => void; setStatusFilter: (value: string) => void;
 };
+
+function ComplaintRecordsTable({ loading, now, onSelect, records }: { loading: boolean; now: number; onSelect: (record: ComplaintRecord) => void; records: ComplaintRecord[] }) {
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="border-b border-slate-200 p-4"><h2 className="font-black text-[#10223d]">Quejas cargadas</h2><p className="text-xs text-slate-500">{records.length} registros visibles</p></div>
+    <div className="max-h-[650px] overflow-auto">
+      <table className="w-full min-w-[1250px] text-left text-xs">
+        <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo para cierre</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
+        <tbody className="divide-y divide-slate-100">{records.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => onSelect(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
+      </table>
+      {!loading && !records.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
+    </div>
+  </section>;
+}
 
 function ComplaintFilters(props: ComplaintFiltersProps) {
   const inputClass = "h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500";
@@ -227,6 +274,117 @@ function normalizeTemplateRow(row: Record<string, unknown>) {
 
 function normalizeText(value: unknown) { return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase(); }
 function hasComplaintCrew(record: ComplaintRecord) { return Boolean(record.plate || record.responsible || record.driver || record.auxiliary); }
+
+const EXPORT_COLUMNS: Array<{ header: string; key: keyof ComplaintRecord; width: number }> = [
+  { header: "ID", key: "id", width: 16 },
+  { header: "Fecha creacion", key: "createdDate", width: 16 },
+  { header: "Tiempo para cierre", key: "closingTime", width: 22 },
+  { header: "Codigo", key: "code", width: 15 },
+  { header: "Establecimiento", key: "establishment", width: 28 },
+  { header: "Novedad", key: "issue", width: 48 },
+  { header: "Transportista", key: "contractor", width: 18 },
+  { header: "Estado", key: "status", width: 14 },
+  { header: "DT", key: "dt", width: 16 },
+  { header: "Placa", key: "plate", width: 14 },
+  { header: "Responsable", key: "responsible", width: 24 },
+  { header: "Conductor", key: "driver", width: 24 },
+  { header: "Auxiliar", key: "auxiliary", width: 24 },
+  { header: "Comentario", key: "comments", width: 38 },
+];
+
+async function exportComplaintsExcel(records: ComplaintRecord[]) {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Bavaria - Modulo de Quejas";
+  const sheet = workbook.addWorksheet("Quejas", { views: [{ state: "frozen", ySplit: 1 }] });
+  sheet.columns = [...EXPORT_COLUMNS, { header: "Evidencia", key: "evidenceExport", width: 28 }];
+  const header = sheet.getRow(1);
+  header.height = 24;
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF10223D" } };
+  header.alignment = { vertical: "middle" };
+
+  for (const record of records) {
+    const row = sheet.addRow({ ...record, evidenceExport: record.evidence?.name || "Sin evidencia" });
+    row.alignment = { vertical: "top", wrapText: true };
+    row.height = record.evidence?.type?.startsWith("image/") ? 92 : 42;
+    const evidenceCell = row.getCell(EXPORT_COLUMNS.length + 1);
+    if (!record.evidence) continue;
+    const evidenceUrl = absoluteEvidenceUrl(record.id);
+    evidenceCell.value = { text: record.evidence.name, hyperlink: evidenceUrl };
+    evidenceCell.font = { color: { argb: "FF2563EB" }, underline: true };
+    if (!record.evidence.type.startsWith("image/")) continue;
+    const dataUrl = await fetchEvidenceDataUrl(record.id);
+    const extension = record.evidence.type === "image/jpeg" ? "jpeg" : "png";
+    const imageId = workbook.addImage({ base64: dataUrl, extension });
+    sheet.addImage(imageId, {
+      tl: { col: EXPORT_COLUMNS.length, row: row.number - 1 },
+      ext: { width: 150, height: 110 },
+      editAs: "oneCell",
+    });
+  }
+
+  sheet.autoFilter = { from: "A1", to: `${excelColumnName(EXPORT_COLUMNS.length + 1)}1` };
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), exportFileName("xlsx"));
+}
+
+async function exportComplaintsPdf(records: ComplaintRecord[]) {
+  const { jsPDF } = await import("jspdf");
+  const document = new jsPDF({ format: "a4", unit: "mm" });
+  for (let index = 0; index < records.length; index += 1) {
+    if (index) document.addPage();
+    const record = records[index];
+    document.setFillColor(16, 34, 61); document.rect(0, 0, 210, 24, "F");
+    document.setTextColor(255, 255, 255); document.setFontSize(15); document.setFont("helvetica", "bold");
+    document.text("Reporte de queja", 14, 15);
+    document.setTextColor(15, 23, 42); document.setFontSize(9);
+    let y = 32;
+    const fields: Array<[string, string]> = [
+      ["ID", record.id], ["Fecha", record.createdDate], ["Estado", record.status || "Abierta"],
+      ["Transportista", record.contractor], ["DT / Placa", `${record.dt || "Sin DT"} / ${record.plate || "Sin placa"}`],
+      ["Establecimiento", record.establishment], ["Responsable", personLabel(record.responsible, record.responsibleId)],
+      ["Conductor", personLabel(record.driver, record.driverId)], ["Auxiliar", personLabel(record.auxiliary, record.auxiliaryId)],
+      ["Novedad", record.issue], ["Comentario", record.comments || "Sin comentario"],
+    ];
+    for (const [label, value] of fields) {
+      document.setFont("helvetica", "bold"); document.text(`${label}:`, 14, y);
+      document.setFont("helvetica", "normal");
+      const lines = document.splitTextToSize(String(value || "Sin dato"), 156) as string[];
+      document.text(lines, 40, y); y += Math.max(6, lines.length * 4.2);
+    }
+    if (record.evidence) {
+      document.setFont("helvetica", "bold"); document.text("Evidencia:", 14, y); y += 5;
+      if (record.evidence.type.startsWith("image/")) {
+        const dataUrl = await fetchEvidenceDataUrl(record.id);
+        const size = await imageFit(dataUrl, 180, Math.max(35, 275 - y));
+        document.addImage(dataUrl, record.evidence.type === "image/jpeg" ? "JPEG" : "PNG", 14, y, size.width, size.height, undefined, "FAST");
+      } else {
+        document.setTextColor(37, 99, 235);
+        document.textWithLink(record.evidence.name, 14, y, { url: absoluteEvidenceUrl(record.id) });
+      }
+    } else { document.setTextColor(100, 116, 139); document.text("Sin evidencia", 14, y); }
+    document.setTextColor(100, 116, 139); document.setFontSize(8);
+    document.text(`Pagina ${index + 1} de ${records.length}`, 196, 291, { align: "right" });
+  }
+  document.save(exportFileName("pdf"));
+}
+
+async function fetchEvidenceDataUrl(id: string) {
+  const response = await fetch(`/api/complaints/evidence?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`No se pudo descargar la evidencia de la queja ${id}.`);
+  const blob = await response.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("No se pudo leer una evidencia.")); reader.readAsDataURL(blob);
+  });
+}
+
+function absoluteEvidenceUrl(id: string) { return `${window.location.origin}/api/complaints/evidence?id=${encodeURIComponent(id)}`; }
+function exportFileName(extension: "xlsx" | "pdf") { return `quejas_${new Date().toISOString().slice(0, 10)}.${extension}`; }
+function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1_000); }
+function excelColumnName(index: number) { let value = index; let result = ""; while (value) { value -= 1; result = String.fromCharCode(65 + (value % 26)) + result; value = Math.floor(value / 26); } return result; }
+async function imageFit(dataUrl: string, maxWidth: number, maxHeight: number) { const image = new Image(); image.src = dataUrl; await image.decode(); const ratio = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1); return { width: image.naturalWidth * ratio, height: image.naturalHeight * ratio }; }
+
 async function fillEstablishmentsFromClientCodes<T extends { code: unknown; establishment: unknown }>(rows: T[]) {
   const codes = Array.from(new Set(rows.map((row) => String(row.code ?? "").replace(/\D/g, "")).filter(Boolean)));
   const names = new Map<string, string>();
@@ -251,11 +409,15 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
 
 function ComplaintAdminCharts({ now, records }: { now: number; records: ComplaintRecord[] }) {
   const contractors = ["Logisticos", "Punto Corona", "Surti Cervezas"];
-  const groups = contractors.map((contractor) => ({
+  const contractorGroups = contractors.map((contractor) => ({
     contractor,
     records: records.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(contractor)),
   }));
-  const operationalRecords = groups.flatMap((group) => group.records);
+  const identifiedIds = new Set(contractorGroups.flatMap((group) => group.records.map((record) => record.id)));
+  const groups = [
+    ...contractorGroups,
+    { contractor: "Por identificar", records: records.filter((record) => !identifiedIds.has(record.id)) },
+  ];
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -264,9 +426,9 @@ function ComplaintAdminCharts({ now, records }: { now: number; records: Complain
         <h2 className="mt-1 text-xl font-black text-[#10223d]">Cumplimiento de quejas por transportista</h2>
         <p className="mt-1 text-xs text-slate-500">Porcentaje de quejas cerradas sobre el total asignado.</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {groups.map((group) => <ComplaintDonut key={group.contractor} label={group.contractor} records={group.records} />)}
-        <ComplaintDonut general label="General · 3 transportistas" records={operationalRecords} />
+        <ComplaintDonut general label="General · todas las quejas" records={records} />
       </div>
       <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -280,7 +442,7 @@ function ComplaintAdminCharts({ now, records }: { now: number; records: Complain
             </thead>
             <tbody className="divide-y divide-slate-100">
               {groups.map((group) => <ComplaintDeadlineRow key={group.contractor} label={group.contractor} now={now} records={group.records} />)}
-              <ComplaintDeadlineRow general label="General" now={now} records={operationalRecords} />
+              <ComplaintDeadlineRow general label="General" now={now} records={records} />
             </tbody>
           </table>
         </div>

@@ -8,17 +8,17 @@ import { SUPABASE_URL, supabaseAdminHeaders, supabaseError, supabaseRest, supaba
 const TABLE = "route_complaints";
 const BUCKET = "complaint-evidence";
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
-const ALLOWED_TYPES = new Set(["application/pdf", "image/png"]);
+const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]);
 
 export async function POST(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-  if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (session.isAdmin || !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "Solo las contratistas pueden subir evidencia." }, { status: 403 });
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
   const file = form.get("file");
   if (!id || !(file instanceof File)) return NextResponse.json({ error: "Selecciona una evidencia." }, { status: 400 });
-  if (!ALLOWED_TYPES.has(file.type) || !/\.(pdf|png)$/i.test(file.name)) return NextResponse.json({ error: "La evidencia debe ser PDF o PNG." }, { status: 400 });
+  if (!ALLOWED_TYPES.has(file.type) || !/\.(pdf|png|jpe?g)$/i.test(file.name)) return NextResponse.json({ error: "La evidencia debe ser PDF, PNG, JPG o JPEG." }, { status: 400 });
   if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: "La evidencia supera el limite de 5 MB." }, { status: 413 });
 
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);

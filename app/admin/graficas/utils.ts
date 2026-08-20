@@ -180,7 +180,7 @@ export function buildTopRefusalClients(visibleRefusalRows: AdminRefusalComRow[])
   });
 
   return Array.from(groups.values()).sort(
-    (a, b) => b.reportadas - a.reportadas || b.pendientes - a.pendientes || a.nombreCliente.localeCompare(b.nombreCliente),
+    (a, b) => b.pendientes - a.pendientes || b.reportadas - a.reportadas || a.nombreCliente.localeCompare(b.nombreCliente),
   );
 }
 
