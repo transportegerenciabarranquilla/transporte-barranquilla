@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { complaintClosingDeadline, complaintDateKey, normalizeComplaintDt, type ComplaintRecord } from "../../lib/complaints";
+import { complaintClosingDeadline, complaintDateKey, complaintIdentityKey, normalizeComplaintDt, type ComplaintRecord } from "../../lib/complaints";
 import { contractorLabel, isComplaintsContractor, normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -15,13 +15,16 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const rows = await readComplaintRows(session.accessToken);
-  const [seguimiento, attendances, modulations] = await Promise.all([
+  const [seguimiento, crossContractorTracking, attendances, modulations] = await Promise.all([
     readSeguimiento(session.accessToken),
+    readCrossContractorSeguimiento(rows.map((row) => row.data.dt), session.accessToken),
     readComplaintSource<AsistenciaRegistro>("asistencias_ruta", session.accessToken),
     readComplaintSource<ModulacionRegistro>("modulaciones_ruta", session.accessToken),
   ]);
-  const resolved = rows.map((row) => {
-    const match = findSeguimientoMatch(row.data.dt, row.data.createdDate, seguimiento, row.contractor);
+  const tracking = [...seguimiento, ...crossContractorTracking];
+  const uniqueRows = Array.from(new Map(rows.map((row) => [complaintIdentityKey(row.complaint_id), row])).values());
+  const resolved = uniqueRows.map((row) => {
+    const match = findSeguimientoMatch(row.data.dt, row.data.createdDate, tracking, row.contractor);
     const vehicle = match?.data;
     const attendance = vehicle ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, attendances, row.contractor);
     const modulation = vehicle || attendance ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, modulations, row.contractor);
@@ -32,7 +35,7 @@ export async function GET() {
       ...(vehicle ? crewFromVehicle(vehicle) : attendance ? crewFromAttendance(attendance.data) : {}),
       id: row.complaint_id,
       contractor: resolvedContractor,
-      matched: Boolean(match || fallback),
+      matched: Boolean(match || attendance),
       closingTime: complaintClosingDisplay(row.data.createdDate, row.data.uploadedAt || row.uploaded_at),
     };
   });
@@ -84,31 +87,56 @@ export async function POST(request: Request) {
   if (!Array.isArray(body.records) || !body.records.length) return NextResponse.json({ error: "El archivo no contiene quejas." }, { status: 400 });
   if (body.records.length > 5000) return NextResponse.json({ error: "El archivo supera el limite de 5.000 quejas." }, { status: 413 });
 
-  const seguimiento = await readSeguimiento(session.accessToken);
+  const missingIds = body.records.filter((input) => !text(input.id));
+  if (missingIds.length) return NextResponse.json({ error: `${missingIds.length} filas no tienen ID. El ID es obligatorio para evitar quejas duplicadas.` }, { status: 400 });
+
+  const [seguimiento, crossContractorTracking, existingRows] = await Promise.all([
+    readSeguimiento(session.accessToken),
+    readCrossContractorSeguimiento(body.records.map((record) => record.dt), session.accessToken),
+    readComplaintRows(session.accessToken),
+  ]);
+  const tracking = [...seguimiento, ...crossContractorTracking];
+  const existingByIdentity = new Map(existingRows.map((row) => [complaintIdentityKey(row.complaint_id), row]));
   const uploadedAt = new Date().toISOString();
-  const records = body.records.map((input, index) => {
+  const enrichedRecords = body.records.map((input, index) => {
     const requestedContractor = contractorLabel(text(input.contractor ?? input.transportista));
     const targetContractor = isComplaintsContractor(requestedContractor) ? requestedContractor : "";
-    const record = enrichComplaint(input, index, seguimiento, session.email, uploadedAt, targetContractor);
-    return { ...record, contractor: record.contractor || targetContractor || "Logisticos" };
+    const record = enrichComplaint(input, index, tracking, session.email, uploadedAt, targetContractor);
+    return { ...record, contractor: record.contractor || targetContractor || "Por identificar" };
   });
+  const recordsById = new Map<string, ComplaintRecord>();
+  for (const incoming of enrichedRecords) {
+    const identity = complaintIdentityKey(incoming.id);
+    const existing = existingByIdentity.get(identity);
+    const record = existing ? {
+      ...incoming,
+      id: existing.complaint_id,
+      ...(existing.data.evidence ? { evidence: existing.data.evidence } : {}),
+      ...(existing.data.closedAt ? { closedAt: existing.data.closedAt } : {}),
+      ...(existing.data.closedBy ? { closedBy: existing.data.closedBy } : {}),
+      status: normalizeClosedStatus(existing.data.status) ? existing.data.status : incoming.status,
+    } : incoming;
+    recordsById.set(identity, record);
+  }
+  const records = Array.from(recordsById.values());
+  const duplicates = enrichedRecords.length - records.length;
   const invalid = records.filter((record) => !record.id || !record.createdDate);
   if (invalid.length) return NextResponse.json({ error: `${invalid.length} filas no tienen id o fecha creacion validos.` }, { status: 400 });
   const rows = records.map((record) => ({ complaint_id: record.id, contractor: record.contractor, created_date: record.createdDate, dt: record.dt, uploaded_by: session.email, uploaded_at: uploadedAt, data: record }));
   const headers = supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
   const response = await fetch(supabaseRest(TABLE, "?on_conflict=complaint_id"), { method: "POST", headers, body: JSON.stringify(rows), cache: "no-store" });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-  await writeAuditLog({ action: "quejas_cargadas", contractor: session.contractor, details: { total: records.length, cruzadas: records.filter((record) => record.matched).length }, module: "quejas", request, session });
-  return NextResponse.json({ records, inserted: records.length, matched: records.filter((record) => record.matched).length });
+  await writeAuditLog({ action: "quejas_cargadas", contractor: session.contractor, details: { total: records.length, duplicadasOmitidas: duplicates, cruzadas: records.filter((record) => record.matched).length }, module: "quejas", request, session });
+  return NextResponse.json({ records, inserted: records.length, duplicates, matched: records.filter((record) => record.matched).length });
 }
 
 export async function PATCH(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { id?: string; action?: string };
+  const body = await request.json().catch(() => ({})) as { id?: string; action?: string; comments?: string };
   const id = text(body.id);
-  if (!id || body.action !== "close") return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
+  if (!id || !["close", "comment"].includes(body.action || "")) return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const params = new URLSearchParams({ select: "contractor,data", complaint_id: `eq.${id}`, limit: "1" });
   const currentResponse = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
@@ -116,6 +144,17 @@ export async function PATCH(request: Request) {
   const current = (await currentResponse.json() as Array<{ contractor: string; data: ComplaintRecord }>)[0];
   if (!current) return NextResponse.json({ error: "Queja no encontrada." }, { status: 404 });
   if (!session.isAdmin && !isComplaintsUploader(session.contractor) && current.contractor !== session.contractor) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (body.action === "comment") {
+    const comments = text(body.comments);
+    if (comments.length > 2000) return NextResponse.json({ error: "El comentario no puede superar 2.000 caracteres." }, { status: 400 });
+    const record = { ...current.data, comments };
+    const updateResponse = await fetch(supabaseRest(TABLE, `?complaint_id=eq.${encodeURIComponent(id)}`), {
+      method: "PATCH", headers: { ...headers, Prefer: "return=minimal" }, body: JSON.stringify({ data: record }), cache: "no-store",
+    });
+    if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+    await writeAuditLog({ action: "queja_comentada", contractor: current.contractor, details: { characters: comments.length }, module: "quejas", recordId: id, request, session });
+    return NextResponse.json({ record });
+  }
   if (!current.data.evidence?.path) return NextResponse.json({ error: "Debes subir una evidencia PDF o PNG antes de cerrar la queja." }, { status: 409 });
   const closedAt = new Date().toISOString();
   const record = { ...current.data, status: "Cerrada", closedAt, closedBy: session.email };
@@ -144,13 +183,26 @@ async function readSeguimiento(accessToken: string) {
   return records;
 }
 
-function enrichComplaint(input: Record<string, unknown>, index: number, seguimiento: Array<{ contractor: string; data: Vehiculo }>, email: string, uploadedAt: string, uploaderContractor: string): ComplaintRecord {
-  const id = text(input.id) || `QUEJA-${Date.now()}-${index + 1}`;
+async function readCrossContractorSeguimiento(dts: unknown[], accessToken: string) {
+  const complaintDts = Array.from(new Set(dts.map(normalizeComplaintDt).filter(Boolean)));
+  if (!complaintDts.length) return [] as Array<{ contractor: string; data: Vehiculo }>;
+  const response = await fetch(supabaseRest("rpc/find_complaint_tracking"), {
+    method: "POST",
+    headers: { ...supabaseUserHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ complaint_dts: complaintDts }),
+    cache: "no-store",
+  });
+  if (!response.ok) return [] as Array<{ contractor: string; data: Vehiculo }>;
+  return await response.json() as Array<{ contractor: string; data: Vehiculo }>;
+}
+
+function enrichComplaint(input: Record<string, unknown>, _index: number, seguimiento: Array<{ contractor: string; data: Vehiculo }>, email: string, uploadedAt: string, uploaderContractor: string): ComplaintRecord {
+  const id = text(input.id);
   const createdDate = complaintDateKey(input.createdDate ?? input["fecha creacion"]);
   const dt = normalizeComplaintDt(input.dt);
   const match = findSeguimientoMatch(dt, createdDate, seguimiento, uploaderContractor);
   const vehicle = match?.data;
-  const contractor = match?.contractor || vehicle?.transportista || (isComplaintsContractor(uploaderContractor) ? uploaderContractor : "Logisticos");
+  const contractor = match?.contractor || vehicle?.transportista || (isComplaintsContractor(uploaderContractor) ? uploaderContractor : "Por identificar");
   return {
     id,
     closingTime: complaintClosingDisplay(createdDate, uploadedAt),
@@ -249,6 +301,10 @@ function crewFromAttendance(attendance: AsistenciaRegistro) {
 }
 
 function text(value: unknown) { return String(value ?? "").trim(); }
+
+function normalizeClosedStatus(value: unknown) {
+  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("cerrad");
+}
 
 function complaintClosingDisplay(createdDate: string, uploadedAt: string) {
   if (!createdDate) return "invalid";

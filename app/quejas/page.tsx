@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
 import { isComplaintsContractor, normalizeContractorName } from "../lib/contractors";
@@ -20,6 +20,11 @@ export default function ComplaintsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [contractorFilter, setContractorFilter] = useState("all");
+  const [matchFilter, setMatchFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState<ComplaintRecord | null>(null);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
@@ -74,7 +79,7 @@ export default function ComplaintsPage() {
       const response = await fetch("/api/complaints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: enriched }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo cargar la plantilla.");
-      setMessage(`${body.inserted} quejas cargadas · ${body.matched} cruzadas con Seguimiento.`);
+      setMessage(`${body.inserted} quejas cargadas · ${body.matched} cruzadas con Seguimiento${body.duplicates ? ` · ${body.duplicates} duplicadas omitidas` : ""}.`);
       await loadRecords();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo cargar la plantilla.");
@@ -86,9 +91,20 @@ export default function ComplaintsPage() {
 
   const visible = useMemo(() => {
     const needle = normalizeText(query);
-    if (!needle) return records;
-    return records.filter((record) => normalizeText(`${record.id} ${record.closingTime} ${record.createdDate} ${record.code} ${record.establishment} ${record.issue} ${record.status} ${record.dt} ${record.contractor} ${record.plate} ${record.responsible} ${record.driver} ${record.auxiliary}`).includes(needle));
-  }, [query, records]);
+    return records.filter((record) => {
+      const closed = normalizeText(record.status).includes("cerrad");
+      if (statusFilter === "open" && closed) return false;
+      if (statusFilter === "closed" && !closed) return false;
+      if (contractorFilter !== "all" && normalizeContractorName(record.contractor) !== contractorFilter) return false;
+      if (matchFilter === "matched" && !record.matched) return false;
+      if (matchFilter === "unmatched" && record.matched) return false;
+      if (dateFrom && record.createdDate < dateFrom) return false;
+      if (dateTo && record.createdDate > dateTo) return false;
+      return !needle || normalizeText(`${record.id} ${record.closingTime} ${record.createdDate} ${record.code} ${record.establishment} ${record.issue} ${record.comments} ${record.status} ${record.dt} ${record.contractor} ${record.plate} ${record.responsible} ${record.driver} ${record.auxiliary}`).includes(needle);
+    });
+  }, [contractorFilter, dateFrom, dateTo, matchFilter, query, records, statusFilter]);
+
+  function clearFilters() { setQuery(""); setStatusFilter("all"); setContractorFilter("all"); setMatchFilter("all"); setDateFrom(""); setDateTo(""); }
 
   async function uploadEvidence(file?: File) {
     if (!selected || !file) return;
@@ -117,6 +133,20 @@ export default function ComplaintsPage() {
     finally { setEvidenceBusy(false); }
   }
 
+  async function saveComment(comments: string) {
+    if (!selected) return;
+    setEvidenceBusy(true); setError("");
+    try {
+      const response = await fetch("/api/complaints", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, action: "comment", comments }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar el comentario.");
+      const record = { ...selected, ...body.record, comments };
+      setSelected(record); setRecords((current) => current.map((item) => item.id === selected.id ? { ...item, ...record } : item));
+      setMessage("Comentario guardado correctamente.");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo guardar el comentario."); }
+    finally { setEvidenceBusy(false); }
+  }
+
   if (access === "checking") return <main className="min-h-screen bg-slate-50" />;
   if (access === "denied") return <main className="grid min-h-screen place-items-center bg-slate-50 p-6"><section className="text-center"><AlertTriangle className="mx-auto text-amber-500" size={38} /><h1 className="mt-4 text-xl font-black text-slate-900">Modulo no disponible</h1><p className="mt-2 text-sm text-slate-500">Quejas esta habilitado para administracion, Logisticos, Punto Corona y Surti Cervezas.</p></section></main>;
 
@@ -142,26 +172,40 @@ export default function ComplaintsPage() {
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{message}</p> : null}
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p> : null}
 
+        <ComplaintFilters contractorFilter={contractorFilter} dateFrom={dateFrom} dateTo={dateTo} matchFilter={matchFilter} onClear={clearFilters} query={query} setContractorFilter={setContractorFilter} setDateFrom={setDateFrom} setDateTo={setDateTo} setMatchFilter={setMatchFilter} setQuery={setQuery} setStatusFilter={setStatusFilter} showContractor={isAdminSession || canUploadComplaints} statusFilter={statusFilter} total={records.length} visible={visible.length} />
+
         {!isAdminSession ? <div className="grid gap-3 sm:grid-cols-3">
-          <Metric icon={<MessageSquareWarning />} label="Quejas acumuladas" value={records.length} />
-          <Metric icon={<Users />} label="Cruzadas con tripulacion" value={records.filter((record) => record.matched).length} />
-          <Metric icon={<FileSpreadsheet />} label="Sin coincidencia" value={records.filter((record) => !record.matched).length} />
+          <Metric icon={<MessageSquareWarning />} label="Quejas visibles" value={visible.length} />
+          <Metric icon={<Users />} label="Cruzadas con tripulacion" value={visible.filter(hasComplaintCrew).length} />
+          <Metric icon={<FileSpreadsheet />} label="Sin tripulacion" value={visible.filter((record) => !hasComplaintCrew(record)).length} />
         </div> : null}
 
-        {isAdminSession ? <ComplaintAdminCharts now={now} records={records} /> : <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black text-[#10223d]">Quejas cargadas</h2><p className="text-xs text-slate-500">{visible.length} registros visibles</p></div><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar DT, pedido, placa o persona" value={query} /></div>
+        {isAdminSession ? <ComplaintAdminCharts now={now} records={visible} /> : <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 p-4"><h2 className="font-black text-[#10223d]">Quejas cargadas</h2><p className="text-xs text-slate-500">{visible.length} registros visibles</p></div>
           <div className="max-h-[650px] overflow-auto">
             <table className="w-full min-w-[1250px] text-left text-xs">
               <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo para cierre</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{visible.map((record) => <tr className={record.matched ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => setSelected(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (record.matched ? "Cruce confirmado" : "Sin cruce")}</span></td></tr>)}</tbody>
+              <tbody className="divide-y divide-slate-100">{visible.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => setSelected(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
             </table>
             {!loading && !visible.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
           </div>
         </section>}
       </section>
-      {selected ? <ComplaintModal busy={evidenceBusy} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onUpload={(file) => void uploadEvidence(file)} /> : null}
+      {selected ? <ComplaintModal busy={evidenceBusy} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onSaveComment={(comments) => void saveComment(comments)} onUpload={(file) => void uploadEvidence(file)} /> : null}
     </main>
   );
+}
+
+type ComplaintFiltersProps = {
+  contractorFilter: string; dateFrom: string; dateTo: string; matchFilter: string; query: string; statusFilter: string;
+  total: number; visible: number; showContractor: boolean; onClear: () => void;
+  setContractorFilter: (value: string) => void; setDateFrom: (value: string) => void; setDateTo: (value: string) => void;
+  setMatchFilter: (value: string) => void; setQuery: (value: string) => void; setStatusFilter: (value: string) => void;
+};
+
+function ComplaintFilters(props: ComplaintFiltersProps) {
+  const inputClass = "h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500";
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Filter className="text-blue-700" size={18} /><div><h2 className="font-black text-[#10223d]">Filtros</h2><p className="text-xs text-slate-500">Mostrando {props.visible} de {props.total} quejas</p></div></div><button className="text-xs font-black text-blue-700 hover:underline" onClick={props.onClear} type="button">Limpiar filtros</button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><input className={`${inputClass} xl:col-span-2`} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar ID, DT, placa, persona..." value={props.query} /><select className={inputClass} onChange={(event) => props.setStatusFilter(event.target.value)} value={props.statusFilter}><option value="all">Todos los estados</option><option value="open">Abiertas</option><option value="closed">Cerradas</option></select>{props.showContractor ? <select className={inputClass} onChange={(event) => props.setContractorFilter(event.target.value)} value={props.contractorFilter}><option value="all">Transportistas</option><option value="logisticos">Logisticos</option><option value="puntocorona">Punto Corona</option><option value="surticervezas">Surti Cervezas</option></select> : null}<select className={inputClass} onChange={(event) => props.setMatchFilter(event.target.value)} value={props.matchFilter}><option value="all">Todos los cruces</option><option value="matched">Con cruce</option><option value="unmatched">Sin cruce</option></select><div className="flex gap-2"><input aria-label="Fecha desde" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateFrom(event.target.value)} title="Fecha desde" type="date" value={props.dateFrom} /><input aria-label="Fecha hasta" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateTo(event.target.value)} title="Fecha hasta" type="date" value={props.dateTo} /></div></div></section>;
 }
 
 function normalizeTemplateRow(row: Record<string, unknown>) {
@@ -180,6 +224,7 @@ function normalizeTemplateRow(row: Record<string, unknown>) {
 }
 
 function normalizeText(value: unknown) { return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase(); }
+function hasComplaintCrew(record: ComplaintRecord) { return Boolean(record.plate || record.responsible || record.driver || record.auxiliary); }
 async function fillEstablishmentsFromClientCodes<T extends { code: unknown; establishment: unknown }>(rows: T[]) {
   const codes = Array.from(new Set(rows.map((row) => String(row.code ?? "").replace(/\D/g, "")).filter(Boolean)));
   const names = new Map<string, string>();
@@ -290,7 +335,7 @@ function ComplaintDonut({ general = false, label, records }: { general?: boolean
 function ClosingCountdown({ deadline, now, status }: { deadline: string; now: number; status: string }) {
   if (normalizeText(status).includes("cerrad")) return <span className="rounded-md bg-emerald-100 px-2 py-1 font-black text-emerald-700">Cerrada</span>;
   if (deadline === "expired") return <span className="inline-block rounded-md bg-red-100 px-2 py-1 font-black leading-4 text-red-700">Plazo vencido<br />Sin cerrar</span>;
-  if (deadline === "future") return <span className="inline-block rounded-md bg-amber-100 px-2 py-1 font-black leading-4 text-amber-800">Fecha no vigente<br />Sin cerrar</span>;
+  if (deadline === "future") return <span className="inline-block rounded-md bg-red-100 px-2 py-1 font-black leading-4 text-red-700">Plazo vencido<br />Sin cerrar</span>;
   if (deadline === "invalid") return <span className="text-slate-400">Sin fecha valida</span>;
   const remaining = new Date(deadline).getTime() - now;
   if (!deadline || !Number.isFinite(remaining)) return <span className="text-slate-400">Sin cronometro</span>;
@@ -303,9 +348,10 @@ function ClosingCountdown({ deadline, now, status }: { deadline: string; now: nu
   return <span className={`whitespace-nowrap rounded-md px-2 py-1 font-mono font-black ${urgent ? "bg-amber-100 text-amber-800" : "bg-blue-50 text-blue-700"}`}>{String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}</span>;
 }
 
-function ComplaintModal({ busy, complaint, now, onClose, onCloseComplaint, onUpload }: { busy: boolean; complaint: ComplaintRecord; now: number; onClose: () => void; onCloseComplaint: () => void; onUpload: (file?: File) => void }) {
+function ComplaintModal({ busy, complaint, now, onClose, onCloseComplaint, onSaveComment, onUpload }: { busy: boolean; complaint: ComplaintRecord; now: number; onClose: () => void; onCloseComplaint: () => void; onSaveComment: (comments: string) => void; onUpload: (file?: File) => void }) {
   const closed = normalizeText(complaint.status).includes("cerrad");
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between border-b border-slate-200 bg-red-50 p-5"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-700">Detalle de la novedad</p><h2 className="mt-1 text-xl font-black text-[#10223d]">{complaint.establishment || `Queja ${complaint.id}`}</h2><p className="mt-1 text-xs text-slate-500">DT {complaint.dt || "sin dato"} · Placa {complaint.plate || "sin cruce"}</p></div><button aria-label="Cerrar ventana" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white" onClick={onClose} type="button"><X size={18} /></button></header><div className="space-y-4 p-5"><div className="grid gap-3 sm:grid-cols-2"><Detail label="Novedad" value={complaint.issue || "Sin descripcion"} /><Detail label="Estado" value={complaint.status || "Abierta"} /><Detail label="Responsable" value={personLabel(complaint.responsible, complaint.responsibleId)} /><Detail label="Conductor" value={personLabel(complaint.driver, complaint.driverId)} /><Detail label="Auxiliar" value={personLabel(complaint.auxiliary, complaint.auxiliaryId)} /><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[9px] font-black uppercase tracking-wider text-slate-500">Tiempo restante</p><div className="mt-2"><ClosingCountdown deadline={complaint.closingTime} now={now} status={complaint.status} /></div></div></div><section className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black text-[#10223d]">Evidencia obligatoria</p><p className="mt-1 text-xs text-slate-500">Archivo PDF o PNG, maximo 5 MB.</p></div>{complaint.evidence ? <a className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700" href={`/api/complaints/evidence?id=${encodeURIComponent(complaint.id)}`} rel="noreferrer" target="_blank"><ExternalLink size={14} />Ver evidencia</a> : null}</div><label className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-4 text-sm font-bold text-slate-600 hover:bg-slate-50 ${closed ? "pointer-events-none opacity-50" : ""}`}><Paperclip size={17} />{busy ? "Procesando..." : complaint.evidence ? "Reemplazar evidencia" : "Subir evidencia"}<input accept="application/pdf,image/png,.pdf,.png" className="hidden" disabled={busy || closed} onChange={(event) => onUpload(event.target.files?.[0])} type="file" /></label>{complaint.evidence ? <p className="mt-2 text-xs font-semibold text-emerald-700">{complaint.evidence.name}</p> : <p className="mt-2 text-xs font-semibold text-red-600">No puedes cerrar la queja sin evidencia.</p>}</section><button className="h-11 w-full rounded-lg bg-emerald-700 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300" disabled={busy || !complaint.evidence || closed} onClick={onCloseComplaint} type="button">{closed ? "Queja cerrada" : "Cerrar queja"}</button></div></section></div>;
+  const [comment, setComment] = useState(complaint.comments || "");
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between border-b border-slate-200 bg-red-50 p-5"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-700">Detalle de la novedad</p><h2 className="mt-1 text-xl font-black text-[#10223d]">{complaint.establishment || `Queja ${complaint.id}`}</h2><p className="mt-1 text-xs text-slate-500">DT {complaint.dt || "sin dato"} · Placa {complaint.plate || "sin cruce"}</p></div><button aria-label="Cerrar ventana" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white" onClick={onClose} type="button"><X size={18} /></button></header><div className="space-y-4 p-5"><div className="grid gap-3 sm:grid-cols-2"><Detail label="Novedad" value={complaint.issue || "Sin descripcion"} /><Detail label="Estado" value={complaint.status || "Abierta"} /><Detail label="Responsable" value={personLabel(complaint.responsible, complaint.responsibleId)} /><Detail label="Conductor" value={personLabel(complaint.driver, complaint.driverId)} /><Detail label="Auxiliar" value={personLabel(complaint.auxiliary, complaint.auxiliaryId)} /><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[9px] font-black uppercase tracking-wider text-slate-500">Tiempo restante</p><div className="mt-2"><ClosingCountdown deadline={complaint.closingTime} now={now} status={complaint.status} /></div></div></div><section className="rounded-xl border border-slate-200 p-4"><label className="text-sm font-black text-[#10223d]" htmlFor={`complaint-comment-${complaint.id}`}>Comentario</label><p className="mt-1 text-xs text-slate-500">Agrega una observación sobre la gestión de esta queja.</p><textarea className="mt-3 min-h-24 w-full resize-y rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" disabled={busy} id={`complaint-comment-${complaint.id}`} maxLength={2000} onChange={(event) => setComment(event.target.value)} placeholder="Escribe un comentario..." value={comment} /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-[10px] text-slate-400">{comment.length}/2000</span><button className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white disabled:opacity-50" disabled={busy || comment === (complaint.comments || "")} onClick={() => onSaveComment(comment)} type="button">Guardar comentario</button></div></section><section className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black text-[#10223d]">Evidencia obligatoria</p><p className="mt-1 text-xs text-slate-500">Archivo PDF o PNG, maximo 5 MB.</p></div>{complaint.evidence ? <a className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700" href={`/api/complaints/evidence?id=${encodeURIComponent(complaint.id)}`} rel="noreferrer" target="_blank"><ExternalLink size={14} />Ver evidencia</a> : null}</div><label className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-4 text-sm font-bold text-slate-600 hover:bg-slate-50 ${closed ? "pointer-events-none opacity-50" : ""}`}><Paperclip size={17} />{busy ? "Procesando..." : complaint.evidence ? "Reemplazar evidencia" : "Subir evidencia"}<input accept="application/pdf,image/png,.pdf,.png" className="hidden" disabled={busy || closed} onChange={(event) => onUpload(event.target.files?.[0])} type="file" /></label>{complaint.evidence ? <p className="mt-2 text-xs font-semibold text-emerald-700">{complaint.evidence.name}</p> : <p className="mt-2 text-xs font-semibold text-red-600">No puedes cerrar la queja sin evidencia.</p>}</section><button className="h-11 w-full rounded-lg bg-emerald-700 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300" disabled={busy || !complaint.evidence || closed} onClick={onCloseComplaint} type="button">{closed ? "Queja cerrada" : "Cerrar queja"}</button></div></section></div>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-[#10223d]">{value}</p></div>; }

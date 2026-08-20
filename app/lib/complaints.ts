@@ -28,7 +28,12 @@ export type ComplaintRecord = {
 export const COMPLAINT_TEMPLATE_COLUMNS = ["id", "tiempo para cierre", "fecha creacion", "Codigo", "establecimiento", "novedad", "transportista", "estado", "dt"] as const;
 
 export function normalizeComplaintDt(value: unknown) {
-  return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
+  const digits = String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
+  return digits.length > 10 && digits.startsWith("10") ? digits.slice(-10) : digits;
+}
+
+export function complaintIdentityKey(value: unknown) {
+  return String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 }
 
 export function complaintDateKey(value: unknown) {
