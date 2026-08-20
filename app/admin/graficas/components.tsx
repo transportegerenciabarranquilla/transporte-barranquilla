@@ -26,7 +26,7 @@ export function TopRefusalClientsTable({ data }: { data: RefusalClientSummary[] 
                   const rank = groupIndex * 5 + index + 1;
 
                   return (
-                    <div className="grid grid-cols-[28px_minmax(0,1fr)_78px] items-center gap-2 bg-slate-50 px-2 py-1.5 transition hover:bg-white" key={`${row.codigoCliente}-${row.causal}-${rank}`}>
+                    <div className="grid grid-cols-[28px_minmax(0,1fr)_94px] items-center gap-2 bg-slate-50 px-2 py-1.5 transition hover:bg-white" key={`${row.codigoCliente}-${rank}`}>
                       <span className="grid h-6 w-6 place-items-center rounded-md bg-white text-[10px] font-bold text-slate-500 shadow-sm">{rank}</span>
                       <div className="min-w-0">
                         <p className="truncate text-[11px] font-semibold leading-4 text-[#10223d]" title={row.nombreCliente}>{row.nombreCliente}</p>
@@ -37,9 +37,15 @@ export function TopRefusalClientsTable({ data }: { data: RefusalClientSummary[] 
                           Fecha modulo: {formatDateLabel(row.date)}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[11px] font-bold leading-4 text-red-700">{row.reportadas.toLocaleString("es-CO")}</p>
-                        <p className="text-[8px] font-semibold uppercase tracking-[0.06em] text-slate-400">cajas</p>
+                      <div className="grid grid-cols-2 gap-2 text-right">
+                        <div>
+                          <p className="text-[11px] font-bold leading-4 text-violet-700">{row.registros}x</p>
+                          <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400">veces</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold leading-4 text-red-700">{row.reportadas.toLocaleString("es-CO")}</p>
+                          <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400">cajas</p>
+                        </div>
                       </div>
                     </div>
                   );

@@ -154,7 +154,7 @@ export function buildTopRefusalClients(visibleRefusalRows: AdminRefusalComRow[])
     const nombreCliente = row.nombreCliente?.trim() || "Cliente sin nombre";
     const causal = row.causal?.trim() || "Sin causal";
     const contractor = row.contractor || "Sin contratista";
-    const key = `${codigoCliente}:${normalizeTextKey(nombreCliente)}:${causal}`;
+    const key = `${codigoCliente}:${normalizeTextKey(nombreCliente)}`;
     const current = groups.get(key) || {
       causal,
       codigoCliente,
@@ -173,6 +173,7 @@ export function buildTopRefusalClients(visibleRefusalRows: AdminRefusalComRow[])
     current.gestionadas += gestionadas;
     current.pendientes += readOptionalNumber(row.refusalFinal) ?? Math.max(reportadas - gestionadas, 0);
     current.registros += 1;
+    current.causal = addUniqueLabel(current.causal, causal);
     current.contractor = addUniqueLabel(current.contractor, contractor);
     if (row.date && (!current.date || row.date > current.date)) current.date = row.date;
     groups.set(key, current);
