@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, CalendarDays, ClipboardList, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
+import { BarChart3, CalendarDays, ClipboardList, Clock3, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
 import {
   deleteModulacionRegistro,
   getLocalDateKey,
@@ -30,6 +30,7 @@ export default function ModulacionPage() {
   const [selectedDateFrom, setSelectedDateFrom] = useState(() => getLocalDateKey());
   const [selectedDateTo, setSelectedDateTo] = useState(() => getLocalDateKey());
   const [selectedContractor, setSelectedContractor] = useState("");
+  const [isAdminSession, setIsAdminSession] = useState(false);
   const [selectedSalesBoss, setSelectedSalesBoss] = useState("");
   const [search, setSearch] = useState("");
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
@@ -37,6 +38,7 @@ export default function ModulacionPage() {
   const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
   const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
   const [gestionadasDrafts, setGestionadasDrafts] = useState<Record<string, string>>({});
+  const [currentTime, setCurrentTime] = useState(0);
   const requestedClienteCodes = useRef(new Set<string>());
 
   const vehiculosSeguimiento = useMemo(
@@ -53,6 +55,24 @@ export default function ModulacionPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    fetch("/api/session/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => {
+        const isAdmin = Boolean(body?.session?.isAdmin);
+        setIsAdminSession(isAdmin);
+        if (!isAdmin && body?.session?.contractor) setSelectedContractor(body.session.contractor);
+      })
+      .catch(() => setIsAdminSession(false));
+  }, []);
+
+  useEffect(() => {
+    const updateCurrentTime = () => setCurrentTime(Date.now());
+    updateCurrentTime();
+    const interval = window.setInterval(updateCurrentTime, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const contractorOptions = useMemo(() => {
     return Array.from(new Set(registros.map((registro) => registro.contratista?.trim()).filter(Boolean) as string[])).sort();
   }, [registros]);
@@ -62,9 +82,7 @@ export default function ModulacionPage() {
       if (selectedContractor) setSelectedContractor("");
       return;
     }
-    if (!selectedContractor || !contractorOptions.includes(selectedContractor)) {
-      setSelectedContractor(contractorOptions[0]);
-    }
+    if (selectedContractor && !contractorOptions.includes(selectedContractor)) setSelectedContractor("");
   }, [contractorOptions, selectedContractor]);
 
   const salesBossOptions = useMemo(() => Array.from(new Set(
@@ -163,7 +181,14 @@ export default function ModulacionPage() {
       return;
     }
 
-    void saveModulacionRegistro({ ...nextRecord, cajasGestionadas: nextValue }).finally(() => {
+    const rejected = Number(nextRecord.totalCajas) || 0;
+    const managed = Number(nextValue) || 0;
+    const isComplete = rejected > 0 && managed >= rejected;
+    void saveModulacionRegistro({
+      ...nextRecord,
+      cajasGestionadas: nextValue,
+      gestionCompletadaAt: isComplete ? nextRecord.gestionCompletadaAt || new Date().toISOString() : undefined,
+    }).finally(() => {
       setGestionadasDrafts((current) => (current[id] === nextValue ? removeDraft(current, id) : current));
     });
   }
@@ -279,6 +304,7 @@ export default function ModulacionPage() {
               onChange={(event) => setSelectedContractor(event.target.value)}
               value={selectedContractor}
             >
+              {isAdminSession ? <option value="">Todas las contratistas</option> : null}
               {!contractorOptions.length ? <option value="">Sin contratistas</option> : null}
               {contractorOptions.map((contractor) => (
                 <option key={contractor} value={contractor}>
@@ -397,19 +423,18 @@ export default function ModulacionPage() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="data-table w-full min-w-[1160px] table-fixed">
+          <div className="overflow-hidden">
+            <table className="data-table w-full table-fixed [&_td]:px-2">
               <thead className="sticky top-0 z-10 text-[10px] uppercase tracking-[0.1em]">
                 <tr>
-                  <th className="w-[105px] px-3 py-2 text-left">Fecha / hora</th>
-                  <th className="w-[115px] px-3 py-2 text-left">DT</th>
-                  <th className="w-[170px] px-3 py-2 text-left">Cliente</th>
-                  <th className="w-[165px] px-3 py-2 text-left">Persona</th>
-                  <th className="w-[165px] px-3 py-2 text-left">Origen</th>
-                  <th className="w-[90px] px-3 py-2 text-center">Rechaz.</th>
-                  <th className="w-[210px] px-3 py-2 text-center">Gestión / responsable</th>
-                  <th className="px-3 py-2 text-left">Comentario</th>
-                  <th className="w-[180px] px-3 py-2 text-right">Acciones</th>
+                  <th className="w-[11%] px-2 py-2 text-left">Fecha / hora</th>
+                  <th className="w-[9%] px-2 py-2 text-left">DT</th>
+                  <th className="w-[15%] px-2 py-2 text-left">Cliente</th>
+                  <th className="w-[16%] px-2 py-2 text-left">Persona</th>
+                  <th className="w-[10%] px-2 py-2 text-left">Origen</th>
+                  <th className="w-[7%] px-2 py-2 text-center">Rechaz.</th>
+                  <th className="w-[19%] px-2 py-2 text-center">Gestión / responsable</th>
+                  <th className="w-[13%] px-2 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -423,6 +448,11 @@ export default function ModulacionPage() {
                       <td className="px-3 py-2">
                         <p className="text-xs font-semibold text-[#10223d]">{formatDate(registro.createdAt)}</p>
                         <p className="text-[11px] text-slate-500">{formatTime(registro.createdAt)}</p>
+                        <p className={`mt-1 inline-flex items-center gap-1 text-[10px] font-semibold ${registro.gestionCompletadaAt ? "text-emerald-700" : "text-amber-700"}`} title={registro.gestionCompletadaAt ? "Tiempo final de gestión" : "Tiempo transcurrido desde que se creó la modulación"}>
+                          <Clock3 size={12} />
+                          {registro.gestionCompletadaAt ? "Cerrado · " : null}
+                          {formatElapsedTime(registro.createdAt, registro.gestionCompletadaAt ? new Date(registro.gestionCompletadaAt).getTime() : currentTime)}
+                        </p>
                       </td>
                       <td className="px-3 py-2 text-xs font-semibold leading-4 text-[#10223d]"><span className="rounded bg-[#e8f7ff] px-1.5 py-0.5 text-[#07556b]">DT {registro.dt}</span></td>
                       <td className="px-3 py-2">
@@ -478,12 +508,9 @@ export default function ModulacionPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <p className="truncate text-xs text-slate-600" title={registro.comentario || "-"}>{registro.comentario || "-"}</p>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-1.5">
+                        <div className="flex flex-wrap justify-end gap-1">
                         <button
-                          className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50 px-2 text-[11px] font-semibold text-[#07556b] transition hover:border-[#00b8d9] hover:bg-white"
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50 px-1.5 text-[10px] font-semibold text-[#07556b] transition hover:border-[#00b8d9] hover:bg-white"
                           onClick={() => setSelectedRegistroId(registro.id)}
                           type="button"
                         >
@@ -491,7 +518,7 @@ export default function ModulacionPage() {
                           Ver
                         </button>
                         <button
-                          className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 text-[11px] font-semibold text-blue-800 transition hover:border-blue-200 hover:bg-white"
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-800 transition hover:border-blue-200 hover:bg-white"
                           onClick={() => setEditingRegistroId(registro.id)}
                           type="button"
                         >
@@ -513,7 +540,7 @@ export default function ModulacionPage() {
                   })
                 ) : (
                   <tr>
-                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={9}>
+                    <td className="px-5 py-12 text-center text-sm font-medium text-slate-500" colSpan={8}>
                       No hay modulaciones para los filtros seleccionados.
                     </td>
                   </tr>
@@ -1141,6 +1168,24 @@ function formatTime(value: string) {
   if (Number.isNaN(date.getTime())) return "--:--";
 
   return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatElapsedTime(value: string, currentTime: number) {
+  if (!currentTime) return "Calculando...";
+  const createdTime = new Date(value).getTime();
+  if (!Number.isFinite(createdTime)) return "Sin tiempo";
+
+  const elapsedMinutes = Math.max(0, Math.floor((currentTime - createdTime) / 60_000));
+  if (elapsedMinutes < 1) return "Menos de 1 min";
+  if (elapsedMinutes < 60) return `${elapsedMinutes} min`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  if (elapsedHours < 24) return `${elapsedHours} h ${minutes} min`;
+
+  const days = Math.floor(elapsedHours / 24);
+  const hours = elapsedHours % 24;
+  return `${days} d ${hours} h`;
 }
 
 function formatDate(value: string) {

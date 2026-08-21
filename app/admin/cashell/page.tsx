@@ -27,6 +27,7 @@ export default function CashellPage() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CashellResult | null>(null);
   const [selectedOffender, setSelectedOffender] = useState<RrOffender | null>(null);
+  const [expandedTable, setExpandedTable] = useState<"clients" | "offenders" | "crew" | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/cashell", { cache: "no-store" }).then(async (response) => {
@@ -41,7 +42,6 @@ export default function CashellPage() {
     const needle = normalize(query);
     return !needle ? results : results.filter((row) => normalize(`${row.clientCode} ${row.clientName} ${row.paymentMethod} ${row.dt} ${row.responsible} ${row.driver} ${row.auxiliary}`).includes(needle));
   }, [query, results]);
-  const compliant = useMemo(() => filtered.filter((row) => row.status === "Cumplio"), [filtered]);
   const nonCompliant = useMemo(() => filtered.filter((row) => row.status === "No cumplio"), [filtered]);
   const rrOffenders = useMemo(() => buildRrOffenders(nonCompliant), [nonCompliant]);
   const percentage = results.length ? Math.round((results.filter((row) => row.status === "Cumplio").length / results.length) * 100) : 0;
@@ -104,26 +104,40 @@ export default function CashellPage() {
       {results.length ? <>
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Stat icon={<FileSpreadsheet />} label="Clientes evaluados" value={results.length} /><Stat icon={<CheckCircle2 />} label="Cumplieron" tone="green" value={results.filter((row) => row.status === "Cumplio").length} /><Stat icon={<XCircle />} label="No cumplieron" tone="red" value={results.filter((row) => row.status === "No cumplio").length} /><Stat icon={<Users />} label="Con tripulacion" value={results.filter(hasCrew).length} /></section>
         <section className="grid gap-4 lg:grid-cols-[320px_1fr]"><ComplianceChart percentage={percentage} yes={results.filter((row) => row.status === "Cumplio").length} no={results.filter((row) => row.status === "No cumplio").length} /><article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><label className="flex items-center gap-2"><Search className="text-slate-400" size={17} /><input className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-violet-500" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar cliente, DT o persona..." value={query} /></label><p className="mt-3 text-xs text-slate-500">{fileName} · {filtered.length} clientes CASHELL visibles</p></article></section>
-        <section className="grid gap-4 xl:grid-cols-2"><ResultTable onSelect={undefined} rows={compliant} title="Clientes que cumplieron" tone="green" /><ResultTable onSelect={setSelected} rows={nonCompliant} title="Clientes que no cumplieron" tone="red" /></section>
-        <RrOffenderTable onSelect={setSelectedOffender} rows={rrOffenders} />
-        <CrewTable rows={nonCompliant} />
+        <section className="grid items-start gap-4 xl:grid-cols-2">
+          <div className="[&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_td]:!py-1.5"><ResultTable onSelect={setSelected} rows={nonCompliant.slice(0, 10)} title="Top 10 clientes que no cumplieron" tone="red" />{nonCompliant.length > 10 ? <MoreButton onClick={() => setExpandedTable("clients")} total={nonCompliant.length} /> : null}</div>
+          <div className="[&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_td]:!py-1.5"><RrOffenderTable onSelect={setSelectedOffender} rows={rrOffenders} />{rrOffenders.length > 10 ? <MoreButton onClick={() => setExpandedTable("offenders")} total={rrOffenders.length} /> : null}</div>
+        </section>
+        <div className="mx-auto w-full max-w-6xl [&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_td]:!py-1.5"><CrewTable rows={nonCompliant.slice(0, 10)} />{nonCompliant.length > 10 ? <MoreButton onClick={() => setExpandedTable("crew")} total={nonCompliant.length} /> : null}</div>
       </> : <EmptyState />}
     </section>
     {selected ? <CrewModal onClose={() => setSelected(null)} row={selected} /> : null}
     {selectedOffender ? <RrOffenderModal offender={selectedOffender} onClose={() => setSelectedOffender(null)} /> : null}
+    {expandedTable ? <ExpandedTableModal kind={expandedTable} nonCompliant={nonCompliant} offenders={rrOffenders} onClose={() => setExpandedTable(null)} /> : null}
   </main>;
 }
 
-function ResultTable({ onSelect, rows, title, tone }: { onSelect?: (row: CashellResult) => void; rows: CashellResult[]; title: string; tone: "green" | "red" }) {
+function MoreButton({ onClick, total }: { onClick: () => void; total: number }) {
+  return <button className="mt-2 h-8 w-full rounded-lg border border-slate-200 bg-white text-[10px] font-black text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50" onClick={onClick} type="button">Ver más ({total})</button>;
+}
+
+function ExpandedTableModal({ kind, nonCompliant, offenders, onClose }: { kind: "clients" | "offenders" | "crew"; nonCompliant: CashellResult[]; offenders: RrOffender[]; onClose: () => void }) {
+  const title = kind === "offenders" ? "Todos los RR con incumplimientos" : kind === "crew" ? "Toda la tripulación incumplida" : "Todos los clientes que no cumplieron";
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="dialog"><article className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl"><header className="flex items-center justify-between border-b border-violet-200 bg-violet-50 px-4 py-3"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-700">Vista completa</p><h3 className="font-black text-[#10223d]">{title}</h3></div><button className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white" onClick={onClose} type="button"><X size={17} /></button></header><div className="max-h-[72vh] overflow-auto">{kind === "offenders" ? <table className="w-full text-left text-[10px]"><thead className="sticky top-0 bg-[#10223d] text-[9px] uppercase text-white"><tr><th className="px-3 py-2">RR</th><th className="px-3 py-2">Transportista</th><th className="px-3 py-2 text-center">Incumplimientos</th><th className="px-3 py-2 text-center">Clientes</th><th className="px-3 py-2 text-right">Importe</th></tr></thead><tbody className="divide-y divide-slate-100">{offenders.map((row) => <tr key={`${row.contractor}-${row.rr}`}><td className="px-3 py-2 font-bold">{row.rr}</td><td className="px-3 py-2">{row.contractor}</td><td className="px-3 py-2 text-center">{row.violations}</td><td className="px-3 py-2 text-center">{row.clients}</td><td className="px-3 py-2 text-right font-bold">{money(row.amount)}</td></tr>)}</tbody></table> : <table className="w-full text-left text-[10px]"><thead className="sticky top-0 bg-[#10223d] text-[9px] uppercase text-white"><tr><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">DT</th><th className="px-3 py-2">Transportista</th><th className="px-3 py-2">RR</th><th className="px-3 py-2">Conductor</th><th className="px-3 py-2">Auxiliar</th></tr></thead><tbody className="divide-y divide-slate-100">{nonCompliant.map((row, index) => <tr key={`${row.clientCode}-${row.dt}-${index}`}><td className="px-3 py-2"><b>{row.clientCode}</b><span className="block text-[9px] text-slate-500">{row.clientName}</span></td><td className="px-3 py-2 font-bold">{row.dt}</td><td className="px-3 py-2">{row.contractor || "Sin cruce"}</td><td className="px-3 py-2">{row.responsible || "Sin dato"}</td><td className="px-3 py-2">{row.driver || "Sin dato"}</td><td className="px-3 py-2">{row.auxiliary || "Sin dato"}</td></tr>)}</tbody></table>}</div></article></div>;
+}
+
+function ResultTable({ onSelect, rows: allRows, title, tone }: { onSelect?: (row: CashellResult) => void; rows: CashellResult[]; title: string; tone: "green" | "red" }) {
+  const [expanded, setExpanded] = useState(false);
+  const rows = expanded ? allRows : allRows.slice(0, 10);
   const accent = tone === "green" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700";
-  return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <header className={`flex items-center justify-between gap-3 border-b px-4 py-3 ${accent}`}>
+  return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <header className={`flex items-center justify-between gap-3 border-b px-3 py-2 ${accent}`}>
       <div><h3 className="font-black text-[#10223d]">{title}</h3><p className="text-[10px] font-semibold text-slate-500">Orden del archivo cargado</p></div>
-      <span className="rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{rows.length}</span>
+      <div className="flex items-center gap-2"><span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black shadow-sm">{allRows.length}</span>{allRows.length > 10 ? <button className="rounded-md border border-current/20 bg-white px-2 py-1 text-[9px] font-black" onClick={() => setExpanded((current) => !current)} type="button">{expanded ? "Ver top 10" : "Ver más"}</button> : null}</div>
     </header>
-    <div className="max-h-[350px] overflow-auto">
-      <table className="w-full min-w-[750px] table-fixed text-left text-[10px]">
-        <thead className="sticky top-0 z-10 bg-[#10223d] text-[9px] uppercase tracking-wide text-white"><tr><th className="w-[25%] px-3 py-2.5">Cliente</th><th className="w-[15%] px-3 py-2.5">DT</th><th className="w-[18%] px-3 py-2.5">Pago</th><th className="w-[15%] px-3 py-2.5 text-right">Importe</th><th className="w-[12%] px-3 py-2.5">Fecha</th><th className="w-[15%] px-3 py-2.5 text-center">Tripulacion</th></tr></thead>
+    <div className="max-h-[260px] overflow-auto">
+      <table className="w-full min-w-[640px] table-fixed text-left text-[9px] [&_td]:px-2 [&_td]:py-1.5">
+        <thead className="sticky top-0 z-10 bg-[#10223d] text-[8px] uppercase tracking-wide text-white"><tr><th className="w-[25%] px-2 py-1.5">Cliente</th><th className="w-[15%] px-2 py-1.5">DT</th><th className="w-[18%] px-2 py-1.5">Pago</th><th className="w-[15%] px-2 py-1.5 text-right">Importe</th><th className="w-[12%] px-2 py-1.5">Fecha</th><th className="w-[15%] px-2 py-1.5 text-center">Tripulacion</th></tr></thead>
         <tbody className="divide-y divide-slate-100">{rows.map((row, index) => <tr className={`${index % 2 ? "bg-slate-50/70" : "bg-white"} ${onSelect ? "cursor-pointer hover:bg-red-50" : "hover:bg-emerald-50/50"}`} key={`${row.clientCode}-${row.receipt}-${index}`} onClick={() => onSelect?.(row)}><td className="px-3 py-2.5"><b className="text-[#10223d]">{row.clientCode}</b><span className="block truncate text-[9px] text-slate-500" title={row.clientName}>{row.clientName}</span></td><td className="px-3 py-2.5 font-bold text-slate-700">{row.dt || "-"}</td><td className="px-3 py-2.5"><span className={`inline-flex max-w-full truncate rounded-md px-2 py-1 font-bold ${tone === "green" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} title={row.paymentMethod}>{row.paymentMethod}</span></td><td className="whitespace-nowrap px-3 py-2.5 text-right font-black text-[#10223d]">{money(row.amount)}</td><td className="whitespace-nowrap px-3 py-2.5">{row.date}</td><td className="px-3 py-2.5 text-center">{onSelect ? <button className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 font-black text-blue-700 hover:bg-blue-100" type="button">Ver tripulacion</button> : hasCrew(row) ? <span className="font-bold text-blue-700">{row.responsible || "Encontrada"}</span> : <span className="text-slate-400">Sin cruce</span>}</td></tr>)}</tbody>
       </table>
       {!rows.length ? <p className="p-8 text-center text-sm text-slate-400">Sin registros.</p> : null}
@@ -132,8 +146,8 @@ function ResultTable({ onSelect, rows, title, tone }: { onSelect?: (row: Cashell
 }
 
 function RrOffenderTable({ onSelect, rows }: { onSelect: (row: RrOffender) => void; rows: RrOffender[] }) {
-  return <article className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
-    <header className="flex items-center justify-between gap-3 border-b border-violet-200 bg-violet-50 px-4 py-3"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-700">Top ofensores</p><h3 className="font-black text-[#10223d]">RR con mas incumplimientos CASHELL</h3></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-violet-700 shadow-sm">Top {Math.min(rows.length, 10)}</span></header>
+  return <article className="overflow-hidden rounded-lg border border-violet-200 bg-white shadow-sm">
+    <header className="flex items-center justify-between gap-3 border-b border-violet-200 bg-violet-50 px-3 py-2"><div><p className="text-[8px] font-black uppercase tracking-wider text-violet-700">Top ofensores</p><h3 className="text-sm font-black text-[#10223d]">RR con mas incumplimientos CASHELL</h3></div><span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-violet-700 shadow-sm">Top {Math.min(rows.length, 10)}</span></header>
     <div className="max-h-[300px] overflow-auto"><table className="w-full min-w-[680px] text-left text-[9px]"><thead className="sticky top-0 z-10 bg-[#10223d] text-[8px] uppercase tracking-wide text-white"><tr><th className="w-12 px-2 py-2 text-center">#</th><th className="px-2 py-2">RR</th><th className="px-2 py-2">Transportista</th><th className="px-2 py-2 text-center">Incumplimientos</th><th className="px-2 py-2 text-center">Clientes</th><th className="px-2 py-2 text-right">Importe</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.slice(0, 10).map((row, index) => <tr className={`${index % 2 ? "bg-slate-50/70" : "bg-white"} cursor-pointer hover:bg-violet-100`} key={`${row.contractor}-${row.rr}`} onClick={() => onSelect(row)}><td className="px-2 py-1.5 text-center"><span className="inline-grid h-5 w-5 place-items-center rounded bg-violet-100 font-black text-violet-700">{index + 1}</span></td><td className="px-2 py-1.5 font-black text-[#10223d]"><button className="text-left hover:text-violet-700" type="button">{row.rr}</button></td><td className="px-2 py-1.5 text-slate-500">{row.contractor || "Sin transportista"}</td><td className="px-2 py-1.5 text-center"><span className="rounded-full bg-red-100 px-2 py-0.5 font-black text-red-700">{row.violations}</span></td><td className="px-2 py-1.5 text-center font-bold">{row.clients}</td><td className="px-2 py-1.5 text-right font-black">{money(row.amount)}</td></tr>)}</tbody></table>{!rows.length ? <p className="p-8 text-center text-sm text-slate-400">No hay RR asociados a incumplimientos.</p> : null}</div>
   </article>;
 }

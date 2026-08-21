@@ -19,6 +19,7 @@ export type ModulacionRegistro = {
   telefonoPreventista?: string;
   totalCajas: string;
   cajasGestionadas?: string;
+  gestionCompletadaAt?: string;
   persona: string;
   personaNombre?: string;
   causal: string;
