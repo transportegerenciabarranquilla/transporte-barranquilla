@@ -331,7 +331,7 @@ function addUniqueLabel(current: string, next: string) {
   return values.includes(next) ? current : [...values, next].join(", ");
 }
 
-function normalizeJefeVentas(value: string | undefined) {
+export function normalizeJefeVentas(value: string | undefined) {
   const cleanValue = String(value || "").trim();
   if (!cleanValue || /^rr\b/i.test(cleanValue) || /^rr[-\s]?\d+/i.test(cleanValue)) return "Sin jefe de ventas";
   return cleanValue;

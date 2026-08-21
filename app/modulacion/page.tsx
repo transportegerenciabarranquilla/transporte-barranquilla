@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
+import { BarChart3, CalendarDays, ClipboardList, Download, Eye, PackageCheck, Pencil, Save, Search, Trash2, UsersRound, X } from "lucide-react";
 import {
   deleteModulacionRegistro,
   getLocalDateKey,
@@ -17,7 +17,6 @@ import { refreshRemoteRecords } from "../lib/remoteStore";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
-import { causales } from "./constants";
 import type { Vehiculo } from "../seguimiento/types";
 
 const MODULACION_REFRESH_MS = 30_000;
@@ -28,8 +27,10 @@ export default function ModulacionPage() {
   const seguimientoVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
   const [selectedRegistroId, setSelectedRegistroId] = useState<string | null>(null);
   const [editingRegistroId, setEditingRegistroId] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey());
+  const [selectedDateFrom, setSelectedDateFrom] = useState(() => getLocalDateKey());
+  const [selectedDateTo, setSelectedDateTo] = useState(() => getLocalDateKey());
   const [selectedContractor, setSelectedContractor] = useState("");
+  const [selectedSalesBoss, setSelectedSalesBoss] = useState("");
   const [search, setSearch] = useState("");
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
   const [telefonosJefeComercial, setTelefonosJefeComercial] = useState<Record<string, string>>({});
@@ -66,20 +67,43 @@ export default function ModulacionPage() {
     }
   }, [contractorOptions, selectedContractor]);
 
+  const salesBossOptions = useMemo(() => Array.from(new Set(
+    registros
+      .filter((registro) => !selectedContractor || registro.contratista === selectedContractor)
+      .map((registro) => registro.jefeComercial?.trim() || "Sin jefe de ventas"),
+  )).sort((a, b) => a.localeCompare(b, "es")), [registros, selectedContractor]);
+
+  useEffect(() => {
+    if (selectedSalesBoss && !salesBossOptions.includes(selectedSalesBoss)) setSelectedSalesBoss("");
+  }, [salesBossOptions, selectedSalesBoss]);
+
   const registrosFiltrados = useMemo(() => {
     return registros
       .filter((registro) => !selectedContractor || registro.contratista === selectedContractor)
-      .filter((registro) => !selectedDate || getRegistroDateKey(registro) === selectedDate)
+      .filter((registro) => !selectedSalesBoss || (registro.jefeComercial?.trim() || "Sin jefe de ventas") === selectedSalesBoss)
+      .filter((registro) => {
+        const date = getRegistroDateKey(registro);
+        return (!selectedDateFrom || date >= selectedDateFrom) && (!selectedDateTo || date <= selectedDateTo);
+      })
       .filter((registro) => {
         const term = search.trim().toLowerCase();
         if (!term) return true;
 
-        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.telefonoCliente} ${registro.com} ${registro.jefeComercial} ${registro.telefonoJefeComercial} ${registro.preventista} ${registro.persona} ${registro.personaNombre} ${registro.causal} ${registro.comentario} ${registro.comentarioModulador}`
+        return `${registro.dt} ${registro.codigoCliente} ${registro.nombreCliente} ${registro.telefonoCliente} ${registro.com} ${registro.jefeComercial} ${registro.telefonoJefeComercial} ${registro.preventista} ${registro.persona} ${registro.personaNombre} ${registro.causal} ${registro.origenReubicacion} ${registro.comentario} ${registro.comentarioModulador}`
           .toLowerCase()
           .includes(term);
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [registros, search, selectedContractor, selectedDate]);
+  }, [registros, search, selectedContractor, selectedDateFrom, selectedDateTo, selectedSalesBoss]);
+
+  const originStats = useMemo(() => {
+    const classified = registrosFiltrados.filter((registro) => registro.origenReubicacion === "Logística" || registro.origenReubicacion === "Ventas");
+    const total = classified.length;
+    return (["Logística", "Ventas"] as const).map((origin) => {
+      const count = classified.filter((registro) => registro.origenReubicacion === origin).length;
+      return { count, origin, percentage: total ? Number(((count / total) * 100).toFixed(1)) : 0 };
+    });
+  }, [registrosFiltrados]);
 
   const registroSeleccionado = useMemo(
     () => registros.find((registro) => registro.id === selectedRegistroId) ?? null,
@@ -151,6 +175,13 @@ export default function ModulacionPage() {
     saveModulacionRegistro({ ...nextRecord, comentarioModulador: value });
   }
 
+  function updateOrigenReubicacion(id: string, origenReubicacion: "Logística" | "Ventas") {
+    const nextRecord = registros.find((registro) => registro.id === id);
+    if (!nextRecord) return;
+    const nextOrigin = nextRecord.origenReubicacion === origenReubicacion ? undefined : origenReubicacion;
+    void saveModulacionRegistro({ ...nextRecord, origenReubicacion: nextOrigin });
+  }
+
   async function deleteRegistro(registro: ModulacionRegistro) {
     const label = `${registro.codigoCliente || "sin cliente"} / DT ${registro.dt || "-"}`;
     if (!window.confirm(`Eliminar esta modulacion (${label})? Esta accion no se puede deshacer.`)) return;
@@ -185,6 +216,7 @@ export default function ModulacionPage() {
       "Cedula modulador": registro.persona,
       Modulador: registro.personaNombre || "",
       Causal: registro.causal,
+      "Origen reubicacion": registro.origenReubicacion || "Sin clasificar",
       "Cajas rechazadas": Number(registro.totalCajas || 0),
       "Cajas gestionadas": Number(registro.cajasGestionadas || 0),
       "Cajas pendientes": Math.max(Number(registro.totalCajas || 0) - Number(registro.cajasGestionadas || 0), 0),
@@ -217,7 +249,7 @@ export default function ModulacionPage() {
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Modulaciones");
-    XLSX.writeFile(workbook, `modulaciones-${selectedContractor || "contratista"}-${selectedDate || "todas"}.xlsx`);
+    XLSX.writeFile(workbook, `modulaciones-${selectedContractor || "contratista"}-${selectedDateFrom || "inicio"}-${selectedDateTo || "fin"}.xlsx`);
   }
 
   return (
@@ -241,7 +273,7 @@ export default function ModulacionPage() {
         </div>
 
         <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid gap-3 lg:grid-cols-[220px_1fr_220px_auto] lg:items-center">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_210px_1fr_170px_170px_auto] xl:items-center">
             <select
               className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
               onChange={(event) => setSelectedContractor(event.target.value)}
@@ -255,12 +287,22 @@ export default function ModulacionPage() {
               ))}
             </select>
 
+            <select
+              aria-label="Filtrar por jefe de ventas"
+              className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
+              onChange={(event) => setSelectedSalesBoss(event.target.value)}
+              value={selectedSalesBoss}
+            >
+              <option value="">Todos los jefes de ventas</option>
+              {salesBossOptions.map((boss) => <option key={boss} value={boss}>{boss}</option>)}
+            </select>
+
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
                 className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#f5bd19]"
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por DT, cliente, persona, causal o comentario"
+                placeholder="Buscar por DT, cliente, persona, origen o comentario"
                 value={search}
               />
             </div>
@@ -269,23 +311,36 @@ export default function ModulacionPage() {
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
                 className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#f5bd19]"
-                onChange={(event) => setSelectedDate(event.target.value)}
+                aria-label="Fecha desde"
+                onChange={(event) => setSelectedDateFrom(event.target.value)}
                 type="date"
-                value={selectedDate}
+                value={selectedDateFrom}
+              />
+            </div>
+
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                aria-label="Fecha hasta"
+                className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#f5bd19]"
+                min={selectedDateFrom || undefined}
+                onChange={(event) => setSelectedDateTo(event.target.value)}
+                type="date"
+                value={selectedDateTo}
               />
             </div>
 
             <div className="flex gap-2">
               <button
                 className="h-11 rounded-md bg-[#10223d] px-4 text-sm font-semibold text-white transition hover:bg-[#1b355b]"
-                onClick={() => setSelectedDate(getLocalDateKey())}
+                onClick={() => { const today = getLocalDateKey(); setSelectedDateFrom(today); setSelectedDateTo(today); }}
                 type="button"
               >
                 Hoy
               </button>
               <button
                 className="h-11 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-                onClick={() => setSelectedDate("")}
+                onClick={() => { setSelectedDateFrom(""); setSelectedDateTo(""); }}
                 type="button"
               >
                 Todas
@@ -294,6 +349,29 @@ export default function ModulacionPage() {
           </div>
         </div>
 
+        <section className="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2 text-[#10223d]">
+            <span className="grid h-8 w-8 place-items-center rounded-md bg-violet-100 text-violet-700"><BarChart3 size={17} /></span>
+            <div>
+              <h2 className="text-sm font-semibold">Origen de la reubicación</h2>
+              <p className="text-[11px] text-slate-500">Porcentaje de modulaciones clasificadas según los filtros activos</p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {originStats.map((stat, index) => (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3" key={stat.origin}>
+                <div className="mb-2 flex items-end justify-between gap-3">
+                  <div><p className="text-xs font-semibold text-slate-600">{stat.origin}</p><p className="text-[11px] text-slate-400">{stat.count} registros</p></div>
+                  <p className={`text-2xl font-bold ${index === 0 ? "text-cyan-700" : "text-violet-700"}`}>{stat.percentage.toLocaleString("es-CO")}%</p>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                  <div className={`h-full rounded-full ${index === 0 ? "bg-cyan-500" : "bg-violet-500"}`} style={{ width: `${stat.percentage}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section className="data-shell rounded-lg">
           <div className="flex flex-col gap-2 border-b border-slate-200/70 bg-white/78 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
@@ -301,7 +379,7 @@ export default function ModulacionPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[#10223d]">Tabla de modulaciones</h2>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  {selectedContractor || "Sin contratista"} - {selectedDate ? `registros del ${selectedDate}` : "todos los dias"}
+                  {selectedContractor || "Sin contratista"} - {selectedDateFrom || selectedDateTo ? `${selectedDateFrom || "inicio"} a ${selectedDateTo || "hoy"}` : "todos los dias"}
                 </p>
               </div>
             </div>
@@ -327,9 +405,9 @@ export default function ModulacionPage() {
                   <th className="w-[115px] px-3 py-2 text-left">DT</th>
                   <th className="w-[170px] px-3 py-2 text-left">Cliente</th>
                   <th className="w-[165px] px-3 py-2 text-left">Persona</th>
-                  <th className="w-[165px] px-3 py-2 text-left">Causal</th>
+                  <th className="w-[165px] px-3 py-2 text-left">Origen</th>
                   <th className="w-[90px] px-3 py-2 text-center">Rechaz.</th>
-                  <th className="w-[135px] px-3 py-2 text-center">Gestion.</th>
+                  <th className="w-[210px] px-3 py-2 text-center">Gestión / responsable</th>
                   <th className="px-3 py-2 text-left">Comentario</th>
                   <th className="w-[180px] px-3 py-2 text-right">Acciones</th>
                 </tr>
@@ -357,26 +435,46 @@ export default function ModulacionPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <p className="line-clamp-2 text-xs font-medium leading-4 text-slate-600" title={registro.causal}>{registro.causal}</p>
+                        <p className="line-clamp-2 text-xs font-medium leading-4 text-slate-600" title={registro.origenReubicacion || "Sin clasificar"}>{registro.origenReubicacion || "Sin clasificar"}</p>
                       </td>
                       <td className="px-3 py-2 text-center">
                         <span className="number-pill border-red-100 bg-red-50 text-red-700">{registro.totalCajas}</span>
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <input
-                            className="h-7 w-14 rounded-md border border-slate-200 bg-white/90 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#00b8d9]"
-                            inputMode="numeric"
-                            onBlur={() => commitCajasGestionadas(registro.id)}
-                            onChange={(event) => updateCajasGestionadasDraft(registro.id, event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") event.currentTarget.blur();
-                            }}
-                            placeholder="0"
-                            type="text"
-                            value={gestionadasValue}
-                          />
-                          <GestionBadge registro={visibleRegistro} />
+                        <div className="flex flex-col items-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <input
+                              className="h-7 w-14 rounded-md border border-slate-200 bg-white/90 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#00b8d9]"
+                              inputMode="numeric"
+                              onBlur={() => commitCajasGestionadas(registro.id)}
+                              onChange={(event) => updateCajasGestionadasDraft(registro.id, event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") event.currentTarget.blur();
+                              }}
+                              placeholder="0"
+                              type="text"
+                              value={gestionadasValue}
+                            />
+                            <GestionBadge registro={visibleRegistro} />
+                          </div>
+                          <div className="grid w-full grid-cols-2 gap-1">
+                            {(["Logística", "Ventas"] as const).map((origin) => (
+                              <button
+                                aria-pressed={registro.origenReubicacion === origin}
+                                aria-label={registro.origenReubicacion === origin ? `Quitar asignación de ${origin}` : `Asignar gestión a ${origin}`}
+                                className={`h-6 rounded border px-1 text-[9px] font-bold transition ${
+                                  registro.origenReubicacion === origin
+                                    ? origin === "Logística" ? "border-cyan-600 bg-cyan-600 text-white" : "border-violet-600 bg-violet-600 text-white"
+                                    : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                }`}
+                                key={origin}
+                                onClick={() => updateOrigenReubicacion(registro.id, origin)}
+                                type="button"
+                              >
+                                {origin}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </td>
                       <td className="px-3 py-2">
@@ -566,8 +664,8 @@ function EditModulacionModal({
   }
 
   async function handleSave() {
-    if (!draft.dt.trim() || !draft.codigoCliente.trim() || !draft.totalCajas.trim() || !draft.causal.trim()) {
-      setError("DT, codigo cliente, cajas rechazadas y causal son obligatorios.");
+    if (!draft.dt.trim() || !draft.codigoCliente.trim() || !draft.totalCajas.trim() || !draft.origenReubicacion) {
+      setError("DT, codigo cliente, cajas rechazadas y origen de reubicación son obligatorios.");
       return;
     }
 
@@ -604,7 +702,7 @@ function EditModulacionModal({
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f5bd19]">Editar modulacion</p>
               <h2 className="mt-0.5 text-base font-semibold">Corregir registro</h2>
-              <p className="mt-0.5 text-xs text-white/65">Codigo, cajas, causal o comentario.</p>
+              <p className="mt-0.5 text-xs text-white/65">Código, cajas, origen o comentario.</p>
             </div>
           </div>
           <button
@@ -635,18 +733,15 @@ function EditModulacionModal({
           </div>
 
           <label className="mt-3 block">
-            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Causal</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Origen de la reubicación</span>
             <select
               className="mt-1 h-10 w-full rounded-md border border-blue-100 bg-blue-50/40 px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#1264ff] focus:ring-2 focus:ring-[#1264ff]/10"
-              onChange={(event) => updateField("causal", event.target.value)}
-              value={draft.causal}
+              onChange={(event) => updateField("origenReubicacion", event.target.value as ModulacionRegistro["origenReubicacion"])}
+              value={draft.origenReubicacion || ""}
             >
-              <option value="">Selecciona una causal</option>
-              {causales.map((causal) => (
-                <option key={causal} value={causal}>
-                  {causal}
-                </option>
-              ))}
+              <option value="">Selecciona el origen</option>
+              <option value="Logística">Logística</option>
+              <option value="Ventas">Ventas</option>
             </select>
           </label>
 
@@ -836,7 +931,7 @@ function ModulacionDetailModal({
               </DetailTile>
               <DetailTile label="Gestion RR">
                 <DetailLine label="Responsable" value={selectedVehicle?.responsable || registro.personaNombre || registro.persona} />
-                <DetailLine label="Causal" value={registro.causal} />
+                <DetailLine label="Origen" value={registro.origenReubicacion || "Sin clasificar"} />
               </DetailTile>
               <DetailTile label="Comentario RR">
                 <p className="text-sm font-semibold leading-5 text-[#10223d]">{registro.comentario || "-"}</p>

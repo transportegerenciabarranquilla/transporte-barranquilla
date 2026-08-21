@@ -272,6 +272,7 @@ export default function RegistroModulacionPage() {
       fechaDespacho: selectedVehicle?.fechaDespacho || selectedVehicle?.fechaDt || selectedVehicle?.date,
       fechaDt: selectedVehicle?.fechaDt || selectedVehicle?.fechaDespacho || selectedVehicle?.date,
       cajasGestionadas: "0",
+      origenReubicacion: form.origenReubicacion || undefined,
       persona: form.persona.trim(),
       comentario: form.comentario.trim(),
       createdAt: new Date().toISOString(),

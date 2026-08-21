@@ -30,6 +30,7 @@ import {
   getContractors,
   getInitialGraphFilters,
   getVehicleDateKey,
+  normalizeJefeVentas,
   normalizeDateRange,
   toDateKey,
 } from "./utils";
@@ -76,6 +77,7 @@ export default function AdminGraficasPage() {
   const [attendanceSnapshots, setAttendanceSnapshots] = useState<AttendanceSnapshot[]>([]);
   const [activeView, setActiveView] = useState<GraphView>("summary");
   const [clientCausal, setClientCausal] = useState("Todas");
+  const [salesBoss, setSalesBoss] = useState("Todos");
 
   useEffect(() => {
     fetch("/api/admin/seguimiento", { cache: "no-store" })
@@ -136,13 +138,23 @@ export default function AdminGraficasPage() {
 
   const availableRefusalCauses = useMemo(() => buildRefusalCauseByPreventista(visibleRefusalRows), [visibleRefusalRows]);
 
-  const refusalByCom = useMemo(() => buildRefusalByCom(clientCausalRows), [clientCausalRows]);
+  const availableSalesBosses = useMemo(
+    () => buildRefusalByJefeVentas(visibleRefusalRows).map((item) => item.label),
+    [visibleRefusalRows],
+  );
 
-  const refusalByJefeVentas = useMemo(() => buildRefusalByJefeVentas(clientCausalRows), [clientCausalRows]);
+  const filteredRefusalRows = useMemo(
+    () => salesBoss === "Todos" ? clientCausalRows : clientCausalRows.filter((row) => normalizeJefeVentas(row.jefeVentas) === salesBoss),
+    [clientCausalRows, salesBoss],
+  );
 
-  const refusalCauseByPreventista = useMemo(() => buildRefusalCauseByPreventista(clientCausalRows), [clientCausalRows]);
+  const refusalByCom = useMemo(() => buildRefusalByCom(filteredRefusalRows), [filteredRefusalRows]);
 
-  const topRefusalClients = useMemo(() => buildTopRefusalClients(clientCausalRows), [clientCausalRows]);
+  const refusalByJefeVentas = useMemo(() => buildRefusalByJefeVentas(filteredRefusalRows), [filteredRefusalRows]);
+
+  const refusalCauseByPreventista = useMemo(() => buildRefusalCauseByPreventista(filteredRefusalRows), [filteredRefusalRows]);
+
+  const topRefusalClients = useMemo(() => buildTopRefusalClients(filteredRefusalRows), [filteredRefusalRows]);
   const visibleModulationRefusals = useMemo(
     () => filterModulationRecords(modulationRecords, activeDateRange, contractor, dtSearch),
     [activeDateRange, contractor, dtSearch, modulationRecords],
@@ -156,8 +168,8 @@ export default function AdminGraficasPage() {
   const lateComments = useMemo(() => buildLateComments(visibleRecords), [visibleRecords]);
 
   const totals = useMemo(
-    () => buildGraphTotals(visibleRecords, visibleRefusalRows, refusalCauseByPreventista, lateComments),
-    [lateComments, refusalCauseByPreventista, visibleRecords, visibleRefusalRows],
+    () => buildGraphTotals(visibleRecords, filteredRefusalRows, refusalCauseByPreventista, lateComments),
+    [filteredRefusalRows, lateComments, refusalCauseByPreventista, visibleRecords],
   );
 
   const operationalOverview = useMemo(
@@ -189,6 +201,7 @@ export default function AdminGraficasPage() {
     setDateRange({ from: today, to: today });
     setDtSearch("");
     setClientCausal("Todas");
+    setSalesBoss("Todos");
   }
 
   return (
@@ -426,22 +439,33 @@ export default function AdminGraficasPage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.12em] text-violet-700">Filtro de las tablas</p>
-            <p className="text-xs font-semibold text-[#10223d]">Mostrar resultados por causal de rechazo</p>
+            <p className="text-xs font-semibold text-[#10223d]">Mostrar resultados por causal y jefe de ventas</p>
           </div>
-          <select
-            aria-label="Filtrar tablas por causal"
-            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-[#10223d] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 sm:w-72"
-            onChange={(event) => setClientCausal(event.target.value)}
-            value={clientCausal}
-          >
-            <option value="Todas">Todas las causales</option>
-            {availableRefusalCauses.map((item) => <option key={item.causal} value={item.causal}>{item.causal}</option>)}
-          </select>
+          <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
+            <select
+              aria-label="Filtrar tablas por causal"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-[#10223d] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 sm:w-64"
+              onChange={(event) => setClientCausal(event.target.value)}
+              value={clientCausal}
+            >
+              <option value="Todas">Todas las causales</option>
+              {availableRefusalCauses.map((item) => <option key={item.causal} value={item.causal}>{item.causal}</option>)}
+            </select>
+            <select
+              aria-label="Filtrar tablas por jefe de ventas"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-[#10223d] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 sm:w-64"
+              onChange={(event) => setSalesBoss(event.target.value)}
+              value={salesBoss}
+            >
+              <option value="Todos">Todos los jefes de ventas</option>
+              {availableSalesBosses.map((boss) => <option key={boss} value={boss}>{boss}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="mb-4 grid gap-3 xl:grid-cols-3">
           <ChartPanel icon={<BarChart3 size={16} />} title="Refusal por preventista">
-            <RefusalComBars data={refusalByCom.slice(0, 8)} emptyText="Sin datos de refusal por preventista para este filtro." />
+            <RefusalComBars data={refusalByCom.slice(0, 10)} emptyText="Sin datos de refusal por preventista para este filtro." />
           </ChartPanel>
           <ChartPanel icon={<ShieldAlert size={16} />} title="Refusal por jefe de ventas">
             <RefusalComBars data={refusalByJefeVentas.slice(0, 8)} emptyText="Sin datos de refusal por jefe de ventas para este filtro." />

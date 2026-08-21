@@ -12,7 +12,7 @@ const LIST_CACHE_TTL_MS = 45_000;
 const LIST_PAGE_SIZE = 1_000;
 const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
 const LIST_SELECT =
-  "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
+  "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,origenReubicacion:data->>origenReubicacion,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 
 export async function GET() {
   try {
@@ -215,6 +215,7 @@ function fromListRow(row: ModulacionListRow): ModulacionRegistro {
     persona: readString(row.persona),
     personaNombre: readString(row.personaNombre),
     causal: readString(row.causal),
+    origenReubicacion: normalizeOrigenReubicacion(row.origenReubicacion),
     comentario: readString(row.comentario),
     comentarioModulador: readString(row.comentarioModulador),
     imagenNombre: readString(row.imagenNombre),
@@ -225,6 +226,13 @@ function fromListRow(row: ModulacionListRow): ModulacionRegistro {
 
 function readString(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function normalizeOrigenReubicacion(value: unknown): ModulacionRegistro["origenReubicacion"] {
+  const normalized = readString(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (normalized === "logistica") return "Logística";
+  if (normalized === "ventas") return "Ventas";
+  return undefined;
 }
 
 async function validatePublicDt(contractor: string, record: ModulacionRegistro | undefined) {

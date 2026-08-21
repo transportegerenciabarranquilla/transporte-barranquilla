@@ -33,6 +33,7 @@ export const initialForm: FormState = {
   persona: "",
   personaNombre: "",
   causal: "",
+  origenReubicacion: "",
   comentario: "",
   imagenNombre: "",
   imagenVista: "",

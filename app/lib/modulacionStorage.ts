@@ -22,6 +22,7 @@ export type ModulacionRegistro = {
   persona: string;
   personaNombre?: string;
   causal: string;
+  origenReubicacion?: "Logística" | "Ventas";
   comentario: string;
   comentarioModulador?: string;
   imagenNombre: string;

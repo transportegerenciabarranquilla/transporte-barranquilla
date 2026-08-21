@@ -15,6 +15,7 @@ export type FormState = {
   persona: string;
   personaNombre: string;
   causal: string;
+  origenReubicacion: "" | "Logística" | "Ventas";
   comentario: string;
   imagenNombre: string;
   imagenVista: string;
