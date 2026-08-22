@@ -487,7 +487,7 @@ export default function AdminGraficasPage() {
           onCausalChange={setClientCausal}
           selectedCausal={clientCausal}
         />
-        <RefusalClientsByRange data={topRefusalClients} />
+        <RefusalClientsByRange data={topRefusalClients} rows={filteredRefusalRows} />
         <RrRefusalTop data={rrRefusalTop} />
         <ContractorRefusalHistory data={refusalHistory} />
         </> : null}

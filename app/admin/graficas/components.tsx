@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Table2, X } from "lucide-react";
-import type { ContractorRefusalTrend, RrRefusalSummary, RefusalCausePreventistaSummary, RefusalClientSummary, RefusalComSummary } from "./types";
+import type { AdminRefusalComRow, ContractorRefusalTrend, RrRefusalSummary, RefusalCausePreventistaSummary, RefusalClientSummary, RefusalComSummary } from "./types";
 import { formatDateLabel } from "./utils";
 
 export function TopRefusalClientsTable({
@@ -91,25 +91,63 @@ const REFUSAL_RANGES = [
   { label: ">100 cajas", className: "bg-neutral-800", min: 101, max: Number.POSITIVE_INFINITY },
 ] as const;
 
-export function RefusalClientsByRange({ data }: { data: RefusalClientSummary[] }) {
+export function RefusalClientsByRange({ data, rows }: { data: RefusalClientSummary[]; rows: AdminRefusalComRow[] }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  const dateRows = rows.filter((row) => (!rangeFrom || row.date >= rangeFrom) && (!rangeTo || row.date <= rangeTo));
+  const dateClientTotals = new Map<string, RefusalClientSummary>();
+  dateRows.forEach((row) => {
+    const code = row.codigoCliente?.trim() || "Sin código";
+    const name = row.nombreCliente?.trim() || "Cliente sin nombre";
+    const key = `${code}:${name.toLocaleLowerCase("es")}`;
+    const current = dateClientTotals.get(key) || { causal: row.causal || "Sin causal", codigoCliente: code, contractor: row.contractor || "Sin contratista", date: row.date, gestionadas: 0, nombreCliente: name, pendientes: 0, registros: 0, reportadas: 0 };
+    current.gestionadas += Number(row.gestionadas || 0);
+    current.pendientes += Number.isFinite(Number(row.refusalFinal)) ? Number(row.refusalFinal) : Math.max(Number(row.reportadas || 0) - Number(row.gestionadas || 0), 0);
+    current.reportadas += Number(row.reportadas || 0);
+    current.registros += 1;
+    dateClientTotals.set(key, current);
+  });
+  const rangedData = dateRows.length || rangeFrom || rangeTo ? Array.from(dateClientTotals.values()) : data;
   const ranges = REFUSAL_RANGES.map((range) => ({
     ...range,
-    clients: data.filter((client) => client.pendientes >= range.min && client.pendientes <= range.max),
+    clients: rangedData.filter((client) => client.pendientes >= range.min && client.pendientes <= range.max),
   }));
+  const maxRangeClients = Math.max(...ranges.map((range) => range.clients.length), 1);
   const selected = selectedIndex === null ? null : ranges[selectedIndex];
+  const chartClients = selected ? [...selected.clients].sort((a, b) => b.registros - a.registros || b.pendientes - a.pendientes).slice(0, 10) : [];
+  const maxRejections = Math.max(...chartClients.map((client) => client.registros), 1);
+  const causeTotals = new Map<string, number>();
+  dateRows.forEach((row) => {
+    const cause = row.causal?.trim() || "Sin causal";
+    causeTotals.set(cause, (causeTotals.get(cause) || 0) + 1);
+  });
+  const chartCauses = Array.from(causeTotals, ([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+  const maxCauseCount = Math.max(...chartCauses.map((cause) => cause.count), 1);
 
   return <>
     <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div className="flex items-center gap-2 text-[#10223d]"><span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white"><Table2 size={15} /></span><h2 className="text-xs font-semibold">Clientes por cajas rechazadas</h2></div>
-        <span className="text-[10px] font-semibold uppercase tracking-[.1em] text-slate-400">Presiona un rango para ver clientes</span>
+        <div className="flex flex-wrap items-end gap-2"><label className="text-[9px] font-bold uppercase text-slate-500">Desde<input className="mt-1 block h-8 rounded-md border border-slate-200 bg-white px-2 text-[10px] text-slate-700" onChange={(event) => setRangeFrom(event.target.value)} type="date" value={rangeFrom} /></label><label className="text-[9px] font-bold uppercase text-slate-500">Hasta<input className="mt-1 block h-8 rounded-md border border-slate-200 bg-white px-2 text-[10px] text-slate-700" onChange={(event) => setRangeTo(event.target.value)} type="date" value={rangeTo} /></label>{rangeFrom || rangeTo ? <button className="h-8 rounded-md border border-slate-200 bg-white px-3 text-[9px] font-bold uppercase text-slate-500 hover:bg-slate-100" onClick={() => { setRangeFrom(""); setRangeTo(""); }} type="button">Limpiar</button> : null}</div>
       </div>
-      <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4">
-        {ranges.map((range, index) => <button className={`flex min-h-20 items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${range.className}`} key={range.label} onClick={() => setSelectedIndex(index)} type="button"><span className="text-sm font-black uppercase">{range.label}</span><span className="rounded-full bg-white/20 px-2.5 py-1 text-lg font-black">{range.clients.length}</span></button>)}
+      <div className="p-4">
+        <p className="mb-2 text-right text-[9px] font-semibold uppercase tracking-[.1em] text-slate-400">Presiona una barra para ver clientes</p>
+        <div className="grid h-64 grid-cols-4 items-end gap-3 rounded-lg border border-slate-100 bg-gradient-to-b from-slate-50 to-white px-3 pb-3 pt-7 sm:gap-6 sm:px-8">
+          {ranges.map((range, index) => <button className="flex h-full min-w-0 flex-col items-center justify-end gap-2" key={range.label} onClick={() => setSelectedIndex(index)} type="button"><span className="text-sm font-black text-[#10223d]">{range.clients.length}</span><span className={`w-full max-w-24 rounded-t-md shadow-md transition hover:brightness-110 ${range.className}`} style={{ height: `${Math.max(8, range.clients.length / maxRangeClients * 170)}px` }} /><span className="min-h-7 text-center text-[9px] font-black uppercase leading-3 text-slate-600 sm:text-[10px]">{range.label}</span></button>)}
+        </div>
       </div>
     </section>
-    {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIndex(null); }} role="dialog"><article className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className={`${selected.className} flex items-start justify-between gap-4 p-5 text-white`}><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-white/75">Clientes que rechazan</p><h3 className="mt-1 text-xl font-black">{selected.label}</h3><p className="mt-1 text-xs text-white/80">{selected.clients.length} cliente{selected.clients.length === 1 ? "" : "s"} en este rango</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30" onClick={() => setSelectedIndex(null)} type="button"><X size={17} /></button></header><div className="max-h-[60vh] overflow-auto divide-y divide-slate-100">{selected.clients.length ? selected.clients.map((client, index) => <div className="grid grid-cols-[30px_minmax(0,1fr)_90px] items-center gap-3 px-5 py-3" key={`${client.codigoCliente}-${index}`}><span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">{index + 1}</span><div className="min-w-0"><p className="truncate text-xs font-black text-slate-800" title={client.nombreCliente}>{client.nombreCliente}</p><p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">{client.codigoCliente} · {client.contractor} · {client.causal}</p></div><div className="text-right"><p className="text-lg font-black text-red-700">{client.pendientes.toLocaleString("es-CO")}</p><p className="text-[8px] font-bold uppercase text-slate-400">cajas finales</p></div></div>) : <EmptyState text="No hay clientes en este rango." />}</div></article></div> : null}
+    <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex items-center gap-2 text-[#10223d]"><span className="grid h-7 w-7 place-items-center rounded-md bg-orange-500 text-white"><Table2 size={15} /></span><h2 className="text-xs font-semibold">Rechazos por causal</h2></div>
+        <span className="text-[10px] font-semibold uppercase tracking-[.1em] text-slate-400">Cantidad de registros</span>
+      </div>
+      <div className="p-4">
+        {chartCauses.length ? <div className="space-y-2">{chartCauses.map((cause) => <div className="grid grid-cols-[minmax(110px,190px)_1fr_42px] items-center gap-3" key={cause.label}><span className="truncate text-[11px] font-semibold text-slate-600" title={cause.label}>{cause.label}</span><div className="h-6 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-gradient-to-r from-orange-500 to-amber-300" style={{ width: `${Math.max(5, cause.count / maxCauseCount * 100)}%` }} /></div><span className="text-right text-xs font-black text-orange-700">{cause.count}x</span></div>)}</div> : <EmptyState text="No hay causales para graficar con estos filtros." />}
+      </div>
+    </section>
+    {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIndex(null); }} role="dialog"><article className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className={`${selected.className} flex items-start justify-between gap-4 p-5 text-white`}><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-white/75">Clientes que rechazan</p><h3 className="mt-1 text-xl font-black">{selected.label}</h3><p className="mt-1 text-xs text-white/80">{selected.clients.length} cliente{selected.clients.length === 1 ? "" : "s"} en este rango</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30" onClick={() => setSelectedIndex(null)} type="button"><X size={17} /></button></header><div className="max-h-[72vh] overflow-auto"><div className="grid border-b border-slate-100 lg:grid-cols-2"><div className="border-b border-slate-100 p-5 lg:border-b-0 lg:border-r"><div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-black text-[#10223d]">Veces que han rechazado</p><p className="text-[9px] font-semibold text-slate-400">Top 10 clientes del rango</p></div><span className="text-[9px] font-bold uppercase text-violet-600">Rechazos</span></div>{chartClients.length ? <div className="space-y-2">{chartClients.map((client) => <div className="grid grid-cols-[minmax(80px,130px)_1fr_34px] items-center gap-2" key={`chart-${client.codigoCliente}`}><span className="truncate text-[10px] font-semibold text-slate-600" title={client.nombreCliente}>{client.nombreCliente}</span><div className="h-5 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-gradient-to-r from-violet-600 to-fuchsia-400" style={{ width: `${Math.max(5, client.registros / maxRejections * 100)}%` }} /></div><span className="text-right text-xs font-black text-violet-700">{client.registros}x</span></div>)}</div> : <p className="py-5 text-center text-xs text-slate-400">No hay datos para graficar.</p>}</div><div className="p-5"><div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-black text-[#10223d]">Rechazos por causal</p><p className="text-[9px] font-semibold text-slate-400">Top 10 causales del rango</p></div><span className="text-[9px] font-bold uppercase text-orange-600">Registros</span></div>{chartCauses.length ? <div className="space-y-2">{chartCauses.map((cause) => <div className="grid grid-cols-[minmax(80px,130px)_1fr_34px] items-center gap-2" key={cause.label}><span className="truncate text-[10px] font-semibold text-slate-600" title={cause.label}>{cause.label}</span><div className="h-5 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-gradient-to-r from-orange-500 to-amber-300" style={{ width: `${Math.max(5, cause.count / maxCauseCount * 100)}%` }} /></div><span className="text-right text-xs font-black text-orange-700">{cause.count}x</span></div>)}</div> : <p className="py-5 text-center text-xs text-slate-400">No hay causales para graficar.</p>}</div></div><div className="divide-y divide-slate-100">{selected.clients.length ? selected.clients.map((client, index) => <div className="grid grid-cols-[30px_minmax(0,1fr)_70px_90px] items-center gap-3 px-5 py-3" key={`${client.codigoCliente}-${index}`}><span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">{index + 1}</span><div className="min-w-0"><p className="truncate text-xs font-black text-slate-800" title={client.nombreCliente}>{client.nombreCliente}</p><p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">{client.codigoCliente} · {client.contractor} · {client.causal}</p></div><div className="text-right"><p className="text-lg font-black text-violet-700">{client.registros}x</p><p className="text-[8px] font-bold uppercase text-slate-400">veces</p></div><div className="text-right"><p className="text-lg font-black text-red-700">{client.pendientes.toLocaleString("es-CO")}</p><p className="text-[8px] font-bold uppercase text-slate-400">cajas finales</p></div></div>) : <EmptyState text="No hay clientes en este rango." />}</div></div></article></div> : null}
   </>;
 }
 

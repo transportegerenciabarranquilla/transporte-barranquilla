@@ -346,3 +346,10 @@ a:focus-visible {
     opacity: 1;
   }
 }
+[role="dialog"] article > div.max-h-\[72vh\] > div.grid {
+  display: block;
+}
+
+[role="dialog"] article > div.max-h-\[72vh\] > div.grid > div:nth-child(2) {
+  display: none;
+}
