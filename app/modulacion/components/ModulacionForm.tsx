@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 import { BadgeCheck, Boxes, ClipboardList, MessageSquareText, Truck } from "lucide-react";
+import { causales } from "../constants";
 import type { FormErrors, FormState } from "../types";
 import { onlyNumbers } from "../utils";
 import { normalizeDt } from "../../lib/modulacionStorage";
@@ -157,6 +158,25 @@ export function ModulacionForm({
               />
               {moduladorError ? <p className="-mt-1 text-sm text-amber-700">{moduladorError}</p> : null}
             </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Causal</span>
+              <select
+                className={`h-12 w-full rounded-md border bg-white px-3 text-sm outline-none transition ${
+                  errors.causal ? "border-red-400" : "border-slate-200 focus:border-[#0f7c58]"
+                }`}
+                onChange={(event) => onChange("causal", event.target.value)}
+                value={form.causal}
+              >
+                <option value="">Elegir</option>
+                {causales.map((causal) => (
+                  <option key={causal} value={causal}>
+                    {causal}
+                  </option>
+                ))}
+              </select>
+              {errors.causal ? <p className="mt-2 text-sm text-red-600">{errors.causal}</p> : null}
+            </label>
 
             <label className="block lg:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Comentario</span>
