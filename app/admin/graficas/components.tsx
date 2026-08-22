@@ -84,6 +84,35 @@ export function TopRefusalClientsTable({
   );
 }
 
+const REFUSAL_RANGES = [
+  { label: "1 a 15 cajas", className: "bg-amber-400", min: 1, max: 15 },
+  { label: "16 a 40 cajas", className: "bg-orange-500", min: 16, max: 40 },
+  { label: "41 a 100 cajas", className: "bg-red-600", min: 41, max: 100 },
+  { label: ">100 cajas", className: "bg-neutral-800", min: 101, max: Number.POSITIVE_INFINITY },
+] as const;
+
+export function RefusalClientsByRange({ data }: { data: RefusalClientSummary[] }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const ranges = REFUSAL_RANGES.map((range) => ({
+    ...range,
+    clients: data.filter((client) => client.pendientes >= range.min && client.pendientes <= range.max),
+  }));
+  const selected = selectedIndex === null ? null : ranges[selectedIndex];
+
+  return <>
+    <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex items-center gap-2 text-[#10223d]"><span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white"><Table2 size={15} /></span><h2 className="text-xs font-semibold">Clientes por cajas rechazadas</h2></div>
+        <span className="text-[10px] font-semibold uppercase tracking-[.1em] text-slate-400">Presiona un rango para ver clientes</span>
+      </div>
+      <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4">
+        {ranges.map((range, index) => <button className={`flex min-h-20 items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${range.className}`} key={range.label} onClick={() => setSelectedIndex(index)} type="button"><span className="text-sm font-black uppercase">{range.label}</span><span className="rounded-full bg-white/20 px-2.5 py-1 text-lg font-black">{range.clients.length}</span></button>)}
+      </div>
+    </section>
+    {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIndex(null); }} role="dialog"><article className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className={`${selected.className} flex items-start justify-between gap-4 p-5 text-white`}><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-white/75">Clientes que rechazan</p><h3 className="mt-1 text-xl font-black">{selected.label}</h3><p className="mt-1 text-xs text-white/80">{selected.clients.length} cliente{selected.clients.length === 1 ? "" : "s"} en este rango</p></div><button aria-label="Cerrar detalle" className="grid h-9 w-9 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30" onClick={() => setSelectedIndex(null)} type="button"><X size={17} /></button></header><div className="max-h-[60vh] overflow-auto divide-y divide-slate-100">{selected.clients.length ? selected.clients.map((client, index) => <div className="grid grid-cols-[30px_minmax(0,1fr)_90px] items-center gap-3 px-5 py-3" key={`${client.codigoCliente}-${index}`}><span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">{index + 1}</span><div className="min-w-0"><p className="truncate text-xs font-black text-slate-800" title={client.nombreCliente}>{client.nombreCliente}</p><p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">{client.codigoCliente} · {client.contractor} · {client.causal}</p></div><div className="text-right"><p className="text-lg font-black text-red-700">{client.pendientes.toLocaleString("es-CO")}</p><p className="text-[8px] font-bold uppercase text-slate-400">cajas finales</p></div></div>) : <EmptyState text="No hay clientes en este rango." />}</div></article></div> : null}
+  </>;
+}
+
 export function RrRefusalTop({ data }: { data: RrRefusalSummary[] }) {
   const [selected, setSelected] = useState<RrRefusalSummary | null>(null);
   const groups = [data.slice(0, 5), data.slice(5, 10), data.slice(10, 15), data.slice(15, 20)];

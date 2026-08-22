@@ -12,7 +12,7 @@ import type { Vehiculo } from "../../seguimiento/types";
 import { normalizeCajasTotal } from "../../seguimiento/utils";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
-import { ChartPanel, ContractorRefusalHistory, Metric, MiniStat, RrRefusalTop, RefusalCausePreventistaBars, RefusalComBars, TopRefusalClientsTable } from "./components";
+import { ChartPanel, ContractorRefusalHistory, Metric, MiniStat, RefusalClientsByRange, RrRefusalTop, RefusalCausePreventistaBars, RefusalComBars, TopRefusalClientsTable } from "./components";
 import type { AdminRefusalComRow, ContractorRefusalTrend, ModulationRefusalRecord } from "./types";
 import {
   buildFilteredHref,
@@ -487,6 +487,7 @@ export default function AdminGraficasPage() {
           onCausalChange={setClientCausal}
           selectedCausal={clientCausal}
         />
+        <RefusalClientsByRange data={topRefusalClients} />
         <RrRefusalTop data={rrRefusalTop} />
         <ContractorRefusalHistory data={refusalHistory} />
         </> : null}
