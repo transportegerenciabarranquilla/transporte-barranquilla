@@ -158,28 +158,6 @@ export function ModulacionForm({
               {moduladorError ? <p className="-mt-1 text-sm text-amber-700">{moduladorError}</p> : null}
             </div>
 
-            <fieldset className="block">
-              <legend className="mb-2 block text-sm font-medium text-slate-700">¿Quién realizó la reubicación?</legend>
-              <div className="grid grid-cols-2 gap-2">
-                {(["Logística", "Ventas"] as const).map((origin) => (
-                  <button
-                    aria-pressed={form.origenReubicacion === origin}
-                    className={`h-12 rounded-md border text-sm font-semibold transition ${
-                      form.origenReubicacion === origin
-                        ? "border-[#0f7c58] bg-[#0f7c58] text-white shadow-sm"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-[#0f7c58] hover:bg-emerald-50"
-                    }`}
-                    key={origin}
-                    onClick={() => onChange("origenReubicacion", origin)}
-                    type="button"
-                  >
-                    {origin}
-                  </button>
-                ))}
-              </div>
-              {errors.origenReubicacion ? <p className="mt-2 text-sm text-red-600">{errors.origenReubicacion}</p> : null}
-            </fieldset>
-
             <label className="block lg:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Comentario</span>
               <span className="relative block">

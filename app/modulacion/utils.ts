@@ -30,7 +30,6 @@ export function validateModulacion(form: FormState) {
   if (!form.codigoCliente) errors.codigoCliente = "Ingresa el codigo de cliente.";
   if (!form.totalCajas) errors.totalCajas = "Ingresa las cajas rechazadas.";
   if (!form.persona.trim()) errors.persona = "Ingresa la cédula del modulador.";
-  if (!form.origenReubicacion) errors.origenReubicacion = "Selecciona quién realizó la reubicación.";
   if (!form.comentario.trim()) errors.comentario = "Ingresa el comentario.";
 
   return errors;

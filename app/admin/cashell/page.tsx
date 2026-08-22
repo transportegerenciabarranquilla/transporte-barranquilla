@@ -44,6 +44,14 @@ export default function CashellPage() {
   }, [query, results]);
   const nonCompliant = useMemo(() => filtered.filter((row) => row.status === "No cumplio"), [filtered]);
   const rrOffenders = useMemo(() => buildRrOffenders(nonCompliant), [nonCompliant]);
+  const contractorCases = useMemo(() => {
+    const groups = new Map<string, number>();
+    nonCompliant.forEach((row) => {
+      const contractor = row.contractor || "Sin transportista";
+      groups.set(contractor, (groups.get(contractor) || 0) + 1);
+    });
+    return Array.from(groups, ([contractor, cases]) => ({ contractor, cases })).sort((a, b) => b.cases - a.cases || a.contractor.localeCompare(b.contractor, "es"));
+  }, [nonCompliant]);
   const percentage = results.length ? Math.round((results.filter((row) => row.status === "Cumplio").length / results.length) * 100) : 0;
 
   async function processFile(file?: File) {
@@ -108,6 +116,7 @@ export default function CashellPage() {
           <div className="flex h-full flex-col [&>article]:flex-1 [&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_tbody_tr]:h-12 [&_td]:!py-1.5"><ResultTable onSelect={setSelected} rows={nonCompliant.slice(0, 10)} title="Top 10 clientes que no cumplieron" tone="red" />{nonCompliant.length > 10 ? <MoreButton onClick={() => setExpandedTable("clients")} total={nonCompliant.length} /> : null}</div>
           <div className="flex h-full flex-col [&>article]:flex-1 [&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_tbody_tr]:h-12 [&_td]:!py-1.5"><RrOffenderTable onSelect={setSelectedOffender} rows={rrOffenders} />{rrOffenders.length > 10 ? <MoreButton onClick={() => setExpandedTable("offenders")} total={rrOffenders.length} /> : null}</div>
         </section>
+        <ContractorCasesTable rows={contractorCases} total={nonCompliant.length} />
         <div className="mx-auto w-full max-w-6xl [&>article>div]:!max-h-none [&>article>div]:!overflow-hidden [&_td]:!py-1.5"><CrewTable rows={nonCompliant.slice(0, 10)} />{nonCompliant.length > 10 ? <MoreButton onClick={() => setExpandedTable("crew")} total={nonCompliant.length} /> : null}</div>
       </> : <EmptyState />}
     </section>
@@ -119,6 +128,10 @@ export default function CashellPage() {
 
 function MoreButton({ onClick, total }: { onClick: () => void; total: number }) {
   return <button className="mt-2 h-8 w-full rounded-lg border border-slate-200 bg-white text-[10px] font-black text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50" onClick={onClick} type="button">Ver más ({total})</button>;
+}
+
+function ContractorCasesTable({ rows, total }: { rows: Array<{ contractor: string; cases: number }>; total: number }) {
+  return <article className="mx-auto w-full max-w-6xl overflow-hidden rounded-lg border border-blue-200 bg-white shadow-sm"><header className="flex items-center justify-between border-b border-blue-200 bg-blue-50 px-4 py-3"><div><p className="text-[8px] font-black uppercase tracking-wider text-blue-700">Distribución operativa</p><h3 className="text-base font-black text-[#10223d]">Casos que no cumplieron por contratista</h3></div><span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-blue-700 shadow-sm">{total} casos</span></header><table className="w-full table-fixed text-left text-[10px]"><thead className="bg-[#10223d] text-[8px] uppercase tracking-wide text-white"><tr><th className="w-[8%] px-4 py-2 text-center">#</th><th className="w-[42%] px-4 py-2">Contratista</th><th className="w-[15%] px-4 py-2 text-center">Casos</th><th className="w-[35%] px-4 py-2 text-right">Participación</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row, index) => { const percentage = total ? (row.cases / total) * 100 : 0; return <tr className={`${index % 2 ? "bg-slate-50/70" : "bg-white"} h-11`} key={row.contractor}><td className="px-4 py-2 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded bg-blue-100 font-black text-blue-700">{index + 1}</span></td><td className="px-4 py-2 font-black text-[#10223d]">{row.contractor}</td><td className="px-4 py-2 text-center"><span className="rounded-full bg-red-100 px-2.5 py-1 font-black text-red-700">{row.cases}</span></td><td className="px-4 py-2"><div className="flex items-center justify-end gap-3"><div className="h-2.5 w-full max-w-56 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${percentage}%` }} /></div><span className="w-12 text-right font-black">{percentage.toFixed(1)}%</span></div></td></tr>; })}</tbody></table>{!rows.length ? <p className="p-6 text-center text-sm text-slate-400">Sin casos por contratista.</p> : null}</article>;
 }
 
 function ExpandedTableModal({ kind, nonCompliant, offenders, onClose }: { kind: "clients" | "offenders" | "crew"; nonCompliant: CashellResult[]; offenders: RrOffender[]; onClose: () => void }) {
