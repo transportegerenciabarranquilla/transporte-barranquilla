@@ -163,11 +163,11 @@ export default function PuntoCoronaPage() {
           item.kind === "current"
         ) ?? null;
       const report = mergePuntoCoronaRouteReports(existingReport, parsedReport);
-      await savePuntoCoronaRouteReports([report]);
-      const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, report);
-      setSelectedDate(report.operationalDate);
+      const [savedReport = report] = await savePuntoCoronaRouteReports([report]);
+      const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, savedReport);
+      setSelectedDate(savedReport.operationalDate);
       const syncMessage = seguimientoContratista.length
-        ? `Se cruzaron ${report.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`
+        ? `Se cruzaron ${savedReport.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`
         : "No habia seguimiento cargado; se guardo el reporte sin cruce de clientes.";
       setMessage(`Archivo cargado. ${syncMessage}`);
     } catch (error) {

@@ -75,6 +75,7 @@ export async function GET() {
       }];
     });
     const modulacionesIndex = indexModulacionesByRoute(modulaciones);
+    const modulationRacocimi2 = buildModulationComparisonRows(modulaciones);
     const checkinsIndex = indexCheckinsByRoute(checkins);
     const seguimientoRecords = rows.filter((row): row is Row & { data: Vehiculo } => Boolean(row.data)).map((row) => {
       const transportista = contractorLabel(row.contractor || row.data.transportista) || row.data.transportista;
@@ -130,6 +131,7 @@ export async function GET() {
     return NextResponse.json({
       summaries,
       records,
+      modulationRacocimi2,
       refusalByComRows,
       totalCajas: roundedTotalCajas,
       totalRechazadas: totals.rechazadas,
@@ -140,6 +142,21 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando admin." }, { status: 500 });
   }
+}
+
+function buildModulationComparisonRows(records: ModulacionRegistro[]) {
+  const grouped = new Map<string, { dt: string; contractor: string; date: string; modulationBoxes: number; racocimi2Boxes: number }>();
+  records.forEach((record) => {
+    const dt = normalizeDt(record.dt);
+    if (!dt) return;
+    const contractor = contractorLabel(record.contratista) || record.contratista || "Sin transportista";
+    const date = getRecordDate(record);
+    const key = `${contractor}:${date}:${dt}`;
+    const current = grouped.get(key) || { dt, contractor, date, modulationBoxes: 0, racocimi2Boxes: 0 };
+    current.modulationBoxes += readNumber(record.totalCajas);
+    grouped.set(key, current);
+  });
+  return Array.from(grouped.values()).sort((a, b) => b.date.localeCompare(a.date) || b.modulationBoxes - a.modulationBoxes);
 }
 
 async function fetchAdminRowsByContractor<T>(

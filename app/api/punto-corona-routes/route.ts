@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { CONTRACTORS } from "../../lib/contractors";
+import { CONTRACTORS, normalizeContractorName } from "../../lib/contractors";
 import { normalizeDt } from "../../lib/modulacionStorage";
 import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
@@ -10,6 +10,7 @@ import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders 
 const TABLE = "punto_corona_route_reports";
 const LIST_SELECT = "report_id,contractor,operational_date,kind,data,updated_at";
 const LIST_CACHE_TTL_MS = 60_000;
+const PAGE_SIZE = 1_000;
 
 export async function GET() {
   try {
@@ -138,18 +139,32 @@ function canUseRangoModule(session: { contractor?: string; isAdmin?: boolean }) 
 }
 
 async function fetchSeguimientoDts(contractor: string, accessToken: string) {
-  const params = new URLSearchParams({
-    select: "data",
-    contractor: `eq.${contractor}`,
-  });
-  const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken),
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(await supabaseError(response));
+  const dts = new Set<string>();
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+  const contractorKey = normalizeContractorName(contractor);
 
-  const rows = (await response.json()) as Array<{ data?: { transporte?: string | number } }>;
-  return new Set(rows.map((row) => normalizeDt(row.data?.transporte)).filter(Boolean));
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const params = new URLSearchParams({
+      select: "contractor,data",
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${params.toString()}`), {
+      headers,
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(await supabaseError(response));
+
+    const rows = (await response.json()) as Array<{ contractor?: string; data?: { transporte?: string | number; transportista?: string } }>;
+    rows.forEach((row) => {
+      if (normalizeContractorName(row.contractor || row.data?.transportista) !== contractorKey) return;
+      const dt = normalizeDt(row.data?.transporte);
+      if (dt) dts.add(dt);
+    });
+    if (rows.length < PAGE_SIZE) break;
+  }
+
+  return dts;
 }
 
 function sanitizeReportDts(records: PuntoCoronaRouteReport[], seguimientoDts: Set<string>, contractor: string) {

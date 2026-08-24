@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Download, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
 import { isComplaintsContractor, normalizeContractorName } from "../lib/contractors";
@@ -21,7 +21,7 @@ export default function ComplaintsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("open");
   const [contractorFilter, setContractorFilter] = useState("all");
   const [matchFilter, setMatchFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -100,8 +100,19 @@ export default function ComplaintsPage() {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
-      const normalized = raw.map(normalizeTemplateRow).filter((row) => Object.values(row).some(Boolean));
+      // La columna "tiempo para cierre" puede contener formulas arrastradas
+      // hasta filas vacias. No debe convertir esas filas residuales en una
+      // queja sin ID.
+      const normalized = raw.map((row, index) => ({ ...normalizeTemplateRow(row), excelRow: index + 2 })).filter(hasComplaintTemplateData);
       if (!normalized.length) throw new Error("La plantilla no contiene quejas.");
+      const missingIdRows = normalized.filter((row) => !String(row.id ?? "").trim());
+      if (missingIdRows.length) {
+        const details = missingIdRows.slice(0, 5).map((row) => {
+          const reference = [row.code && `código ${row.code}`, row.createdDate && `fecha ${formatTemplateValue(row.createdDate)}`].filter(Boolean).join(", ");
+          return `fila ${row.excelRow}${reference ? ` (${reference})` : ""}`;
+        });
+        throw new Error(`${missingIdRows.length} fila${missingIdRows.length === 1 ? "" : "s"} no ${missingIdRows.length === 1 ? "tiene" : "tienen"} ID: ${details.join("; ")}.`);
+      }
       const enriched = await fillEstablishmentsFromClientCodes(normalized);
       const response = await fetch("/api/complaints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: enriched }) });
       const body = await response.json().catch(() => ({}));
@@ -131,7 +142,7 @@ export default function ComplaintsPage() {
     });
   }, [contractorFilter, dateFrom, dateTo, matchFilter, query, records, statusFilter]);
 
-  function clearFilters() { setQuery(""); setStatusFilter("all"); setContractorFilter("all"); setMatchFilter("all"); setDateFrom(""); setDateTo(""); }
+  function clearFilters() { setQuery(""); setStatusFilter("open"); setContractorFilter("all"); setMatchFilter("all"); setDateFrom(""); setDateTo(""); }
 
   async function exportComplaints(format: "excel" | "pdf") {
     if (!visible.length) { setError("No hay quejas visibles para exportar."); return; }
@@ -219,8 +230,9 @@ export default function ComplaintsPage() {
 
         <ComplaintFilters contractorFilter={contractorFilter} dateFrom={dateFrom} dateTo={dateTo} matchFilter={matchFilter} onClear={clearFilters} query={query} setContractorFilter={setContractorFilter} setDateFrom={setDateFrom} setDateTo={setDateTo} setMatchFilter={setMatchFilter} setQuery={setQuery} setStatusFilter={setStatusFilter} showContractor={isAdminSession || canUploadComplaints} statusFilter={statusFilter} total={records.length} visible={visible.length} />
 
-        {!isAdminSession ? <div className="grid gap-3 sm:grid-cols-3">
+        {!isAdminSession ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<MessageSquareWarning />} label="Quejas visibles" value={visible.length} />
+          <Metric icon={<CheckCircle2 />} label="Quejas cerradas" value={records.filter((record) => normalizeText(record.status).includes("cerrad")).length} />
           <Metric icon={<Users />} label="Cruzadas con tripulacion" value={visible.filter(hasComplaintCrew).length} />
           <Metric icon={<FileSpreadsheet />} label="Sin tripulacion" value={visible.filter((record) => !hasComplaintCrew(record)).length} />
         </div> : null}
@@ -270,6 +282,16 @@ function normalizeTemplateRow(row: Record<string, unknown>) {
     status: normalized.get("estado") || "",
     dt: normalized.get("dt") || "",
   };
+}
+
+function hasComplaintTemplateData(row: ReturnType<typeof normalizeTemplateRow>) {
+  return [row.id, row.createdDate, row.code, row.establishment, row.issue, row.contractor, row.status, row.dt]
+    .some((value) => String(value ?? "").trim());
+}
+
+function formatTemplateValue(value: unknown) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toLocaleDateString("es-CO");
+  return String(value ?? "").trim();
 }
 
 function normalizeText(value: unknown) { return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase(); }

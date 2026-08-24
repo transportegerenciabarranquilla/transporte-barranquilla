@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 }
 
 async function readZkiHistory(headers: Record<string, string>) {
-  const grouped = new Map<string, Record<string, unknown>>();
+  const rows: Record<string, unknown>[] = [];
   let sourceRows = 0;
   const columns = ["Codigo", "Poblacion", "Barrio", "Nombre", "Cedula", "Cargo"];
   for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -36,15 +36,13 @@ async function readZkiHistory(headers: Record<string, string>) {
     if (!response.ok) throw new Error(`ZKI: ${await supabaseError(response)}`);
     const page = await response.json() as Record<string, unknown>[];
     sourceRows += page.length;
-    page.forEach((row) => {
-      const key = columns.map((column) => String(row[column] ?? "").trim().toLowerCase()).join("\u001f");
-      const current = grouped.get(key);
-      if (current) current.Visitas = Number(current.Visitas || 0) + 1;
-      else grouped.set(key, { ...row, Visitas: 1 });
-    });
+    // Cada fila de ZKI representa una visita. Se conservan incluso cuando
+    // todos sus campos coinciden para que la frecuencia refleje las veces que
+    // el RR atendio al mismo cliente.
+    rows.push(...page);
     if (page.length < PAGE_SIZE) break;
   }
-  return { rows: [...grouped.values()], sourceRows, columns: [...columns, "Visitas"] };
+  return { rows, sourceRows, columns };
 }
 
 async function readRows(table: string, headers: Record<string, string>) {

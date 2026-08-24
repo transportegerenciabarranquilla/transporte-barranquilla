@@ -960,6 +960,9 @@ function ModulacionDetailModal({
                 <DetailLine label="Responsable" value={selectedVehicle?.responsable || registro.personaNombre || registro.persona} />
                 <DetailLine label="Origen" value={registro.origenReubicacion || "Sin clasificar"} />
               </DetailTile>
+              <DetailTile className="sm:col-span-2" label="Causa de la modulacion">
+                <p className="text-sm font-semibold leading-5 text-[#10223d]">{registro.causal || "Sin causa registrada"}</p>
+              </DetailTile>
               <DetailTile label="Comentario RR">
                 <p className="text-sm font-semibold leading-5 text-[#10223d]">{registro.comentario || "-"}</p>
               </DetailTile>
@@ -1145,9 +1148,9 @@ function ModalMetric({ label, value, tone }: { label: string; value: ReactNode; 
   );
 }
 
-function DetailTile({ children, label }: { children: ReactNode; label: string }) {
+function DetailTile({ children, className = "", label }: { children: ReactNode; className?: string; label: string }) {
   return (
-    <div className="min-h-24 rounded-md border border-slate-200 bg-white p-2">
+    <div className={`min-h-24 rounded-md border border-slate-200 bg-white p-2 ${className}`}>
       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <div className="mt-1 break-words">{children}</div>
     </div>

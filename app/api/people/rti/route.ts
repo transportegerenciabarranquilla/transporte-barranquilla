@@ -14,7 +14,7 @@ const RTI_SOURCE_CACHE_MS = 5 * 60 * 1_000;
 const RTI_RESPONSE_CACHE_MS = 5 * 60 * 1_000;
 // Cambiar esta versión cuando se modifique la atribución DT -> responsable.
 // Evita servir durante cinco minutos resultados calculados con una regla anterior.
-const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v3-full-product-returns";
+const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v4-rti-read-permissions";
 
 export async function GET(request: Request) {
   const requestStartedAt = performance.now();

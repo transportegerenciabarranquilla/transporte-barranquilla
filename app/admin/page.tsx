@@ -53,6 +53,14 @@ type PeopleGroup = {
   people: PersonSummary[];
 };
 
+type ModulationRacocimi2Row = {
+  dt: string;
+  contractor: string;
+  date: string;
+  modulationBoxes: number;
+  racocimi2Boxes: number;
+};
+
 type VehiclePerson = PersonSummary & {
   role: string;
 };
@@ -72,6 +80,7 @@ export default function AdminPage() {
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [records, setRecords] = useState<Vehiculo[]>([]);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
+  const [modulationRacocimi2, setModulationRacocimi2] = useState<ModulationRacocimi2Row[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
   const [dateFrom, setDateFrom] = useState("");
@@ -122,8 +131,9 @@ export default function AdminPage() {
     Promise.all([
       fetch("/api/admin/seguimiento", { cache: "no-store" }),
       fetch("/api/people/summary", { cache: "no-store" }),
+      fetch("/api/people/rti", { cache: "no-store" }),
     ])
-      .then(async ([adminResponse, peopleResponse]) => {
+      .then(async ([adminResponse, peopleResponse, rtiResponse]) => {
         const adminBody = await adminResponse.json().catch(() => ({}));
         if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
         setSummaries(adminBody.summaries || []);
@@ -132,6 +142,12 @@ export default function AdminPage() {
         if (peopleResponse.ok) {
           const peopleBody = await peopleResponse.json().catch(() => ({}));
           setPeopleGroups(peopleBody.contractors || []);
+        }
+        if (rtiResponse.ok) {
+          const rtiBody = await rtiResponse.json().catch(() => ({}));
+          setModulationRacocimi2(attachRacocimi2Boxes(adminBody.modulationRacocimi2 || [], rtiBody.records || []));
+        } else {
+          setModulationRacocimi2(adminBody.modulationRacocimi2 || []);
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el panel admin."))
@@ -148,6 +164,16 @@ export default function AdminPage() {
       return matchesDate && matchesDt;
     });
   }, [dateFrom, dateTo, dtSearch, records]);
+
+  const visibleModulationRacocimi2 = useMemo(() => {
+    const targetDt = normalizeDt(dtSearch);
+    return modulationRacocimi2.filter((row) =>
+      (!dateFrom || row.date >= dateFrom) &&
+      (!dateTo || row.date <= dateTo) &&
+      (!targetDt || normalizeDt(row.dt).includes(targetDt)) &&
+      (selectedContractor === "Todas" || row.contractor === selectedContractor)
+    );
+  }, [dateFrom, dateTo, dtSearch, modulationRacocimi2, selectedContractor]);
 
   const visibleSummaries = useMemo(() => {
     return summaries.map((summary) => {
@@ -588,6 +614,7 @@ export default function AdminPage() {
             </button>
           ))}
         </div>
+        <ModulationRacocimi2Chart rows={visibleModulationRacocimi2} />
           </>
         ) : null}
 
@@ -858,6 +885,58 @@ function HeroStat({ label, tone = "blue", value }: { label: string; tone?: "ambe
       <p className="mt-1 text-2xl font-semibold leading-none">{value}</p>
     </div>
   );
+}
+
+function attachRacocimi2Boxes(rows: ModulationRacocimi2Row[], rtiRows: Array<Record<string, unknown>>) {
+  const byDt = new Map<string, number>();
+  const byDtAndDate = new Map<string, number>();
+  rtiRows.forEach((row) => {
+    const variants = Array.from(new Set([row.DT, row.Transporte, row.Ruta].flatMap(dtVariants)));
+    if (!variants.length) return;
+    const boxes = readNumber(row["Cajas reales retorno"]);
+    const date = String(row["Fecha despacho"] || "").slice(0, 10);
+    variants.forEach((dt) => {
+      byDt.set(dt, (byDt.get(dt) || 0) + boxes);
+      if (date) {
+        const key = `${dt}:${date}`;
+        byDtAndDate.set(key, (byDtAndDate.get(key) || 0) + boxes);
+      }
+    });
+  });
+  return rows.map((row) => {
+    const variants = dtVariants(row.dt);
+    const dated = variants.map((dt) => byDtAndDate.get(`${dt}:${row.date}`)).find((value) => value !== undefined);
+    const undated = variants.map((dt) => byDt.get(dt)).find((value) => value !== undefined);
+    return { ...row, racocimi2Boxes: dated ?? undated ?? 0 };
+  });
+}
+
+function ModulationRacocimi2Chart({ rows }: { rows: ModulationRacocimi2Row[] }) {
+  const visible = [...rows].sort((a, b) => b.racocimi2Boxes - a.racocimi2Boxes || b.modulationBoxes - a.modulationBoxes).slice(0, 20);
+  const maximum = Math.max(1, ...visible.flatMap((row) => [row.racocimi2Boxes, row.modulationBoxes]));
+  const modulationTotal = rows.reduce((total, row) => total + row.modulationBoxes, 0);
+  const enteredTotal = rows.reduce((total, row) => total + row.racocimi2Boxes, 0);
+
+  return <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <header className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">Cruce por DT</p><h2 className="mt-1 text-lg font-semibold text-[#10223d]">Modulación frente a RACOCIMI2</h2><p className="mt-1 text-xs text-slate-500">Cajas moduladas comparadas con las cajas de entrada de todos los productos del DT.</p></div>
+      <div className="flex gap-2 text-xs font-semibold"><span className="rounded-md bg-violet-100 px-3 py-2 text-violet-800">Modulación {modulationTotal.toLocaleString("es-CO")}</span><span className="rounded-md bg-cyan-100 px-3 py-2 text-cyan-800">RACOCIMI2 {enteredTotal.toLocaleString("es-CO")}</span></div>
+    </header>
+    {visible.length ? <div className="overflow-x-auto p-5"><div className="flex h-[390px] min-w-max items-end gap-5 border-b border-slate-300 px-3 pt-8">{visible.map((row) => {
+      const difference = row.racocimi2Boxes - row.modulationBoxes;
+      const modulationHeight = Math.max(row.modulationBoxes ? 4 : 0, row.modulationBoxes / maximum * 285);
+      const racocimi2Height = Math.max(row.racocimi2Boxes ? 4 : 0, row.racocimi2Boxes / maximum * 285);
+      return <div className="flex h-full w-28 shrink-0 flex-col justify-end" key={`${row.contractor}:${row.date}:${row.dt}`} title={`${row.contractor} · ${row.date || "Sin fecha"}`}>
+        <span className={`mb-2 text-center text-[10px] font-bold ${difference >= 0 ? "text-emerald-700" : "text-red-700"}`}>Dif. {difference.toLocaleString("es-CO")}</span>
+        <div className="flex h-[285px] items-end justify-center gap-2">
+          <div className="flex w-10 flex-col items-center justify-end"><span className="mb-1 text-[10px] font-bold text-violet-700">{row.modulationBoxes.toLocaleString("es-CO")}</span><div className="w-full rounded-t-md bg-violet-500" style={{ height: modulationHeight }} /></div>
+          <div className="flex w-10 flex-col items-center justify-end"><span className="mb-1 text-[10px] font-bold text-cyan-700">{row.racocimi2Boxes.toLocaleString("es-CO")}</span><div className="w-full rounded-t-md bg-cyan-500" style={{ height: racocimi2Height }} /></div>
+        </div>
+        <span className="mt-2 truncate text-center text-[10px] font-bold text-[#10223d]" title={`DT ${row.dt}`}>DT {row.dt}</span>
+        <span className="truncate text-center text-[9px] text-slate-400">{row.date || "Sin fecha"}</span>
+      </div>;
+    })}</div><div className="mt-4 flex justify-center gap-5 text-xs font-semibold"><span className="flex items-center gap-2 text-violet-700"><i className="h-3 w-3 rounded-sm bg-violet-500" />Modulación</span><span className="flex items-center gap-2 text-cyan-700"><i className="h-3 w-3 rounded-sm bg-cyan-500" />RACOCIMI2</span></div></div> : <div className="grid min-h-36 place-items-center p-6 text-center text-sm text-slate-500">No hay DT con modulación para los filtros seleccionados.</div>}
+  </section>;
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -1268,6 +1347,13 @@ function normalizeDt(value: unknown) {
   return String(value || "")
     .replace(/^DT-?/i, "")
     .replace(/\D/g, "");
+}
+
+function dtVariants(value: unknown) {
+  const full = normalizeDt(value).replace(/^0+/, "");
+  if (!full) return [];
+  const short = full.length > 10 ? full.slice(-10).replace(/^0+/, "") : full;
+  return Array.from(new Set([full, short].filter(Boolean)));
 }
 
 function readNumber(value: unknown) {

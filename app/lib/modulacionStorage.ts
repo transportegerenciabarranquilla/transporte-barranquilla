@@ -56,7 +56,11 @@ type ModulacionTarget = {
 
 export function normalizeDt(value: string | number | undefined) {
   return String(value ?? "")
+    .trim()
     .replace(/^DT-?/i, "")
+    // BEES puede anteponer S o R1S al documento de transporte. Estos
+    // prefijos identifican la ruta, pero no hacen parte del DT de SAP.
+    .replace(/^(?:R\d+)?S(?=\d)/i, "")
     .replace(/\D/g, "");
 }
 

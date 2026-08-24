@@ -51,6 +51,8 @@ export type Candidate = {
   frequency: number;
   frequencyScore: number;
   depth: number;
+  uniqueClients?: number;
+  territoryClients?: number;
   zki: number;
   auxiliary: string;
   auxiliaryId: string;
@@ -394,6 +396,8 @@ export function rankCandidates(
       frequency,
       frequencyScore,
       depth,
+      uniqueClients: uniqueVisited,
+      territoryClients,
       zki,
       auxiliary: auxiliary.name,
       auxiliaryId: auxiliary.id,

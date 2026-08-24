@@ -254,6 +254,8 @@ export default function ZkiPage() {
       "Cedula conductor": item?.driverId || "",
       Placa: item?.vehicle || "",
       "Capacidad de carga": item?.capacity || 0,
+      "Clientes únicos": item?.uniqueClients || 0,
+      "Clientes territorio": item?.territoryClients || Math.max(trip.clients, new Set(territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client)).size),
       "Cedula auxiliar": item?.auxiliaryId || "",
       "ZKI auxiliar": item?.auxiliaryZki || 0,
       "Nombre auxiliar": item?.auxiliary || "",
@@ -269,6 +271,8 @@ export default function ZkiPage() {
       "Frecuencia Promedio": item.frequency,
       "Frecuencia Tope": Math.min(item.frequency, settings.frequencyCap),
       "% Clientes 5+": item.depth,
+      "Clientes únicos": item.uniqueClients || 0,
+      "Clientes territorio": item.territoryClients || Math.max(trip.clients, new Set(territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client)).size),
       ZKI: item.zki,
       "Nombre auxiliar": item.auxiliary,
       "ZKI auxiliar": item.auxiliaryZki,
@@ -280,8 +284,8 @@ export default function ZkiPage() {
     const workbook = XLSX.utils.book_new();
     const assignmentsSheet = XLSX.utils.json_to_sheet(assignments);
     const matrixSheet = XLSX.utils.json_to_sheet(matrix);
-    assignmentsSheet["!cols"] = [12, 16, 20, 16, 34, 34, 20, 14, 20, 18, 14, 34, 14, 42].map((wch) => ({ wch }));
-    matrixSheet["!cols"] = [12, 18, 8, 34, 14, 20, 17, 16, 12, 34, 14, 14, 16, 14, 42].map((wch) => ({ wch }));
+    assignmentsSheet["!cols"] = [12, 16, 20, 16, 34, 34, 20, 14, 20, 16, 18, 18, 14, 34, 14, 42].map((wch) => ({ wch }));
+    matrixSheet["!cols"] = [12, 18, 8, 34, 14, 20, 17, 16, 18, 18, 12, 34, 14, 14, 16, 14, 42].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(workbook, assignmentsSheet, "Asignaciones");
     XLSX.utils.book_append_sheet(workbook, matrixSheet, "Matriz SKI");
     XLSX.writeFile(workbook, `asignaciones_zki_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -383,9 +387,20 @@ export default function ZkiPage() {
           </div>
           <div className="grid border-t border-slate-200 bg-slate-50 sm:grid-cols-4">
             <Stat label="Viajes cargados" value={trips.length} />
-            <Stat label="Clientes históricos" value={new Set(visits.map((row) => row.client)).size} />
+            <Stat label="Visitas históricas ZKI" value={source?.rows || visits.length} />
             <Stat label="Clientes del catálogo" value={new Set(territoryClients.map((row) => row.client)).size} />
             <Stat label="Opciones viables" value={viable.length} />
+          </div>
+          <div className="border-t border-slate-200 p-4">
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-[#10283d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-4 py-2 text-left">Recurso</th><th className="px-4 py-2 text-center">Total</th><th className="px-4 py-2 text-center">Disponibles</th><th className="px-4 py-2 text-center">Indisponibles</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">
+                  <AvailabilitySummaryRow label="Personal" available={personnelRules.filter((person) => person.available).length} total={personnelRules.length} />
+                  <AvailabilitySummaryRow label="Vehículos (VH)" available={Object.values(vehicleAvailability).filter((vehicle) => vehicle.available).length} total={Object.keys(vehicleAvailability).length} />
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -582,6 +597,10 @@ function AssignmentStatus({ candidate }: { candidate?: Candidate }) {
 }
 
 function Stat({ danger = false, label, value }: { danger?: boolean; label: string; value: number }) { return <div className="border-b border-slate-200 px-5 py-3 last:border-0 sm:border-b-0 sm:border-r"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className={`mt-1 text-2xl font-black ${danger ? "text-red-700" : "text-[#0b2235]"}`}>{formatNumber(value)}</p></div>; }
+
+function AvailabilitySummaryRow({ available, label, total }: { available: number; label: string; total: number }) {
+  return <tr><td className="px-4 py-2.5 font-semibold text-slate-700">{label}</td><td className="px-4 py-2.5 text-center font-bold text-slate-700">{formatNumber(total)}</td><td className="px-4 py-2.5 text-center font-bold text-emerald-700">{formatNumber(available)}</td><td className="px-4 py-2.5 text-center font-bold text-red-700">{formatNumber(Math.max(total - available, 0))}</td></tr>;
+}
 function Setting({ label, onChange, suffix, value }: { label: string; onChange: (value: number) => void; suffix?: string; value: number }) { return <label className="block"><span className="text-xs font-semibold text-slate-600">{label}</span><div className="mt-1 flex h-10 overflow-hidden rounded-lg border border-slate-300"><input className="min-w-0 flex-1 px-3 outline-none" min="0" onChange={(event) => onChange(Number(event.target.value) || 0)} type="number" value={value} />{suffix ? <span className="grid w-10 place-items-center bg-slate-100 text-xs font-bold text-slate-500">{suffix}</span> : null}</div></label>; }
 function Detail({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-slate-50 p-2"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 truncate font-semibold text-slate-700">{value}</p></div>; }
 function Th({ children }: { children: React.ReactNode }) { return <th className="px-3 py-3">{children}</th>; }
