@@ -330,7 +330,7 @@ export default function ZkiPage() {
       "ZKI total": item?.totalZki || 0,
       Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
     }));
-    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.viable).map((item) => ({
+    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.map((item) => ({
       "ID territorio": trip.territoryId,
       "ID Empleado": item.rrId,
       Tipo: 1,
@@ -355,7 +355,7 @@ export default function ZkiPage() {
     assignmentsSheet["!cols"] = [12, 16, 20, 16, 34, 34, 20, 14, 20, 16, 18, 18, 14, 34, 14, 42].map((wch) => ({ wch }));
     matrixSheet["!cols"] = [12, 18, 8, 34, 14, 20, 17, 16, 18, 18, 12, 34, 14, 14, 16, 14, 42].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(workbook, assignmentsSheet, "Asignaciones");
-    XLSX.utils.book_append_sheet(workbook, matrixSheet, "Matriz SKI");
+    XLSX.utils.book_append_sheet(workbook, matrixSheet, "Matriz ZKI");
     XLSX.writeFile(workbook, `asignaciones_zki_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
