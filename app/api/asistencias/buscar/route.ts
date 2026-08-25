@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../../lib/asistenciaStorage";
-import { normalizeContractorName } from "../../../lib/contractors";
+import { isOperationalContractor, normalizeContractorName } from "../../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest } from "../../../lib/supabaseServer";
 
 const TABLE = "asistencias_ruta";
-const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
-
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -13,7 +11,7 @@ export async function GET(request: Request) {
     const dt = normalizeDt(url.searchParams.get("dt"));
     const date = routeDateValue(url.searchParams.get("fecha") || url.searchParams.get("date") || "");
 
-    if (!contractor || !PUBLIC_CONTRACTORS.includes(normalizeContractorName(contractor))) {
+    if (!isOperationalContractor(contractor)) {
       return NextResponse.json({ error: "Contratista no valido." }, { status: 400 });
     }
     if (!dt) return NextResponse.json({ error: "Ingresa el DT." }, { status: 400 });

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { normalizePlate, readZkiCrewRows } from "./crewTable";
 
 const PAGE_SIZE = 1_000;
 const CACHE_TTL_MS = 5 * 60 * 1_000;
-type ZkiPayload = { rows: Record<string, unknown>[]; history: Record<string, unknown>[]; capacities: Record<string, unknown>[]; source: { table: string; rows: number; columns: string[] } };
+type ZkiPayload = { rows: Record<string, unknown>[]; history: Record<string, unknown>[]; capacities: Record<string, unknown>[]; crew: Awaited<ReturnType<typeof readZkiCrewRows>>; source: { table: string; rows: number; columns: string[] } };
 let cachedPayload: { expiresAt: number; value: ZkiPayload } | null = null;
 
 export async function GET(request: Request) {
@@ -17,13 +18,21 @@ export async function GET(request: Request) {
       return NextResponse.json(cachedPayload.value, { headers: { "X-ZKI-Cache": "HIT" } });
     }
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const [zki, history, capacities] = await Promise.all([readZkiHistory(headers), readHistory(headers), readRows("capacidad_carga", headers)]);
-    const payload = { rows: zki.rows, history, capacities, source: { table: "ZKI", rows: zki.sourceRows, columns: zki.columns } };
+    const [zki, history, capacities, crew] = await Promise.all([readZkiHistory(headers), readHistory(headers), readRows("capacidad_carga", headers), readZkiCrewRows(headers)]);
+    const payload = { rows: zki.rows, history: applyCrewTable(history, crew), capacities, crew, source: { table: "ZKI", rows: zki.sourceRows, columns: zki.columns } };
     cachedPayload = { value: payload, expiresAt: Date.now() + CACHE_TTL_MS };
     return NextResponse.json(payload, { headers: { "X-ZKI-Cache": "MISS" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar ZKI." }, { status: 500 });
   }
+}
+
+function applyCrewTable(history: Record<string, unknown>[], crew: Awaited<ReturnType<typeof readZkiCrewRows>>) {
+  const crewByPlate = new Map(crew.map((row) => [row.plate, row]));
+  return history.map((row) => {
+    const assigned = crewByPlate.get(normalizePlate(row.vehiculo));
+    return assigned ? { ...row, nombreAuxiliar1: assigned.driver, cedulaAuxiliar1: assigned.driverId } : row;
+  });
 }
 
 async function readZkiHistory(headers: Record<string, string>) {

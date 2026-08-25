@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { normalizeContractorName } from "../../lib/contractors";
+import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -10,7 +10,6 @@ const TABLE = "modulaciones_ruta";
 const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
 const LIST_CACHE_TTL_MS = 45_000;
 const LIST_PAGE_SIZE = 1_000;
-const PUBLIC_CONTRACTORS = ["logisticos", "puntocorona", "surticervezas"];
 const LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,gestionCompletadaAt:data->>gestionCompletadaAt,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,origenReubicacion:data->>origenReubicacion,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 
@@ -57,7 +56,7 @@ export async function PUT(request: Request) {
 
     const isPublicSubmission = !session && records.length === 1 && Boolean(records[0]?.contratista);
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
-    if (!contractor || !PUBLIC_CONTRACTORS.includes(normalizeContractorName(contractor))) {
+    if (!isOperationalContractor(contractor)) {
       return NextResponse.json({ error: "Contratista no válido." }, { status: 400 });
     }
     if (records.some((record) => record.contratista && normalizeContractorName(record.contratista) !== normalizeContractorName(contractor))) {

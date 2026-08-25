@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
 import { normalizeContractorName } from "../../../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
+import { normalizePlate, readZkiCrewRows, ZKI_CREW_TABLE } from "../crewTable";
 
 type Status = { available: boolean; useInZki: boolean };
 
@@ -9,15 +10,13 @@ export async function GET() {
   const session = await getAuthenticatedSession();
   if (!session || (!session.isPeople && !session.isAdmin)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-  const [platesResponse, capacitiesResponse, profilesResponse] = await Promise.all([
-    fetch(supabaseRest("placas", "?select=*&limit=3000"), { headers, cache: "no-store" }),
+  const [plateRows, capacitiesResponse, profilesResponse] = await Promise.all([
+    readZkiCrewRows(headers),
     fetch(supabaseRest("capacidad_carga", "?select=*&limit=3000"), { headers, cache: "no-store" }),
     fetch(supabaseRest("people_profiles", "?select=profile_id,data&profile_id=like.zki-vehicle:*"), { headers, cache: "no-store" }),
   ]);
-  if (!platesResponse.ok) return NextResponse.json({ error: `Tabla placas: ${await supabaseError(platesResponse)}` }, { status: platesResponse.status });
-  const plateRows = await platesResponse.json() as Record<string, unknown>[];
   if (!plateRows.length) {
-    return NextResponse.json({ error: "La tabla placas no devolvió registros. Ejecuta supabase/placas_access.sql para habilitar su lectura a People y Admin." }, { status: 403 });
+    return NextResponse.json({ error: `La tabla ${ZKI_CREW_TABLE} no devolvió registros.` }, { status: 403 });
   }
   const capacityRows = capacitiesResponse.ok ? await capacitiesResponse.json() as Record<string, unknown>[] : [];
   const profileRows = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: { available?: boolean; useInZki?: boolean; logistics?: boolean } }> : [];
@@ -28,9 +27,9 @@ export async function GET() {
   ]).filter(([plate]) => Boolean(plate));
   const capacities = new Map<string, number>(capacityEntries);
   const vehicleEntries = plateRows.map((row): [string, { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean }] => {
-    const plate = normalizePlate(read(row, ["placa", "vehiculo", "vehicle", "plate", "vh", "Tractor"]));
-    const contractor = contractorLabel(read(row, ["Nombre 1", "transportista", "transportadora", "contratista", "empresa", "carrier"]));
-    const plateCapacity = readNumber(row, ["Capacidad de carga", "Capacidad", "capacidad_carga", "Peso Máximo", "Peso Maximo", "Peso"]);
+    const plate = row.plate;
+    const contractor = "Logisticos";
+    const plateCapacity = 0;
     const saved = statuses.get(plate);
     return [plate, { plate, contractor, capacity: plateCapacity || capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? contractor === "Logisticos" }];
   }).filter(([plate]) => Boolean(plate));
@@ -63,17 +62,3 @@ function read(row: Record<string, unknown>, aliases: string[]) {
   return "";
 }
 function readNumber(row: Record<string, unknown>, aliases: string[]) { const value = Number(read(row, aliases).replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "")); return Number.isFinite(value) ? value : 0; }
-function normalizePlate(value: unknown) {
-  const raw = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^vh/, "");
-  // En SAP, Tractor suele venir como CO + placa (p. ej. COJTX435).
-  // El prefijo identifica el equipo, pero no forma parte de la matrícula.
-  const withoutEquipmentPrefix = /^co[a-z]{3}\d{3}$/.test(raw) ? raw.slice(2) : raw;
-  return /^[a-z]{3}\d{3}$/.test(withoutEquipmentPrefix) ? withoutEquipmentPrefix : "";
-}
-function contractorLabel(value: string) {
-  const key = normalizeContractorName(value);
-  if (key.includes("logistic") || key.includes("logisticaintegral")) return "Logisticos";
-  if (key.includes("surti")) return "Surti Cervezas";
-  if (key.includes("distribuciones") || key.includes("transporterg") || key.includes("puntocorona")) return "Punto Corona";
-  return value || "Sin transportista";
-}

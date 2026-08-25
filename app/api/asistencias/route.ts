@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { normalizeContractorName } from "../../lib/contractors";
+import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -49,10 +49,9 @@ export async function PUT(request: Request) {
     const session = await getAuthenticatedSession();
     const { records } = (await request.json()) as { records: AsistenciaRegistro[] };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
-    const publicContractors = ["logisticos", "puntocorona", "surticervezas"];
     const isPublicSubmission = records.length === 1 && Boolean(records[0]?.contratista);
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
-    if (!contractor || !publicContractors.includes(normalizeContractorName(contractor))) {
+    if (!isOperationalContractor(contractor)) {
       return NextResponse.json({ error: "Contratista no valido." }, { status: 400 });
     }
     if (records.some((record) => normalizeContractorName(record.contratista) !== normalizeContractorName(contractor))) {

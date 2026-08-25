@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, Search, ShieldX, SlidersHorizontal, Trash2, Truck, Upload, UserPlus, Users, X } from "lucide-react";
 import {
   assignUniqueResponsibles,
+  assignDriverVehiclePairs,
   assignCompatibleVehicles,
+  enforceUniqueAssignedCrew,
   capacityMap,
   DEFAULT_ZKI_SETTINGS,
   parseCrewHistory,
@@ -14,21 +16,21 @@ import {
   parseZkiVisits,
   rankCandidates,
   type Candidate,
-  type CrewHistory,
   type RawRow,
   type Trip,
   type ZkiSettings,
 } from "./zkiEngine";
 
-type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; source: { table: string; rows: number; columns?: string[] } };
+type CrewPair = { plate: string; driver: string; driverId: string };
+type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; crew: CrewPair[]; source: { table: string; rows: number; columns?: string[] } };
 type PersonnelRule = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string; minimumClients?: number; maximumClients?: number };
 type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
-const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v2";
+const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v5-required-crew-catalog";
 
 function isApiData(value: unknown): value is ApiData {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<ApiData>;
-  return Array.isArray(candidate.rows) && Array.isArray(candidate.history) && Array.isArray(candidate.capacities)
+  return Array.isArray(candidate.rows) && Array.isArray(candidate.history) && Array.isArray(candidate.capacities) && Array.isArray(candidate.crew)
     && Boolean(candidate.source && typeof candidate.source.rows === "number");
 }
 
@@ -41,11 +43,10 @@ function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[
   const matches = (person: PersonnelRule, id: string, name: string) =>
     (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) ||
     (person.name && normalizePerson(person.name) === normalizePerson(name));
-  // Un RR histórico no puede planearse si ya no pertenece al catálogo
-  // vigente de Logísticos (el API depura ese catálogo con asistencias).
-  const activeResponsible = rules.some((person) => (person.role === "RR" || person.role === "Líder de Ruta") && person.available && matches(person, candidate.rrId, candidate.rr));
+  // Solo se excluye una persona cuando fue marcada explícitamente como no
+  // disponible. No pertenecer al catálogo editable no elimina su historial.
   const blocked = (id: string, name: string) => unavailable.some((person) => matches(person, id, name));
-  return activeResponsible && !blocked(candidate.driverId, candidate.driver) && !blocked(candidate.auxiliaryId, candidate.auxiliary);
+  return !blocked(candidate.rrId, candidate.rr) && !blocked(candidate.driverId, candidate.driver);
 }
 
 export default function ZkiPage() {
@@ -133,11 +134,40 @@ export default function ZkiPage() {
   const trips = useMemo(() => parseTrips(planningRows), [planningRows]);
   const history = useMemo(() => parseCrewHistory(data?.history || []), [data]);
   const visits = useMemo(() => parseZkiVisits(data?.rows || []), [data]);
+  const auxiliaryRoster = useMemo(() => {
+    const unique = new Map<string, (typeof visits)[number]>();
+    visits.forEach((visit) => {
+      if (!normalizePerson(visit.role).includes("auxiliar")) return;
+      const key = normalizePerson(visit.rrId || visit.rr);
+      if (key && !unique.has(key)) unique.set(key, visit);
+    });
+    return Array.from(unique.values());
+  }, [visits]);
   const territoryClients = useMemo(() => parseTerritoryClients(territoryRows), [territoryRows]);
+  const clientsByTerritory = useMemo(() => {
+    const index = new Map<string, string[]>();
+    territoryClients.forEach((row) => {
+      const current = index.get(row.territoryId);
+      if (current) current.push(row.client);
+      else index.set(row.territoryId, [row.client]);
+    });
+    return index;
+  }, [territoryClients]);
+  const visitsByClient = useMemo(() => {
+    const index = new Map<string, typeof visits>();
+    visits.forEach((visit) => {
+      const key = normalizePerson(visit.client);
+      if (!key) return;
+      const current = index.get(key);
+      if (current) current.push(visit);
+      else index.set(key, [visit]);
+    });
+    return index;
+  }, [visits]);
   const activeTrip = trips.find((trip) => trip.id === selectedTrip) || trips[0];
   const clientsForTrip = useMemo(
-    () => activeTrip ? territoryClients.filter((row) => row.territoryId === activeTrip.territoryId).map((row) => row.client) : [],
-    [activeTrip, territoryClients],
+    () => activeTrip ? clientsByTerritory.get(activeTrip.territoryId) || [] : [],
+    [activeTrip, clientsByTerritory],
   );
   const allCapacities = useMemo(() => capacityMap([...(data?.capacities || []), ...(data?.history || []), ...planningRows]), [data?.capacities, data?.history, planningRows]);
   const capacities = useMemo(() => {
@@ -160,23 +190,27 @@ export default function ZkiPage() {
     );
   }, [personnelRole, personnelRules, personnelSearch]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
-    const clientCodes = territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client);
-    const ranked = applyPersonnelClientRanges(rankCandidates(trip, history, visits, clientCodes, capacities, settings), personnelRules, trip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
+    const clientCodes = clientsByTerritory.get(trip.territoryId) || [];
+    const relevantVisits = clientCodes.length ? clientCodes.flatMap((client) => visitsByClient.get(normalizePerson(client)) || []) : visits;
+    const ranked = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRules, trip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
     return { trip, candidates: ranked };
-  }), [capacities, history, personnelRules, settings, territoryClients, trips, visits]);
+  }), [auxiliaryRoster, capacities, clientsByTerritory, history, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
     const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })));
-    const basePlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({
+    const preliminaryPlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({
       trip,
       candidates: ranked,
-      recommendation: preserveDriverVehicle(trip, assignments.get(trip.id), history),
+      recommendation: preserveDriverVehicle(trip, assignments.get(trip.id), data?.crew || []),
     }));
+    const pairedCrew = assignDriverVehiclePairs(preliminaryPlanning, data?.crew || [], capacities, settings.minimumZki);
+    const uniqueCrew = enforceUniqueAssignedCrew(preliminaryPlanning.map((item) => ({ tripId: item.trip.id, recommendation: pairedCrew.get(item.trip.id) })));
+    const basePlanning = preliminaryPlanning.map((item) => ({ ...item, recommendation: uniqueCrew.get(item.trip.id) }));
     const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities);
     return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
-  }, [capacities, history, rankedPlanning]);
+  }, [capacities, data?.crew, rankedPlanning, settings.minimumZki]);
   const candidates = useMemo(
-    () => activeTrip ? applyPersonnelClientRanges(rankCandidates(activeTrip, history, visits, clientsForTrip, capacities, settings), personnelRules, activeTrip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules)) : [],
-    [activeTrip, capacities, clientsForTrip, history, personnelRules, settings, visits],
+    () => activeTrip ? rankedPlanning.find((item) => item.trip.id === activeTrip.id)?.candidates || [] : [],
+    [activeTrip, rankedPlanning],
   );
   const viable = candidates.filter((candidate) => candidate.viable);
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
@@ -552,7 +586,8 @@ export default function ZkiPage() {
 }
 
 function applyPersonnelClientRanges(candidates: Candidate[], rules: PersonnelRule[], tripClients: number) {
-  return candidates.flatMap((candidate) => {
+  return candidates.flatMap((rawCandidate) => {
+    const candidate = withAvailableAuxiliary(rawCandidate, rules);
     const rule = rules.find((person) => person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, "") || normalizePerson(person.name) === normalizePerson(candidate.rr));
     if (rule?.minimumClients === undefined || rule.maximumClients === undefined) return [{ ...candidate, workloadAdjustment: 0 }];
     const minimum = rule.minimumClients;
@@ -569,14 +604,38 @@ function applyPersonnelClientRanges(candidates: Candidate[], rules: PersonnelRul
   }).sort((left, right) => Number(right.viable) - Number(left.viable) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
 }
 
-function preserveDriverVehicle(trip: Trip, candidate: Candidate | undefined, history: CrewHistory[]) {
+function withAvailableAuxiliary(candidate: Candidate, rules: PersonnelRule[]) {
+  const unavailable = rules.filter((person) => person.role === "Auxiliar" && !person.available);
+  const isUnavailable = (option: { id: string; name: string }) => unavailable.some((person) =>
+    (person.id && option.id && person.id.replace(/\D/g, "") === option.id.replace(/\D/g, "")) ||
+    (person.name && normalizePerson(person.name) === normalizePerson(option.name)),
+  );
+  const options = (candidate.auxiliaryOptions || []).filter((option) => !isUnavailable(option));
+  const selected = options[0];
+  if (!selected) return {
+    ...candidate,
+    auxiliary: "Sin auxiliar disponible",
+    auxiliaryId: "",
+    auxiliaryZki: 0,
+    auxiliaryOptions: [],
+    totalZki: Math.round(candidate.zki * 100) / 100,
+  };
+  return {
+    ...candidate,
+    auxiliary: selected.name,
+    auxiliaryId: selected.id,
+    auxiliaryZki: selected.zki,
+    auxiliaryOptions: options,
+    totalZki: Math.round((candidate.zki + selected.zki) * 100) / 100,
+  };
+}
+
+function preserveDriverVehicle(trip: Trip, candidate: Candidate | undefined, crewPairs: CrewPair[]) {
   if (!candidate) return undefined;
   const vehicleKey = normalizePerson(trip.assignedPlate || trip.vehicle || candidate.vehicle);
-  const crew = history
-    .filter((row) => vehicleKey && normalizePerson(row.vehicle) === vehicleKey)
-    .sort((left, right) => right.date.localeCompare(left.date))[0];
+  const crew = crewPairs.find((row) => vehicleKey && normalizePerson(row.plate) === vehicleKey);
   if (!crew) return candidate;
-  return { ...candidate, driver: crew.driver || candidate.driver, driverId: crew.driverId || candidate.driverId, vehicle: crew.vehicle || candidate.vehicle };
+  return { ...candidate, driver: crew.driver || candidate.driver, driverId: crew.driverId || candidate.driverId, vehicle: crew.plate || candidate.vehicle };
 }
 
 function CandidateRow({ candidate }: { candidate: Candidate }) {

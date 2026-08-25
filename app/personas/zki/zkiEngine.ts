@@ -1,4 +1,5 @@
 export type RawRow = Record<string, unknown>;
+export type DriverVehiclePair = { plate: string; driver: string; driverId: string };
 
 export type Trip = {
   id: string;
@@ -57,6 +58,7 @@ export type Candidate = {
   auxiliary: string;
   auxiliaryId: string;
   auxiliaryZki: number;
+  auxiliaryOptions?: Array<{ name: string; id: string; zki: number }>;
   totalZki: number;
   previousClients?: number;
   workloadAdjustment?: number;
@@ -86,14 +88,14 @@ export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
 };
 
 export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidates: Candidate[] }>) {
-  const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => normalizePersonName(candidate.rr))))).filter(Boolean);
+  const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
   const columnCount = Math.max(plans.length, rrKeys.length);
   if (!plans.length || !columnCount) return new Map<string, Candidate>();
   const rrIndex = new Map(rrKeys.map((key, index) => [key, index]));
   const candidateMatrix = plans.map((plan) => {
     const row = new Array<Candidate | undefined>(columnCount);
     plan.candidates.forEach((candidate) => {
-      const index = rrIndex.get(normalizePersonName(candidate.rr));
+      const index = rrIndex.get(personIdentity(candidate.rrId, candidate.rr));
       if (index !== undefined) row[index] = candidate;
     });
     return row;
@@ -105,33 +107,144 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
     const candidate = column >= 0 ? candidateMatrix[row][column] : undefined;
     if (candidate) result.set(plans[row].tripId, candidate);
   });
+  // En esta etapa solo se optimizan los RR. La tripulación histórica del
+  // candidato no puede eliminar rutas porque conductor y vehículo se asignan
+  // después desde el catálogo Conductores-placas.
   return result;
 }
 
+export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>) {
+  const assignments = new Map(plans.flatMap((plan) => plan.recommendation ? [[plan.tripId, plan.recommendation] as const] : []));
+  return removeRepeatedAuxiliaries(assignments);
+}
+
+export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?: Candidate }>(
+  plans: T[],
+  pairs: DriverVehiclePair[],
+  capacities: Map<string, number>,
+  minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki,
+) {
+  const available = [...new Map(pairs
+    .filter((pair) => pair.plate && pair.driver)
+    .map((pair) => [normalizeVehicleKey(pair.plate), pair])).entries()]
+    .map(([key, pair]) => ({ ...pair, key, capacity: capacities.get(key) || 0 }));
+  const used = new Set<string>();
+  const result = new Map<string, Candidate>();
+
+  [...plans].sort((left, right) => right.trip.weight - left.trip.weight).forEach(({ trip, recommendation }) => {
+    if (!recommendation) return;
+    const assignedKey = normalizeVehicleKey(trip.assignedPlate || trip.vehicle);
+    const habitualKey = normalizeVehicleKey(recommendation.vehicle);
+    const unused = available.filter((pair) => !used.has(pair.key));
+    const selected = unused.find((pair) => assignedKey && pair.key === assignedKey)
+      || unused.find((pair) => habitualKey && pair.key === habitualKey)
+      || unused.filter((pair) => pair.capacity >= trip.weight).sort((left, right) => left.capacity - right.capacity)[0]
+      || unused.sort((left, right) => right.capacity - left.capacity)[0];
+
+    if (!selected) {
+      result.set(trip.id, {
+        ...recommendation,
+        driver: "Sin conductor disponible",
+        driverId: "",
+        vehicle: "Sin vehículo disponible",
+        capacity: 0,
+        viable: false,
+        reason: "Pendiente: no queda otra pareja conductor–vehículo disponible para esta ruta.",
+      });
+      return;
+    }
+
+    used.add(selected.key);
+    const fits = selected.capacity > 0 && selected.capacity >= trip.weight;
+    result.set(trip.id, {
+      ...recommendation,
+      driver: selected.driver,
+      driverId: selected.driverId,
+      vehicle: selected.plate.toUpperCase(),
+      capacity: selected.capacity,
+      viable: recommendation.hasKnowledge && recommendation.zki >= minimumZki && fits,
+      habitualVehicle: selected.key === habitualKey,
+      reason: !selected.capacity
+        ? `Pendiente: falta registrar la capacidad de ${selected.plate.toUpperCase()}.`
+        : !fits
+          ? `Pendiente: ${formatKg(trip.weight)} kg superan la capacidad de ${selected.plate.toUpperCase()} (${formatKg(selected.capacity)} kg).`
+          : !recommendation.hasKnowledge
+            ? "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio."
+            : recommendation.zki < minimumZki
+              ? `No viable: ZKI ${Math.round(recommendation.zki)}% está por debajo del mínimo de ${minimumZki}%.`
+              : recommendation.hasKnowledge
+            ? "Viable: RR asignado por ZKI y pareja conductor–vehículo disponible."
+            : "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio.",
+    });
+  });
+  return result;
+}
+
+function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>) {
+  const used = new Set<string>();
+  assignments.forEach((candidate) => {
+    used.add(personIdentity(candidate.rrId, candidate.rr));
+    if (!normalizePersonName(candidate.driver).startsWith("sin conductor")) used.add(personIdentity(candidate.driverId, candidate.driver));
+  });
+  const usedDrivers = new Set<string>();
+  const ordered = Array.from(assignments.entries()).sort((left, right) => right[1].auxiliaryZki - left[1].auxiliaryZki);
+  const result = new Map<string, Candidate>();
+  ordered.forEach(([tripId, candidate]) => {
+    const driverKey = personIdentity(candidate.driverId, candidate.driver);
+    const isRealDriver = driverKey && !normalizePersonName(candidate.driver).startsWith("sin conductor");
+    if (isRealDriver && usedDrivers.has(driverKey)) return;
+    if (isRealDriver) usedDrivers.add(driverKey);
+    const key = personIdentity(candidate.auxiliaryId, candidate.auxiliary);
+    const isRealAuxiliary = key && !normalizePersonName(candidate.auxiliary).startsWith("sin auxiliar");
+    if (!isRealAuxiliary || !used.has(key)) {
+      if (isRealAuxiliary) used.add(key);
+      result.set(tripId, candidate);
+      return;
+    }
+    const replacement = candidate.auxiliaryOptions?.find((option) => {
+      const optionKey = personIdentity(option.id, option.name);
+      return optionKey && !used.has(optionKey);
+    });
+    if (replacement) {
+      used.add(personIdentity(replacement.id, replacement.name));
+      result.set(tripId, {
+        ...candidate,
+        auxiliary: replacement.name,
+        auxiliaryId: replacement.id,
+        auxiliaryZki: replacement.zki,
+        totalZki: Math.round((candidate.zki + replacement.zki) * 100) / 100,
+      });
+      return;
+    }
+    result.set(tripId, {
+      ...candidate,
+      auxiliary: "Sin auxiliar disponible",
+      auxiliaryId: "",
+      auxiliaryZki: 0,
+      totalZki: Math.round(candidate.zki * 100) / 100,
+      reason: `${candidate.reason} El auxiliar habitual ya fue asignado a otro viaje.`,
+    });
+  });
+  return result;
+}
+
+function personIdentity(id: string | undefined, name: string | undefined) {
+  const normalizedId = String(id || "").replace(/\D/g, "").replace(/^0+/, "");
+  return normalizedId ? `id:${normalizedId}` : `name:${normalizePersonName(name || "")}`;
+}
+
 export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?: Candidate }>(plans: T[], capacities: Map<string, number>) {
-  const available = Array.from(capacities, ([key, capacity]) => ({ key, capacity })).filter((item) => item.capacity > 0);
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
   const assignFallback = (trip: Trip, recommendation: Candidate, reason: string): Candidate => {
-    const selected = available
-      .filter((item) => !used.has(item.key) && item.capacity >= trip.weight)
-      .sort((a, b) => a.capacity - b.capacity)[0];
-    if (!selected) return {
-      ...recommendation,
-      vehicle: "Sin placa disponible",
-      capacity: 0,
-      viable: false,
-      habitualVehicle: false,
-      reason: `${reason} No queda otra placa disponible que soporte ${formatKg(trip.weight)} kg.`,
-    };
-    used.add(selected.key);
+    const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     return {
       ...recommendation,
-      vehicle: selected.key.toUpperCase(),
-      capacity: selected.capacity,
-      viable: recommendation.hasKnowledge,
-      habitualVehicle: false,
-      reason: `${reason} Se asignó ${selected.key.toUpperCase()} (${formatKg(selected.capacity)} kg) sin cambiar la tripulación.`,
+      vehicle: habitualKey ? habitualKey.toUpperCase() : "Sin VH habitual",
+      capacity: capacities.get(habitualKey) || 0,
+      viable: false,
+      habitualVehicle: true,
+      reason: `${reason} El conductor conserva su VH habitual; se debe cambiar el RR o dejar el viaje sin asignar.`,
     };
   };
   [...plans].sort((a, b) => b.trip.weight - a.trip.weight).forEach(({ trip, recommendation }) => {
@@ -140,7 +253,8 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     // La placa del archivo solo es autoritativa si existe en el catálogo
     // validado por el llamador (tabla `placas`). Una placa escrita en el Excel
     // o heredada del historial nunca debe crear un vehículo nuevo de facto.
-    if (assignedKey && capacities.has(assignedKey)) {
+    const recommendedVehicleKey = normalizeVehicleKey(recommendation.vehicle);
+    if (assignedKey && assignedKey === recommendedVehicleKey && capacities.has(assignedKey)) {
       const assignedCapacity = capacities.get(assignedKey) || 0;
       const alreadyUsed = used.has(assignedKey);
       if (alreadyUsed) {
@@ -158,7 +272,7 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
         ...recommendation,
         vehicle: assignedKey.toUpperCase(),
         capacity: assignedCapacity,
-        viable: fits,
+        viable: recommendation.viable && fits,
         habitualVehicle: assignedKey === normalizeVehicleKey(recommendation.vehicle),
         reason,
       });
@@ -185,26 +299,19 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
         ...recommendation,
         vehicle: habitualKey.toUpperCase(),
         capacity: habitualCapacity,
-        viable: recommendation.hasKnowledge && fits,
+        viable: recommendation.viable && fits,
         habitualVehicle: true,
         reason: !habitualCapacity
             ? `Bloqueado: falta capacidad para el VH fijo ${habitualKey.toUpperCase()}; no se cambió al conductor.`
             : habitualCapacity < trip.weight
               ? `Bloqueado: el VH fijo ${habitualKey.toUpperCase()} no soporta ${formatKg(trip.weight)}; no se cambió al conductor.`
-              : recommendation.zki < 80
-                ? "Viable con alerta: se conserva conductor y VH; se prioriza cambiar solamente el RR."
+              : !recommendation.viable
+                ? recommendation.reason
                 : recommendation.reason,
       });
       return;
     }
-    const selected = available.filter((item) => !used.has(item.key) && item.capacity >= trip.weight).sort((a, b) => a.capacity - b.capacity)[0];
-    if (!selected) {
-      result.set(trip.id, { ...recommendation, vehicle: "Sin placa compatible", capacity: 0, viable: false, reason: `Bloqueado: no hay un vehículo disponible que soporte ${formatKg(trip.weight)} kg.` });
-      return;
-    }
-    used.add(selected.key);
-    const originalPlate = recommendation.vehicle;
-    result.set(trip.id, { ...recommendation, vehicle: selected.key.toUpperCase(), capacity: selected.capacity, viable: true, habitualVehicle: selected.key === habitualKey, reason: selected.key === habitualKey ? recommendation.reason : `Viable por peso: se cambió ${originalPlate || "el vehículo habitual"} por ${selected.key.toUpperCase()} (${formatKg(selected.capacity)} kg).` });
+    result.set(trip.id, assignFallback(trip, recommendation, "No se identificó un VH habitual disponible."));
   });
   return result;
 }
@@ -264,7 +371,8 @@ function maximumWeightAssignment(weights: number[][]) {
 }
 
 export function parseTrips(rows: RawRow[]): Trip[] {
-  return rows.filter((raw) => hasOperationalTripData(raw) && isFirstTrip(raw)).map((raw, index) => {
+  const sheetHasTripColumn = rows.some(hasTripColumn);
+  return rows.filter((raw) => hasOperationalTripData(raw) && isFirstTrip(raw, sheetHasTripColumn)).map((raw, index) => {
     const tripNumber = text(read(raw, ["Número", "Numero", "N°", "No"]));
     const date = dateText(read(raw, ["Fecha de entrega", "Fecha entrega", "Fecha", "Fecha de despacho"]));
     const zone = text(read(raw, ["Nombre", "Zona", "Población", "Poblacion", "Territorio", "Ruta"]));
@@ -279,7 +387,7 @@ export function parseTrips(rows: RawRow[]): Trip[] {
       maximumWeight: number(read(raw, ["Peso Máximo", "Peso Maximo", "Capacidad", "Capacidad peso"])),
       cubicage: number(read(raw, ["Cubicaje", "Volumen"])),
       clients: number(read(raw, ["Clientes", "Clientes territorio", "Total clientes"])),
-      trip: text(read(raw, ["Viaje", "Número viaje", "Numero viaje"])),
+      trip: text(readTripValue(raw)),
       raw,
     };
   });
@@ -330,11 +438,14 @@ export function rankCandidates(
   territoryClientCodes: string[],
   capacities: Map<string, number>,
   settings: ZkiSettings,
+  auxiliaryRoster: ZkiVisit[] = visits,
 ): Candidate[] {
   const byRr = new Map<string, CrewHistory[]>();
   history.forEach((row) => {
     const key = normalizePersonName(row.rr);
-    byRr.set(key, [...(byRr.get(key) || []), row]);
+    const current = byRr.get(key);
+    if (current) current.push(row);
+    else byRr.set(key, [row]);
   });
 
   const rrNames = new Map<string, string>();
@@ -347,18 +458,37 @@ export function rankCandidates(
   const territoryClientSet = configuredClients.size
     ? configuredClients
     : new Set(territoryVisits.map((row) => normalize(row.client)).filter(Boolean));
+  const responsibleVisitsByRr = new Map<string, ZkiVisit[]>();
+  territoryVisits.forEach((row) => {
+    if (!isResponsibleVisit(row)) return;
+    const key = normalizePersonName(row.rr);
+    if (!key) return;
+    const current = responsibleVisitsByRr.get(key);
+    if (current) current.push(row);
+    else responsibleVisitsByRr.set(key, [row]);
+  });
+  const territoryClients = Math.max(trip.clients, territoryClientSet.size);
+  const scoredAuxiliaries = rankAuxiliaries(territoryVisits, territoryClients, settings);
+  const scoredAuxiliaryKeys = new Set(scoredAuxiliaries.map((item) => item.key));
+  const reserveAuxiliaries = auxiliaryRoster.flatMap((visit) => {
+    if (!isAuxiliaryVisit(visit)) return [];
+    const key = normalizePersonName(visit.rr);
+    if (!key || scoredAuxiliaryKeys.has(key)) return [];
+    scoredAuxiliaryKeys.add(key);
+    return [{ key, name: visit.rr, id: visit.rrId || "", zki: 0 }];
+  });
+  const auxiliaries = [...scoredAuxiliaries, ...reserveAuxiliaries];
 
   return Array.from(rrNames, ([rrKey, rrName]) => {
     const rrRows = byRr.get(rrKey) || [];
-    const latest = [...rrRows].sort((a, b) => b.date.localeCompare(a.date))[0];
-    const rrVisits = territoryVisits.filter((row) => isResponsibleVisit(row) && normalizePersonName(row.rr) === rrKey);
+    const latest = rrRows.reduce<CrewHistory | undefined>((current, row) => !current || row.date > current.date ? row : current, undefined);
+    const rrVisits = responsibleVisitsByRr.get(rrKey) || [];
     const visitsByClient = new Map<string, number>();
     rrVisits.forEach((row) => {
       const client = normalize(row.client);
       if (client) visitsByClient.set(client, (visitsByClient.get(client) || 0) + visitCount(row));
     });
     const uniqueVisited = visitsByClient.size;
-    const territoryClients = Math.max(trip.clients, territoryClientSet.size);
     const coverage = territoryClients > 0 ? clamp((uniqueVisited / territoryClients) * 100) : 0;
     // La frecuencia mide la intensidad sobre los clientes que el RR sí conoce,
     // no sobre toda la población. Así, 5 visitas a 5 clientes dan frecuencia 1
@@ -374,7 +504,10 @@ export function rankCandidates(
     const zki = clamp(
       (coverage * settings.coverageWeight + frequencyScore * settings.frequencyWeight + depth * settings.depthWeight) / weightTotal,
     );
-    const auxiliary = bestAuxiliary(territoryVisits, territoryClients, settings, rrKey);
+    const auxiliaryOptions = auxiliaries
+      .filter((item) => item.key !== rrKey)
+      .sort((left, right) => zki >= settings.minimumZki ? left.zki - right.zki : right.zki - left.zki);
+    const auxiliary = auxiliaryOptions[0] || { name: "Sin auxiliar con historial", id: "", zki: 0 };
     const visitIdentity = rrVisits.find((row) => row.driver || row.vehicle);
     const rr = latest?.rr || rrName;
     const rrId = latest?.rrId || rrVisits.find((row) => row.rrId)?.rrId || "";
@@ -385,7 +518,8 @@ export function rankCandidates(
     const previousClients = Math.max(latest?.visited || 0, latest?.clients || 0);
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
-    const viable = hasKnowledge && hasCapacity && trip.weight <= capacity;
+    const meetsMinimumZki = zki >= settings.minimumZki;
+    const viable = hasKnowledge && hasCapacity && meetsMinimumZki && trip.weight <= capacity;
     return {
       rr,
       rrId,
@@ -402,6 +536,7 @@ export function rankCandidates(
       auxiliary: auxiliary.name,
       auxiliaryId: auxiliary.id,
       auxiliaryZki: auxiliary.zki,
+      auxiliaryOptions: auxiliaryOptions.map(({ name, id, zki }) => ({ name, id, zki })),
       totalZki: Math.round((zki + auxiliary.zki) * 100) / 100,
       previousClients,
       workloadAdjustment: 0,
@@ -413,26 +548,28 @@ export function rankCandidates(
         ? "No evaluable: el RR no tiene visitas ZKI para los clientes de este territorio."
         : !hasCapacity
           ? "Bloqueado: no se encontró la capacidad del vehículo habitual."
-          : !viable
+          : trip.weight > capacity
             ? `Bloqueado: ${formatKg(trip.weight)} kg superan ${formatKg(capacity)} kg.`
-        : zki >= settings.minimumZki
-          ? "Viable: conserva RR, conductor y vehículo habitual."
-          : `Viable con alerta: ZKI menor a ${settings.minimumZki}%.`,
+          : !meetsMinimumZki
+            ? `No viable: ZKI ${Math.round(zki)}% está por debajo del mínimo de ${settings.minimumZki}%.`
+        : "Viable: conserva RR, conductor y vehículo habitual.",
     };
   })
-    // Se prueban todos los RR, pero una combinación sin una sola visita no es
-    // una probabilidad útil. No se presenta como ZKI 0; la ruta queda marcada
-    // sin historial si ningún RR conoce sus clientes.
-    .filter((candidate) => candidate.hasKnowledge && candidate.zki > 0)
-    .sort((left, right) => Number(right.viable) - Number(left.viable) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
+    // Los RR con conocimiento tienen prioridad, pero los demás permanecen
+    // como respaldo para completar todas las tripulaciones disponibles.
+    .filter((candidate) => candidate.rr && candidate.driver && candidate.vehicle)
+    .sort((left, right) => Number(right.viable) - Number(left.viable) || Number(right.hasKnowledge) - Number(left.hasKnowledge) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
 }
 
-function bestAuxiliary(visits: ZkiVisit[], territoryClients: number, settings: ZkiSettings, responsibleKey: string) {
+function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings: ZkiSettings) {
   const grouped = new Map<string, ZkiVisit[]>();
-  visits.filter(isAuxiliaryVisit).forEach((visit) => {
+  visits.forEach((visit) => {
+    if (!isAuxiliaryVisit(visit)) return;
     const key = normalizePersonName(visit.rr);
-    if (!key || key === responsibleKey) return;
-    grouped.set(key, [...(grouped.get(key) || []), visit]);
+    if (!key) return;
+    const current = grouped.get(key);
+    if (current) current.push(visit);
+    else grouped.set(key, [visit]);
   });
   const weightTotal = settings.coverageWeight + settings.frequencyWeight + settings.depthWeight || 100;
   return Array.from(grouped.values()).map((rows) => {
@@ -449,8 +586,8 @@ function bestAuxiliary(visits: ZkiVisit[], territoryClients: number, settings: Z
     const deep = Array.from(byClient.values()).filter((count) => count >= settings.depthThreshold).length;
     const depth = unique > 0 ? clamp((deep / unique) * 100) : 0;
     const zki = clamp((coverage * settings.coverageWeight + frequencyScore * settings.frequencyWeight + depth * settings.depthWeight) / weightTotal);
-    return { name: rows[0].rr, id: rows[0].rrId || "", zki };
-  }).sort((left, right) => right.zki - left.zki)[0] || { name: "Sin auxiliar con historial", id: "", zki: 0 };
+    return { key: normalizePersonName(rows[0].rr), name: rows[0].rr, id: rows[0].rrId || "", zki };
+  }).sort((left, right) => right.zki - left.zki);
 }
 
 function isResponsibleVisit(visit: ZkiVisit) {
@@ -502,12 +639,23 @@ function hasOperationalTripData(row: RawRow) {
   );
 }
 
-function isFirstTrip(row: RawRow) {
-  const value = text(read(row, ["Viaje", "Número viaje", "Numero viaje"]));
+const TRIP_ALIASES = ["Viaje", "Número viaje", "Numero viaje", "Número de viaje", "Numero de viaje", "Nro viaje", "Nro de viaje", "No viaje", "Tipo de viaje", "Vje"];
+
+function readTripValue(row: RawRow) {
+  return read(row, TRIP_ALIASES);
+}
+
+function hasTripColumn(row: RawRow) {
+  const keys = new Set(Object.keys(row).map(normalize));
+  return TRIP_ALIASES.some((alias) => keys.has(normalize(alias)));
+}
+
+function isFirstTrip(row: RawRow, sheetHasTripColumn: boolean) {
+  const value = text(readTripValue(row)).trim();
   // Se incluyen 1, "1 UDH", "1UDH", etc. Se excluyen 11 y cualquier
-  // segundo viaje (2, "2 SV PM", ...). Si el archivo no trae la columna,
-  // se conserva la fila para no romper formatos históricos.
-  if (!value) return true;
+  // segundo viaje (2, "2 SV PM", ...). Si la hoja sí trae la columna,
+  // una celda vacía no puede convertirse accidentalmente en una ruta.
+  if (!value) return !sheetHasTripColumn;
   return /^1(?:$|\D)/.test(value);
 }
 

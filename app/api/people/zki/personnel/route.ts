@@ -3,6 +3,7 @@ import { getAuthenticatedSession } from "../../../../lib/authServer";
 import { normalizeContractorName } from "../../../../lib/contractors";
 import { readServerCache } from "../../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
+import { readZkiCrewRows } from "../crewTable";
 
 type Person = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor: string; minimumClients?: number; maximumClients?: number };
 type PersonProfile = { available?: boolean; minimumClients?: number; maximumClients?: number };
@@ -11,10 +12,11 @@ export async function GET() {
   const session = await getAuthenticatedSession();
   if (!session || (!session.isPeople && !session.isAdmin)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-  const [peopleResponse, profilesResponse, attendances] = await Promise.all([
+  const [peopleResponse, profilesResponse, attendances, crewRows] = await Promise.all([
     fetch(supabaseRest("transporte_barranquilla", "?select=CC,NOMBRE,CARGO,CONTRATISTA&order=NOMBRE.asc&limit=2000"), { headers, cache: "no-store" }),
     fetch(supabaseRest("people_profiles", "?select=profile_id,data&profile_id=like.zki-person:*"), { headers, cache: "no-store" }),
     readExternalResponsibleAttendances(headers),
+    readZkiCrewRows(headers),
   ]);
   if (!peopleResponse.ok) return NextResponse.json({ error: await supabaseError(peopleResponse) }, { status: peopleResponse.status });
   const people = await peopleResponse.json() as Record<string, unknown>[];
@@ -31,8 +33,12 @@ export async function GET() {
     .map(toPerson)
     .filter((person): person is Person => Boolean(person))
     .filter((person) => normalizeContractorName(person.contractor) === "logisticos")
+    .filter((person) => person.role !== "Conductor")
     .filter((person) => !["RR", "Líder de Ruta"].includes(person.role) || (externalAttendanceCounts.get(person.id) || 0) < 2);
-  const uniquePeople = [...new Map(logisticsPeople.map((person) => [person.id, person])).values()];
+  const drivers = crewRows.flatMap((row): Person[] => row.driver && row.driverId
+    ? [{ id: row.driverId, name: row.driver, role: "Conductor", available: true, contractor: "Logisticos" }]
+    : []);
+  const uniquePeople = [...new Map([...logisticsPeople, ...drivers].map((person) => [person.id, person])).values()];
   const records = uniquePeople
     .map((person) => {
       const profile = profileById.get(person.id);

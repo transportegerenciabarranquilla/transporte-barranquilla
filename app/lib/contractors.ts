@@ -10,6 +10,10 @@ export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
 export const SECURITY_OWNER_EMAIL = "saul808c@gmail.com";
 export const PEOPLE_EMAIL = "people@transporte.com";
 export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
+const VALID_OPERATIONAL_CONTRACTORS = new Set([
+  ...CONTRACTORS.map((contractor) => normalizeContractorName(contractor)),
+  "coronaarenosa",
+]);
 
 export function isAdminEmail(email: string | null | undefined) {
   const normalized = email?.trim().toLowerCase();
@@ -60,6 +64,10 @@ export function contractorSiteName(value: string | null | undefined) {
 
 export function isComplaintsContractor(value: string | null | undefined) {
   return ["logisticos", "puntocorona", "surticervezas"].includes(normalizeContractorName(value));
+}
+
+export function isOperationalContractor(value: string | null | undefined): value is string {
+  return VALID_OPERATIONAL_CONTRACTORS.has(normalizeContractorName(value));
 }
 
 // Exclusión temporal solicitada para el consolidado administrativo de
