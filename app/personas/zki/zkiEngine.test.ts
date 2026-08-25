@@ -48,7 +48,7 @@ test("bloquea si el VH habitual está indisponible y no existe reemplazo con cap
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 10_000 }])[0];
   const candidate = { ...fakeCandidate("RR 1", 100), driver: "Conductor", vehicle: "VH-INACTIVO", viable: true };
   const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 9_000]])).get(trip.id);
-  assert.equal(assigned?.vehicle, "Sin VH compatible");
+  assert.equal(assigned?.vehicle, "Sin placa");
   assert.equal(assigned?.viable, false);
   assert.match(assigned?.reason || "", /no hay otro VH con capacidad suficiente/);
 });
@@ -80,6 +80,22 @@ test("completa todas las rutas con parejas conductor y carro diferentes", () => 
   ], new Map([["aaa111", 8_000], ["bbb222", 9_000]]));
   assert.equal(assigned.size, 2);
   assert.deepEqual(new Set(Array.from(assigned.values(), (row) => `${row.driver}:${row.vehicle}`)), new Set(["Conductor A:AAA111", "Conductor B:BBB222"]));
+});
+
+test("si faltan carros prioriza la ruta viable y deja la de ZKI cero sin placa", () => {
+  const trips = parseTrips([
+    { Número: 1, Nombre: "ZKI cero", Peso: 9_000 },
+    { Número: 2, Nombre: "Viable", Peso: 8_000 },
+  ]);
+  const zero = { ...fakeCandidate("RR cero", 0), zki: 0, totalZki: 0, viable: false };
+  const viable = { ...fakeCandidate("RR viable", 170), zki: 80, auxiliaryZki: 90, totalZki: 170 };
+  const assigned = assignDriverVehiclePairs(
+    [{ trip: trips[0], recommendation: zero }, { trip: trips[1], recommendation: viable }],
+    [{ plate: "AAA111", driver: "Conductor A", driverId: "10" }],
+    new Map([["aaa111", 10_000]]),
+  );
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "AAA111");
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "Sin placa");
 });
 
 test("no interpreta el catálogo territorio-cliente como viajes", () => {

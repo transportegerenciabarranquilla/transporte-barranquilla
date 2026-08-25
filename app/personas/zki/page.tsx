@@ -230,7 +230,7 @@ export default function ZkiPage() {
     return { trip, candidates: ranked };
   }), [auxiliaryRoster, capacities, clientsByTerritory, history, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
-    const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })));
+    const assignments = assignUniqueResponsibles(rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })), settings.minimumZki);
     const preliminaryPlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({
       trip,
       candidates: ranked,
@@ -247,8 +247,7 @@ export default function ZkiPage() {
     [activeTrip, rankedPlanning],
   );
   const viable = candidates.filter((candidate) => candidate.viable);
-  const viablePlanning = planning.filter((item) => item.recommendation?.viable);
-  const recommendation = viablePlanning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
+  const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
   const source = data?.source;
 
   async function upload(file?: File) {
@@ -308,12 +307,12 @@ export default function ZkiPage() {
   }
 
   async function downloadExcel() {
-    if (!viablePlanning.length) {
-      setError("No hay asignaciones viables para generar el Excel.");
+    if (!planning.length) {
+      setError("Carga los viajes y el catálogo de territorios antes de generar el Excel.");
       return;
     }
     const XLSX = await import("xlsx");
-    const assignments = viablePlanning.map(({ trip, recommendation: item }) => ({
+    const assignments = planning.map(({ trip, recommendation: item }) => ({
       "ID territorio": trip.territoryId,
       "Peso territorio": trip.weight,
       "Cedula responsable": item?.rrId || "",
@@ -501,12 +500,12 @@ export default function ZkiPage() {
             <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold text-[#0b2235]">Asignaciones recomendadas</h2><p className="mt-1 text-xs text-slate-500">Una salida resumida por territorio. La matriz completa queda disponible para auditoría.</p></div>
-                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!viablePlanning.length} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
+                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planning.length} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
               </div>
               <div className="max-h-[680px] w-full max-w-full overflow-auto overscroll-contain">
                 <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
                   <thead className="sticky top-0 z-20 bg-[#10283d] text-[10px] uppercase tracking-[.12em] text-white"><tr><th className="w-[110px] px-4 py-3.5">Territorio</th><th className="w-[160px] px-4 py-3.5">Carga</th><th className="w-[220px] px-4 py-3.5">Responsable</th><th className="w-[220px] px-4 py-3.5">Conductor / vehículo</th><th className="w-[220px] px-4 py-3.5">Auxiliar</th><th className="w-[110px] px-4 py-3.5 text-center">ZKI total</th><th className="w-[180px] px-4 py-3.5">Estado</th></tr></thead>
-                  <tbody>{viablePlanning.map(({ trip, recommendation: item }, index) => (
+                  <tbody>{planning.map(({ trip, recommendation: item }, index) => (
                     <tr className={`border-b border-slate-200 align-middle transition hover:bg-cyan-50/70 ${index % 2 ? "bg-slate-50/70" : "bg-white"}`} key={trip.id}>
                       <td className="px-4 py-3.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#10283d] text-sm font-black text-white">{trip.territoryId}</span><p className="mt-1 max-w-24 truncate text-[10px] text-slate-400" title={trip.zone}>{trip.zone}</p></td>
                       <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{formatNumber(trip.weight)} kg</p><p className="mt-1 text-[10px] text-slate-500">Capacidad: {item?.capacity ? `${formatNumber(item.capacity)} kg` : "pendiente"}</p>{item?.capacity ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${trip.weight <= item.capacity ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, (trip.weight / item.capacity) * 100)}%` }} /></div> : null}</td>
@@ -514,11 +513,11 @@ export default function ZkiPage() {
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.driver || "Sin conductor"}</p><span className="mt-1 inline-flex rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">{displayPlate(item?.vehicle) || "Sin placa"}</span></td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.auxiliary || "Sin auxiliar"}</p>{item ? <ScoreBadge value={item.auxiliaryZki} /> : null}</td>
                       <td className="px-4 py-3.5 text-center">{item ? <span className={`inline-grid min-w-16 place-items-center rounded-xl px-3 py-2 text-base font-black ${item.totalZki >= 160 ? "bg-emerald-100 text-emerald-800" : item.totalZki >= 120 ? "bg-cyan-100 text-cyan-900" : "bg-amber-100 text-amber-800"}`}>{formatNumber(item.totalZki)}</span> : "—"}</td>
-                      <td className="px-4 py-3.5"><AssignmentStatus candidate={item} /></td>
+                      <td className="px-4 py-3.5"><AssignmentStatus candidate={item} minimumZki={settings.minimumZki} tripWeight={trip.weight} /></td>
                     </tr>
                   ))}</tbody>
                 </table>
-                {!viablePlanning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="No hay asignaciones viables con los filtros, capacidades y disponibilidad actuales." /> : null}
+                {!planning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="Carga viajes y territorios para generar las asignaciones y el Excel." /> : null}
               </div>
             </section>
 
@@ -683,11 +682,19 @@ function ScoreBadge({ value }: { value: number }) {
   return <span className={`mt-1.5 inline-flex rounded-md px-2 py-0.5 text-[10px] font-black ${tone}`}>ZKI {formatPercent(value)}</span>;
 }
 
-function AssignmentStatus({ candidate }: { candidate?: Candidate }) {
+function AssignmentStatus({ candidate, minimumZki, tripWeight }: { candidate?: Candidate; minimumZki: number; tripWeight: number }) {
   if (!candidate) return <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">Sin asignación</span>;
   if (candidate.viable) return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-800"><CheckCircle2 size={12} />Viable</span>;
-  const missingCapacity = !candidate.capacity;
-  return <div title={candidate.reason}><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${missingCapacity ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}><AlertTriangle size={12} />{missingCapacity ? "Capacidad pendiente" : "Bloqueada por peso"}</span><p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-slate-500">{candidate.reason}</p></div>;
+  const status = !candidate.capacity
+    ? "Sin placa compatible"
+    : candidate.capacity < tripWeight
+      ? "Bloqueada por peso"
+      : !candidate.hasKnowledge
+        ? "Sin historial ZKI"
+        : candidate.totalZki < minimumZki * 2
+          ? "ZKI combinado insuficiente"
+          : "Pendiente";
+  return <div title={candidate.reason}><span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800"><AlertTriangle size={12} />{status}</span><p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-slate-500">{candidate.reason}</p></div>;
 }
 
 function Stat({ danger = false, label, value }: { danger?: boolean; label: string; value: number }) { return <div className="border-b border-slate-200 px-5 py-3 last:border-0 sm:border-b-0 sm:border-r"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className={`mt-1 text-2xl font-black ${danger ? "text-red-700" : "text-[#0b2235]"}`}>{formatNumber(value)}</p></div>; }

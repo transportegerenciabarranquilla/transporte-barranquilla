@@ -87,7 +87,7 @@ export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
   depthThreshold: 5,
 };
 
-export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidates: Candidate[] }>) {
+export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidates: Candidate[] }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
   const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
   const columnCount = Math.max(plans.length, rrKeys.length);
   if (!plans.length || !columnCount) return new Map<string, Candidate>();
@@ -100,7 +100,11 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
     });
     return row;
   });
-  const weights = candidateMatrix.map((row) => row.map((candidate) => candidate ? candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.viable ? 1_000 : 0) : 0));
+  // La viabilidad de RR + auxiliar se optimiza sin amarrarla al VH histórico:
+  // los vehículos se redistribuyen después según peso y disponibilidad.
+  const weights = candidateMatrix.map((row) => row.map((candidate) => candidate
+    ? candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
+    : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
   assignment.forEach((column, row) => {
@@ -131,7 +135,11 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
 
-  [...plans].sort((left, right) => right.trip.weight - left.trip.weight).forEach(({ trip, recommendation }) => {
+  [...plans].sort((left, right) => {
+    const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki * 2);
+    const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki * 2);
+    return Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
+  }).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate || trip.vehicle);
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
@@ -146,7 +154,7 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
         ...recommendation,
         driver: "Sin conductor disponible",
         driverId: "",
-        vehicle: "Sin vehículo disponible",
+        vehicle: "Sin placa",
         capacity: 0,
         viable: false,
         reason: "Pendiente: no queda otra pareja conductor–vehículo disponible para esta ruta.",
@@ -251,7 +259,11 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
       reason: `${reason} El conductor conserva su VH habitual; se debe cambiar el RR o dejar el viaje sin asignar.`,
     };
   };
-  [...plans].sort((a, b) => b.trip.weight - a.trip.weight).forEach(({ trip, recommendation }) => {
+  [...plans].sort((left, right) => {
+    const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki * 2);
+    const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki * 2);
+    return Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
+  }).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate);
     // La placa del archivo solo es autoritativa si existe en el catálogo
@@ -291,7 +303,7 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
         if (!replacement) {
           result.set(trip.id, {
             ...recommendation,
-            vehicle: "Sin VH compatible",
+            vehicle: "Sin placa",
             capacity: 0,
             viable: false,
             habitualVehicle: false,
