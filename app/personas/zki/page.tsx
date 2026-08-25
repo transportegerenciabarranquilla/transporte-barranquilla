@@ -18,6 +18,7 @@ import {
   type Candidate,
   type RawRow,
   type Trip,
+  type ZkiVisit,
   type ZkiSettings,
 } from "./zkiEngine";
 
@@ -135,14 +136,29 @@ export default function ZkiPage() {
   const history = useMemo(() => parseCrewHistory(data?.history || []), [data]);
   const visits = useMemo(() => parseZkiVisits(data?.rows || []), [data]);
   const auxiliaryRoster = useMemo(() => {
-    const unique = new Map<string, (typeof visits)[number]>();
+    const unique = new Map<string, ZkiVisit>();
     visits.forEach((visit) => {
       if (!normalizePerson(visit.role).includes("auxiliar")) return;
       const key = normalizePerson(visit.rrId || visit.rr);
       if (key && !unique.has(key)) unique.set(key, visit);
     });
+    personnelRules.forEach((person) => {
+      if (person.role !== "Auxiliar" || !person.available) return;
+      const key = normalizePerson(person.id || person.name);
+      if (!key || unique.has(key)) return;
+      unique.set(key, {
+        rr: person.name,
+        rrId: person.id,
+        client: "",
+        zone: "",
+        driver: "",
+        vehicle: "",
+        role: "Auxiliar",
+        count: 1,
+      });
+    });
     return Array.from(unique.values());
-  }, [visits]);
+  }, [personnelRules, visits]);
   const territoryClients = useMemo(() => parseTerritoryClients(territoryRows), [territoryRows]);
   const clientsByTerritory = useMemo(() => {
     const index = new Map<string, string[]>();

@@ -83,7 +83,7 @@ export function VehicleDrawer({
 
   return (
     <div className="fixed inset-0 z-[120] flex justify-end bg-[#10223d]/45 backdrop-blur-sm">
-      <aside className="h-full w-full max-w-md overflow-y-auto bg-white shadow-[0_0_70px_rgba(16,34,61,0.24)]">
+      <aside className="h-full w-full max-w-[560px] overflow-y-auto bg-slate-50 shadow-[0_0_70px_rgba(16,34,61,0.24)]">
         <div className="sticky top-0 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -114,8 +114,8 @@ export function VehicleDrawer({
           </button>
         </div>
 
-        <div className="space-y-5 p-5">
-          <div className="rounded-lg bg-[#10223d] p-5 text-white">
+        <div className="space-y-6 p-6">
+          <div className="rounded-2xl bg-[#10223d] p-5 text-white shadow-sm">
             <p className="text-sm text-white/65">Avance de ruta</p>
             <div className="mt-3 flex items-end justify-between">
               <span className="text-4xl font-semibold text-[#f5bd19]">{progress}%</span>
@@ -126,7 +126,7 @@ export function VehicleDrawer({
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-center gap-2 text-[#10223d]">
               <Clock3 size={18} />
               <p className="text-sm font-semibold">Seguimiento de ruta</p>
@@ -180,11 +180,19 @@ export function VehicleDrawer({
                 />
               ) : null}
 
-              <div className="rounded-md bg-slate-100 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Tiempo en ruta</p>
-                <p className="mt-1 text-2xl font-semibold text-[#10223d]">{routeTime}</p>
+              <div className="rounded-xl bg-slate-100 px-5 py-4">
+                <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Tiempo en ruta</p>
+                <p className="mt-1 text-3xl font-semibold text-[#10223d]">{routeTime}</p>
               </div>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Información del despacho</h3>
+              <p className="mt-0.5 text-sm text-slate-500">Datos operativos y personal asignado</p>
+            </div>
+            <span className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-500 shadow-sm">Editable</span>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -298,10 +306,10 @@ export function VehicleDrawer({
 
 function EditableTime({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="grid gap-1">
-      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+    <label className="grid gap-1.5">
+      <span className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
       <input
-        className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-[#f5bd19]"
+        className="h-14 rounded-lg border border-slate-200 bg-white px-4 text-base font-medium text-slate-700 outline-none focus:border-[#f5bd19]"
         onChange={(event) => onChange(event.target.value)}
         type="time"
         value={value === "Pendiente" || value === "-" ? "" : value}
