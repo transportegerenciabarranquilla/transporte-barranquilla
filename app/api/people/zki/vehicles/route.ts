@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
-import { normalizeContractorName } from "../../../../lib/contractors";
+import { contractorLabel, normalizeContractorName } from "../../../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
 import { normalizePlate, readZkiCrewRows, ZKI_CREW_TABLE } from "../crewTable";
 
@@ -26,14 +26,23 @@ export async function GET() {
     readNumber(row, ["Peso Máximo", "Peso Maximo", "Peso máximo kg", "Capacidad peso", "capacidad", "capacidad_carga", "CapacidadCarga", "Capacidad de carga", "peso", "carga"]),
   ]).filter(([plate]) => Boolean(plate));
   const capacities = new Map<string, number>(capacityEntries);
-  const vehicleEntries = plateRows.map((row): [string, { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean }] => {
+  type VehicleRecord = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
+  const externalEntries = capacityRows.map((row): [string, VehicleRecord] | null => {
+    const plate = normalizePlate(read(row, ["placa", "Placa Asignada", "vehiculo", "vehicle", "plate", "vh", "Tractor"]));
+    if (!plate) return null;
+    const contractor = contractorLabel(read(row, ["transportista", "contratista", "empresa transportadora", "empresa", "carrier"])) || "Sin contratista";
+    const saved = statuses.get(plate);
+    return [plate, { plate, contractor, capacity: capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? false }];
+  }).filter((entry): entry is [string, VehicleRecord] => Boolean(entry));
+  const ownEntries = plateRows.map((row): [string, VehicleRecord] => {
     const plate = row.plate;
     const contractor = "Logisticos";
-    const plateCapacity = 0;
     const saved = statuses.get(plate);
-    return [plate, { plate, contractor, capacity: plateCapacity || capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? contractor === "Logisticos" }];
+    return [plate, { plate, contractor, capacity: capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? true }];
   }).filter(([plate]) => Boolean(plate));
-  const records = [...new Map(vehicleEntries).values()];
+  // capacidad_carga aporta los VH de todas las contratistas. El catálogo
+  // propio prevalece si una placa también aparece en esa fuente.
+  const records = [...new Map([...externalEntries, ...ownEntries]).values()];
   return NextResponse.json({ records });
 }
 

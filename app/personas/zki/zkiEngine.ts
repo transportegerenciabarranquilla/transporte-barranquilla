@@ -285,7 +285,23 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     // solo puede volver a la planeación si sigue en el catálogo disponible.
     if (habitualKey) {
       if (!capacities.has(habitualKey)) {
-        result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación.`));
+        const replacement = [...capacities.entries()]
+          .filter(([key, capacity]) => !used.has(key) && capacity > 0 && capacity >= trip.weight)
+          .sort((left, right) => left[1] - right[1])[0];
+        if (!replacement) {
+          result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación y no hay otro VH compatible.`));
+          return;
+        }
+        const [replacementKey, replacementCapacity] = replacement;
+        used.add(replacementKey);
+        result.set(trip.id, {
+          ...recommendation,
+          vehicle: replacementKey.toUpperCase(),
+          capacity: replacementCapacity,
+          viable: recommendation.viable,
+          habitualVehicle: false,
+          reason: `Viable: el VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación; el conductor conserva su asignación y cambia al VH ${replacementKey.toUpperCase()}.`,
+        });
         return;
       }
       const alreadyUsed = used.has(habitualKey);

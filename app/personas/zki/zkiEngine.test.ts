@@ -30,16 +30,26 @@ test("conserva el VH fijo del conductor aunque el viaje traiga otra placa", () =
   assert.equal(assigned?.viable, true);
 });
 
-test("no separa al conductor de su VH histórico aunque esté indisponible", () => {
+test("cambia el VH y conserva el conductor cuando su vehículo histórico está indisponible", () => {
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000, "Placa Asignada": "NO-EXISTE" }])[0];
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "HISTORICA-FALSA", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable" } satisfies Candidate;
   const assigned = assignCompatibleVehicles(
     [{ trip, recommendation: candidate }],
     new Map([["placareal", 9_000]]),
   ).get(trip.id);
-  assert.equal(assigned?.vehicle, "HISTORICAFALSA");
-  assert.equal(assigned?.viable, false);
+  assert.equal(assigned?.vehicle, "PLACAREAL");
+  assert.equal(assigned?.driver, "Conductor");
+  assert.equal(assigned?.viable, true);
   assert.match(assigned?.reason || "", /indisponible/);
+});
+
+test("bloquea si el VH habitual está indisponible y no existe reemplazo con capacidad", () => {
+  const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 10_000 }])[0];
+  const candidate = { ...fakeCandidate("RR 1", 100), driver: "Conductor", vehicle: "VH-INACTIVO", viable: true };
+  const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 9_000]])).get(trip.id);
+  assert.equal(assigned?.vehicle, "VHINACTIVO");
+  assert.equal(assigned?.viable, false);
+  assert.match(assigned?.reason || "", /no hay otro VH compatible/);
 });
 
 test("no mueve al conductor a una placa alternativa", () => {
