@@ -50,6 +50,22 @@ function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[
   return !blocked(candidate.rrId, candidate.rr) && !blocked(candidate.driverId, candidate.driver);
 }
 
+function candidateIsLogisticsRr(candidate: Candidate, rules: PersonnelRule[]) {
+  return rules.some((person) => {
+    if (!(["RR", "Líder de Ruta"] as PersonnelRule["role"][]).includes(person.role)) return false;
+    if (normalizePerson(person.contractor) !== "logisticos") return false;
+    return (person.id && candidate.rrId && person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
+      || (person.name && normalizePerson(person.name) === normalizePerson(candidate.rr));
+  });
+}
+
+function displayPlate(value: unknown) {
+  const plate = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/^CO[A-Z]{3}\d{3}$/.test(plate)) return plate;
+  if (/^[A-Z]{3}\d{3}$/.test(plate)) return `CO${plate}`;
+  return String(value || "").trim();
+}
+
 export default function ZkiPage() {
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -208,7 +224,9 @@ export default function ZkiPage() {
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = clientsByTerritory.get(trip.territoryId) || [];
     const relevantVisits = clientCodes.length ? clientCodes.flatMap((client) => visitsByClient.get(normalizePerson(client)) || []) : visits;
-    const ranked = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRules, trip.clients).filter((candidate) => candidatePersonnelAvailable(candidate, personnelRules));
+    const ranked = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRules, trip.clients)
+      .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki * 2 }))
+      .filter((candidate) => candidateIsLogisticsRr(candidate, personnelRules) && candidatePersonnelAvailable(candidate, personnelRules));
     return { trip, candidates: ranked };
   }), [auxiliaryRoster, capacities, clientsByTerritory, history, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
@@ -219,9 +237,9 @@ export default function ZkiPage() {
       recommendation: preserveDriverVehicle(trip, assignments.get(trip.id), data?.crew || []),
     }));
     const pairedCrew = assignDriverVehiclePairs(preliminaryPlanning, data?.crew || [], capacities, settings.minimumZki);
-    const uniqueCrew = enforceUniqueAssignedCrew(preliminaryPlanning.map((item) => ({ tripId: item.trip.id, recommendation: pairedCrew.get(item.trip.id) })));
+    const uniqueCrew = enforceUniqueAssignedCrew(preliminaryPlanning.map((item) => ({ tripId: item.trip.id, recommendation: pairedCrew.get(item.trip.id) })), settings.minimumZki);
     const basePlanning = preliminaryPlanning.map((item) => ({ ...item, recommendation: uniqueCrew.get(item.trip.id) }));
-    const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities);
+    const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities, settings.minimumZki);
     return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
   }, [capacities, data?.crew, rankedPlanning, settings.minimumZki]);
   const candidates = useMemo(
@@ -229,7 +247,8 @@ export default function ZkiPage() {
     [activeTrip, rankedPlanning],
   );
   const viable = candidates.filter((candidate) => candidate.viable);
-  const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
+  const viablePlanning = planning.filter((item) => item.recommendation?.viable);
+  const recommendation = viablePlanning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
   const source = data?.source;
 
   async function upload(file?: File) {
@@ -289,12 +308,12 @@ export default function ZkiPage() {
   }
 
   async function downloadExcel() {
-    if (!planning.length) {
-      setError("Carga los viajes y el catálogo de territorios antes de generar el Excel.");
+    if (!viablePlanning.length) {
+      setError("No hay asignaciones viables para generar el Excel.");
       return;
     }
     const XLSX = await import("xlsx");
-    const assignments = planning.map(({ trip, recommendation: item }) => ({
+    const assignments = viablePlanning.map(({ trip, recommendation: item }) => ({
       "ID territorio": trip.territoryId,
       "Peso territorio": trip.weight,
       "Cedula responsable": item?.rrId || "",
@@ -302,7 +321,7 @@ export default function ZkiPage() {
       "Nombre responsable": item?.rr || "Sin historial suficiente",
       "Nombre conductor": item?.driver || "",
       "Cedula conductor": item?.driverId || "",
-      Placa: item?.vehicle || "",
+      Placa: displayPlate(item?.vehicle),
       "Capacidad de carga": item?.capacity || 0,
       "Clientes únicos": item?.uniqueClients || 0,
       "Clientes territorio": item?.territoryClients || Math.max(trip.clients, new Set(territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client)).size),
@@ -312,7 +331,7 @@ export default function ZkiPage() {
       "ZKI total": item?.totalZki || 0,
       Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
     }));
-    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.map((item) => ({
+    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.viable).map((item) => ({
       "ID territorio": trip.territoryId,
       "ID Empleado": item.rrId,
       Tipo: 1,
@@ -422,7 +441,7 @@ export default function ZkiPage() {
           <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-4">
               <span className="grid h-11 w-11 place-items-center rounded-lg bg-cyan-50 text-cyan-800"><Database size={21} /></span>
-              <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Fuente operativa</p><h2 className="text-xl font-semibold text-[#0b2235]">Tabla ZKI + histórico de tripulaciones</h2><p className="mt-1 text-sm text-slate-500">Cruza cada zona con RR, conductor y vehículo habitual; el sobrepeso bloquea la opción.</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Fuente operativa</p><h2 className="text-xl font-semibold text-[#0b2235]">Tabla ZKI + histórico de tripulaciones</h2><p className="mt-1 text-sm text-slate-500">Cruza cada zona</p></div>
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50" disabled={loading} onClick={() => void load(true)} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={16} />Actualizar</button>
@@ -482,42 +501,42 @@ export default function ZkiPage() {
             <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold text-[#0b2235]">Asignaciones recomendadas</h2><p className="mt-1 text-xs text-slate-500">Una salida resumida por territorio. La matriz completa queda disponible para auditoría.</p></div>
-                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver matriz completa"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planning.length} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
+                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!viablePlanning.length} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
               </div>
               <div className="max-h-[680px] w-full max-w-full overflow-auto overscroll-contain">
                 <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
                   <thead className="sticky top-0 z-20 bg-[#10283d] text-[10px] uppercase tracking-[.12em] text-white"><tr><th className="w-[110px] px-4 py-3.5">Territorio</th><th className="w-[160px] px-4 py-3.5">Carga</th><th className="w-[220px] px-4 py-3.5">Responsable</th><th className="w-[220px] px-4 py-3.5">Conductor / vehículo</th><th className="w-[220px] px-4 py-3.5">Auxiliar</th><th className="w-[110px] px-4 py-3.5 text-center">ZKI total</th><th className="w-[180px] px-4 py-3.5">Estado</th></tr></thead>
-                  <tbody>{planning.map(({ trip, recommendation: item }, index) => (
+                  <tbody>{viablePlanning.map(({ trip, recommendation: item }, index) => (
                     <tr className={`border-b border-slate-200 align-middle transition hover:bg-cyan-50/70 ${index % 2 ? "bg-slate-50/70" : "bg-white"}`} key={trip.id}>
                       <td className="px-4 py-3.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#10283d] text-sm font-black text-white">{trip.territoryId}</span><p className="mt-1 max-w-24 truncate text-[10px] text-slate-400" title={trip.zone}>{trip.zone}</p></td>
                       <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{formatNumber(trip.weight)} kg</p><p className="mt-1 text-[10px] text-slate-500">Capacidad: {item?.capacity ? `${formatNumber(item.capacity)} kg` : "pendiente"}</p>{item?.capacity ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${trip.weight <= item.capacity ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, (trip.weight / item.capacity) * 100)}%` }} /></div> : null}</td>
                       <td className="px-4 py-3.5"><p className="font-bold leading-5 text-[#10283d]">{item?.rr || "Sin historial suficiente"}</p>{item ? <><ScoreBadge value={item.zki} /><p className="mt-1 text-[10px] font-semibold text-slate-500">Carga anterior: {item.previousClients || 0} clientes{item.workloadAdjustment ? ` · ajuste ${item.workloadAdjustment > 0 ? "+" : ""}${formatNumber(item.workloadAdjustment)}` : ""}</p></> : null}</td>
-                      <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.driver || "Sin conductor"}</p><span className="mt-1 inline-flex rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">{item?.vehicle || "Sin placa"}</span></td>
+                      <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.driver || "Sin conductor"}</p><span className="mt-1 inline-flex rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">{displayPlate(item?.vehicle) || "Sin placa"}</span></td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.auxiliary || "Sin auxiliar"}</p>{item ? <ScoreBadge value={item.auxiliaryZki} /> : null}</td>
                       <td className="px-4 py-3.5 text-center">{item ? <span className={`inline-grid min-w-16 place-items-center rounded-xl px-3 py-2 text-base font-black ${item.totalZki >= 160 ? "bg-emerald-100 text-emerald-800" : item.totalZki >= 120 ? "bg-cyan-100 text-cyan-900" : "bg-amber-100 text-amber-800"}`}>{formatNumber(item.totalZki)}</span> : "—"}</td>
                       <td className="px-4 py-3.5"><AssignmentStatus candidate={item} /></td>
                     </tr>
                   ))}</tbody>
                 </table>
-                {!planning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="Carga viajes y territorios para generar las asignaciones y el Excel." /> : null}
+                {!viablePlanning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="No hay asignaciones viables con los filtros, capacidades y disponibilidad actuales." /> : null}
               </div>
             </section>
 
             {recommendation ? (
               <section className="rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-700">Recomendación actual</p><h2 className="mt-1 text-2xl font-bold text-[#0b2235]">{recommendation.rr}</h2><p className="mt-1 text-sm text-slate-600">{recommendation.driver} · {recommendation.vehicle}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-700">Recomendación actual</p><h2 className="mt-1 text-2xl font-bold text-[#0b2235]">{recommendation.rr}</h2><p className="mt-1 text-sm text-slate-600">{recommendation.driver} · {displayPlate(recommendation.vehicle)}</p></div>
                   <div className="rounded-xl bg-[#0b2235] px-6 py-3 text-center text-white"><p className="text-[10px] uppercase tracking-[.16em] text-cyan-200">ZKI estimado</p><p className="text-3xl font-black">{formatPercent(recommendation.zki)}</p></div>
                 </div>
               </section>
             ) : null}
 
             {showMatrix ? <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-200 p-5"><div><h2 className="font-semibold text-[#0b2235]">Todas las combinaciones</h2><p className="mt-1 text-xs text-slate-500">Primero aparecen las viables y luego las bloqueadas por capacidad.</p></div><Users size={20} className="text-cyan-700" /></div>
+              <div className="flex items-center justify-between border-b border-slate-200 p-5"><div><h2 className="font-semibold text-[#0b2235]">Combinaciones viables</h2><p className="mt-1 text-xs text-slate-500">Solo aparecen opciones que cumplen ZKI, disponibilidad y capacidad.</p></div><Users size={20} className="text-cyan-700" /></div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1050px] text-left text-xs">
                   <thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-600"><tr><Th>Estado</Th><Th>Responsable</Th><Th>Conductor</Th><Th>Vehículo</Th><Th>Cobertura</Th><Th>Frecuencia</Th><Th>Profundidad</Th><Th>ZKI responsable</Th><Th>Auxiliar</Th><Th>ZKI auxiliar</Th><Th>ZKI total</Th><Th>Capacidad</Th><Th>Decisión</Th></tr></thead>
-                  <tbody>{candidates.map((candidate) => <CandidateRow candidate={candidate} key={`${candidate.rr}:${candidate.driver}:${candidate.vehicle}`} />)}</tbody>
+                  <tbody>{viable.map((candidate) => <CandidateRow candidate={candidate} key={`${candidate.rr}:${candidate.driver}:${candidate.vehicle}`} />)}</tbody>
                 </table>
                 {!loading && !trips.length ? <Empty icon={<Truck size={28} />} text="Falta cargar el Excel de viajes para comenzar la planeación. Este archivo no modifica la tabla histórica ZKI." /> : null}
                 {!loading && trips.length > 0 && !visits.length ? <Empty icon={<Database size={28} />} text="Los viajes están listos, pero la tabla histórica ZKI no devolvió relaciones cliente–RR. Sin ese historial todavía no se puede calcular el conocimiento." /> : null}
@@ -588,7 +607,7 @@ export default function ZkiPage() {
               {filteredVehicles.length ? <div className="space-y-2">{filteredVehicles.map((vehicle) => {
                 const isOwn = vehicle.contractor === "Logisticos";
                 return <div className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center" key={vehicle.plate}>
-                  <div><p className="font-mono text-base font-black uppercase text-slate-800">{vehicle.plate}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{vehicle.contractor} · Capacidad: {vehicle.capacity ? `${formatNumber(vehicle.capacity)} kg` : "Sin dato"}</p></div>
+                  <div><p className="font-mono text-base font-black uppercase text-slate-800">{displayPlate(vehicle.plate)}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{vehicle.contractor} · Capacidad: {vehicle.capacity ? `${formatNumber(vehicle.capacity)} kg` : "Sin dato"}</p></div>
                   <button className={`rounded-full px-3 py-2 text-[10px] font-black ${vehicle.useInZki ? "bg-cyan-100 text-cyan-800" : "bg-slate-200 text-slate-600"}`} onClick={() => void updateVehicle(vehicle.plate, { useInZki: !vehicle.useInZki })} type="button">{vehicle.useInZki ? (isOwn ? "En uso" : "Usar externo") : "No usar"}</button>
                   <button className={`rounded-full px-3 py-2 text-[10px] font-black ${vehicle.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} onClick={() => void updateVehicle(vehicle.plate, { available: !vehicle.available })} type="button">{vehicle.available ? "Disponible" : "Indisponible"}</button>
                 </div>;
@@ -656,7 +675,7 @@ function preserveDriverVehicle(trip: Trip, candidate: Candidate | undefined, cre
 
 function CandidateRow({ candidate }: { candidate: Candidate }) {
   const status = candidate.viable ? "Viable" : candidate.hasKnowledge ? "Bloqueada" : "No evaluable";
-  return <tr className={`border-b border-slate-100 ${candidate.viable ? "" : "bg-red-50/60"}`}><Td>{candidate.viable ? <span className="inline-flex items-center gap-1 font-bold text-emerald-700"><CheckCircle2 size={15} />{status}</span> : <span className="inline-flex items-center gap-1 font-bold text-red-700"><ShieldX size={15} />{status}</span>}</Td><Td strong>{candidate.rr}</Td><Td>{candidate.driver}</Td><Td>{candidate.vehicle}</Td><Td>{formatPercent(candidate.coverage)}</Td><Td>{formatNumber(candidate.frequency)} / {formatPercent(candidate.frequencyScore)}</Td><Td>{formatPercent(candidate.depth)}</Td><Td><span className={`rounded-md px-2 py-1 font-black ${candidate.zki >= 80 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{formatPercent(candidate.zki)}</span></Td><Td>{candidate.auxiliary}</Td><Td>{formatPercent(candidate.auxiliaryZki)}</Td><Td><span className="rounded-md bg-cyan-100 px-2 py-1 font-black text-cyan-900">{formatNumber(candidate.totalZki)}</span></Td><Td>{candidate.capacity ? `${formatNumber(candidate.capacity)} kg` : "Sin dato"}</Td><Td><span className={candidate.viable ? "text-slate-600" : "font-semibold text-red-700"}>{candidate.reason}</span></Td></tr>;
+  return <tr className={`border-b border-slate-100 ${candidate.viable ? "" : "bg-red-50/60"}`}><Td>{candidate.viable ? <span className="inline-flex items-center gap-1 font-bold text-emerald-700"><CheckCircle2 size={15} />{status}</span> : <span className="inline-flex items-center gap-1 font-bold text-red-700"><ShieldX size={15} />{status}</span>}</Td><Td strong>{candidate.rr}</Td><Td>{candidate.driver}</Td><Td>{displayPlate(candidate.vehicle)}</Td><Td>{formatPercent(candidate.coverage)}</Td><Td>{formatNumber(candidate.frequency)} / {formatPercent(candidate.frequencyScore)}</Td><Td>{formatPercent(candidate.depth)}</Td><Td><span className={`rounded-md px-2 py-1 font-black ${candidate.zki >= 80 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{formatPercent(candidate.zki)}</span></Td><Td>{candidate.auxiliary}</Td><Td>{formatPercent(candidate.auxiliaryZki)}</Td><Td><span className="rounded-md bg-cyan-100 px-2 py-1 font-black text-cyan-900">{formatNumber(candidate.totalZki)}</span></Td><Td>{candidate.capacity ? `${formatNumber(candidate.capacity)} kg` : "Sin dato"}</Td><Td><span className={candidate.viable ? "text-slate-600" : "font-semibold text-red-700"}>{candidate.reason}</span></Td></tr>;
 }
 
 function ScoreBadge({ value }: { value: number }) {

@@ -86,9 +86,9 @@ export function TopRefusalClientsTable({
 
 const REFUSAL_RANGES = [
   { label: "1 a 15 cajas", className: "bg-amber-400", min: 1, max: 15 },
-  { label: "16 a 40 cajas", className: "bg-orange-500", min: 16, max: 40 },
-  { label: "41 a 100 cajas", className: "bg-red-600", min: 41, max: 100 },
-  { label: ">100 cajas", className: "bg-neutral-800", min: 101, max: Number.POSITIVE_INFINITY },
+  { label: "16 a 40 cajas", className: "bg-amber-400", min: 16, max: 40 },
+  { label: "41 a 100 cajas", className: "bg-amber-400", min: 41, max: 100 },
+  { label: ">100 cajas", className: "bg-amber-400", min: 101, max: Number.POSITIVE_INFINITY },
 ] as const;
 
 export function RefusalClientsByRange({ data, rows }: { data: RefusalClientSummary[]; rows: AdminRefusalComRow[] }) {
@@ -171,7 +171,7 @@ function ModalTotal({ label, value }: { label: string; value: number }) {
 export function ContractorRefusalHistory({ data }: { data: ContractorRefusalTrend[] }) {
   const colors = ["#16a66a", "#c88a08", "#2f7dd1", "#159bb5", "#d65b91"];
   const gradientColors = [
-    { light: "#79e2b4", dark: "#0b7c4c" },
+    { light: "#fbf600", dark: "#0b7c4c" },
     { light: "#ffd86b", dark: "#a66500" },
     { light: "#83c5ff", dark: "#1559aa" },
     { light: "#73dceb", dark: "#08788f" },
@@ -258,12 +258,12 @@ export function RefusalComBars({ data, emptyText }: { data: RefusalComSummary[];
           </div>
           <div className="h-5 overflow-hidden rounded-sm bg-slate-100">
             <div
-              className={index === 0 ? "h-5 rounded-sm bg-gradient-to-r from-red-600 to-orange-400" : "h-5 rounded-sm bg-red-500/65"}
+              className={index === 0 ? "h-5 rounded-sm bg-gradient-to-r from-amber-500 to-yellow-300" : "h-5 rounded-sm bg-amber-400/75"}
               style={{ width: `${Math.max(6, (item.refusalFinal / max) * 100)}%` }}
               title={`${item.refusalFinal} cajas - ${item.refusal}%`}
             />
           </div>
-          <span className="text-right text-[11px] font-bold text-red-700">{item.refusalFinal.toLocaleString("es-CO")}</span>
+          <span className="text-right text-[11px] font-bold text-amber-700">{item.refusalFinal.toLocaleString("es-CO")}</span>
         </div>
       ))}
     </div>

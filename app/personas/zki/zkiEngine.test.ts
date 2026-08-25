@@ -9,13 +9,14 @@ test("interpreta las columnas operativas del Excel ZKI", () => {
   assert.equal(trip.clients, 20);
 });
 
-test("mantiene conductor y VH juntos aunque la placa habitual no soporte el peso", () => {
+test("mantiene el conductor y cambia a un VH que sí soporte el peso", () => {
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 9_500 }])[0];
   const candidate = { rr: "RR 1", rrId: "1", driver: "Conductor", driverId: "2", vehicle: "VH-PEQUENO", coverage: 90, frequency: 1, frequencyScore: 20, depth: 80, zki: 90, auxiliary: "Aux", auxiliaryId: "3", auxiliaryZki: 80, totalZki: 170, capacity: 8_000, viable: false, hasKnowledge: true, habitualVehicle: true, reason: "Sobrepeso" } satisfies Candidate;
   const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 8_000], ["grande", 10_000]])).get(trip.id);
-  assert.equal(assigned?.vehicle, "PEQUENO");
+  assert.equal(assigned?.vehicle, "GRANDE");
   assert.equal(assigned?.driver, "Conductor");
-  assert.equal(assigned?.viable, false);
+  assert.equal(assigned?.viable, true);
+  assert.equal(assigned?.capacity, 10_000);
 });
 
 test("conserva el VH fijo del conductor aunque el viaje traiga otra placa", () => {
@@ -47,12 +48,12 @@ test("bloquea si el VH habitual está indisponible y no existe reemplazo con cap
   const trip = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 10_000 }])[0];
   const candidate = { ...fakeCandidate("RR 1", 100), driver: "Conductor", vehicle: "VH-INACTIVO", viable: true };
   const assigned = assignCompatibleVehicles([{ trip, recommendation: candidate }], new Map([["pequeno", 9_000]])).get(trip.id);
-  assert.equal(assigned?.vehicle, "VHINACTIVO");
+  assert.equal(assigned?.vehicle, "Sin VH compatible");
   assert.equal(assigned?.viable, false);
-  assert.match(assigned?.reason || "", /no hay otro VH compatible/);
+  assert.match(assigned?.reason || "", /no hay otro VH con capacidad suficiente/);
 });
 
-test("no mueve al conductor a una placa alternativa", () => {
+test("usa placas alternativas distintas cuando el VH habitual no está habilitado", () => {
   const trips = parseTrips([
     { Número: 1, Nombre: "Zona 1", Peso: 8_000, "Placa Asignada": "VEL588" },
     { Número: 2, Nombre: "Zona 2", Peso: 7_000, "Placa Asignada": "VEL588" },
@@ -62,9 +63,9 @@ test("no mueve al conductor a una placa alternativa", () => {
     trips.map((trip) => ({ trip, recommendation: { ...candidate } })),
     new Map([["vel588", 9_000], ["vel589", 9_000]]),
   );
-  assert.equal(assigned.get(trips[0].id)?.vehicle, "RR1");
-  assert.equal(assigned.get(trips[1].id)?.vehicle, "RR1");
-  assert.equal(assigned.get(trips[1].id)?.viable, false);
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "VEL588");
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "VEL589");
+  assert.equal(assigned.get(trips[1].id)?.driver, candidate.driver);
 });
 
 test("completa todas las rutas con parejas conductor y carro diferentes", () => {
@@ -163,7 +164,7 @@ test("normaliza frecuencia al tope configurado y nunca supera cien", () => {
   const [candidate] = rankCandidates(trip, history, visits, Array.from({ length: 20 }, (_, index) => `C${index}`), capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.frequency, 8);
   assert.equal(candidate.frequencyScore, 100);
-  assert.equal(candidate.viable, true);
+  assert.equal(candidate.zki <= 100, true);
 });
 
 test("cruza el mismo RR aunque ZKI y seguimiento ordenen distinto sus nombres", () => {

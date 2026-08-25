@@ -10,14 +10,19 @@ export async function GET() {
   const session = await getAuthenticatedSession();
   if (!session || (!session.isPeople && !session.isAdmin)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-  const [plateRows, capacitiesResponse, profilesResponse] = await Promise.all([
+  const [plateRows, vehicleCatalogResponse, capacitiesResponse, profilesResponse] = await Promise.all([
     readZkiCrewRows(headers),
+    fetch(supabaseRest("placas", "?select=*&limit=3000"), { headers, cache: "no-store" }),
     fetch(supabaseRest("capacidad_carga", "?select=*&limit=3000"), { headers, cache: "no-store" }),
     fetch(supabaseRest("people_profiles", "?select=profile_id,data&profile_id=like.zki-vehicle:*"), { headers, cache: "no-store" }),
   ]);
   if (!plateRows.length) {
     return NextResponse.json({ error: `La tabla ${ZKI_CREW_TABLE} no devolvió registros.` }, { status: 403 });
   }
+  if (!vehicleCatalogResponse.ok) {
+    return NextResponse.json({ error: `placas: ${await supabaseError(vehicleCatalogResponse)}` }, { status: vehicleCatalogResponse.status });
+  }
+  const vehicleCatalogRows = await vehicleCatalogResponse.json() as Record<string, unknown>[];
   const capacityRows = capacitiesResponse.ok ? await capacitiesResponse.json() as Record<string, unknown>[] : [];
   const profileRows = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: { available?: boolean; useInZki?: boolean; logistics?: boolean } }> : [];
   const statuses = new Map(profileRows.map((row) => [row.profile_id.replace("zki-vehicle:", ""), { available: row.data?.available !== false, useInZki: row.data?.useInZki ?? row.data?.logistics ?? false }]));
@@ -27,7 +32,7 @@ export async function GET() {
   ]).filter(([plate]) => Boolean(plate));
   const capacities = new Map<string, number>(capacityEntries);
   type VehicleRecord = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
-  const externalEntries = capacityRows.map((row): [string, VehicleRecord] | null => {
+  const catalogEntries = vehicleCatalogRows.map((row): [string, VehicleRecord] | null => {
     const plate = normalizePlate(read(row, ["placa", "Placa Asignada", "vehiculo", "vehicle", "plate", "vh", "Tractor"]));
     if (!plate) return null;
     const contractor = contractorLabel(read(row, ["transportista", "contratista", "empresa transportadora", "empresa", "carrier"])) || "Sin contratista";
@@ -40,9 +45,10 @@ export async function GET() {
     const saved = statuses.get(plate);
     return [plate, { plate, contractor, capacity: capacities.get(plate) || 0, available: saved?.available ?? true, useInZki: saved?.useInZki ?? true }];
   }).filter(([plate]) => Boolean(plate));
-  // capacidad_carga aporta los VH de todas las contratistas. El catálogo
-  // propio prevalece si una placa también aparece en esa fuente.
-  const records = [...new Map([...externalEntries, ...ownEntries]).values()];
+  // `placas` es el catálogo común de las transportistas; capacidad_carga
+  // únicamente completa el peso máximo. Conductores-placas prevalece para
+  // las parejas propias si una placa está repetida.
+  const records = [...new Map([...catalogEntries, ...ownEntries]).values()];
   return NextResponse.json({ records });
 }
 

@@ -477,8 +477,8 @@ export default function AdminGraficasPage() {
 
         <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-3">
           <MiniStat label="Cajas reportadas" value={totals.reportadas.toLocaleString("es-CO")} />
-          <MiniStat label="Gestionadas" value={totals.gestionadas.toLocaleString("es-CO")} tone="green" />
-          <MiniStat label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="red" />
+          <MiniStat label="Gestionadas" value={totals.gestionadas.toLocaleString("es-CO")} tone="slate" />
+          <MiniStat label="Cajas refusal final" value={totals.refusalFinal.toLocaleString("es-CO")} tone="slate" />
         </div>
 
         <TopRefusalClientsTable

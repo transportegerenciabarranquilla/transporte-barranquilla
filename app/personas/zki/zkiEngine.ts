@@ -113,9 +113,9 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   return result;
 }
 
-export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>) {
+export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
   const assignments = new Map(plans.flatMap((plan) => plan.recommendation ? [[plan.tripId, plan.recommendation] as const] : []));
-  return removeRepeatedAuxiliaries(assignments);
+  return removeRepeatedAuxiliaries(assignments, minimumZki);
 }
 
 export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?: Candidate }>(
@@ -162,16 +162,16 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
       driverId: selected.driverId,
       vehicle: selected.plate.toUpperCase(),
       capacity: selected.capacity,
-      viable: recommendation.hasKnowledge && recommendation.zki >= minimumZki && fits,
+      viable: recommendation.hasKnowledge && recommendation.totalZki >= minimumZki * 2 && fits,
       habitualVehicle: selected.key === habitualKey,
       reason: !selected.capacity
         ? `Pendiente: falta registrar la capacidad de ${selected.plate.toUpperCase()}.`
         : !fits
           ? `Pendiente: ${formatKg(trip.weight)} kg superan la capacidad de ${selected.plate.toUpperCase()} (${formatKg(selected.capacity)} kg).`
-          : !recommendation.hasKnowledge
+        : !recommendation.hasKnowledge
             ? "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio."
-            : recommendation.zki < minimumZki
-              ? `No viable: ZKI ${Math.round(recommendation.zki)}% está por debajo del mínimo de ${minimumZki}%.`
+            : recommendation.totalZki < minimumZki * 2
+              ? `No viable: el ZKI combinado es ${Math.round(recommendation.totalZki)} y requiere ${minimumZki * 2}.`
               : recommendation.hasKnowledge
             ? "Viable: RR asignado por ZKI y pareja conductor–vehículo disponible."
             : "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio.",
@@ -180,7 +180,7 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   return result;
 }
 
-function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>) {
+function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZki: number) {
   const used = new Set<string>();
   assignments.forEach((candidate) => {
     used.add(personIdentity(candidate.rrId, candidate.rr));
@@ -207,21 +207,25 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>) {
     });
     if (replacement) {
       used.add(personIdentity(replacement.id, replacement.name));
+      const totalZki = Math.round((candidate.zki + replacement.zki) * 100) / 100;
       result.set(tripId, {
         ...candidate,
         auxiliary: replacement.name,
         auxiliaryId: replacement.id,
         auxiliaryZki: replacement.zki,
-        totalZki: Math.round((candidate.zki + replacement.zki) * 100) / 100,
+        totalZki,
+        viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
       });
       return;
     }
+    const totalZki = Math.round(candidate.zki * 100) / 100;
     result.set(tripId, {
       ...candidate,
       auxiliary: "Sin auxiliar disponible",
       auxiliaryId: "",
       auxiliaryZki: 0,
-      totalZki: Math.round(candidate.zki * 100) / 100,
+      totalZki,
+      viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
       reason: `${candidate.reason} El auxiliar habitual ya fue asignado a otro viaje.`,
     });
   });
@@ -233,7 +237,7 @@ function personIdentity(id: string | undefined, name: string | undefined) {
   return normalizedId ? `id:${normalizedId}` : `name:${normalizePersonName(name || "")}`;
 }
 
-export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?: Candidate }>(plans: T[], capacities: Map<string, number>) {
+export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?: Candidate }>(plans: T[], capacities: Map<string, number>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
   const assignFallback = (trip: Trip, recommendation: Candidate, reason: string): Candidate => {
@@ -254,20 +258,11 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     // validado por el llamador (tabla `placas`). Una placa escrita en el Excel
     // o heredada del historial nunca debe crear un vehículo nuevo de facto.
     const recommendedVehicleKey = normalizeVehicleKey(recommendation.vehicle);
-    if (assignedKey && assignedKey === recommendedVehicleKey && capacities.has(assignedKey)) {
+    if (assignedKey && assignedKey === recommendedVehicleKey && !used.has(assignedKey) && (capacities.get(assignedKey) || 0) >= trip.weight) {
       const assignedCapacity = capacities.get(assignedKey) || 0;
-      const alreadyUsed = used.has(assignedKey);
-      if (alreadyUsed) {
-        result.set(trip.id, assignFallback(trip, recommendation, `La placa asignada ${assignedKey.toUpperCase()} ya fue utilizada en otro viaje.`));
-        return;
-      }
       used.add(assignedKey);
-      const fits = assignedCapacity > 0 && assignedCapacity >= trip.weight;
-      const reason = !assignedCapacity
-          ? `Bloqueado: no se encontró la capacidad de la placa asignada ${assignedKey.toUpperCase()}.`
-          : assignedCapacity < trip.weight
-            ? `Bloqueado: ${formatKg(trip.weight)} kg superan la capacidad de la placa asignada ${assignedKey.toUpperCase()} (${formatKg(assignedCapacity)} kg).`
-            : `Viable: conserva la placa asignada ${assignedKey.toUpperCase()} del archivo de planeación.`;
+      const fits = true;
+      const reason = `Viable: conserva la placa asignada ${assignedKey.toUpperCase()} del archivo de planeación.`;
       result.set(trip.id, {
         ...recommendation,
         vehicle: assignedKey.toUpperCase(),
@@ -284,12 +279,24 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     // RR, pero nunca debe mover al conductor a otra placa. El VH histórico
     // solo puede volver a la planeación si sigue en el catálogo disponible.
     if (habitualKey) {
-      if (!capacities.has(habitualKey)) {
+      if (!capacities.has(habitualKey) || habitualCapacity < trip.weight || used.has(habitualKey)) {
+        const replacementCause = used.has(habitualKey)
+          ? `ya fue utilizado en otro viaje`
+          : !capacities.has(habitualKey)
+          ? `está indisponible o fuera de la planeación`
+          : `solo soporta ${formatKg(habitualCapacity)} y la carga es ${formatKg(trip.weight)}`;
         const replacement = [...capacities.entries()]
-          .filter(([key, capacity]) => !used.has(key) && capacity > 0 && capacity >= trip.weight)
+          .filter(([key, capacity]) => key !== habitualKey && !used.has(key) && capacity > 0 && capacity >= trip.weight)
           .sort((left, right) => left[1] - right[1])[0];
         if (!replacement) {
-          result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación y no hay otro VH compatible.`));
+          result.set(trip.id, {
+            ...recommendation,
+            vehicle: "Sin VH compatible",
+            capacity: 0,
+            viable: false,
+            habitualVehicle: false,
+            reason: `Bloqueado: el VH habitual ${habitualKey.toUpperCase()} ${replacementCause} y no hay otro VH con capacidad suficiente.`,
+          });
           return;
         }
         const [replacementKey, replacementCapacity] = replacement;
@@ -298,15 +305,10 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
           ...recommendation,
           vehicle: replacementKey.toUpperCase(),
           capacity: replacementCapacity,
-          viable: recommendation.viable,
+          viable: recommendation.hasKnowledge && recommendation.totalZki >= minimumZki * 2,
           habitualVehicle: false,
-          reason: `Viable: el VH habitual ${habitualKey.toUpperCase()} está indisponible o fuera de la planeación; el conductor conserva su asignación y cambia al VH ${replacementKey.toUpperCase()}.`,
+          reason: `Viable: el VH habitual ${habitualKey.toUpperCase()} ${replacementCause}; el conductor conserva su asignación y cambia al VH ${replacementKey.toUpperCase()}.`,
         });
-        return;
-      }
-      const alreadyUsed = used.has(habitualKey);
-      if (alreadyUsed) {
-        result.set(trip.id, assignFallback(trip, recommendation, `El VH habitual ${habitualKey.toUpperCase()} ya fue utilizado en otro viaje.`));
         return;
       }
       used.add(habitualKey);
@@ -534,8 +536,8 @@ export function rankCandidates(
     const previousClients = Math.max(latest?.visited || 0, latest?.clients || 0);
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
-    const meetsMinimumZki = zki >= settings.minimumZki;
-    const viable = hasKnowledge && hasCapacity && meetsMinimumZki && trip.weight <= capacity;
+    const meetsCombinedZki = zki + auxiliary.zki >= settings.minimumZki * 2;
+    const viable = hasKnowledge && hasCapacity && meetsCombinedZki && trip.weight <= capacity;
     return {
       rr,
       rrId,
@@ -566,8 +568,8 @@ export function rankCandidates(
           ? "Bloqueado: no se encontró la capacidad del vehículo habitual."
           : trip.weight > capacity
             ? `Bloqueado: ${formatKg(trip.weight)} kg superan ${formatKg(capacity)} kg.`
-          : !meetsMinimumZki
-            ? `No viable: ZKI ${Math.round(zki)}% está por debajo del mínimo de ${settings.minimumZki}%.`
+          : !meetsCombinedZki
+            ? `No viable: el ZKI combinado es ${Math.round(zki + auxiliary.zki)} y requiere ${settings.minimumZki * 2}.`
         : "Viable: conserva RR, conductor y vehículo habitual.",
     };
   })
