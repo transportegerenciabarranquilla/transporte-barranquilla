@@ -279,6 +279,8 @@ export default function SeguimientoPage() {
     setVehiculos(prepared);
     if (changes.status !== undefined) {
       saveSeguimientoImmediately(prepared, `Estado ${changes.status} guardado en Supabase.`);
+    } else if (changes.liquidado !== undefined) {
+      saveSeguimientoImmediately(prepared, `Liquidado ${changes.liquidado ? "Sí" : "No"} guardado en Supabase.`);
     } else if (changes.clientes !== undefined) {
       saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
     } else {
@@ -387,6 +389,7 @@ export default function SeguimientoPage() {
     }
     const shouldRecalculateRouteTime = changes.horaSalida !== undefined || changes.horaLlegada !== undefined || changes.status !== undefined;
     if (changes.status !== undefined) updated.statusUpdatedAt = new Date().toISOString();
+    if (changes.liquidado !== undefined) updated.liquidadoUpdatedAt = new Date().toISOString();
     if (changes.clientes !== undefined) updated.clientesUpdatedAt = new Date().toISOString();
 
     updated.visitados = Math.min(updated.visitados, updated.clientes);

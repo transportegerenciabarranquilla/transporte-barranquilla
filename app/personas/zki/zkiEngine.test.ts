@@ -153,13 +153,13 @@ test("omite cargos distintos de Responsable en el histórico ZKI", () => {
   assert.equal(visits.length, 0);
 });
 
-test("bloquea la combinación cuando el vehículo habitual no soporta el peso", () => {
+test("no usa el vehículo histórico de seguimiento para completar la combinación", () => {
   const [trip] = parseTrips([{ Nombre: "El Triunfo", Peso: 9500, Clientes: 20, Vehículo: "VH-1", "Peso Máximo": 8600 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR 1", nombreAuxiliar1: "Conductor 1", vehiculo: "VH-1", territorio: "El Triunfo", clientes: 20, visitados: 20, fechaDespacho: "2026-08-01" }]);
   const visits = [{ rr: "RR 1", client: "C1", zone: "El Triunfo", driver: "Conductor 1", vehicle: "VH-1" }];
   const [candidate] = rankCandidates(trip, history, visits, ["C1"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.viable, false);
-  assert.match(candidate.reason, /Bloqueado/);
+  assert.equal(candidate.vehicle, "Sin vehículo identificado");
 });
 
 test("un ZKI de 11 por ciento nunca es viable", () => {
@@ -183,14 +183,14 @@ test("normaliza frecuencia al tope configurado y nunca supera cien", () => {
   assert.equal(candidate.zki <= 100, true);
 });
 
-test("cruza el mismo RR aunque ZKI y seguimiento ordenen distinto sus nombres", () => {
+test("conserva el nombre del RR proveniente de ZKI aunque seguimiento lo ordene distinto", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "El Triunfo", Peso: 8000, Clientes: 1, "Placa Asignada": "VH-1", "Peso Máximo": 9000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "Gustavo Mendoza Salcedo", nombreAuxiliar1: "Conductor 1", vehiculo: "VH-1", territorio: "El Triunfo", clientes: 1, visitados: 1, fechaDespacho: "2026-08-01" }]);
   const visits = parseZkiVisits([{ Codigo: 12518871, Nombre: "Mendoza Salcedo Gustavo", Cargo: "Responsable" }]);
   const [candidate] = rankCandidates(trip, history, visits, ["12518871"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
-  assert.equal(candidate.rr, "Gustavo Mendoza Salcedo");
-  assert.equal(candidate.driver, "Conductor 1");
-  assert.equal(candidate.vehicle, "VH-1");
+  assert.equal(candidate.rr, "Mendoza Salcedo Gustavo");
+  assert.equal(candidate.driver, "Sin conductor identificado");
+  assert.equal(candidate.vehicle, "Sin vehículo identificado");
   assert.equal(candidate.hasKnowledge, true);
   assert.equal(candidate.viable, false);
   assert.match(candidate.reason, /ZKI/);
@@ -243,13 +243,13 @@ test("reproduce el ZKI 90,05 de la matriz SKI para territorio 2", () => {
   assert.equal(candidate.zki, 90.05);
 });
 
-test("conserva como respaldo un RR sin conocimiento del territorio", () => {
+test("no incorpora responsables provenientes únicamente de seguimiento", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Viaje: 1, Peso: 1000, Clientes: 2, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Sin Historial", vehiculo: "VH-1" }]);
   const visits = parseZkiVisits([{ Codigo: 999, Nombre: "Otro RR", Cargo: "Responsable" }]);
   const candidates = rankCandidates(trip, history, visits, ["100", "101"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
-  assert.equal(candidates.length, 2);
-  assert.equal(candidates.find((candidate) => candidate.rr === "RR Sin Historial")?.hasKnowledge, false);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates.some((candidate) => candidate.rr === "RR Sin Historial"), false);
 });
 
 test("asigna cada RR a un solo territorio maximizando el resultado global", () => {

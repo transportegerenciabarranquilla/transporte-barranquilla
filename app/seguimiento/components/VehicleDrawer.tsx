@@ -37,6 +37,7 @@ export function VehicleDrawer({
   const capacity = vehicle.capacidad ? Math.round((vehicle.peso / vehicle.capacidad) * 100) : 0;
   const routeTime = calculateRouteTime(vehicle, now);
   const status = getStatus(progress, vehicle);
+  const canUpdateLiquidado = status === "Finalizado";
   const departureValue = isRouteClockBlockedStatus(status) ? "Pendiente" : vehicle.horaSalida;
   const onTimeClassification = getOnTimeClassification(vehicle.fechaDt, vehicle.fechaDespacho);
   const hasRecargue = hasRecargueValue(vehicle.recargue);
@@ -183,6 +184,39 @@ export function VehicleDrawer({
               <div className="rounded-xl bg-slate-100 px-5 py-4">
                 <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Tiempo en ruta</p>
                 <p className="mt-1 text-3xl font-semibold text-[#10223d]">{routeTime}</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Liquidado</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {canUpdateLiquidado ? "Confirma si el vehículo ya fue liquidado." : "Disponible cuando el vehículo esté finalizado."}
+                    </p>
+                  </div>
+                  <div className="inline-flex rounded-lg bg-slate-100 p-1" aria-label="Estado de liquidación">
+                    {([true, false] as const).map((value) => {
+                      const selected = Boolean(vehicle.liquidado) === value;
+                      return (
+                        <button
+                          key={String(value)}
+                          className={`min-w-14 rounded-md px-3 py-2 text-sm font-semibold transition ${
+                            selected
+                              ? value
+                                ? "bg-emerald-600 text-white shadow-sm"
+                                : "bg-white text-slate-700 shadow-sm"
+                              : "text-slate-500 hover:text-slate-800"
+                          } disabled:cursor-not-allowed disabled:opacity-45`}
+                          disabled={!canUpdateLiquidado}
+                          onClick={() => updateVehicle({ liquidado: value })}
+                          type="button"
+                        >
+                          {value ? "Sí" : "No"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

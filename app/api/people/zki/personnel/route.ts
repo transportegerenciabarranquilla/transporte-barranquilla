@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
 import { normalizeContractorName } from "../../../../lib/contractors";
 import { readServerCache } from "../../../../lib/serverCache";
@@ -6,7 +9,9 @@ import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders 
 import { readZkiCrewRows } from "../crewTable";
 
 type Person = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor: string; minimumClients?: number; maximumClients?: number };
-type PersonProfile = { available?: boolean; minimumClients?: number; maximumClients?: number };
+type PersonProfile = { available?: boolean; minimumClients?: number; maximumClients?: number; employmentStatus?: "ACTIVO" | "INACTIVO"; source?: string };
+
+const DATA_PERSONAL_FILE = "DATA PERSONAL OFICIAL UC LOGISTICOS (1).xlsx";
 
 export async function GET() {
   const session = await getAuthenticatedSession();
@@ -84,7 +89,9 @@ export async function PUT(request: Request) {
 export async function POST(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session || (!session.isPeople && !session.isAdmin)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-  const person = await request.json() as Person;
+  const payload = await request.json() as Person & { action?: string };
+  if (payload.action === "syncDataPersonal") return syncDataPersonal(session.accessToken);
+  const person = payload;
   const id = String(person.id || "").replace(/\D/g, "");
   if (!id || !person.name?.trim()) return NextResponse.json({ error: "Cédula y nombre son obligatorios." }, { status: 400 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
@@ -93,6 +100,66 @@ export async function POST(request: Request) {
   const response = await fetch(supabaseRest("transporte_barranquilla"), { method: "POST", headers: { ...headers, Prefer: "return=minimal" }, body: JSON.stringify({ CC: id, NOMBRE: person.name.trim(), CARGO: person.role, CONTRATISTA: "Logisticos" }), cache: "no-store" });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
   return NextResponse.json({ person: { ...person, id, contractor: "Logisticos", available: true } });
+}
+
+async function syncDataPersonal(accessToken: string) {
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+  const filePath = path.join(process.cwd(), "supabase", DATA_PERSONAL_FILE);
+  const workbook = XLSX.read(await readFile(filePath), { type: "buffer" });
+  const activeSheet = workbook.Sheets.ACTIVOS;
+  const inactiveSheet = workbook.Sheets.INACTIVOS;
+  if (!activeSheet || !inactiveSheet) return NextResponse.json({ error: "El Excel debe contener las hojas ACTIVOS e INACTIVOS." }, { status: 400 });
+
+  const activePersonnel = readOperationalPersonnel(activeSheet);
+  const inactivePersonnel = readOperationalPersonnel(inactiveSheet);
+  const filePersonnel = [...new Map([...inactivePersonnel, ...activePersonnel].map((person) => [person.id, person])).values()];
+  if (!activePersonnel.length) return NextResponse.json({ error: "No se encontraron RR, conductores ni auxiliares activos en el Excel." }, { status: 400 });
+
+  const [peopleResponse, profilesResponse] = await Promise.all([
+    fetch(supabaseRest("transporte_barranquilla", "?select=CC,NOMBRE,CARGO,CONTRATISTA&limit=3000"), { headers, cache: "no-store" }),
+    fetch(supabaseRest("people_profiles", "?select=profile_id,data&profile_id=like.zki-person:*"), { headers, cache: "no-store" }),
+  ]);
+  if (!peopleResponse.ok) return NextResponse.json({ error: await supabaseError(peopleResponse) }, { status: peopleResponse.status });
+
+  const people = await peopleResponse.json() as Record<string, unknown>[];
+  const profiles = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: PersonProfile }> : [];
+  const existingIds = new Set(people.map((row) => digits(row.CC)));
+  const activeIds = new Set(activePersonnel.map((person) => person.id));
+  const existingLogisticsPersonnel = people.map(toPerson).filter((person): person is Person => Boolean(person))
+    .filter((person) => normalizeContractorName(person.contractor) === "logisticos");
+  const catalogIds = new Set([...existingLogisticsPersonnel.map((person) => person.id), ...filePersonnel.map((person) => person.id)]);
+  const profileById = new Map(profiles.map((row) => [row.profile_id.replace("zki-person:", ""), row.data || {}]));
+
+  const newPeople = filePersonnel.filter((person) => !existingIds.has(person.id)).map((person) => ({
+    CC: person.id, NOMBRE: person.name, CARGO: person.cargo, CONTRATISTA: "Logisticos",
+  }));
+  if (newPeople.length) {
+    const insertResponse = await fetch(supabaseRest("transporte_barranquilla"), {
+      method: "POST", headers: { ...headers, Prefer: "return=minimal" }, body: JSON.stringify(newPeople), cache: "no-store",
+    });
+    if (!insertResponse.ok) return NextResponse.json({ error: await supabaseError(insertResponse) }, { status: insertResponse.status });
+  }
+
+  const updatedAt = new Date().toISOString();
+  const profileRows = [...catalogIds].map((id) => {
+    const available = activeIds.has(id);
+    return {
+      profile_id: `zki-person:${id}`,
+      contractor: "Logisticos",
+      cc: id,
+      data: { ...profileById.get(id), available, employmentStatus: available ? "ACTIVO" : "INACTIVO", source: DATA_PERSONAL_FILE },
+      updated_at: updatedAt,
+    };
+  });
+  const profileHeaders = supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" })
+    ?? supabaseUserHeaders(accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
+  const profileResponse = await fetch(supabaseRest("people_profiles", "?on_conflict=profile_id"), {
+    method: "POST", headers: profileHeaders, body: JSON.stringify(profileRows), cache: "no-store",
+  });
+  if (!profileResponse.ok) return NextResponse.json({ error: await supabaseError(profileResponse) }, { status: profileResponse.status });
+
+  const inactive = [...catalogIds].filter((id) => !activeIds.has(id)).length;
+  return NextResponse.json({ ok: true, active: activeIds.size, inactive, added: newPeople.length });
 }
 
 export async function DELETE(request: Request) {
@@ -123,3 +190,19 @@ function toPerson(row: Record<string, unknown>): Person | null {
   return { id, name: String(row.NOMBRE || "Sin nombre"), role, available: true, contractor: String(row.CONTRATISTA || "") };
 }
 function normalize(value: string) { return normalizeContractorName(value).replace(/responsablederuta|responsabledereparto/, "responsable"); }
+function digits(value: unknown) { return String(value ?? "").replace(/\D/g, ""); }
+
+function readOperationalPersonnel(sheet: XLSX.WorkSheet) {
+  return (XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, unknown>[])
+    .map((row) => ({
+      id: digits(row["NÚMERO DE DOCUMENTO"] ?? row["NUMERO DE DOCUMENTO"]),
+      name: String(row["APELLIDOS Y NOMBRES"] ?? row["NOMBRES Y APELLIDOS"] ?? "").trim(),
+      cargo: String(row.CARGO ?? "").trim(),
+    }))
+    .filter((person) => isZkiCrewRole(person.cargo) && person.id && person.name);
+}
+
+function isZkiCrewRole(cargo: string) {
+  const role = normalize(cargo);
+  return role.includes("responsable") || role.includes("conductor") || role.includes("auxiliardereparto") || role.includes("auxiliardeflota");
+}

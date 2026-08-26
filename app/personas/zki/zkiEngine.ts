@@ -103,7 +103,7 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   // La viabilidad de RR + auxiliar se optimiza sin amarrarla al VH histórico:
   // los vehículos se redistribuyen después según peso y disponibilidad.
   const weights = candidateMatrix.map((row) => row.map((candidate) => candidate
-    ? candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
+    ? 10_000 + candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
     : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
@@ -463,23 +463,14 @@ export function parseTerritoryClients(rows: RawRow[]): TerritoryClient[] {
 
 export function rankCandidates(
   trip: Trip,
-  history: CrewHistory[],
+  _history: CrewHistory[],
   visits: ZkiVisit[],
   territoryClientCodes: string[],
   capacities: Map<string, number>,
   settings: ZkiSettings,
   auxiliaryRoster: ZkiVisit[] = visits,
 ): Candidate[] {
-  const byRr = new Map<string, CrewHistory[]>();
-  history.forEach((row) => {
-    const key = normalizePersonName(row.rr);
-    const current = byRr.get(key);
-    if (current) current.push(row);
-    else byRr.set(key, [row]);
-  });
-
   const rrNames = new Map<string, string>();
-  history.forEach((row) => rrNames.set(normalizePersonName(row.rr), row.rr));
   visits.filter(isResponsibleVisit).forEach((row) => rrNames.set(normalizePersonName(row.rr), row.rr));
   const configuredClients = new Set(territoryClientCodes.map(normalize).filter(Boolean));
   const territoryVisits = configuredClients.size
@@ -510,8 +501,6 @@ export function rankCandidates(
   const auxiliaries = [...scoredAuxiliaries, ...reserveAuxiliaries];
 
   return Array.from(rrNames, ([rrKey, rrName]) => {
-    const rrRows = byRr.get(rrKey) || [];
-    const latest = rrRows.reduce<CrewHistory | undefined>((current, row) => !current || row.date > current.date ? row : current, undefined);
     const rrVisits = responsibleVisitsByRr.get(rrKey) || [];
     const visitsByClient = new Map<string, number>();
     rrVisits.forEach((row) => {
@@ -538,14 +527,13 @@ export function rankCandidates(
       .filter((item) => item.key !== rrKey)
       .sort((left, right) => zki >= settings.minimumZki ? left.zki - right.zki : right.zki - left.zki);
     const auxiliary = auxiliaryOptions[0] || { name: "Sin auxiliar con historial", id: "", zki: 0 };
-    const visitIdentity = rrVisits.find((row) => row.driver || row.vehicle);
-    const rr = latest?.rr || rrName;
-    const rrId = latest?.rrId || rrVisits.find((row) => row.rrId)?.rrId || "";
-    const driver = latest?.driver || visitIdentity?.driver || "Sin conductor identificado";
-    const driverId = latest?.driverId || "";
-    const vehicle = latest?.vehicle || visitIdentity?.vehicle || "Sin vehículo identificado";
+    const rr = rrName;
+    const rrId = rrVisits.find((row) => row.rrId)?.rrId || "";
+    const driver = "Sin conductor identificado";
+    const driverId = "";
+    const vehicle = "Sin vehículo identificado";
     const capacity = capacities.get(normalizeVehicleKey(vehicle)) || 0;
-    const previousClients = Math.max(latest?.visited || 0, latest?.clients || 0);
+    const previousClients = 0;
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
     const meetsCombinedZki = zki + auxiliary.zki >= settings.minimumZki * 2;
@@ -576,12 +564,12 @@ export function rankCandidates(
       habitualVehicle: true,
       reason: !hasKnowledge
         ? "No evaluable: el RR no tiene visitas ZKI para los clientes de este territorio."
-        : !hasCapacity
-          ? "Bloqueado: no se encontró la capacidad del vehículo habitual."
+        : !meetsCombinedZki
+            ? `No viable: el ZKI combinado es ${Math.round(zki + auxiliary.zki)} y requiere ${settings.minimumZki * 2}.`
+          : !hasCapacity
+            ? "Pendiente: conductor y placa se asignan desde el catálogo Conductores-placas."
           : trip.weight > capacity
             ? `Bloqueado: ${formatKg(trip.weight)} kg superan ${formatKg(capacity)} kg.`
-          : !meetsCombinedZki
-            ? `No viable: el ZKI combinado es ${Math.round(zki + auxiliary.zki)} y requiere ${settings.minimumZki * 2}.`
         : "Viable: conserva RR, conductor y vehículo habitual.",
     };
   })

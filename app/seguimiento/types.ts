@@ -35,6 +35,8 @@ export type Vehiculo = {
   avanceRuta: string;
   status: string;
   statusUpdatedAt?: string;
+  liquidado?: boolean;
+  liquidadoUpdatedAt?: string;
   horaLlegada: string;
   tiempoRuta: string;
   tiempoPlaneado?: string;

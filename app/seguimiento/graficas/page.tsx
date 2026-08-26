@@ -66,6 +66,9 @@ export default function SeguimientoGraficasPage() {
     const avance = getVisitProgress(visitados, clientes);
     const retrasados = now ? rangeVehicles.filter((vehicle) => getPlannedProgress(vehicle, now).isBehind).length : 0;
     const retrasadosPercent = rangeVehicles.length ? Number(((retrasados / rangeVehicles.length) * 100).toFixed(1)) : 0;
+    const finalizados = rangeVehicles.filter((vehicle) => getVehicleStatus(vehicle) === "Finalizado");
+    const liquidados = finalizados.filter((vehicle) => vehicle.liquidado === true).length;
+    const liquidadoPercent = finalizados.length ? Number(((liquidados / finalizados.length) * 100).toFixed(1)) : 0;
 
     return {
       vehiculos: rangeVehicles.length,
@@ -76,6 +79,9 @@ export default function SeguimientoGraficasPage() {
       avance,
       retrasados,
       retrasadosPercent,
+      liquidados,
+      finalizados: finalizados.length,
+      liquidadoPercent,
       tiempoPromedio: formatSeconds(getAverageRouteSeconds(rangeVehicles, now)),
     };
   }, [now, rangeVehicles]);
@@ -142,6 +148,7 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
+                <ProgressLine label="Liquidado" value={resumen.liquidadoPercent} color="bg-[#1264ff]" detail={`${resumen.liquidados}/${resumen.finalizados} vehículos`} />
                 <p className="text-sm text-slate-500">Retraso calculado por ritmo planeado por cliente.</p>
               </div>
             </div>
@@ -506,15 +513,15 @@ function Gauge({ value }: { value: number }) {
   );
 }
 
-function ProgressLine({ label, value, color }: { label: string; value: number; color: string }) {
+function ProgressLine({ label, value, color, detail }: { label: string; value: number; color: string; detail?: string }) {
   return (
     <div>
       <div className="mb-2 flex justify-between text-sm">
         <span className="font-medium text-slate-600">{label}</span>
-        <span className="font-semibold text-[#10223d]">{formatPercent(value)}</span>
+        <span className="font-semibold text-[#10223d]">{detail ? `${detail} · ` : ""}{formatPercent(value)}</span>
       </div>
       <div className="h-2 rounded-full bg-slate-200">
-        <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
       </div>
     </div>
   );
