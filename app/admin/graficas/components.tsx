@@ -154,7 +154,7 @@ export function RefusalClientsByRange({ data, rows }: { data: RefusalClientSumma
 export function RrRefusalTop({ data }: { data: RrRefusalSummary[] }) {
   const [selected, setSelected] = useState<RrRefusalSummary | null>(null);
   const groups = [data.slice(0, 5), data.slice(5, 10), data.slice(10, 15), data.slice(15, 20)];
-  if (!data.length) return <EmptyState text="No hay rechazos registrados en Modulación para este filtro." />;
+  if (!data.length) return null;
   return <>
     <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2"><div className="flex items-center gap-2 text-[#10223d]"><span className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white"><Table2 size={15} /></span><h2 className="text-xs font-semibold">Top 20 RR que más rechazos registran</h2></div><span className="text-[10px] font-semibold uppercase tracking-[.1em] text-slate-400">Presiona un RR para ver clientes</span></div>

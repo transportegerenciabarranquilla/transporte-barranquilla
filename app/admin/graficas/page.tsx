@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, CalendarDays, ChevronRight, ClipboardCheck, Gauge, MapPinCheck, MessageSquareText, PackageCheck, Search, ShieldAlert, Table2, TrendingUp, Trophy, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, ChevronRight, ClipboardCheck, Clock3, Gauge, MapPinCheck, MessageSquareText, PackageCheck, Search, ShieldAlert, Table2, TrendingUp, Trophy, Users, X } from "lucide-react";
 import { normalizeContractorName } from "../../lib/contractors";
 import type { DailyAbsenteeismRecord } from "../../lib/dailyAbsenteeism";
 import { checklistPercentage, type DailyChecklistRecord } from "../../lib/dailyChecklist";
@@ -53,7 +53,7 @@ type ModulationOverviewRecord = ModulationRefusalRecord & {
 
 type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreCompleto?: string; identificador?: string; cargo?: string; contratista?: string; entrada?: string }> };
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
-type GraphView = "summary" | "ontime" | "refusal" | "people";
+type GraphView = "summary" | "ontime" | "modulation" | "refusal" | "people";
 
 export default function AdminGraficasPage() {
   const router = useRouter();
@@ -185,6 +185,10 @@ export default function AdminGraficasPage() {
     [absenteeismRecords, activeDateRange, dailyChecklists, modulationRecords, rangoReports, rtiRecords],
   );
   const departurePerformance = useMemo(() => buildDeparturePerformance(visibleRecords), [visibleRecords]);
+  const modulationTiming = useMemo(
+    () => buildModulationTiming(modulationRecords, activeDateRange, contractor, dtSearch),
+    [activeDateRange, contractor, dtSearch, modulationRecords],
+  );
   const lateArrivalRanking = useMemo(
     () => buildLateArrivalRanking(attendanceSnapshots, activeDateRange, contractor),
     [activeDateRange, attendanceSnapshots, contractor],
@@ -312,10 +316,11 @@ export default function AdminGraficasPage() {
           </div>
         </section>
 
-        <nav aria-label="Secciones de graficas" className="sticky top-[88px] z-10 mb-6 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/50 backdrop-blur sm:grid-cols-4">
+        <nav aria-label="Secciones de graficas" className="sticky top-[88px] z-10 mb-6 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/50 backdrop-blur sm:grid-cols-5">
           {([
             ["summary", "Resumen", "Indicadores generales"],
             ["ontime", "On Time", "Vehiculos y salidas"],
+            ["modulation", "Modulacion", "Clientes por horario"],
             ["refusal", "Refusal", "Cajas y causales"],
             ["people", "Personal", "Llegadas tardias"],
           ] as const).map(([value, label, detail]) => (
@@ -427,6 +432,12 @@ export default function AdminGraficasPage() {
           <OnTimeComparisonChart rows={onTimeByContractor} />
         </section>
         </> : null}
+
+        {activeView === "modulation" ? (
+          <section className="mb-5">
+            <ModulationTimingChart data={modulationTiming} />
+          </section>
+        ) : null}
 
         {activeView === "refusal" ? <>
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" id="detalle-refusal">
@@ -768,6 +779,144 @@ function ContractorBenchmarkTable({ rows }: { rows: BenchmarkRow[] }) {
 type DeparturePerformance = { average: string; beforeSeven: number; total: number; percentage: number };
 type LateArrivalRow = { name: string; contractor: string; role: string; lateDays: number; averageSeconds: number; latestSeconds: number };
 type OnTimeContractorRow = { contractor: string; onTime: number; noOnTime: number; unclassified: number; classified: number; percentage: number };
+type ModulationTimeBucket = { key: string; label: string; startHour: number; endHour: number };
+type ModulationTimingRow = { contractor: string; averageSeconds: number | null; total: number; buckets: Record<string, number> };
+
+const MODULATION_TIME_BUCKETS: ModulationTimeBucket[] = [
+  { key: "06-09", label: "6:00–9:00 a. m.", startHour: 6, endHour: 9 },
+  { key: "09-12", label: "9:00 a. m.–12:00 m.", startHour: 9, endHour: 12 },
+  { key: "12-15", label: "12:00–3:00 p. m.", startHour: 12, endHour: 15 },
+  { key: "15-18", label: "3:00–6:00 p. m.", startHour: 15, endHour: 18 },
+  { key: "18-24", label: "Después de 6:00 p. m.", startHour: 18, endHour: 24 },
+];
+
+function buildModulationTiming(
+  records: ModulationOverviewRecord[],
+  range: { from: string; to: string },
+  selectedContractor: string,
+  dtSearch: string,
+): ModulationTimingRow[] {
+  const contractors = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const groups = new Map<string, { seconds: number[]; clientsByBucket: Map<string, Set<string>> }>(
+    contractors.map((name) => [name, { seconds: [], clientsByBucket: new Map(MODULATION_TIME_BUCKETS.map((bucket) => [bucket.key, new Set<string>()])) }]),
+  );
+  const normalizedDt = normalizeDt(dtSearch);
+
+  records.forEach((record) => {
+    const contractorName = onTimeContractorLabel(record.contratista || "");
+    const group = groups.get(contractorName);
+    if (!group || (selectedContractor !== "Todas" && onTimeContractorLabel(selectedContractor) !== contractorName)) return;
+    const modulationDate = modulationCreatedAtDateKey(record.createdAt);
+    if (!modulationDate || (range.from && modulationDate < range.from) || (range.to && modulationDate > range.to)) return;
+    if (normalizedDt && !normalizeDt(record.dt).includes(normalizedDt)) return;
+
+    const seconds = modulationCreatedAtSeconds(record.createdAt);
+    if (seconds === null) return;
+    const bucket = MODULATION_TIME_BUCKETS.find((item) => seconds >= item.startHour * 3600 && seconds < item.endHour * 3600);
+    if (!bucket) return;
+    const clientKey = `${modulationDate}:${String(record.codigoCliente || record.nombreCliente || record.dt).trim().toLowerCase()}`;
+    group.clientsByBucket.get(bucket.key)?.add(clientKey);
+    group.seconds.push(seconds);
+  });
+
+  return contractors
+    .filter((name) => selectedContractor === "Todas" || onTimeContractorLabel(selectedContractor) === name)
+    .map((name) => {
+      const group = groups.get(name)!;
+      const buckets = Object.fromEntries(MODULATION_TIME_BUCKETS.map((bucket) => [bucket.key, group.clientsByBucket.get(bucket.key)?.size || 0]));
+      return {
+        contractor: name,
+        averageSeconds: group.seconds.length ? Math.round(group.seconds.reduce((sum, value) => sum + value, 0) / group.seconds.length) : null,
+        total: Object.values(buckets).reduce((sum, value) => sum + value, 0),
+        buckets,
+      };
+    });
+}
+
+function modulationCreatedAtSeconds(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/Bogota",
+  }).formatToParts(date);
+  const readPart = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const hour = readPart("hour") % 24;
+  return hour * 3600 + readPart("minute") * 60 + readPart("second");
+}
+
+function modulationCreatedAtDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Bogota",
+    year: "numeric",
+  }).format(date);
+}
+
+function ModulationTimingChart({ data }: { data: ModulationTimingRow[] }) {
+  const colors: Record<string, string> = { Logisticos: "#06b6d4", "Punto Corona": "#8b5cf6", "Surti Cervezas": "#f59e0b" };
+  const maximum = Math.max(...data.flatMap((row) => Object.values(row.buckets)), 1);
+  const grandTotal = data.reduce((sum, row) => sum + row.total, 0);
+
+  return (
+    <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_45px_-30px_rgba(15,23,42,.45)]">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-cyan-50 p-5">
+        <div>
+          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-violet-700"><Clock3 size={14} /> Horario de registro</p>
+          <h2 className="mt-1 text-xl font-black text-slate-950">Clientes modulados por franja horaria</h2>
+          <p className="mt-1 text-xs text-slate-500">Barras comparativas de las tres contratistas según la hora de creación de la modulación.</p>
+        </div>
+        <div className="rounded-2xl bg-slate-950 px-4 py-2 text-right text-white">
+          <p className="text-[9px] font-black uppercase text-cyan-300">Clientes modulados</p>
+          <p className="text-3xl font-black">{grandTotal.toLocaleString("es-CO")}</p>
+        </div>
+      </header>
+
+      <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-3">
+        {data.map((row) => <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4" key={row.contractor}><div className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[row.contractor] }} /><p className="text-xs font-black text-slate-800">{row.contractor}</p></div><p className="mt-3 text-2xl font-black text-slate-950">{row.averageSeconds === null ? "—" : formatClockSeconds(row.averageSeconds)}</p><p className="text-[9px] font-black uppercase tracking-wide text-slate-400">Hora promedio · {row.total} clientes</p></div>)}
+      </div>
+
+      <div className="overflow-x-auto p-5">
+        <div className="min-w-[720px]">
+          <div className="flex h-80 items-end gap-5 border-b border-l border-slate-200 px-5 pt-8">
+            {MODULATION_TIME_BUCKETS.map((bucket) => (
+              <div className="flex h-full min-w-0 flex-1 items-end justify-center gap-2" key={bucket.key}>
+                {data.map((row) => {
+                  const value = row.buckets[bucket.key] || 0;
+                  const height = value ? Math.max((value / maximum) * 100, 3) : 0;
+                  return <div className="flex h-full w-full max-w-12 flex-col justify-end" key={`${bucket.key}-${row.contractor}`} title={`${row.contractor}: ${value} clientes`}><span className="mb-1 text-center text-[10px] font-black text-slate-700">{value}</span><div className="w-full rounded-t-md transition-all" style={{ backgroundColor: colors[row.contractor], height: `${height}%` }} /></div>;
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-5 px-5 pt-3">
+            {MODULATION_TIME_BUCKETS.map((bucket) => <p className="min-w-0 flex-1 text-center text-[10px] font-black leading-4 text-slate-600" key={bucket.key}>{bucket.label}</p>)}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-center gap-5 border-t border-slate-100 pt-4">
+            {data.map((row) => <span className="flex items-center gap-2 text-[10px] font-bold text-slate-600" key={row.contractor}><i className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colors[row.contractor] }} />{row.contractor}</span>)}
+          </div>
+          {!grandTotal ? <p className="mt-5 text-center text-sm text-slate-400">No hay modulaciones en las franjas seleccionadas.</p> : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function LegacyModulationTimingChart({ data }: { data: ModulationTimingRow[] }) {
+  const colors: Record<string, string> = { Logisticos: "#06b6d4", "Punto Corona": "#8b5cf6", "Surti Cervezas": "#f59e0b" };
+  const maximum = Math.max(...data.flatMap((row) => Object.values(row.buckets)), 1);
+  const grandTotal = data.reduce((sum, row) => sum + row.total, 0);
+
+  return <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_45px_-30px_rgba(15,23,42,.45)]"><header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-cyan-50 p-5"><div><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-violet-700"><Clock3 size={14} /> Horario de registro</p><h2 className="mt-1 text-xl font-black text-slate-950">Clientes modulados por franja horaria</h2><p className="mt-1 text-xs text-slate-500">Comparativo de las tres contratistas según la hora de creación de la modulación.</p></div><div className="rounded-2xl bg-slate-950 px-4 py-2 text-right text-white"><p className="text-[9px] font-black uppercase text-cyan-300">Clientes modulados</p><p className="text-3xl font-black">{grandTotal.toLocaleString("es-CO")}</p></div></header><div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-3">{data.map((row) => <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4" key={row.contractor}><div className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[row.contractor] }} /><p className="text-xs font-black text-slate-800">{row.contractor}</p></div><p className="mt-3 text-2xl font-black text-slate-950">{row.averageSeconds === null ? "—" : formatClockSeconds(row.averageSeconds)}</p><p className="text-[9px] font-black uppercase tracking-wide text-slate-400">Hora promedio · {row.total} clientes</p></div>)}</div><div className="space-y-6 p-5">{MODULATION_TIME_BUCKETS.map((bucket) => <div key={bucket.key}><p className="mb-2 text-xs font-black text-slate-700">{bucket.label}</p><div className="space-y-2">{data.map((row) => { const value = row.buckets[bucket.key] || 0; return <div className="grid grid-cols-[110px_minmax(0,1fr)_48px] items-center gap-3" key={`${bucket.key}-${row.contractor}`}><span className="truncate text-[10px] font-bold text-slate-500" title={row.contractor}>{row.contractor}</span><div className="h-5 overflow-hidden rounded-full bg-slate-100"><div className="h-full min-w-[2px] rounded-full transition-all" style={{ backgroundColor: colors[row.contractor], width: `${value ? Math.max(value / maximum * 100, 2) : 0}%` }} /></div><span className="text-right text-xs font-black text-slate-800">{value}</span></div>; })}</div></div>)}{!grandTotal ? <div className="grid h-28 place-items-center rounded-2xl border border-dashed border-slate-200 text-center text-sm text-slate-400">No hay modulaciones entre las 6:00 a. m. y el final del día para los filtros seleccionados.</div> : null}</div></article>;
+}
+
+void LegacyModulationTimingChart;
 
 function buildOnTimeByContractor(records: Vehiculo[]): OnTimeContractorRow[] {
   const contractorOrder = ["Logisticos", "Punto Corona", "Surti Cervezas"];
