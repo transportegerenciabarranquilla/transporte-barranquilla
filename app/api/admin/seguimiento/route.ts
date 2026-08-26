@@ -38,7 +38,7 @@ type AdminRefusalComRow = {
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 const PUNTO_CORONA_REPORT_SELECT = "contractor,operational_date,kind,data,updated_at";
-const ADMIN_CACHE_VERSION = "v5-punto-corona-refusal";
+const ADMIN_CACHE_VERSION = "v6-sales-boss-source";
 const LIST_CACHE_TTL_MS = 30_000;
 
 export async function GET() {
@@ -484,7 +484,7 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
       com: getCom(record, vehicle),
       date,
       dt: normalizeDt(record.dt),
-      jefeVentas: getJefeVentas(record, vehicle),
+      jefeVentas: getJefeVentas(record),
       nombreCliente: record.nombreCliente?.trim() || "Cliente sin nombre",
       preventista: getPreventista(record),
       reportadas,
@@ -509,10 +509,8 @@ function getPreventista(record: ModulacionRegistro) {
   return record.preventistaNombre?.trim() || record.preventista?.trim() || "Sin preventista";
 }
 
-function getJefeVentas(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
-  if (record.jefeComercial?.trim()) return record.jefeComercial.trim();
-
-  return vehicle?.territorio && vehicle.territorio !== "Pendiente" ? vehicle.territorio : vehicle?.responsable || "Sin asignacion";
+function getJefeVentas(record: ModulacionRegistro) {
+  return record.jefeComercial?.trim() || "Sin jefe de ventas";
 }
 
 function getRecordDate(record: ModulacionRegistro) {

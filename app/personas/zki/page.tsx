@@ -330,7 +330,7 @@ export default function ZkiPage() {
       "ZKI total": item?.totalZki || 0,
       Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
     }));
-    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.map((item) => ({
+    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge).map((item) => ({
       "ID territorio": trip.territoryId,
       "ID Empleado": item.rrId,
       Tipo: 1,
