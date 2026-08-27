@@ -104,6 +104,15 @@ const adminRangoModule: PortalModule = {
   detail: "Historial global y por contratista",
 };
 
+const adminLiquidationStatusModule: PortalModule = {
+  id: 16,
+  title: "Estatus Liq",
+  href: "/admin/estatus-liq",
+  detail: "Horas de paso a liquidación",
+  tone: "from-[#4338ca] to-[#06b6d4]",
+  accent: "border-l-[#4338ca]",
+};
+
 const peopleAttendanceModule: PortalModule = {
   id: 6,
   title: "Asistencia personas",
@@ -164,7 +173,7 @@ export function getVisiblePortalModules({
   if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule, peopleZkiModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
-    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, peopleAttendanceModule, ...adminModules];
+    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = normalizeContractorName(contractor) === "logisticos";

@@ -34,7 +34,7 @@ import {
   type PuntoCoronaRouteRow,
 } from "../lib/puntoCoronaRoutesStorage";
 import { refreshRemoteRecords } from "../lib/remoteStore";
-import { saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
 import { CONTRACTORS, normalizeContractorName } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
@@ -59,11 +59,6 @@ export default function PuntoCoronaPage() {
   const reports = useStorageSnapshot<PuntoCoronaRouteReport[]>(
     [PUNTO_CORONA_ROUTES_STORAGE_KEY],
     readPuntoCoronaRouteReports,
-    [],
-  );
-  const seguimientoVehicles = useStorageSnapshot<Vehiculo[]>(
-    [SEGUIMIENTO_STORAGE_KEY],
-    loadSeguimientoVehiculos,
     [],
   );
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>(
@@ -145,16 +140,22 @@ export default function PuntoCoronaPage() {
     event.target.value = "";
     if (!file) return;
 
-    let seguimientoContratista = filterVehiclesByContractor(seguimientoVehicles, contractor);
-    if (!seguimientoContratista.length) {
-      await refreshRemoteRecords("/api/seguimiento", { force: true });
-      seguimientoContratista = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
-    }
-
     setIsImporting(true);
     setMessage("");
 
     try {
+      // Algunas filas historicas tienen desalineadas la columna tecnica
+      // contractor y data.transportista. Se conserva el seguimiento visible
+      // y se combina con la respuesta fresca para no perder DT validos.
+      const visibleSeguimiento = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
+      await refreshRemoteRecords("/api/seguimiento", { force: true });
+      const refreshedSeguimiento = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
+      const seguimientoByDt = new Map<string, Vehiculo>();
+      [...visibleSeguimiento, ...refreshedSeguimiento].forEach((vehicle) => {
+        const dt = normalizeDt(vehicle.transporte);
+        if (dt) seguimientoByDt.set(dt, vehicle);
+      });
+      const seguimientoContratista = Array.from(seguimientoByDt.values());
       const parsedReport = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
       const existingReport =
         reports.find((item) =>

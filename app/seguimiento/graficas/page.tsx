@@ -148,7 +148,7 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
-                <ProgressLine label="Liquidado" value={resumen.liquidadoPercent} color="bg-[#1264ff]" detail={`${resumen.liquidados}/${resumen.finalizados} vehículos`} />
+                <ProgressLine label="Pasado a liquidación" value={resumen.liquidadoPercent} color="bg-[#1264ff]" detail={`${resumen.liquidados}/${resumen.finalizados} vehículos`} />
                 <p className="text-sm text-slate-500">Retraso calculado por ritmo planeado por cliente.</p>
               </div>
             </div>

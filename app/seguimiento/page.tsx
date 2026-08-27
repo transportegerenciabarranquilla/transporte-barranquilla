@@ -280,7 +280,7 @@ export default function SeguimientoPage() {
     if (changes.status !== undefined) {
       saveSeguimientoImmediately(prepared, `Estado ${changes.status} guardado en Supabase.`);
     } else if (changes.liquidado !== undefined) {
-      saveSeguimientoImmediately(prepared, `Liquidado ${changes.liquidado ? "Sí" : "No"} guardado en Supabase.`);
+      saveSeguimientoImmediately(prepared, `Pasado a liquidación: ${changes.liquidado ? "Sí" : "No"}. Guardado en Supabase.`);
     } else if (changes.clientes !== undefined) {
       saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
     } else {

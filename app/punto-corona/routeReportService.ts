@@ -7,7 +7,7 @@ import {
   type PuntoCoronaRouteSummary,
 } from "../lib/puntoCoronaRoutesStorage";
 import { normalizeContractorName } from "../lib/contractors";
-import { getLocalDateKey, normalizeDt } from "../lib/modulacionStorage";
+import { getLocalDateKey, normalizeDt, normalizeDtVariants } from "../lib/modulacionStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { normalizeCajasValue } from "../seguimiento/utils";
 
@@ -25,17 +25,26 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
     throw new Error(`No hay DT del seguimiento cargados para ${contractor}. Carga primero el seguimiento de esa contratista.`);
   }
 
-  const rows: PuntoCoronaRouteRow[] = [];
+  const matchedRows: Array<{ routeRow: PuntoCoronaRouteRow; routeDt: string; vehicle: Vehiculo }> = [];
   rawRows.forEach((row) => {
     const routeRow = mapRouteRow(row);
-    // Los exportes de BEES pueden incluir recorridos de varios dias. El
-    // reporte visible debe contener unicamente la fecha operativa elegida;
-    // de lo contrario, la primera fila antigua termina mezclada con hoy.
-    if (routeRow.tourDate && routeRow.tourDate !== operationalDate) return;
-    const routeDt = normalizeDt(routeRow.dt);
+    const routeDt = normalizeDtVariants(routeRow.tourDisplayId).find((candidate) => seguimientoByDt.has(candidate)) || "";
     const vehicle = seguimientoByDt.get(routeDt);
-    if (vehicle) rows.push(mergeRouteWithSeguimiento(routeRow, vehicle, routeDt));
+    if (vehicle) matchedRows.push({ routeRow, routeDt, vehicle });
   });
+
+  // BEES puede repartir las rutas vigentes entre fechas distintas. Tomar la
+  // fecha maxima de todo el archivo eliminaba DT validos. Se conserva, para
+  // cada DT del seguimiento, solamente su fecha mas reciente.
+  const latestDateByDt = new Map<string, string>();
+  matchedRows.forEach(({ routeDt, routeRow }) => {
+    if (!routeRow.tourDate) return;
+    const current = latestDateByDt.get(routeDt) || "";
+    if (routeRow.tourDate > current) latestDateByDt.set(routeDt, routeRow.tourDate);
+  });
+  const rows = matchedRows
+    .filter(({ routeDt, routeRow }) => !routeRow.tourDate || routeRow.tourDate === latestDateByDt.get(routeDt))
+    .map(({ routeRow, routeDt, vehicle }) => mergeRouteWithSeguimiento(routeRow, vehicle, routeDt));
   if (!rows.length) {
     throw new Error(`El archivo no tiene DT que coincidan con el seguimiento de ${contractor}.`);
   }

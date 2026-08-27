@@ -36,8 +36,10 @@ export async function GET(request: Request) {
 
     const contractor = session?.isAdmin && publicContractor ? publicContractor : session?.contractor || publicContractor;
     const isGlobalAdminQuery = session?.isAdmin && !publicContractor;
+    const readHeaders = session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders();
+    const canScanAllRows = Boolean(supabaseAdminHeaders());
     const params = new URLSearchParams(
-      isGlobalAdminQuery
+      isGlobalAdminQuery || canScanAllRows
         ? { select: "record_id,contractor,data", order: "updated_at.desc" }
         : { select: "record_id,contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
@@ -48,12 +50,17 @@ export async function GET(request: Request) {
       params,
       `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}`,
       LIST_CACHE_TTL_MS,
-      session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders(),
+      readHeaders,
     );
     const records = removeDuplicateDtRecords(
       rows
         .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
-        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista })),
+        .filter((row) => {
+          if (isGlobalAdminQuery) return true;
+          const contractorKey = normalizeContractorName(contractor);
+          return [row.data.transportista, row.contractor].map(normalizeContractorName).includes(contractorKey);
+        })
+        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.data.transportista || row.contractor || "" })),
     );
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
     return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });

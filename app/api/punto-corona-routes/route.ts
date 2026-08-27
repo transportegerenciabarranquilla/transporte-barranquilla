@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { CONTRACTORS, normalizeContractorName } from "../../lib/contractors";
-import { normalizeDt } from "../../lib/modulacionStorage";
+import { normalizeDt, normalizeDtVariants } from "../../lib/modulacionStorage";
 import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
@@ -44,9 +44,19 @@ export async function PUT(request: Request) {
 
     const { records: submittedRecords } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
     if (!Array.isArray(submittedRecords)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
-    const seguimientoDts = submittedRecords.length ? await fetchSeguimientoDts(session.contractor, session.accessToken) : new Set<string>();
-    const { records, ignoredDts, validationError } = sanitizeReportDts(submittedRecords, seguimientoDts, session.contractor);
-    if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+    const currentRecords = submittedRecords.filter((record) => record.kind !== "closure");
+    const closureRecords = submittedRecords.filter((record) => record.kind === "closure");
+    const seguimientoDts = currentRecords.length ? await fetchSeguimientoDts(session.contractor, session.accessToken) : new Set<string>();
+    const sanitized = currentRecords.length
+      ? sanitizeReportDts(currentRecords, seguimientoDts, session.contractor)
+      : { records: [] as PuntoCoronaRouteReport[], ignoredDts: [] as string[], validationError: "" };
+    if (sanitized.validationError) return NextResponse.json({ error: sanitized.validationError }, { status: 400 });
+
+    // Un cierre es una fotografia inmutable del reporte que el usuario ya
+    // reviso. Volver a cruzarlo contra Seguimiento hacia que perdiera DT si
+    // la fuente cambiaba o tenia metadatos historicos desalineados.
+    const records = [...sanitized.records, ...closureRecords];
+    const ignoredDts = sanitized.ignoredDts;
 
     const rows = records.map((record) => ({
       report_id: record.id,
@@ -157,7 +167,11 @@ async function fetchSeguimientoDts(contractor: string, accessToken: string) {
 
     const rows = (await response.json()) as Array<{ contractor?: string; data?: { transporte?: string | number; transportista?: string } }>;
     rows.forEach((row) => {
-      if (normalizeContractorName(row.contractor || row.data?.transportista) !== contractorKey) return;
+      // Hay filas historicas en las que solo uno de los dos campos conserva
+      // la contratista correcta. Cualquiera de ellos puede acreditar que el
+      // DT pertenece a la operacion de la sesion.
+      const contractorKeys = [row.data?.transportista, row.contractor].map(normalizeContractorName);
+      if (!contractorKeys.includes(contractorKey)) return;
       const dt = normalizeDt(row.data?.transporte);
       if (dt) dts.add(dt);
     });
@@ -172,14 +186,21 @@ function sanitizeReportDts(records: PuntoCoronaRouteReport[], seguimientoDts: Se
     return { records: [], ignoredDts: [], validationError: `No hay DT del seguimiento cargados para ${contractor}.` };
   }
 
-  const reportDts = new Set(
-    records.flatMap((record) => (record.rows || []).map((row) => normalizeDt(row.dt || row.tourDisplayId))).filter(Boolean),
-  );
+  const reportDtValues = records.flatMap((record) => (record.rows || []).map((row) => row.tourDisplayId || row.dt));
+  const reportDts = new Set(reportDtValues.flatMap((value) => normalizeDtVariants(value)).filter(Boolean));
   if (!reportDts.size) return { records: [], ignoredDts: [], validationError: "El reporte de rango no tiene DT validos." };
 
-  const ignoredDts = Array.from(reportDts).filter((dt) => !seguimientoDts.has(dt));
+  const ignoredDts = Array.from(new Set(
+    reportDtValues
+      .filter((value) => !normalizeDtVariants(value).some((candidate) => seguimientoDts.has(candidate)))
+      .map((value) => normalizeDt(value))
+      .filter(Boolean),
+  ));
   const sanitizedRecords = records.map((record) => {
-    const rows = (record.rows || []).filter((row) => seguimientoDts.has(normalizeDt(row.dt || row.tourDisplayId)));
+    const rows = (record.rows || []).flatMap((row) => {
+      const matchedDt = normalizeDtVariants(row.tourDisplayId || row.dt).find((candidate) => seguimientoDts.has(candidate));
+      return matchedDt ? [{ ...row, dt: matchedDt }] : [];
+    });
     return { ...record, rows, summary: summarizeReportRows(record, rows, seguimientoDts.size) };
   });
   const validRows = sanitizedRecords.reduce((total, record) => total + record.rows.length, 0);

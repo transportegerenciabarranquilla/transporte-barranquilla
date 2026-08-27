@@ -189,9 +189,9 @@ export function VehicleDrawer({
               <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Liquidado</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Pasado a liquidación</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {canUpdateLiquidado ? "Confirma si el vehículo ya fue liquidado." : "Disponible cuando el vehículo esté finalizado."}
+                      {canUpdateLiquidado ? "Confirma si el vehículo ya pasó a liquidación." : "Disponible cuando el vehículo esté finalizado."}
                     </p>
                   </div>
                   <div className="inline-flex rounded-lg bg-slate-100 p-1" aria-label="Estado de liquidación">

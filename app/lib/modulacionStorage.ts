@@ -64,6 +64,19 @@ export function normalizeDt(value: string | number | undefined) {
     .replace(/\D/g, "");
 }
 
+export function normalizeDtVariants(value: string | number | undefined) {
+  const raw = String(value ?? "").trim().replace(/^DT-?/i, "");
+  const variants = new Set<string>();
+  const standard = normalizeDt(raw);
+  const withoutBeesPrefix = raw
+    .replace(/^(?:R\d+S|RS1|S)[\s:._-]*/i, "")
+    .replace(/\D/g, "");
+
+  if (standard) variants.add(standard);
+  if (withoutBeesPrefix) variants.add(withoutBeesPrefix);
+  return Array.from(variants);
+}
+
 export function calculateCajaTope(totalCajas: number) {
   return Math.floor(totalCajas / 100);
 }
