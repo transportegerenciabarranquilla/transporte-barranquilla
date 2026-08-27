@@ -266,6 +266,14 @@ test("asigna cada RR a un solo territorio maximizando el resultado global", () =
   assert.equal(new Set(Array.from(assignments.values()).map((candidate) => candidate.rr)).size, assignments.size);
 });
 
+test("el respaldo ZKI cero no sobrescribe al mismo RR con historial positivo", () => {
+  const historical = { ...fakeCandidate("Juan Perez", 85), rrId: "100", zki: 85, hasKnowledge: true };
+  const fallback = { ...fakeCandidate("JUAN PEREZ", 0), rrId: "999", zki: 0, totalZki: 0, hasKnowledge: false, viable: false };
+  const assignment = assignUniqueResponsibles([{ tripId: "T1", candidates: [historical, fallback] }]);
+  assert.equal(assignment.get("T1")?.zki, 85);
+  assert.equal(assignment.get("T1")?.rrId, "100");
+});
+
 test("no asigna el mismo auxiliar a dos viajes", () => {
   const initial = assignUniqueResponsibles([
     { tripId: "T1", candidates: [fakeCandidate("RR 1", 100)] },

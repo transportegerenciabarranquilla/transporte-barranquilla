@@ -1,5 +1,5 @@
 export type RawRow = Record<string, unknown>;
-export type DriverVehiclePair = { plate: string; driver: string; driverId: string };
+export type DriverVehiclePair = { plate: string; driver: string; driverId: string; responsible?: string; responsibleId?: string };
 
 export type Trip = {
   id: string;
@@ -76,6 +76,7 @@ export type ZkiSettings = {
   frequencyCap: number;
   minimumZki: number;
   depthThreshold: number;
+  crewRetentionPercent: number;
 };
 
 export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
@@ -85,7 +86,52 @@ export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
   frequencyCap: 5,
   minimumZki: 80,
   depthThreshold: 5,
+  crewRetentionPercent: 70,
 };
+
+export function assignResponsiblesWithCrewRetention(
+  plans: Array<{ tripId: string; candidates: Candidate[] }>,
+  pairs: DriverVehiclePair[],
+  retentionPercent: number,
+  minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki,
+) {
+  const pairByResponsible = new Map<string, DriverVehiclePair[]>();
+  pairs.forEach((pair) => {
+    const key = personIdentity(pair.responsibleId || "", pair.responsible || "");
+    if (key) pairByResponsible.set(key, [...(pairByResponsible.get(key) || []), pair]);
+  });
+  const target = Math.min(plans.length, Math.ceil(plans.length * Math.max(0, Math.min(100, retentionPercent)) / 100));
+  if (!target) return assignUniqueResponsibles(plans, minimumZki);
+  const result = new Map<string, Candidate>();
+  const usedRr = new Set<string>();
+  const usedPlates = new Set<string>();
+
+  [...plans]
+    .sort((left, right) => {
+      const score = (plan: typeof left) => plan.candidates.filter((candidate) => pairByResponsible.has(personIdentity(candidate.rrId, candidate.rr))).length;
+      return score(left) - score(right);
+    })
+    .some((plan) => {
+      const selected = plan.candidates.find((candidate) => {
+        const rrKey = personIdentity(candidate.rrId, candidate.rr);
+        return rrKey && !usedRr.has(rrKey) && (pairByResponsible.get(rrKey) || []).some((pair) => !usedPlates.has(normalizeVehicleKey(pair.plate)));
+      });
+      if (!selected) return false;
+      const rrKey = personIdentity(selected.rrId, selected.rr);
+      const pair = (pairByResponsible.get(rrKey) || []).find((item) => !usedPlates.has(normalizeVehicleKey(item.plate)));
+      if (!pair) return false;
+      result.set(plan.tripId, selected);
+      usedRr.add(rrKey);
+      usedPlates.add(normalizeVehicleKey(pair.plate));
+      return result.size >= target;
+    });
+
+  const remaining = plans
+    .filter((plan) => !result.has(plan.tripId))
+    .map((plan) => ({ ...plan, candidates: plan.candidates.filter((candidate) => !usedRr.has(personIdentity(candidate.rrId, candidate.rr))) }));
+  assignUniqueResponsibles(remaining, minimumZki).forEach((candidate, tripId) => result.set(tripId, candidate));
+  return result;
+}
 
 export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidates: Candidate[] }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
   const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
@@ -96,14 +142,24 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
     const row = new Array<Candidate | undefined>(columnCount);
     plan.candidates.forEach((candidate) => {
       const index = rrIndex.get(personIdentity(candidate.rrId, candidate.rr));
-      if (index !== undefined) row[index] = candidate;
+      if (index === undefined) return;
+      const current = row[index];
+      // Un registro de respaldo de Conductores-placas puede representar al
+      // mismo RR que un candidato histórico. Nunca debe borrar su ZKI real.
+      if (!current || candidatePriority(candidate, minimumZki) > candidatePriority(current, minimumZki)) row[index] = candidate;
     });
     return row;
   });
   // La viabilidad de RR + auxiliar se optimiza sin amarrarla al VH histórico:
   // los vehículos se redistribuyen después según peso y disponibilidad.
   const weights = candidateMatrix.map((row) => row.map((candidate) => candidate
-    ? 10_000 + candidate.totalZki + (candidate.workloadAdjustment || 0) + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
+    ? 10_000
+      + candidate.totalZki
+      + (candidate.workloadAdjustment || 0)
+      // Primero maximiza cuántas rutas quedan con conocimiento real; solo
+      // después compara el puntaje ZKI y usa responsables de respaldo.
+      + (candidate.zki > 0 ? 2_000 : 0)
+      + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
     : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
@@ -117,6 +173,14 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   return result;
 }
 
+function candidatePriority(candidate: Candidate, minimumZki: number) {
+  return (candidate.zki > 0 ? 1_000_000 : 0)
+    + (candidate.hasKnowledge ? 100_000 : 0)
+    + (candidate.totalZki >= minimumZki * 2 ? 10_000 : 0)
+    + candidate.totalZki
+    + (candidate.workloadAdjustment || 0);
+}
+
 export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
   const assignments = new Map(plans.flatMap((plan) => plan.recommendation ? [[plan.tripId, plan.recommendation] as const] : []));
   return removeRepeatedAuxiliaries(assignments, minimumZki);
@@ -127,6 +191,7 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   pairs: DriverVehiclePair[],
   capacities: Map<string, number>,
   minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki,
+  retentionPercent = DEFAULT_ZKI_SETTINGS.crewRetentionPercent,
 ) {
   const available = [...new Map(pairs
     .filter((pair) => pair.plate && pair.driver)
@@ -134,20 +199,40 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
     .map(([key, pair]) => ({ ...pair, key, capacity: capacities.get(key) || 0 }));
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
+  // La pareja RR-conductor es la unidad habitual que se debe conservar. El
+  // auxiliar es intercambiable y se distribuye luego segun disponibilidad.
+  const effectiveRetention = Math.max(0, Math.min(100, retentionPercent));
+  const retentionTarget = Math.ceil(plans.length * effectiveRetention / 100);
+  const reservedPairByTrip = new Map<string, (typeof available)[number]>();
+  const reservedPairKeys = new Set<string>();
+  plans
+    .filter(({ recommendation }) => Boolean(recommendation))
+    .sort((left, right) => Number(Boolean(right.recommendation?.hasKnowledge)) - Number(Boolean(left.recommendation?.hasKnowledge)) || right.trip.weight - left.trip.weight)
+    .some(({ trip, recommendation }) => {
+      const pair = available.find((item) => !reservedPairKeys.has(item.key)
+        && samePerson(item.responsibleId, item.responsible, recommendation?.rrId, recommendation?.rr));
+      if (!pair) return false;
+      reservedPairByTrip.set(trip.id, pair);
+      reservedPairKeys.add(pair.key);
+      return reservedPairByTrip.size >= retentionTarget;
+    });
 
   [...plans].sort((left, right) => {
+    const leftReserved = reservedPairByTrip.has(left.trip.id);
+    const rightReserved = reservedPairByTrip.has(right.trip.id);
     const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki * 2);
     const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki * 2);
-    return Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
+    return Number(rightReserved) - Number(leftReserved) || Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
   }).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate || trip.vehicle);
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     const unused = available.filter((pair) => !used.has(pair.key));
-    const selected = unused.find((pair) => assignedKey && pair.key === assignedKey)
+    const selected = reservedPairByTrip.get(trip.id)
+      || unused.find((pair) => assignedKey && pair.key === assignedKey)
       || unused.find((pair) => habitualKey && pair.key === habitualKey)
-      || unused.filter((pair) => pair.capacity >= trip.weight).sort((left, right) => left.capacity - right.capacity)[0]
-      || unused.sort((left, right) => right.capacity - left.capacity)[0];
+      || unused.filter((pair) => !reservedPairKeys.has(pair.key) && pair.capacity >= trip.weight).sort((left, right) => left.capacity - right.capacity)[0]
+      || unused.filter((pair) => !reservedPairKeys.has(pair.key)).sort((left, right) => right.capacity - left.capacity)[0];
 
     if (!selected) {
       result.set(trip.id, {
@@ -241,8 +326,19 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
 }
 
 function personIdentity(id: string | undefined, name: string | undefined) {
+  const normalizedName = normalizePersonName(name || "");
+  if (normalizedName && !normalizedName.startsWith("sin")) return `name:${normalizedName}`;
   const normalizedId = String(id || "").replace(/\D/g, "").replace(/^0+/, "");
-  return normalizedId ? `id:${normalizedId}` : `name:${normalizePersonName(name || "")}`;
+  return normalizedId ? `id:${normalizedId}` : "";
+}
+
+function samePerson(leftId: string | undefined, leftName: string | undefined, rightId: string | undefined, rightName: string | undefined) {
+  const cleanLeftId = String(leftId || "").replace(/\D/g, "");
+  const cleanRightId = String(rightId || "").replace(/\D/g, "");
+  if (cleanLeftId && cleanRightId && cleanLeftId === cleanRightId) return true;
+  const cleanLeftName = normalizePersonName(leftName || "");
+  const cleanRightName = normalizePersonName(rightName || "");
+  return Boolean(cleanLeftName && cleanRightName && cleanLeftName === cleanRightName);
 }
 
 export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?: Candidate }>(plans: T[], capacities: Map<string, number>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
