@@ -10,7 +10,6 @@ const ALLOWED = ["logisticos"];
 const aliases = {
   code: ["cliente", "codigo cliente", "codigo del cliente", "codigo", "cod cliente", "customer code"],
   name: ["nombre cliente", "nombre del cliente", "nombre", "razon social", "nombre del establecimiento", "establecimiento"],
-  phone: ["telefono", "numero de telefono", "telefono cliente", "celular", "phone"],
   refusals: ["rechazos", "veces rechazado", "cantidad rechazos", "numero de rechazos", "rechazos anteriores", "refusal"],
 };
 
@@ -36,21 +35,21 @@ export async function POST(request: Request) {
     if (!raw.length) return NextResponse.json({ error: "El Excel no contiene clientes." }, { status: 400 });
     const headers = Object.keys(raw[0]);
     const find = (names: string[]) => headers.find((header) => names.includes(normalize(header)));
-    const columns = { code: find(aliases.code), name: find(aliases.name), phone: find(aliases.phone), refusals: find(aliases.refusals) };
+    const columns = { code: find(aliases.code), name: find(aliases.name), refusals: find(aliases.refusals) };
     if (!columns.code || !columns.name) return NextResponse.json({ error: "El Excel debe incluir las columnas Cliente y Nombre." }, { status: 400 });
     const batchId = createHash("sha256").update(Buffer.from(bytes)).digest("hex").slice(0, 20);
     const databaseHeaders = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const clientHistory = await readClientHistory(databaseHeaders, contractor);
-    const grouped = new Map<string, { name: string; phone: string; products: ProductLine[] }>();
+    const grouped = new Map<string, { name: string; products: ProductLine[] }>();
     raw.forEach((item) => {
       const code = String(item[columns.code!] ?? "").trim();
       if (!code) return;
       const key = code.toLowerCase();
-      const current = grouped.get(key) || { name: String(item[columns.name!] ?? "").trim(), phone: String(columns.phone ? item[columns.phone] : clientHistory.get(key)?.phone || "").trim(), products: [] };
+      const current = grouped.get(key) || { name: String(item[columns.name!] ?? "").trim(), products: [] };
       current.products.push({ order: readCell(item, headers, ["documento"]), customer_order: readCell(item, headers, ["no ped cli", "no ped cliente", "pedido cliente"]), material: readCell(item, headers, ["material"]), product: readCell(item, headers, ["material 1", "producto", "descripcion material"]), boxes: readNumber(item, headers, ["cajas"]), hectoliters: readNumber(item, headers, ["hectolitro", "hectolitros"]), net_value: readNumber(item, headers, ["valor neto"]), gross_weight: readNumber(item, headers, ["peso bruto"]) });
       grouped.set(key, current);
     });
-    const rows = Array.from(grouped.entries()).map(([key, client]) => ({ contractor, batch_id: batchId, batch_name: file.name, client_code: key, client_name: client.name, phone: client.phone, previous_refusals: clientHistory.get(key)?.refusals || 0, products: mergeProductLines(client.products) }));
+    const rows = Array.from(grouped.entries()).map(([key, client]) => ({ contractor, batch_id: batchId, batch_name: file.name, client_code: key, client_name: client.name, previous_refusals: clientHistory.get(key)?.refusals || 0, products: mergeProductLines(client.products) }));
     if (!rows.length) return NextResponse.json({ error: "No se encontraron filas validas." }, { status: 400 });
     const extra = { Prefer: "resolution=merge-duplicates,return=minimal" };
     const response = await fetch(supabaseRest(TABLE, "?on_conflict=contractor,batch_id,client_code"), { method: "POST", headers: supabaseAdminHeaders(extra) ?? supabaseUserHeaders(session.accessToken, extra), body: JSON.stringify(rows), cache: "no-store" });
@@ -62,47 +61,23 @@ export async function POST(request: Request) {
 }
 
 async function readClientHistory(headers: Record<string, string>, contractor: string) {
-  const totals = new Map<string, { refusals: number; phone: string }>();
+  const totals = new Map<string, { refusals: number }>();
   const pageSize = 1_000;
   for (let offset = 0; ; offset += pageSize) {
-    const params = new URLSearchParams({ select: "client_code:data->>codigoCliente,phone:data->>telefonoCliente", contractor: `eq.${contractor}`, limit: String(pageSize), offset: String(offset) });
+    const params = new URLSearchParams({ select: "client_code:data->>codigoCliente", contractor: `eq.${contractor}`, limit: String(pageSize), offset: String(offset) });
     const response = await fetch(supabaseRest("modulaciones_ruta", `?${params}`), { headers, cache: "no-store" });
     if (!response.ok) throw new Error(await supabaseError(response));
-    const page = await response.json() as { client_code?: string; phone?: string }[];
+    const page = await response.json() as { client_code?: string }[];
     page.forEach((row) => {
       const code = String(row.client_code || "").trim().toLowerCase();
       if (!code) return;
       const current = totals.get(code);
-      totals.set(code, { refusals: (current?.refusals || 0) + 1, phone: String(row.phone || current?.phone || "").trim() });
+      totals.set(code, { refusals: (current?.refusals || 0) + 1 });
     });
     if (page.length < pageSize) break;
   }
-  const masterPhones = await readMasterClientPhones(headers).catch(() => new Map<string, string>());
-  masterPhones.forEach((phone, code) => { const current = totals.get(code); totals.set(code, { refusals: current?.refusals || 0, phone: phone || current?.phone || "" }); });
   return totals;
 }
-
-async function readMasterClientPhones(headers: Record<string, string>) {
-  const phones = new Map<string, string>();
-  const pageSize = 1_000;
-  for (let offset = 0; ; offset += pageSize) {
-    const params = new URLSearchParams({ select: "*", limit: String(pageSize), offset: String(offset) });
-    const response = await fetch(supabaseRest("clientes", `?${params}`), { headers, cache: "no-store" });
-    if (!response.ok) throw new Error(await supabaseError(response));
-    const page = await response.json() as Record<string, unknown>[];
-    page.forEach((row) => {
-      const entries = Object.entries(row);
-      const code = readDatabaseValue(entries, ["codigo", "codigocliente", "codcliente", "cliente", "nit"]);
-      const phone = readDatabaseValue(entries, ["telefono", "telefonocliente", "telefono1", "celular", "celular1", "movil", "phone", "tel"]);
-      if (code && phone) phones.set(code.toLowerCase(), phone);
-    });
-    if (page.length < pageSize) break;
-  }
-  return phones;
-}
-
-function readDatabaseValue(entries: [string, unknown][], aliases: string[]) { const found = entries.find(([key, value]) => aliases.includes(normalizeKey(key)) && String(value ?? "").trim()); return String(found?.[1] ?? "").trim(); }
-function normalizeKey(value: string) { return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 function readCell(row: Record<string, unknown>, headers: string[], aliases: string[]) { const header = headers.find((item) => aliases.includes(normalize(item))); return String(header ? row[header] ?? "" : "").trim(); }
 function readNumber(row: Record<string, unknown>, headers: string[], aliases: string[]) { const value = Number(readCell(row, headers, aliases).replace(/\s/g, "").replace(/\.(?=\d{3}(?:\D|$))/g, "").replace(",", ".").replace(/[^\d.-]/g, "")); return Number.isFinite(value) ? value : 0; }
 function mergeProductLines(lines: ProductLine[]) { const grouped = new Map<string, ProductLine>(); lines.forEach((line) => { const key = `${line.order}:${line.customer_order}:${line.material}:${line.product}`; const current = grouped.get(key); grouped.set(key, current ? { ...current, boxes: current.boxes + line.boxes, hectoliters: current.hectoliters + line.hectoliters, net_value: current.net_value + line.net_value, gross_weight: current.gross_weight + line.gross_weight } : line); }); return Array.from(grouped.values()); }

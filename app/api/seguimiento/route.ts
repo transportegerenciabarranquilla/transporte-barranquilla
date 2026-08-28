@@ -35,7 +35,9 @@ export async function GET(request: Request) {
     if (!session && !publicContractor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
 
     const contractor = session?.isAdmin && publicContractor ? publicContractor : session?.contractor || publicContractor;
-    const isGlobalAdminQuery = session?.isAdmin && !publicContractor;
+    // People necesita consultar todos los contratistas para cruzar el DT de
+    // asistencia con el VH de salida en la auditoría ZKI.
+    const isGlobalAdminQuery = Boolean((session?.isAdmin || session?.isPeople) && !publicContractor);
     const readHeaders = session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders();
     const canScanAllRows = Boolean(supabaseAdminHeaders());
     const params = new URLSearchParams(
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
         .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.data.transportista || row.contractor || "" })),
     );
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
-    return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin ? undefined : contractor) });
+    return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin || session?.isPeople ? undefined : contractor) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando seguimiento." }, { status: 500 });
   }

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
-import { normalizePlate, readZkiCrewRows } from "./crewTable";
+import { readZkiCrewRows } from "./crewTable";
 
 const PAGE_SIZE = 1_000;
-const CACHE_TTL_MS = 5 * 60 * 1_000;
+const CACHE_TTL_MS = 30 * 60 * 1_000;
 type ZkiPayload = { rows: Record<string, unknown>[]; history: Record<string, unknown>[]; capacities: Record<string, unknown>[]; crew: Awaited<ReturnType<typeof readZkiCrewRows>>; source: { table: string; rows: number; columns: string[] } };
 let cachedPayload: { expiresAt: number; value: ZkiPayload } | null = null;
 
@@ -18,8 +18,11 @@ export async function GET(request: Request) {
       return NextResponse.json(cachedPayload.value, { headers: { "X-ZKI-Cache": "HIT" } });
     }
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const [zki, history, capacities, crew] = await Promise.all([readZkiHistory(headers), readHistory(headers), readRows("capacidad_carga", headers), readZkiCrewRows(headers)]);
-    const payload = { rows: zki.rows, history: applyCrewTable(history, crew), capacities, crew, source: { table: "ZKI", rows: zki.sourceRows, columns: zki.columns } };
+    // El cálculo vigente obtiene conocimiento de ZKI y las parejas de
+    // Conductores-placas. Recorrer todo seguimiento_vehiculos era redundante:
+    // rankCandidates no usa ese histórico y la consulta ralentizaba cada carga.
+    const [zki, capacities, crew] = await Promise.all([readZkiHistory(headers), readRows("capacidad_carga", headers), readZkiCrewRows(headers)]);
+    const payload = { rows: zki.rows, history: [], capacities, crew, source: { table: "ZKI", rows: zki.sourceRows, columns: zki.columns } };
     cachedPayload = { value: payload, expiresAt: Date.now() + CACHE_TTL_MS };
     return NextResponse.json(payload, { headers: { "X-ZKI-Cache": "MISS" } });
   } catch (error) {
@@ -27,31 +30,47 @@ export async function GET(request: Request) {
   }
 }
 
-function applyCrewTable(history: Record<string, unknown>[], crew: Awaited<ReturnType<typeof readZkiCrewRows>>) {
-  const crewByPlate = new Map(crew.map((row) => [row.plate, row]));
-  return history.map((row) => {
-    const assigned = crewByPlate.get(normalizePlate(row.vehiculo));
-    return assigned ? { ...row, nombreAuxiliar1: assigned.driver, cedulaAuxiliar1: assigned.driverId } : row;
-  });
-}
-
 async function readZkiHistory(headers: Record<string, string>) {
-  const rows: Record<string, unknown>[] = [];
-  let sourceRows = 0;
   const columns = ["Codigo", "Poblacion", "Barrio", "Nombre", "Cedula", "Cargo"];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
+  const readPage = async (offset: number, count = false) => {
     const query = new URLSearchParams({ select: columns.join(","), limit: String(PAGE_SIZE), offset: String(offset) });
-    const response = await fetch(supabaseRest("ZKI", `?${query}`), { headers, cache: "no-store" });
+    const response = await fetch(supabaseRest("ZKI", `?${query}`), {
+      headers: count ? { ...headers, Prefer: "count=exact" } : headers,
+      cache: "no-store",
+    });
     if (!response.ok) throw new Error(`ZKI: ${await supabaseError(response)}`);
-    const page = await response.json() as Record<string, unknown>[];
-    sourceRows += page.length;
-    // Cada fila de ZKI representa una visita. Se conservan incluso cuando
-    // todos sus campos coinciden para que la frecuencia refleje las veces que
-    // el RR atendio al mismo cliente.
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
+    const rows = await response.json() as Record<string, unknown>[];
+    const totalText = response.headers.get("content-range")?.split("/")[1] || "";
+    const total = /^\d+$/.test(totalText) ? Number(totalText) : undefined;
+    return { rows, total };
+  };
+
+  const first = await readPage(0, true);
+  const pages: Record<string, unknown>[][] = [first.rows];
+  if (first.total !== undefined) {
+    const offsets = Array.from({ length: Math.max(0, Math.ceil(first.total / PAGE_SIZE) - 1) }, (_, index) => (index + 1) * PAGE_SIZE);
+    // Se limita la concurrencia para acelerar Supabase sin lanzar decenas de
+    // solicitudes simultáneas sobre tablas históricas grandes.
+    for (let index = 0; index < offsets.length; index += 8) {
+      const batch = await Promise.all(offsets.slice(index, index + 8).map((offset) => readPage(offset)));
+      pages.push(...batch.map((page) => page.rows));
+    }
+  } else {
+    for (let offset = PAGE_SIZE; pages.at(-1)?.length === PAGE_SIZE; offset += PAGE_SIZE) {
+      const page = await readPage(offset);
+      pages.push(page.rows);
+    }
   }
-  return { rows, sourceRows, columns };
+
+  const sourceRows = first.total ?? pages.reduce((total, page) => total + page.length, 0);
+  const compacted = new Map<string, Record<string, unknown>>();
+  pages.flat().forEach((row) => {
+    const key = columns.map((column) => String(row[column] ?? "").trim().toLocaleLowerCase("es")).join("\u001f");
+    const current = compacted.get(key);
+    if (current) current.Visitas = Number(current.Visitas || 1) + 1;
+    else compacted.set(key, { ...row, Visitas: 1 });
+  });
+  return { rows: [...compacted.values()], sourceRows, columns };
 }
 
 async function readRows(table: string, headers: Record<string, string>) {
@@ -64,44 +83,4 @@ async function readRows(table: string, headers: Record<string, string>) {
     rows.push(...page);
     if (page.length < PAGE_SIZE) return rows;
   }
-}
-
-async function readHistory(headers: Record<string, string>) {
-  const select = [
-    "vehiculo:data->>vehiculo", "territorio:data->>territorio", "clientes:data->>clientes",
-    "visitados:data->>visitados", "fechaDespacho:data->>fechaDespacho",
-    "nombreResponsable:data->>nombreResponsable", "responsable:data->>responsable",
-    "cedulaResponsable:data->>cedulaResponsable", "nombreAuxiliar1:data->>nombreAuxiliar1",
-    "cedulaAuxiliar1:data->>cedulaAuxiliar1",
-  ].join(",");
-  const people = new Map<string, Record<string, unknown>>();
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const query = new URLSearchParams({ select, order: "updated_at.desc", limit: String(PAGE_SIZE), offset: String(offset) });
-    const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${query}`), { headers, cache: "no-store" });
-    if (!response.ok) throw new Error(`Seguimiento: ${await supabaseError(response)}`);
-    const page = await response.json() as Record<string, unknown>[];
-    page.forEach((raw) => {
-      const row: Record<string, unknown> = { ...raw, nombreResponsable: raw.nombreResponsable || raw.responsable };
-      const id = String(row.cedulaResponsable || "").replace(/\D/g, "");
-      const name = normalizePersonName(row.nombreResponsable);
-      const key = id ? `id:${id}` : name ? `name:${name}` : "";
-      if (!key) return;
-      const current = people.get(key);
-      if (!current) {
-        people.set(key, row);
-        return;
-      }
-      // Las páginas vienen de más reciente a más antigua: solo se
-      // completan vacíos, sin reemplazar una identidad reciente válida.
-      ["vehiculo", "territorio", "clientes", "visitados", "fechaDespacho", "nombreResponsable", "cedulaResponsable", "nombreAuxiliar1", "cedulaAuxiliar1"].forEach((field) => {
-        if (!current[field] && row[field]) current[field] = row[field];
-      });
-    });
-    if (page.length < PAGE_SIZE) break;
-  }
-  return [...people.values()];
-}
-
-function normalizePersonName(value: unknown) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }

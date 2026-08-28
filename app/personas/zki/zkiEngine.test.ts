@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assignCompatibleVehicles, assignDriverVehiclePairs, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, enforceUniqueAssignedCrew, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
+import { assignCompatibleVehicles, assignDriverVehiclePairs, assignResponsiblesWithCrewRetention, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, enforceUniqueAssignedCrew, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
 
 test("interpreta las columnas operativas del Excel ZKI", () => {
   const [trip] = parseTrips([{ "Fecha de entrega": "8/6/2026", Número: 1, Nombre: "El Triunfo", Peso: "8547,08", Clientes: 20, "Peso Maximo": 9710 }]);
@@ -82,6 +82,24 @@ test("completa todas las rutas con parejas conductor y carro diferentes", () => 
   assert.deepEqual(new Set(Array.from(assigned.values(), (row) => `${row.driver}:${row.vehicle}`)), new Set(["Conductor A:AAA111", "Conductor B:BBB222"]));
 });
 
+test("si el VH fijo no esta disponible toma otro VH disponible con su conductor", () => {
+  const [trip] = parseTrips([{ Numero: 1, Nombre: "Zona", Peso: 8_000 }]);
+  const recommendation = { ...fakeCandidate("RR 1", 170), driver: "Conductor fijo", vehicle: "VH-FIJO" };
+  const assigned = assignDriverVehiclePairs(
+    [{ trip, recommendation }],
+    [
+      { plate: "VH-FIJO", driver: "Conductor fijo", driverId: "10" },
+      { plate: "VH-DISPONIBLE", driver: "Conductor disponible", driverId: "20" },
+    ],
+    // VH-FIJO no aparece: fue marcado como indisponible.
+    new Map([["disponible", 9_000]]),
+  ).get(trip.id);
+
+  assert.equal(assigned?.vehicle, "VH-DISPONIBLE");
+  assert.equal(assigned?.driver, "Conductor disponible");
+  assert.notEqual(assigned?.driver, "Conductor fijo");
+});
+
 test("si faltan carros prioriza la ruta viable y deja la de ZKI cero sin placa", () => {
   const trips = parseTrips([
     { Número: 1, Nombre: "ZKI cero", Peso: 9_000 },
@@ -94,6 +112,23 @@ test("si faltan carros prioriza la ruta viable y deja la de ZKI cero sin placa",
     [{ plate: "AAA111", driver: "Conductor A", driverId: "10" }],
     new Map([["aaa111", 10_000]]),
   );
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "AAA111");
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "Sin placa");
+});
+
+test("si faltan parejas prioriza el mayor ZKI del RR aunque su ruta pese menos", () => {
+  const trips = parseTrips([
+    { Numero: 1, Nombre: "ZKI bajo", Peso: 9_000 },
+    { Numero: 2, Nombre: "ZKI alto", Peso: 7_000 },
+  ]);
+  const low = { ...fakeCandidate("RR bajo", 40), zki: 15, totalZki: 40, viable: false };
+  const high = { ...fakeCandidate("RR alto", 120), zki: 75, totalZki: 120, viable: false };
+  const assigned = assignDriverVehiclePairs(
+    [{ trip: trips[0], recommendation: low }, { trip: trips[1], recommendation: high }],
+    [{ plate: "AAA111", driver: "Conductor A", driverId: "10" }],
+    new Map([["aaa111", 10_000]]),
+  );
+
   assert.equal(assigned.get(trips[1].id)?.vehicle, "AAA111");
   assert.equal(assigned.get(trips[0].id)?.vehicle, "Sin placa");
 });
@@ -206,7 +241,7 @@ test("frecuencia usa clientes únicos atendidos y no todos los del territorio", 
   assert.equal(candidate.frequency, 1);
   assert.equal(candidate.frequencyScore, 20);
   assert.equal(candidate.depth, 0);
-  assert.equal(candidate.zki, 20);
+  assert.equal(candidate.zki, 16);
 });
 
 test("profundidad se calcula sobre clientes únicos atendidos", () => {
@@ -235,7 +270,8 @@ test("reproduce el ZKI 90,05 de la matriz SKI para territorio 2", () => {
   }
   visitRows.push({ Codigo: 1000, Nombre: "Rodriguez Bayona Julian", Cargo: "Responsable" });
   const clients = Array.from({ length: 22 }, (_, index) => String(1000 + index));
-  const [candidate] = rankCandidates(trip, history, parseZkiVisits(visitRows), clients, capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
+  const matrixSettings = { ...DEFAULT_ZKI_SETTINGS, coverageWeight: 60, frequencyWeight: 25, depthWeight: 15 };
+  const [candidate] = rankCandidates(trip, history, parseZkiVisits(visitRows), clients, capacityMap([trip.raw]), matrixSettings);
   assert.equal(candidate.coverage, 90.91);
   assert.equal(candidate.frequency, 8.75);
   assert.equal(candidate.frequencyScore, 100);
@@ -266,6 +302,91 @@ test("asigna cada RR a un solo territorio maximizando el resultado global", () =
   assert.equal(new Set(Array.from(assignments.values()).map((candidate) => candidate.rr)).size, assignments.size);
 });
 
+test("mueve la pareja RR-conductor al territorio de mejor ZKI y redistribuye la desplazada", () => {
+  const trips = parseTrips([
+    { Numero: 1, Nombre: "Territorio 1", Peso: 8_000 },
+    { Numero: 2, Nombre: "Territorio 2", Peso: 8_000 },
+  ]);
+  const pairs = [
+    { plate: "AAA111", driver: "Conductor 1", driverId: "10", responsible: "RR 1", responsibleId: "RR 1" },
+    { plate: "BBB222", driver: "Conductor 2", driverId: "20", responsible: "RR 2", responsibleId: "RR 2" },
+  ];
+  const responsibleAssignments = assignResponsiblesWithCrewRetention([
+    { tripId: trips[0].id, candidates: [{ ...fakeCandidate("RR 1", 70), zki: 70 }, { ...fakeCandidate("RR 2", 90), zki: 90 }] },
+    { tripId: trips[1].id, candidates: [{ ...fakeCandidate("RR 1", 95), zki: 95 }, { ...fakeCandidate("RR 2", 60), zki: 60 }] },
+  ], pairs, 100);
+  const crewAssignments = assignDriverVehiclePairs(
+    trips.map((trip) => ({ trip, recommendation: responsibleAssignments.get(trip.id) })),
+    pairs,
+    new Map([["aaa111", 10_000], ["bbb222", 10_000]]),
+    DEFAULT_ZKI_SETTINGS.minimumZki,
+    100,
+  );
+
+  assert.equal(crewAssignments.get(trips[0].id)?.rr, "RR 2");
+  assert.equal(crewAssignments.get(trips[0].id)?.driver, "Conductor 2");
+  assert.equal(crewAssignments.get(trips[1].id)?.rr, "RR 1");
+  assert.equal(crewAssignments.get(trips[1].id)?.driver, "Conductor 1");
+});
+
+test("cuando cambia conductor también cambia al RR asociado a esa pareja", () => {
+  const [trip] = parseTrips([{ Numero: 1, Nombre: "Territorio", Peso: 8_000 }]);
+  const unavailable = { ...fakeCandidate("RR 1", 95), zki: 95 };
+  const available = { ...fakeCandidate("RR 2", 90), zki: 90 };
+  const assigned = assignDriverVehiclePairs(
+    [{ trip, candidates: [unavailable, available], recommendation: unavailable }],
+    [{ plate: "BBB222", driver: "Conductor 2", driverId: "20", responsible: "RR 2", responsibleId: "RR 2" }],
+    new Map([["bbb222", 10_000]]),
+  ).get(trip.id);
+
+  assert.equal(assigned?.rr, "RR 2");
+  assert.equal(assigned?.driver, "Conductor 2");
+  assert.equal(assigned?.vehicle, "BBB222");
+});
+
+test("con parejas escasas cubre globalmente territorios con ZKI positivo antes que ZKI cero", () => {
+  const trips = parseTrips([
+    { Numero: 1, Nombre: "Territorio cero", Peso: 8_000 },
+    { Numero: 2, Nombre: "Territorio positivo", Peso: 8_000 },
+  ]);
+  const rr = "RR con pareja";
+  const zero = { ...fakeCandidate(rr, 0), zki: 0, totalZki: 0, hasKnowledge: false };
+  const positive = { ...fakeCandidate(rr, 90), zki: 90, totalZki: 90, hasKnowledge: true };
+  const assigned = assignDriverVehiclePairs(
+    [
+      { trip: trips[0], candidates: [zero], recommendation: zero },
+      { trip: trips[1], candidates: [positive], recommendation: positive },
+    ],
+    [{ plate: "AAA111", driver: "Conductor", driverId: "10", responsible: rr, responsibleId: rr }],
+    new Map([["aaa111", 10_000]]),
+  );
+
+  assert.equal(assigned.has(trips[0].id), false);
+  assert.equal(assigned.get(trips[1].id)?.rr, rr);
+  assert.equal(assigned.get(trips[1].id)?.zki, 90);
+});
+
+test("conserva un RR único cuando se agotan las parejas conductor vehículo", () => {
+  const trips = parseTrips([
+    { Número: 1, Nombre: "Zona 1", Peso: 8_000 },
+    { Número: 2, Nombre: "Zona 2", Peso: 8_000 },
+  ]);
+  const first = { ...fakeCandidate("RR 1", 90), zki: 90 };
+  const second = { ...fakeCandidate("RR 2", 80), zki: 80 };
+  const assigned = assignDriverVehiclePairs(
+    [
+      { trip: trips[0], candidates: [first, second], recommendation: first },
+      { trip: trips[1], candidates: [second, first], recommendation: second },
+    ],
+    [{ plate: "AAA111", driver: "Conductor 1", driverId: "10", responsible: "RR 1", responsibleId: "RR 1" }],
+    new Map([["aaa111", 10_000]]),
+  );
+  assert.equal(assigned.size, 2);
+  assert.equal(assigned.get(trips[1].id)?.rr, "RR 2");
+  assert.equal(assigned.get(trips[1].id)?.driver, "Sin conductor disponible");
+  assert.equal(assigned.get(trips[1].id)?.capacity, 0);
+});
+
 test("el respaldo ZKI cero no sobrescribe al mismo RR con historial positivo", () => {
   const historical = { ...fakeCandidate("Juan Perez", 85), rrId: "100", zki: 85, hasKnowledge: true };
   const fallback = { ...fakeCandidate("JUAN PEREZ", 0), rrId: "999", zki: 0, totalZki: 0, hasKnowledge: false, viable: false };
@@ -294,6 +415,59 @@ test("usa el siguiente auxiliar disponible antes de dejar el viaje sin auxiliar"
   const assignments = enforceUniqueAssignedCrew(Array.from(initial, ([tripId, recommendation]) => ({ tripId, recommendation })));
   assert.equal(assignments.get("T1")?.auxiliary, "Auxiliar");
   assert.equal(assignments.get("T2")?.auxiliary, "Auxiliar 2");
+});
+
+test("distribuye auxiliares globalmente para evitar ZKI cero cuando existe una alternativa", () => {
+  const flexible = {
+    ...fakeCandidate("RR 1", 80), auxiliary: "Auxiliar A", auxiliaryId: "A", auxiliaryZki: 90,
+    auxiliaryOptions: [{ name: "Auxiliar A", id: "A", zki: 90 }, { name: "Auxiliar B", id: "B", zki: 80 }],
+  };
+  const restricted = {
+    ...fakeCandidate("RR 2", 80), auxiliary: "Auxiliar A", auxiliaryId: "A", auxiliaryZki: 70,
+    auxiliaryOptions: [{ name: "Auxiliar A", id: "A", zki: 70 }, { name: "Auxiliar C", id: "C", zki: 0 }],
+  };
+  const assignments = enforceUniqueAssignedCrew([
+    { tripId: "T1", recommendation: flexible },
+    { tripId: "T2", recommendation: restricted },
+  ]);
+  assert.equal(assignments.get("T1")?.auxiliary, "Auxiliar B");
+  assert.equal(assignments.get("T2")?.auxiliary, "Auxiliar A");
+  assert.equal(Array.from(assignments.values()).filter((candidate) => candidate.auxiliaryZki === 0).length, 0);
+});
+
+test("balancea RR bajo con auxiliar alto y RR alto con auxiliar bajo", () => {
+  const options = [
+    { name: "Auxiliar alto", id: "A", zki: 100 },
+    { name: "Auxiliar bajo", id: "B", zki: 60 },
+  ];
+  const rrAlto = {
+    ...fakeCandidate("RR alto", 100), zki: 100,
+    auxiliary: options[0].name, auxiliaryId: options[0].id, auxiliaryZki: options[0].zki, auxiliaryOptions: options,
+  };
+  const rrBajo = {
+    ...fakeCandidate("RR bajo", 40), zki: 40,
+    auxiliary: options[0].name, auxiliaryId: options[0].id, auxiliaryZki: options[0].zki, auxiliaryOptions: options,
+  };
+  const assignments = enforceUniqueAssignedCrew([
+    { tripId: "ALTO", recommendation: rrAlto },
+    { tripId: "BAJO", recommendation: rrBajo },
+  ]);
+  assert.equal(assignments.get("ALTO")?.auxiliary, "Auxiliar bajo");
+  assert.equal(assignments.get("BAJO")?.auxiliary, "Auxiliar alto");
+});
+
+test("no concentra un auxiliar 100 en un RR 100 cuando uno menor completa el objetivo", () => {
+  const options = [
+    { name: "Auxiliar 100", id: "A", zki: 100 },
+    { name: "Auxiliar 60", id: "B", zki: 60 },
+  ];
+  const rr = {
+    ...fakeCandidate("RR 100", 100), zki: 100,
+    auxiliary: options[0].name, auxiliaryId: options[0].id, auxiliaryZki: options[0].zki, auxiliaryOptions: options,
+  };
+  const assignments = enforceUniqueAssignedCrew([{ tripId: "T1", recommendation: rr }]);
+  assert.equal(assignments.get("T1")?.auxiliary, "Auxiliar 60");
+  assert.equal(assignments.get("T1")?.totalZki, 160);
 });
 
 test("la selección de RR no descarta rutas por compartir conductor histórico", () => {

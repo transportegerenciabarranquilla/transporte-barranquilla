@@ -80,9 +80,9 @@ export type ZkiSettings = {
 };
 
 export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
-  coverageWeight: 60,
-  frequencyWeight: 25,
-  depthWeight: 15,
+  coverageWeight: 40,
+  frequencyWeight: 30,
+  depthWeight: 30,
   frequencyCap: 5,
   minimumZki: 80,
   depthThreshold: 5,
@@ -106,12 +106,26 @@ export function assignResponsiblesWithCrewRetention(
   const usedRr = new Set<string>();
   const usedPlates = new Set<string>();
 
-  [...plans]
-    .sort((left, right) => {
-      const score = (plan: typeof left) => plan.candidates.filter((candidate) => pairByResponsible.has(personIdentity(candidate.rrId, candidate.rr))).length;
-      return score(left) - score(right);
-    })
-    .some((plan) => {
+  // Se parte de la mejor distribuciÃ³n ZKI global. De esa cadena se reservan
+  // las parejas habituales necesarias, evitando que el porcentaje de
+  // retenciÃ³n deje un RR en un territorio peor solo por el orden de las filas.
+  const optimal = assignUniqueResponsibles(plans, minimumZki);
+  [...optimal.entries()]
+    .sort((left, right) => candidatePriority(right[1], minimumZki) - candidatePriority(left[1], minimumZki))
+    .some(([tripId, selected]) => {
+      const rrKey = personIdentity(selected.rrId, selected.rr);
+      const pair = (pairByResponsible.get(rrKey) || []).find((item) => !usedPlates.has(normalizeVehicleKey(item.plate)));
+      if (!pair) return false;
+      result.set(tripId, selected);
+      usedRr.add(rrKey);
+      usedPlates.add(normalizeVehicleKey(pair.plate));
+      return result.size >= target;
+    });
+
+  // Si la soluciÃ³n global no alcanza el objetivo porque alguno de sus RR no
+  // tiene pareja catalogada, completa la reserva con la mejor alternativa.
+  if (result.size < target) {
+    plans.filter((plan) => !result.has(plan.tripId)).some((plan) => {
       const selected = plan.candidates.find((candidate) => {
         const rrKey = personIdentity(candidate.rrId, candidate.rr);
         return rrKey && !usedRr.has(rrKey) && (pairByResponsible.get(rrKey) || []).some((pair) => !usedPlates.has(normalizeVehicleKey(pair.plate)));
@@ -125,6 +139,7 @@ export function assignResponsiblesWithCrewRetention(
       usedPlates.add(normalizeVehicleKey(pair.plate));
       return result.size >= target;
     });
+  }
 
   const remaining = plans
     .filter((plan) => !result.has(plan.tripId))
@@ -186,7 +201,7 @@ export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recomme
   return removeRepeatedAuxiliaries(assignments, minimumZki);
 }
 
-export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?: Candidate }>(
+export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Candidate[]; recommendation?: Candidate }>(
   plans: T[],
   pairs: DriverVehiclePair[],
   capacities: Map<string, number>,
@@ -196,7 +211,14 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   const available = [...new Map(pairs
     .filter((pair) => pair.plate && pair.driver)
     .map((pair) => [normalizeVehicleKey(pair.plate), pair])).entries()]
+    // `capacities` contiene exclusivamente los VH habilitados para ZKI. La
+    // pareja conductor-VH es indivisible: un VH indisponible no puede aportar
+    // su conductor para usarlo luego con otra placa.
+    .filter(([key]) => capacities.has(key))
     .map(([key, pair]) => ({ ...pair, key, capacity: capacities.get(key) || 0 }));
+  if (available.some((pair) => pair.responsible || pair.responsibleId)) {
+    return assignCatalogPairsGlobally(plans, available, minimumZki, retentionPercent);
+  }
   const used = new Set<string>();
   const result = new Map<string, Candidate>();
   // La pareja RR-conductor es la unidad habitual que se debe conservar. El
@@ -207,9 +229,10 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   const reservedPairKeys = new Set<string>();
   plans
     .filter(({ recommendation }) => Boolean(recommendation))
-    .sort((left, right) => Number(Boolean(right.recommendation?.hasKnowledge)) - Number(Boolean(left.recommendation?.hasKnowledge)) || right.trip.weight - left.trip.weight)
+    .sort((left, right) => crewAssignmentPriority(right.recommendation, minimumZki) - crewAssignmentPriority(left.recommendation, minimumZki) || right.trip.weight - left.trip.weight)
     .some(({ trip, recommendation }) => {
       const pair = available.find((item) => !reservedPairKeys.has(item.key)
+        && item.capacity >= trip.weight
         && samePerson(item.responsibleId, item.responsible, recommendation?.rrId, recommendation?.rr));
       if (!pair) return false;
       reservedPairByTrip.set(trip.id, pair);
@@ -220,23 +243,45 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
   [...plans].sort((left, right) => {
     const leftReserved = reservedPairByTrip.has(left.trip.id);
     const rightReserved = reservedPairByTrip.has(right.trip.id);
-    const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki * 2);
-    const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki * 2);
-    return Number(rightReserved) - Number(leftReserved) || Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
-  }).forEach(({ trip, recommendation }) => {
+    return Number(rightReserved) - Number(leftReserved)
+      || crewAssignmentPriority(right.recommendation, minimumZki) - crewAssignmentPriority(left.recommendation, minimumZki)
+      || right.trip.weight - left.trip.weight;
+  }).forEach(({ trip, candidates = [], recommendation }) => {
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate || trip.vehicle);
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
     const unused = available.filter((pair) => !used.has(pair.key));
-    const selected = reservedPairByTrip.get(trip.id)
-      || unused.find((pair) => assignedKey && pair.key === assignedKey)
-      || unused.find((pair) => habitualKey && pair.key === habitualKey)
-      || unused.filter((pair) => !reservedPairKeys.has(pair.key) && pair.capacity >= trip.weight).sort((left, right) => left.capacity - right.capacity)[0]
-      || unused.filter((pair) => !reservedPairKeys.has(pair.key)).sort((left, right) => right.capacity - left.capacity)[0];
+    const fitting = unused.filter((pair) => pair.capacity >= trip.weight);
+    const hasResponsibleCatalog = available.some((pair) => pair.responsible || pair.responsibleId);
+    let activeRecommendation = recommendation;
+    let selected = reservedPairByTrip.get(trip.id)
+      || fitting.find((pair) => samePerson(pair.responsibleId, pair.responsible, recommendation.rrId, recommendation.rr));
+
+    // Si la pareja del RR inicialmente recomendado no está disponible, se
+    // cambia la pareja completa. El nuevo RR debe ser candidato real del
+    // territorio; nunca se inserta solamente el conductor de otra persona.
+    if (!selected && hasResponsibleCatalog) {
+      const alternative = candidates
+        .flatMap((candidate) => {
+          const pair = fitting.find((item) => samePerson(item.responsibleId, item.responsible, candidate.rrId, candidate.rr));
+          return pair ? [{ candidate, pair }] : [];
+        })
+        .sort((left, right) => candidatePriority(right.candidate, minimumZki) - candidatePriority(left.candidate, minimumZki))[0];
+      if (alternative) {
+        activeRecommendation = alternative.candidate;
+        selected = alternative.pair;
+      }
+    }
+    if (!selected && !hasResponsibleCatalog) {
+      selected = fitting.find((pair) => assignedKey && pair.key === assignedKey)
+        || fitting.find((pair) => habitualKey && pair.key === habitualKey)
+        || fitting.filter((pair) => !reservedPairKeys.has(pair.key)).sort((left, right) => left.capacity - right.capacity)[0]
+        || unused.filter((pair) => !reservedPairKeys.has(pair.key)).sort((left, right) => right.capacity - left.capacity)[0];
+    }
 
     if (!selected) {
       result.set(trip.id, {
-        ...recommendation,
+        ...activeRecommendation,
         driver: "Sin conductor disponible",
         driverId: "",
         vehicle: "Sin placa",
@@ -250,76 +295,209 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; recommendation?
     used.add(selected.key);
     const fits = selected.capacity > 0 && selected.capacity >= trip.weight;
     result.set(trip.id, {
-      ...recommendation,
+      ...activeRecommendation,
       driver: selected.driver,
       driverId: selected.driverId,
       vehicle: selected.plate.toUpperCase(),
       capacity: selected.capacity,
-      viable: recommendation.hasKnowledge && recommendation.totalZki >= minimumZki * 2 && fits,
+      viable: activeRecommendation.hasKnowledge && activeRecommendation.totalZki >= minimumZki * 2 && fits,
       habitualVehicle: selected.key === habitualKey,
       reason: !selected.capacity
         ? `Pendiente: falta registrar la capacidad de ${selected.plate.toUpperCase()}.`
         : !fits
           ? `Pendiente: ${formatKg(trip.weight)} kg superan la capacidad de ${selected.plate.toUpperCase()} (${formatKg(selected.capacity)} kg).`
-        : !recommendation.hasKnowledge
+        : !activeRecommendation.hasKnowledge
             ? "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio."
-            : recommendation.totalZki < minimumZki * 2
-              ? `No viable: el ZKI combinado es ${Math.round(recommendation.totalZki)} y requiere ${minimumZki * 2}.`
-              : recommendation.hasKnowledge
+            : activeRecommendation.totalZki < minimumZki * 2
+              ? `No viable: el ZKI combinado es ${Math.round(activeRecommendation.totalZki)} y requiere ${minimumZki * 2}.`
+              : activeRecommendation.hasKnowledge
             ? "Viable: RR asignado por ZKI y pareja conductor–vehículo disponible."
             : "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio.",
+    });
+  });
+  // Si se agotan las parejas operativas, conserva al menos un RR único en las
+  // rutas restantes. No se inventa conductor ni vehículo: esos recursos quedan
+  // explícitamente pendientes, pero el conocimiento territorial no desaparece.
+  const usedResponsibles = new Set(Array.from(result.values(), (candidate) => personIdentity(candidate.rrId, candidate.rr)));
+  plans.forEach(({ trip, candidates = [], recommendation }) => {
+    if (result.has(trip.id)) return;
+    const territoryCandidates = candidates.length ? candidates : recommendation ? [recommendation] : [];
+    const candidate = territoryCandidates
+      .filter((item) => !usedResponsibles.has(personIdentity(item.rrId, item.rr)))
+      .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))[0];
+    if (!candidate) return;
+    usedResponsibles.add(personIdentity(candidate.rrId, candidate.rr));
+    result.set(trip.id, {
+      ...candidate,
+      driver: "Sin conductor disponible",
+      driverId: "",
+      vehicle: "Sin vehículo disponible",
+      capacity: 0,
+      viable: false,
+      habitualVehicle: false,
+      reason: "RR asignado por conocimiento territorial; falta una pareja conductor–vehículo disponible para completar la ruta.",
     });
   });
   return result;
 }
 
+function assignCatalogPairsGlobally<T extends { trip: Trip; candidates?: Candidate[]; recommendation?: Candidate }>(
+  plans: T[],
+  pairs: Array<DriverVehiclePair & { key: string; capacity: number }>,
+  minimumZki: number,
+  retentionPercent: number,
+) {
+  const columnCount = Math.max(plans.length, pairs.length);
+  if (!plans.length || !columnCount) return new Map<string, Candidate>();
+  const options = plans.map(({ trip, candidates = [], recommendation }) => {
+    const territoryCandidates = candidates.length ? candidates : recommendation ? [recommendation] : [];
+    const row = new Array<{ candidate: Candidate; pair: (typeof pairs)[number] } | undefined>(columnCount);
+    pairs.forEach((pair, index) => {
+      if (pair.capacity < trip.weight) return;
+      const candidate = territoryCandidates
+        .filter((item) => samePerson(pair.responsibleId, pair.responsible, item.rrId, item.rr))
+        .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))[0];
+      if (candidate) row[index] = { candidate, pair };
+    });
+    return row;
+  });
+  const retentionBonus = Math.max(0, Math.min(100, retentionPercent)) * 100;
+  const weights = options.map((row, rowIndex) => row.map((option) => {
+    if (!option) return 0;
+    const initial = plans[rowIndex].recommendation;
+    const keepsInitialPair = initial && samePerson(option.pair.responsibleId, option.pair.responsible, initial.rrId, initial.rr);
+    return candidatePriority(option.candidate, minimumZki) + (keepsInitialPair ? retentionBonus : 0);
+  }));
+  const assignment = maximumWeightAssignment(weights);
+  const result = new Map<string, Candidate>();
+  assignment.forEach((column, row) => {
+    const option = column >= 0 ? options[row][column] : undefined;
+    if (!option) return;
+    const { candidate, pair } = option;
+    const viable = candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2;
+    result.set(plans[row].trip.id, {
+      ...candidate,
+      driver: pair.driver,
+      driverId: pair.driverId,
+      vehicle: pair.plate.toUpperCase(),
+      capacity: pair.capacity,
+      viable,
+      habitualVehicle: true,
+      reason: !candidate.hasKnowledge
+        ? "Pendiente: la pareja está completa, pero el RR no tiene historial ZKI en el territorio."
+        : candidate.totalZki < minimumZki * 2
+          ? `No viable: el ZKI combinado es ${Math.round(candidate.totalZki)} y requiere ${minimumZki * 2}.`
+          : "Viable: pareja RR–conductor asignada globalmente al territorio con mejor ZKI.",
+    });
+  });
+  // Si se agotan las parejas operativas, conserva un RR único en cada ruta
+  // restante y deja conductor/vehículo explícitamente pendientes.
+  const usedResponsibles = new Set(Array.from(result.values(), (candidate) => personIdentity(candidate.rrId, candidate.rr)));
+  plans.forEach(({ trip, candidates = [], recommendation }) => {
+    if (result.has(trip.id)) return;
+    const territoryCandidates = candidates.length ? candidates : recommendation ? [recommendation] : [];
+    const candidate = territoryCandidates
+      .filter((item) => !usedResponsibles.has(personIdentity(item.rrId, item.rr)))
+      .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))[0];
+    if (!candidate) return;
+    usedResponsibles.add(personIdentity(candidate.rrId, candidate.rr));
+    result.set(trip.id, {
+      ...candidate,
+      driver: "Sin conductor disponible",
+      driverId: "",
+      vehicle: "Sin vehículo disponible",
+      capacity: 0,
+      viable: false,
+      habitualVehicle: false,
+      reason: "RR asignado por conocimiento territorial; falta una pareja conductor–vehículo disponible para completar la ruta.",
+    });
+  });
+  return result;
+}
+
+function crewAssignmentPriority(candidate: Candidate | undefined, minimumZki: number) {
+  if (!candidate) return 0;
+  // El conductor no tiene ZKI propio. Cuando las parejas son insuficientes se
+  // entregan primero a los territorios donde el RR logra mayor conocimiento;
+  // la viabilidad combinada sigue siendo la prioridad superior.
+  return (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000_000 : 0)
+    + (candidate.hasKnowledge ? 100_000 : 0)
+    + candidate.zki * 1_000
+    + candidate.totalZki;
+}
+
 function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZki: number) {
-  const used = new Set<string>();
+  const unavailable = new Set<string>();
   assignments.forEach((candidate) => {
-    used.add(personIdentity(candidate.rrId, candidate.rr));
-    if (!normalizePersonName(candidate.driver).startsWith("sin conductor")) used.add(personIdentity(candidate.driverId, candidate.driver));
+    unavailable.add(personIdentity(candidate.rrId, candidate.rr));
+    if (!normalizePersonName(candidate.driver).startsWith("sin conductor")) unavailable.add(personIdentity(candidate.driverId, candidate.driver));
   });
   const usedDrivers = new Set<string>();
-  const ordered = Array.from(assignments.entries()).sort((left, right) => right[1].auxiliaryZki - left[1].auxiliaryZki);
-  const result = new Map<string, Candidate>();
-  ordered.forEach(([tripId, candidate]) => {
+  const rows = Array.from(assignments.entries()).filter(([, candidate]) => {
     const driverKey = personIdentity(candidate.driverId, candidate.driver);
     const isRealDriver = driverKey && !normalizePersonName(candidate.driver).startsWith("sin conductor");
-    if (isRealDriver && usedDrivers.has(driverKey)) return;
+    if (isRealDriver && usedDrivers.has(driverKey)) return false;
     if (isRealDriver) usedDrivers.add(driverKey);
-    const key = personIdentity(candidate.auxiliaryId, candidate.auxiliary);
-    const isRealAuxiliary = key && !normalizePersonName(candidate.auxiliary).startsWith("sin auxiliar");
-    if (!isRealAuxiliary || !used.has(key)) {
-      if (isRealAuxiliary) used.add(key);
-      result.set(tripId, candidate);
-      return;
-    }
-    const replacement = candidate.auxiliaryOptions?.find((option) => {
-      const optionKey = personIdentity(option.id, option.name);
-      return optionKey && !used.has(optionKey);
-    });
-    if (replacement) {
-      used.add(personIdentity(replacement.id, replacement.name));
-      const totalZki = Math.round((candidate.zki + replacement.zki) * 100) / 100;
+    return true;
+  });
+  const optionMaps = rows.map(([, candidate]) => {
+    const options = [
+      ...(candidate.auxiliaryOptions || []),
+      { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki },
+    ];
+    return new Map(options.flatMap((option) => {
+      const key = personIdentity(option.id, option.name);
+      if (!key || unavailable.has(key) || normalizePersonName(option.name).startsWith("sin auxiliar")) return [];
+      return [[key, option] as const];
+    }));
+  });
+  const auxiliaryKeys = Array.from(new Set(optionMaps.flatMap((options) => Array.from(options.keys()))));
+  const weights = optionMaps.map((options, rowIndex) => [
+    ...auxiliaryKeys.map((key) => {
+      const option = options.get(key);
+      if (!option) return 0;
+      const target = minimumZki * 2;
+      const rrZki = rows[rowIndex][1].zki;
+      const combined = rrZki + option.zki;
+      if (option.zki <= 0) return 1;
+      const needed = Math.max(0, target - rrZki);
+      const usefulContribution = Math.min(option.zki, needed);
+      const excess = Math.max(0, option.zki - needed);
+      // Solo premia el aporte que hace falta para llegar al objetivo. Un RR 100
+      // aprovecha como máximo 60 puntos del auxiliar; el excedente se reserva
+      // para una ruta con RR bajo.
+      return 1_000_000 + usefulContribution * 10_000 - excess * 100 + combined;
+    }),
+    ...new Array(rows.length).fill(0),
+  ]);
+  const selectedColumns = maximumWeightAssignment(weights);
+  const result = new Map<string, Candidate>();
+  rows.forEach(([tripId, candidate], rowIndex) => {
+    const column = selectedColumns[rowIndex];
+    const replacement = column >= 0 && column < auxiliaryKeys.length
+      ? optionMaps[rowIndex].get(auxiliaryKeys[column])
+      : undefined;
+    if (!replacement) {
+      const totalZki = Math.round(candidate.zki * 100) / 100;
       result.set(tripId, {
         ...candidate,
-        auxiliary: replacement.name,
-        auxiliaryId: replacement.id,
-        auxiliaryZki: replacement.zki,
+        auxiliary: "Sin auxiliar disponible",
+        auxiliaryId: "",
+        auxiliaryZki: 0,
         totalZki,
         viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
+        reason: `${candidate.reason} No quedó un auxiliar disponible con historial para este territorio.`,
       });
       return;
     }
-    const totalZki = Math.round(candidate.zki * 100) / 100;
+    const totalZki = Math.round((candidate.zki + replacement.zki) * 100) / 100;
     result.set(tripId, {
       ...candidate,
-      auxiliary: "Sin auxiliar disponible",
-      auxiliaryId: "",
-      auxiliaryZki: 0,
+      auxiliary: replacement.name,
+      auxiliaryId: replacement.id,
+      auxiliaryZki: replacement.zki,
       totalZki,
       viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
-      reason: `${candidate.reason} El auxiliar habitual ya fue asignado a otro viaje.`,
     });
   });
   return result;
@@ -621,7 +799,7 @@ export function rankCandidates(
     );
     const auxiliaryOptions = auxiliaries
       .filter((item) => item.key !== rrKey)
-      .sort((left, right) => zki >= settings.minimumZki ? left.zki - right.zki : right.zki - left.zki);
+      .sort((left, right) => right.zki - left.zki);
     const auxiliary = auxiliaryOptions[0] || { name: "Sin auxiliar con historial", id: "", zki: 0 };
     const rr = rrName;
     const rrId = rrVisits.find((row) => row.rrId)?.rrId || "";

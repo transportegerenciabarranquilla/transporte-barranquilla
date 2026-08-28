@@ -81,10 +81,15 @@ export default function SeguimientoGraficasPage() {
       retrasadosPercent,
       liquidados,
       finalizados: finalizados.length,
+      finalizadoPercent: rangeVehicles.length ? Number(((finalizados.length / rangeVehicles.length) * 100).toFixed(1)) : 0,
       liquidadoPercent,
       tiempoPromedio: formatSeconds(getAverageRouteSeconds(rangeVehicles, now)),
     };
   }, [now, rangeVehicles]);
+
+  const liquidatedVehicles = useMemo(() => rangeVehicles
+    .filter((vehicle) => vehicle.liquidado)
+    .sort((left, right) => new Date(right.liquidadoUpdatedAt || 0).getTime() - new Date(left.liquidadoUpdatedAt || 0).getTime()), [rangeVehicles]);
 
   const statusCounts = useMemo(() => {
     return ROUTE_STATUSES.map((status) => ({
@@ -148,6 +153,7 @@ export default function SeguimientoGraficasPage() {
               <Gauge value={resumen.avance} />
               <div className="w-full max-w-xs space-y-4">
                 <ProgressLine label="Visitas" value={resumen.avance} color="bg-[#0f7c58]" />
+                <ProgressLine label="Rutas finalizadas" value={resumen.finalizadoPercent} color="bg-emerald-500" detail={`${resumen.finalizados}/${resumen.vehiculos} rutas`} />
                 <ProgressLine label="Pasado a liquidación" value={resumen.liquidadoPercent} color="bg-[#1264ff]" detail={`${resumen.liquidados}/${resumen.finalizados} vehículos`} />
                 <p className="text-sm text-slate-500">Retraso calculado por ritmo planeado por cliente.</p>
               </div>
@@ -163,6 +169,31 @@ export default function SeguimientoGraficasPage() {
             </div>
           </Panel>
         </div>
+
+        <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-[#10223d]"><Clock3 className="text-indigo-600" size={17} />VH pasados a liquidación</h2>
+              <p className="mt-1 text-[11px] text-slate-500">Rutas finalizadas: {formatPercent(resumen.finalizadoPercent)} · Pasadas a liquidación: {formatPercent(resumen.liquidadoPercent)} de las finalizadas.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{resumen.finalizados}/{resumen.vehiculos} finalizadas</span>
+              <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">{resumen.liquidados}/{resumen.finalizados} en liquidación</span>
+            </div>
+          </header>
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full min-w-[620px] text-left text-xs">
+              <thead className="sticky top-0 bg-[#10283d] text-[9px] uppercase tracking-wide text-white"><tr><th className="px-4 py-2.5">DT</th><th className="px-4 py-2.5">Placa</th><th className="px-4 py-2.5">Fecha</th><th className="px-4 py-2.5">Hora de paso</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {liquidatedVehicles.map((vehicle) => {
+                  const passedAt = formatLiquidationTimestamp(vehicle.liquidadoUpdatedAt);
+                  return <tr className="hover:bg-indigo-50/50" key={`liquidado-${getVehicleRecordKey(vehicle)}`}><td className="px-4 py-2.5 font-bold text-[#10223d]">{vehicle.transporte || "—"}</td><td className="px-4 py-2.5 font-mono font-bold text-slate-700">{vehicle.vehiculo || "—"}</td><td className="px-4 py-2.5 text-slate-600">{passedAt.date}</td><td className="px-4 py-2.5 font-black text-indigo-700">{passedAt.time}</td></tr>;
+                })}
+                {!liquidatedVehicles.length ? <tr><td className="px-4 py-8 text-center text-slate-500" colSpan={4}>Ningún VH del periodo ha pasado a liquidación.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <div className="data-shell mt-5 rounded-lg">
           <div className="flex flex-col gap-1 border-b border-slate-200/70 bg-white/78 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
@@ -642,6 +673,23 @@ function getVisitProgress(visitados: number, clientes: number) {
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
+}
+
+function formatLiquidationTimestamp(value?: string) {
+  const parsed = new Date(value || "");
+  if (Number.isNaN(parsed.getTime())) return { date: "Sin fecha", time: "Sin hora" };
+  const parts = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(parsed);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  return { date: `${read("day")}/${read("month")}/${read("year")}`, time: `${read("hour")}:${read("minute")}:${read("second")}` };
 }
 
 function formatNumber(value: number) {

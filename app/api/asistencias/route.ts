@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
     const url = supabaseRest(TABLE, `?${params.toString()}`);
     const headers = session.isAdmin || session.isPeople
-      ? supabaseAdminHeaders() ?? supabaseHeaders()
+      ? supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken)
       : supabaseReadHeaders(session.accessToken);
     const loadRows = async () => {
       const response = await fetch(url, { headers, cache: "no-store" });
