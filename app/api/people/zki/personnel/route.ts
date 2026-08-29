@@ -49,7 +49,13 @@ export async function GET() {
       const profile = profileById.get(person.id);
       return { ...person, available: profile?.available !== false, minimumClients: profile?.minimumClients, maximumClients: profile?.maximumClients };
     });
-  return NextResponse.json({ records });
+  return NextResponse.json({
+    records,
+    profiles: Object.fromEntries(profiles.map((row) => [row.profile_id.replace("zki-person:", ""), {
+      minimumClients: row.data?.minimumClients,
+      maximumClients: row.data?.maximumClients,
+    }])),
+  });
 }
 
 type ResponsibleAttendance = { contractor?: string; cedulaResponsable?: string };

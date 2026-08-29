@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Clock3, LoaderCircle, RefreshCw, Truck, Upload, X } from "lucide-react";
+import { ArrowLeft, Clock3, Download, LoaderCircle, RefreshCw, Truck, Upload, X } from "lucide-react";
 import { CONTRACTORS } from "../../lib/contractors";
 import { normalizeDt } from "../../lib/modulacionStorage";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -113,6 +113,10 @@ export default function AdminLiquidationStatusPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <a className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50" download href="/api/admin/status-liq/template">
+              <Download size={17} />
+              Descargar plantilla
+            </a>
             <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700">
               {uploading ? <LoaderCircle className="animate-spin" size={17} /> : <Upload size={17} />}
               Subir Excel diario
