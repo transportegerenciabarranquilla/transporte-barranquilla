@@ -12,6 +12,18 @@ export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteM
   return saveRemoteRecords("/api/seguimiento", records, { extraBody: { deleteMissing: options.deleteMissing === true } });
 }
 
+export async function saveSeguimientoLiquidado(recordId: string, liquidado: boolean, liquidadoUpdatedAt: string) {
+  const response = await fetch("/api/seguimiento", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recordId, changes: { liquidado, liquidadoUpdatedAt } }),
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || "No se pudo guardar el estado de liquidación.");
+  return body.record as Vehiculo;
+}
+
 export async function deleteSeguimientoVehiculo(vehicle: Pick<Vehiculo, "recordId" | "transporte" | "vehiculo" | "fechaDespacho">) {
   await waitForRemoteSaves("/api/seguimiento");
   return deleteRemoteRecords<Vehiculo>("/api/seguimiento", [String(vehicle.recordId || "")], {

@@ -154,8 +154,9 @@ export async function PATCH(request: Request) {
 
     const body = (await request.json()) as { recordId?: string; changes?: Partial<Vehiculo> };
     const recordId = String(body.recordId || "").trim();
-    if (!recordId || !body.changes?.status) {
-      return NextResponse.json({ error: "Falta el registro o el estado a guardar." }, { status: 400 });
+    const changes = body.changes;
+    if (!recordId || !changes || (changes.status === undefined && changes.liquidado === undefined)) {
+      return NextResponse.json({ error: "Falta el registro o el cambio a guardar." }, { status: 400 });
     }
 
     const params = new URLSearchParams({
@@ -175,9 +176,10 @@ export async function PATCH(request: Request) {
 
     const data = {
       ...current,
-      ...body.changes,
+      ...changes,
       recordId,
-      statusUpdatedAt: body.changes.statusUpdatedAt || new Date().toISOString(),
+      ...(changes.status !== undefined ? { statusUpdatedAt: changes.statusUpdatedAt || new Date().toISOString() } : {}),
+      ...(changes.liquidado !== undefined ? { liquidadoUpdatedAt: changes.liquidadoUpdatedAt || new Date().toISOString() } : {}),
       transportista: session.contractor,
     };
     const updateParams = new URLSearchParams({

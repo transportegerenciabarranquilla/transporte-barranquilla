@@ -21,7 +21,7 @@ import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargu
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
-import { deleteSeguimientoVehiculo, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { deleteSeguimientoVehiculo, saveSeguimientoLiquidado, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
@@ -280,12 +280,39 @@ export default function SeguimientoPage() {
     if (changes.status !== undefined) {
       saveSeguimientoImmediately(prepared, `Estado ${changes.status} guardado en Supabase.`);
     } else if (changes.liquidado !== undefined) {
-      saveSeguimientoImmediately(prepared, `Pasado a liquidación: ${changes.liquidado ? "Sí" : "No"}. Guardado en Supabase.`);
+      const changedRecord = prepared.find((item) => getVehicleUiKey(item) === recordKey);
+      if (changedRecord?.recordId && changedRecord.liquidadoUpdatedAt) saveLiquidadoImmediately(changedRecord, changes.liquidado);
+      else setImportMessage("No se pudo identificar el registro que se debe actualizar.");
     } else if (changes.clientes !== undefined) {
       saveSeguimientoImmediately(prepared, "Clientes guardados en Supabase.");
     } else {
       scheduleSeguimientoSave(prepared);
     }
+  }
+
+  function saveLiquidadoImmediately(record: Vehiculo, liquidado: boolean) {
+    const saveVersion = ++saveVersionRef.current;
+    pendingLocalSaveRef.current = true;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    void saveSeguimientoLiquidado(String(record.recordId), liquidado, String(record.liquidadoUpdatedAt))
+      .then((savedRecord) => {
+        if (saveVersionRef.current !== saveVersion) return;
+        const updatedRecords = vehiclesRef.current.map((item) => item.recordId === savedRecord.recordId ? { ...item, ...savedRecord } : item);
+        vehiclesRef.current = updatedRecords;
+        setVehiculos(updatedRecords);
+        setVehiculoSeleccionado((current) => current?.recordId === savedRecord.recordId ? { ...current, ...savedRecord } : current);
+        setImportMessage(`Pasado a liquidación: ${liquidado ? "Sí" : "No"}. Guardado en Supabase.`);
+      })
+      .catch((error) => {
+        if (saveVersionRef.current === saveVersion) setImportMessage(error instanceof Error ? error.message : "No se pudo guardar el estado de liquidación.");
+      })
+      .finally(() => {
+        if (saveVersionRef.current === saveVersion) pendingLocalSaveRef.current = false;
+      });
   }
 
   function saveSeguimientoImmediately(records: Vehiculo[], successMessage: string) {

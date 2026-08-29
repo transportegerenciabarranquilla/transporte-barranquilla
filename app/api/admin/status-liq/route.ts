@@ -31,24 +31,33 @@ export async function GET() {
 }
 
 function normalizeSeguimientoRows(rows: Array<{ contractor?: string; data?: Vehiculo; updated_at?: string }>) {
-  const latestByDtAndDate = new Map<string, Vehiculo>();
+  const latestByDtAndDate = new Map<string, { updatedAt: string; vehicle: Vehiculo }>();
   rows.forEach((row) => {
     if (!row.data) return;
     const liquidationMarkedAt = row.data.liquidadoUpdatedAt || (row.data.liquidado === true ? row.updated_at : "");
-    if (!liquidationMarkedAt || Number.isNaN(new Date(liquidationMarkedAt).getTime())) return;
     const contractorKeys = [row.data.transportista, row.contractor].map(normalizeContractorName);
     if (!contractorKeys.includes("logisticos")) return;
     const contractor = "Logisticos";
     const dt = String(row.data.transporte || "").replace(/\D/g, "");
-    const date = toBogotaDate(liquidationMarkedAt);
+    const updatedAt = String(row.updated_at || "");
+    const date = operationalDate(row.data, updatedAt);
     if (!dt || !date) return;
     const key = `${dt}:${date}`;
     const current = latestByDtAndDate.get(key);
-    if (!current || liquidationMarkedAt > String(current.liquidadoUpdatedAt)) {
-      latestByDtAndDate.set(key, { ...row.data, liquidadoUpdatedAt: liquidationMarkedAt, transportista: contractor });
+    if (!current || updatedAt > current.updatedAt) {
+      latestByDtAndDate.set(key, {
+        updatedAt,
+        vehicle: { ...row.data, liquidadoUpdatedAt: liquidationMarkedAt, transportista: contractor },
+      });
     }
   });
-  return Array.from(latestByDtAndDate.values());
+  return Array.from(latestByDtAndDate.values(), (entry) => entry.vehicle);
+}
+
+function operationalDate(vehicle: Vehiculo, fallbackTimestamp: string) {
+  const candidate = String(vehicle.fechaDespacho || vehicle.date || vehicle.fechaDt || "").trim();
+  const match = candidate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : toBogotaDate(fallbackTimestamp);
 }
 
 function toBogotaDate(value: string) {
@@ -95,7 +104,7 @@ function parseRows(rawRows: Record<string, unknown>[]): StatusLiqRow[] {
   rawRows.forEach((row) => {
     const entries = new Map(Object.entries(row).map(([key, value]) => [normalizeHeader(key), value]));
     const dt = String(entries.get("dt") ?? "").replace(/\D/g, "");
-    const time = normalizeTime(entries.get("horaliquidacion"));
+    const time = normalizeTime(entries.get("horaliquidacion") ?? entries.get("hora"));
     if (!dt || !time) return;
     byDt.set(dt, { DT: Number(dt), "Hora liquidacion": time });
   });
@@ -110,11 +119,16 @@ function normalizeTime(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return [value.getHours(), value.getMinutes(), value.getSeconds()].map((part) => String(part).padStart(2, "0")).join(":");
   }
-  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
   if (!match) return "";
-  const hour = Number(match[1]);
+  let hour = Number(match[1]);
   const minute = Number(match[2]);
   const second = Number(match[3] || 0);
+  const meridiem = match[4]?.toUpperCase();
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return "";
+    hour = hour % 12 + (meridiem === "PM" ? 12 : 0);
+  }
   if (hour > 23 || minute > 59 || second > 59) return "";
   return [hour, minute, second].map((part) => String(part).padStart(2, "0")).join(":");
 }

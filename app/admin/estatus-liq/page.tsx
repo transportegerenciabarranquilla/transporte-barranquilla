@@ -67,13 +67,16 @@ export default function AdminLiquidationStatusPage() {
     [records],
   );
 
+  const operationalRecords = useMemo(
+    () => records.filter((record) => contractor === "Todas" || record.transportista === contractor),
+    [contractor, records],
+  );
+
   const availableDates = useMemo(
     () => Array.from(new Set(
-      liquidatedRecords
-        .filter((record) => contractor === "Todas" || record.transportista === contractor)
-        .map((record) => toBogotaParts(record.liquidadoUpdatedAt).date),
+      operationalRecords.map(getOperationalDate),
     )).filter(Boolean).sort().reverse(),
-    [contractor, liquidatedRecords],
+    [operationalRecords],
   );
 
   useEffect(() => {
@@ -83,17 +86,23 @@ export default function AdminLiquidationStatusPage() {
   const visibleRecords = useMemo(
     () =>
       liquidatedRecords.filter((record) => {
-        const parts = toBogotaParts(record.liquidadoUpdatedAt);
-        return (!date || parts.date === date) && (contractor === "Todas" || record.transportista === contractor);
+        return (!date || getOperationalDate(record) === date) && (contractor === "Todas" || record.transportista === contractor);
       }),
     [contractor, date, liquidatedRecords],
   );
 
+  const visibleOperationalRecords = useMemo(
+    () => operationalRecords.filter((record) => !date || getOperationalDate(record) === date),
+    [date, operationalRecords],
+  );
+
   const hours = useMemo(() => buildHourBuckets(visibleRecords, hourInterval), [hourInterval, visibleRecords]);
-  const crossedRecords = useMemo(() => crossLiquidationRecords(visibleRecords, statusRecords), [statusRecords, visibleRecords]);
-  const matchedRecords = useMemo(() => crossedRecords.filter((row): row is CrossedRecord & { elapsedMinutes: number } => row.elapsedMinutes !== null), [crossedRecords]);
-  const averageMinutes = matchedRecords.length ? matchedRecords.reduce((total, row) => total + row.elapsedMinutes, 0) / matchedRecords.length : 0;
-  const durationBands = useMemo(() => buildDurationBands(matchedRecords), [matchedRecords]);
+  const crossedRecords = useMemo(() => crossLiquidationRecords(visibleOperationalRecords, statusRecords), [statusRecords, visibleOperationalRecords]);
+  const statusMatchedRecords = useMemo(() => crossedRecords.filter((row) => Boolean(row.actualTime)), [crossedRecords]);
+  const durationRecords = useMemo(() => crossedRecords.filter((row): row is CrossedRecord & { elapsedMinutes: number } => row.elapsedMinutes !== null), [crossedRecords]);
+  const crossingDiagnostic = useMemo(() => buildCrossingDiagnostic(visibleOperationalRecords, statusRecords), [statusRecords, visibleOperationalRecords]);
+  const averageMinutes = durationRecords.length ? durationRecords.reduce((total, row) => total + row.elapsedMinutes, 0) / durationRecords.length : 0;
+  const durationBands = useMemo(() => buildDurationBands(durationRecords), [durationRecords]);
   const maxBand = Math.max(1, ...durationBands.map((band) => band.count));
   const maxCount = Math.max(1, ...hours.map((bucket) => bucket.count));
   const peak = hours.reduce((best, bucket) => (bucket.count > best.count ? bucket : best), hours[0]);
@@ -153,10 +162,11 @@ export default function AdminLiquidationStatusPage() {
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div> : null}
         {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{message}</div> : null}
+        {crossingDiagnostic ? <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p className="font-bold">Los DT cargados no coinciden con los DT visibles de Seguimiento.</p><p className="mt-1">Seguimiento: {crossingDiagnostic.tracking.join(", ")}</p><p className="mt-1">Excel Status Liq: {crossingDiagnostic.status.join(", ")}</p></div> : null}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="Pasados a liquidación" value={visibleRecords.length} icon={<Truck size={20} />} />
-          <Metric label="Cruzados con status-liq" value={matchedRecords.length} icon={<Truck size={20} />} />
+          <Metric label="Cruzados con status-liq" value={statusMatchedRecords.length} icon={<Truck size={20} />} />
           <Metric label="Promedio para liquidar" value={formatDuration(averageMinutes)} icon={<Clock3 size={20} />} />
           <Metric label="Hora con mayor movimiento" value={peak?.count ? formatHour(peak.hour) : "--"} icon={<Clock3 size={20} />} />
         </section>
@@ -223,9 +233,10 @@ function isInHourBucket(hour: number, bucketStart: number, interval: 2 | 3) {
 }
 
 function crossLiquidationRecords(vehicles: Vehiculo[], statusRows: StatusLiqRecord[]): CrossedRecord[] {
-  const actualTimeByDt = new Map(statusRows.map((row) => [normalizeDt(row.DT), normalizeClock(row["Hora liquidacion"]) ]));
+  const actualTimeByDt = buildLiquidationTimeIndex(statusRows);
   return vehicles.map((vehicle) => {
-    const actualTime = actualTimeByDt.get(normalizeDt(vehicle.transporte)) || "";
+    const vehicleDt = normalizeDt(vehicle.transporte);
+    const actualTime = actualTimeByDt.get(vehicleDt) || actualTimeByDt.get(shortDtKey(vehicleDt)) || "";
     const passed = toBogotaParts(vehicle.liquidadoUpdatedAt);
     if (!actualTime || passed.hour < 0) return { vehicle, passedTime: passed.time, actualTime: "", elapsedMinutes: null };
     const passedMinutes = clockToMinutes(passed.time);
@@ -235,6 +246,46 @@ function crossLiquidationRecords(vehicles: Vehiculo[], statusRows: StatusLiqReco
     if (elapsedMinutes < 0) elapsedMinutes += 24 * 60;
     return { vehicle, passedTime: passed.time, actualTime, elapsedMinutes };
   }).sort((a, b) => (b.elapsedMinutes ?? -1) - (a.elapsedMinutes ?? -1));
+}
+
+function buildCrossingDiagnostic(vehicles: Vehiculo[], statusRows: StatusLiqRecord[]) {
+  if (!vehicles.length || !statusRows.length) return null;
+  const index = buildLiquidationTimeIndex(statusRows);
+  const hasMatch = vehicles.some((vehicle) => {
+    const dt = normalizeDt(vehicle.transporte);
+    return Boolean(index.get(dt) || index.get(shortDtKey(dt)));
+  });
+  if (hasMatch) return null;
+  return {
+    tracking: Array.from(new Set(vehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean))).slice(0, 8),
+    status: Array.from(new Set(statusRows.map((row) => normalizeDt(row.DT)).filter(Boolean))).slice(0, 8),
+  };
+}
+
+function buildLiquidationTimeIndex(statusRows: StatusLiqRecord[]) {
+  const index = new Map<string, string>();
+  const shortKeyCounts = new Map<string, number>();
+
+  statusRows.forEach((row) => {
+    const dt = normalizeDt(row.DT);
+    const shortKey = shortDtKey(dt);
+    if (shortKey) shortKeyCounts.set(shortKey, (shortKeyCounts.get(shortKey) || 0) + 1);
+  });
+
+  statusRows.forEach((row) => {
+    const dt = normalizeDt(row.DT);
+    const time = normalizeClock(row["Hora liquidacion"]);
+    if (!dt || !time) return;
+    index.set(dt, time);
+    const shortKey = shortDtKey(dt);
+    if (shortKey && shortKeyCounts.get(shortKey) === 1) index.set(shortKey, time);
+  });
+
+  return index;
+}
+
+function shortDtKey(value: string) {
+  return value.length > 7 ? value.slice(-7) : value;
 }
 
 function buildDurationBands(rows: Array<CrossedRecord & { elapsedMinutes: number }>) {
@@ -296,6 +347,12 @@ function toBogotaParts(value?: string) {
 
 function isValidDate(value?: string) {
   return Boolean(value && !Number.isNaN(new Date(value).getTime()));
+}
+
+function getOperationalDate(record: Vehiculo) {
+  const candidate = String(record.fechaDespacho || record.date || record.fechaDt || "").trim();
+  const match = candidate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : toBogotaParts(record.liquidadoUpdatedAt).date;
 }
 
 function formatDate(value: string) {
