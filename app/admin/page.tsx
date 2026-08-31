@@ -1390,7 +1390,7 @@ function normalizeId(value: unknown) {
 }
 
 function dtVariants(value: unknown) {
-  const full = normalizeDt(value).replace(/^0+/, "");
+  const full = normalizeDt(String(value ?? "")).replace(/^0+/, "");
   if (!full) return [];
   const short = full.length > 10 ? full.slice(-10).replace(/^0+/, "") : full;
   return Array.from(new Set([full, short].filter(Boolean)));
