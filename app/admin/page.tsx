@@ -1389,12 +1389,6 @@ function normalizeId(value: unknown) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function normalizeDt(value: unknown) {
-  return String(value || "")
-    .replace(/^DT-?/i, "")
-    .replace(/\D/g, "");
-}
-
 function dtVariants(value: unknown) {
   const full = normalizeDt(value).replace(/^0+/, "");
   if (!full) return [];
