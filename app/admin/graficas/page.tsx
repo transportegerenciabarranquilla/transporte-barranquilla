@@ -167,9 +167,14 @@ export default function AdminGraficasPage() {
 
   const lateComments = useMemo(() => buildLateComments(visibleRecords), [visibleRecords]);
 
+  const finalRefusalBoxes = useMemo(
+    () => refusalHistory.reduce((total, contractor) => total + contractor.points.reduce((dayTotal, point) => dayTotal + point.pending, 0), 0),
+    [refusalHistory],
+  );
+
   const totals = useMemo(
-    () => buildGraphTotals(visibleRecords, filteredRefusalRows, refusalCauseByPreventista, lateComments),
-    [filteredRefusalRows, lateComments, refusalCauseByPreventista, visibleRecords],
+    () => buildGraphTotals(visibleRecords, filteredRefusalRows, refusalCauseByPreventista, lateComments, finalRefusalBoxes),
+    [filteredRefusalRows, finalRefusalBoxes, lateComments, refusalCauseByPreventista, visibleRecords],
   );
 
   const operationalOverview = useMemo(
@@ -636,7 +641,7 @@ function buildContractorRefusalHistory(
         const vehicleModulations = dayModulations.filter((record) => normalizeDt(record.dt) === vehicleDt) as ModulacionRegistro[];
         const checkin = checkins.find((record) =>
           normalizeDt(record.dt) === vehicleDt
-          && normalizeContractorName(record.contratista || "") === contractorKey
+          && (!record.contratista || normalizeContractorName(record.contratista) === contractorKey)
         );
         return sum + summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas).cajasPendientes;
       }, 0);

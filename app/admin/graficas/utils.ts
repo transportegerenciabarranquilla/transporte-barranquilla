@@ -203,11 +203,15 @@ export function buildGraphTotals(
   visibleRefusalRows: AdminRefusalComRow[],
   refusalCauseByPreventista: RefusalCausePreventistaSummary[],
   lateComments: LateComment[],
+  finalRefusalBoxes?: number,
 ) {
   const cajasSeguimiento = normalizeCajasTotal(visibleRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
   const reportadas = visibleRefusalRows.reduce((total, row) => total + readNumber(row.reportadas), 0);
   const gestionadas = visibleRefusalRows.reduce((total, row) => total + readNumber(row.gestionadas), 0);
-  const refusalFinal = refusalCauseByPreventista.reduce((total, row) => total + readNumber(row.pendientes), 0);
+  // The daily history uses check-in as the final value for a DT when it exists.
+  // Keep the headline metrics on that same source; otherwise the card and bar
+  // chart can disagree for exactly the same filters.
+  const refusalFinal = finalRefusalBoxes ?? refusalCauseByPreventista.reduce((total, row) => total + readNumber(row.pendientes), 0);
 
   return {
     causales: refusalCauseByPreventista.length,

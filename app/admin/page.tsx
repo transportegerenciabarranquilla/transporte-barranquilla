@@ -6,7 +6,12 @@ import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, FileText, H
 import type { Vehiculo } from "../seguimiento/types";
 import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
+import type { CheckinCajasRegistro } from "../lib/checkinStorage";
+import { normalizeContractorName } from "../lib/contractors";
+import { normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../lib/modulacionStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
+
+type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 
 type Summary = {
   contractor: string;
@@ -81,6 +86,8 @@ export default function AdminPage() {
   const [records, setRecords] = useState<Vehiculo[]>([]);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
   const [modulationRacocimi2, setModulationRacocimi2] = useState<ModulationRacocimi2Row[]>([]);
+  const [modulationRecords, setModulationRecords] = useState<ModulacionRegistro[]>([]);
+  const [checkinRecords, setCheckinRecords] = useState<AdminCheckinRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
   const [dateFrom, setDateFrom] = useState("");
@@ -132,8 +139,10 @@ export default function AdminPage() {
       fetch("/api/admin/seguimiento", { cache: "no-store" }),
       fetch("/api/people/summary", { cache: "no-store" }),
       fetch("/api/people/rti", { cache: "no-store" }),
+      fetch("/api/modulaciones", { cache: "no-store" }),
+      fetch("/api/checkins", { cache: "no-store" }),
     ])
-      .then(async ([adminResponse, peopleResponse, rtiResponse]) => {
+      .then(async ([adminResponse, peopleResponse, rtiResponse, modulationResponse, checkinResponse]) => {
         const adminBody = await adminResponse.json().catch(() => ({}));
         if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
         setSummaries(adminBody.summaries || []);
@@ -148,6 +157,14 @@ export default function AdminPage() {
           setModulationRacocimi2(attachRacocimi2Boxes(adminBody.modulationRacocimi2 || [], rtiBody.records || []));
         } else {
           setModulationRacocimi2(adminBody.modulationRacocimi2 || []);
+        }
+        if (modulationResponse.ok) {
+          const modulationBody = await modulationResponse.json().catch(() => ({}));
+          setModulationRecords(modulationBody.records || []);
+        }
+        if (checkinResponse.ok) {
+          const checkinBody = await checkinResponse.json().catch(() => ({}));
+          setCheckinRecords(checkinBody.records || []);
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el panel admin."))
@@ -179,7 +196,7 @@ export default function AdminPage() {
     return summaries.map((summary) => {
       const contractorRecords = dateRecords.filter((record) => record.transportista === summary.contractor);
       const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
-      const refusalFinal = contractorRecords.reduce((total, record) => total + readNumber(record.cajasRefusalFinal), 0);
+      const refusalFinal = calculateFinalRefusal(contractorRecords, modulationRecords, checkinRecords);
 
       return {
         contractor: summary.contractor,
@@ -193,7 +210,7 @@ export default function AdminPage() {
         refusal: cajas ? Number(((refusalFinal / cajas) * 100).toFixed(2)) : 0,
       };
     });
-  }, [dateRecords, summaries]);
+  }, [checkinRecords, dateRecords, modulationRecords, summaries]);
 
   const totals = useMemo(() => {
     const values = dateRecords.reduce(
@@ -201,11 +218,12 @@ export default function AdminPage() {
         cajas: acc.cajas + readNumber(record.cajas),
         hl: acc.hl + normalizeHlValue(readNumber(record.hl)),
         clientes: acc.clientes + readNumber(record.clientes),
-        refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
+        refusalFinal: acc.refusalFinal,
       }),
       { cajas: 0, hl: 0, clientes: 0, refusalFinal: 0 },
     );
 
+    values.refusalFinal = calculateFinalRefusal(dateRecords, modulationRecords, checkinRecords);
     const roundedCajas = normalizeCajasTotal(values.cajas);
     const roundedHl = normalizeHlTotal(values.hl);
 
@@ -215,7 +233,7 @@ export default function AdminPage() {
       hl: roundedHl,
       refusal: roundedCajas ? Number(((values.refusalFinal / roundedCajas) * 100).toFixed(2)) : 0,
     };
-  }, [dateRecords]);
+  }, [checkinRecords, dateRecords, modulationRecords]);
 
   const filteredRecords = useMemo(() => {
     if (selectedContractor === "Todas") return dateRecords;
@@ -1145,6 +1163,34 @@ function getRecordDate(record: Vehiculo) {
 
   const parsed = new Date(rawDate);
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+}
+
+function calculateFinalRefusal(
+  vehicles: Vehiculo[],
+  modulations: ModulacionRegistro[],
+  checkins: AdminCheckinRecord[],
+) {
+  return vehicles.reduce((total, vehicle) => {
+    const dt = normalizeDt(vehicle.transporte);
+    const contractor = normalizeContractorName(vehicle.transportista || "");
+    const date = getRecordDate(vehicle);
+    const vehicleModulations = modulations.filter((record) => {
+      const recordDate = getModulationDate(record);
+      return normalizeDt(record.dt) === dt
+        && (!contractor || normalizeContractorName(record.contratista || "") === contractor)
+        && (!date || !recordDate || recordDate === date);
+    });
+    const checkin = checkins.find((record) =>
+      normalizeDt(record.dt) === dt
+      && (!record.contratista || normalizeContractorName(record.contratista) === contractor)
+    );
+
+    return total + summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas).cajasPendientes;
+  }, 0);
+}
+
+function getModulationDate(record: ModulacionRegistro) {
+  return String(record.fechaDespacho || record.fechaDt || record.createdAt || "").slice(0, 10);
 }
 
 function Metric({ icon, label, tone = "blue", value }: { icon: ReactNode; label: string; tone?: "amber" | "blue" | "green" | "red"; value: string }) {
