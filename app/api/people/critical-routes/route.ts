@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
+import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 const DISTRIBUTION_CENTER = {
   label: "Centro Distribución Galapa - Bavaria",
@@ -34,7 +35,10 @@ export async function GET(request: Request) {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
-    const query = new URL(request.url).searchParams.get("q")?.trim().replace(/\s+/g, " ") || "";
+    const searchParams = new URL(request.url).searchParams;
+    if (searchParams.get("list") === "true") return listCriticalNeighborhoods(session.accessToken);
+
+    const query = searchParams.get("q")?.trim().replace(/\s+/g, " ") || "";
     if (query.length < 3) return NextResponse.json({ error: "Escribe al menos tres caracteres." }, { status: 400 });
     if (query.length > 120) return NextResponse.json({ error: "La búsqueda es demasiado larga." }, { status: 400 });
 
@@ -68,6 +72,21 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo calcular la ruta." }, { status: 500 });
   }
+}
+
+async function listCriticalNeighborhoods(accessToken: string) {
+  const params = new URLSearchParams({ select: "*", limit: "200" });
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+  const response = await fetch(supabaseRest("ruta_criticas", `?${params.toString()}`), { headers, cache: "no-store" });
+  if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+
+  const rows = (await response.json().catch(() => [])) as Array<Record<string, unknown>>;
+  const neighborhoods = rows.map((row, index) => ({
+    id: Number(row["#"] ?? index + 1),
+    route: String(row.RUTA ?? "").trim(),
+    distributionCenter: String(row.CD ?? "").trim(),
+  })).filter((row) => row.route).sort((a, b) => a.id - b.id);
+  return NextResponse.json({ neighborhoods });
 }
 
 async function geocodeDestination(query: string) {

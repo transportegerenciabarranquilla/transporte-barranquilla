@@ -131,6 +131,10 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                     Registrar modulacion
                     <ArrowRight size={14} />
                   </a>
+                  <a className="col-span-2 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-center text-xs font-bold text-amber-900 transition hover:border-[#f5bd19] hover:bg-white" href="/rutas-criticas">
+                    Consultar rutas criticas
+                    <ArrowRight size={14} />
+                  </a>
                 </div>
               </div>
 
