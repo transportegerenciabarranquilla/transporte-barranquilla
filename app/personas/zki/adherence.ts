@@ -165,7 +165,11 @@ function read(row: RawRow, labels: string[]) {
 
 function samePerson(leftId: string, leftName: string, rightId: string, rightName: string) {
   const leftDigits = digits(leftId); const rightDigits = digits(rightId);
+  // La cédula es la primera forma de cruce y permite reconocer a la persona
+  // aunque su nombre esté abreviado o escrito diferente entre las fuentes.
   if (leftDigits && rightDigits && leftDigits === rightDigits) return true;
+  // Se conserva el nombre como respaldo porque algunos archivos históricos
+  // traen la cédula vacía o inconsistente.
   return Boolean(normalize(leftName) && normalize(leftName) === normalize(rightName));
 }
 

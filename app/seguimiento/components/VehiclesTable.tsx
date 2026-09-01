@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Clock3, SearchX, Trash2, Truck } from "lucide-react";
+import { ArrowUpDown, Clock3, SearchX, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
 
@@ -8,7 +8,6 @@ export function VehiclesTable({
   operationalDate,
   now,
   onSelectVehicle,
-  onDeleteVehicle,
   onUpdateVehicle,
   onUpdateVisited,
 }: {
@@ -16,7 +15,6 @@ export function VehiclesTable({
   operationalDate: string;
   now: Date;
   onSelectVehicle: (vehicle: Vehiculo) => void;
-  onDeleteVehicle: (recordKey: string) => void;
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   onUpdateVisited: (recordKey: string, visitados: number) => void;
 }) {
@@ -246,16 +244,6 @@ export function VehiclesTable({
                         })
                       }
                     />
-                  </td>
-                  <td className="px-1.5 py-1 text-right" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      aria-label={`Borrar vehiculo ${item.transporte || item.vehiculo}`}
-                      className="inline-grid h-6 w-6 place-items-center rounded text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                      onClick={() => onDeleteVehicle(recordKey)}
-                      type="button"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </td>
                 </tr>
               );

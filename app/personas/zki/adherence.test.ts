@@ -216,3 +216,19 @@ test("cruza cada persona contra el VH planeado aunque el conductor tenga asisten
   assert.equal(result.adherent, true);
   assert.equal(result.responsibleAdherent, true);
 });
+
+test("cruza por cédula aunque el nombre del conductor esté escrito diferente", () => {
+  const vehicle = {
+    transporte: "8008914046", vehiculo: "COVEL589", fechaDespacho: "2026-08-27",
+    cedulaAuxiliar1: "72.044.918", nombreAuxiliar1: "Jeiser Gutiérrez",
+  } as Vehiculo;
+
+  const [result] = calculateDriverAdherence(
+    [{ "Nombre conductor": "GUTIERREZ BADEL HEYSEL DE JESUS", "Cedula conductor": "72044918", Placa: "VEL589" }],
+    [],
+    [vehicle],
+    "2026-08-27",
+  );
+
+  assert.equal(result.adherent, true);
+});

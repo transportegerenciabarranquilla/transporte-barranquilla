@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Boxes, CalendarDays, Clock3, MapPin, MessageSquareText, PackageCheck, Route, Trash2, Truck, Users, X } from "lucide-react";
+import { AlertTriangle, Boxes, CalendarDays, Clock3, MapPin, MessageSquareText, PackageCheck, Route, Truck, Users, X } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getProgress, getStatus, hasRecargueValue, isLateDepartureTime, isRouteClockBlockedStatus } from "../utils";
 import { StatusBadge } from "./StatusBadge";
@@ -19,7 +19,6 @@ export function VehicleDrawer({
   vehicle,
   now,
   onClose,
-  onDeleteVehicle,
   onSaveLateDeparture,
   onUpdateVehicle,
   recordKey,
@@ -28,7 +27,6 @@ export function VehicleDrawer({
   vehicle: Vehiculo;
   now: Date;
   onClose: () => void;
-  onDeleteVehicle: (recordKey: string) => void;
   onSaveLateDeparture: (recordKey: string, changes: Pick<Vehiculo, "causalSalidaTardia" | "comentarioSalidaTardia">) => Promise<void>;
   onUpdateVehicle: (recordKey: string, changes: Partial<Vehiculo>) => void;
   recordKey: string;
@@ -105,14 +103,6 @@ export function VehicleDrawer({
               <X size={20} />
             </button>
           </div>
-          <button
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md border border-red-200 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-            onClick={() => onDeleteVehicle(recordKey)}
-            type="button"
-          >
-            <Trash2 size={17} />
-            Borrar DT
-          </button>
         </div>
 
         <div className="space-y-6 p-6">

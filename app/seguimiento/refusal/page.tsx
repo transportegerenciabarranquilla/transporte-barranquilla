@@ -6,7 +6,7 @@ import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, ClipboardList, Packag
 import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
-import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { calculateRefusalTotals, getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import { useContractorBrand } from "../../lib/contractorBranding";
@@ -56,29 +56,19 @@ export default function SeguimientoRefusalPage() {
 
   const refusalData = useMemo(() => {
     const totalCajasSeguimiento = normalizeCajasTotal(rangeVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
-    const seguimientoKeys = new Set(rangeVehicles.map((vehicle) => `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`).filter(Boolean));
-    const byVehicle = rangeVehicles.map((vehicle) => {
-      const vehicleKey = `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`;
-      const registrosDt = modulaciones.filter((registro) => `${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}` === vehicleKey);
-      const checkin = getCheckinByDt(checkins, vehicle.transporte);
-
-      return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
+    const totals = calculateRefusalTotals(rangeVehicles, modulaciones, checkins, {
+      getVehicleDate: (vehicle) => getVehicleDateKey(vehicle as Vehiculo),
+      getModulationDate: getModulacionDateKey,
     });
-    const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoKeys.has(`${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}`));
-    const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
-    const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0) + resumenSinSeguimiento.cajasRechazadas;
-    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0) + resumenSinSeguimiento.cajasGestionadas;
-    const pendientes = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
-    const checkinAplicadas = byVehicle.filter((resumen) => resumen.tieneCheckin).length;
 
     return {
       totalCajasSeguimiento,
-      rechazadas,
-      gestionadas,
-      pendientes,
-      checkinAplicadas,
+      rechazadas: totals.rechazadas,
+      gestionadas: totals.gestionadas,
+      pendientes: totals.pendientes,
+      checkinAplicadas: totals.checkinsAplicados,
       topeMaximo: Math.floor(totalCajasSeguimiento / 100) || 1,
-      porcentaje: totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
+      porcentaje: totalCajasSeguimiento ? Number(((totals.pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
     };
   }, [checkins, modulaciones, rangeVehicles]);
 
@@ -556,20 +546,11 @@ function summarizeRefusalHistoryGroup(
   checkins: CheckinCajasRegistro[],
 ): RefusalHistorySummary {
   const totalCajasSeguimiento = normalizeCajasTotal(vehicles.reduce((total, vehicle) => total + (vehicle.cajas || 0), 0));
-  const seguimientoKeys = new Set(vehicles.map((vehicle) => `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`).filter(Boolean));
-  const byVehicle = vehicles.map((vehicle) => {
-    const vehicleKey = `${normalizeDt(vehicle.transporte)}:${getVehicleDateKey(vehicle)}`;
-    const registrosDt = modulaciones.filter((registro) => `${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}` === vehicleKey);
-    const checkin = getCheckinByDt(checkins, vehicle.transporte);
-
-    return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
+  const totals = calculateRefusalTotals(vehicles, modulaciones, checkins, {
+    getVehicleDate: (vehicle) => getVehicleDateKey(vehicle as Vehiculo),
+    getModulationDate: getModulacionDateKey,
   });
-  const modulacionesSinSeguimiento = modulaciones.filter((registro) => !seguimientoKeys.has(`${normalizeDt(registro.dt)}:${getModulacionDateKey(registro)}`));
-  const resumenSinSeguimiento = summarizeModulaciones(modulacionesSinSeguimiento, 0);
-  const rechazadas = byVehicle.reduce((total, resumen) => total + resumen.cajasRechazadas, 0) + resumenSinSeguimiento.cajasRechazadas;
-  const gestionadas = byVehicle.reduce((total, resumen) => total + resumen.cajasGestionadas, 0) + resumenSinSeguimiento.cajasGestionadas;
-  const pendientes = byVehicle.reduce((total, resumen) => total + resumen.cajasPendientes, 0) + resumenSinSeguimiento.cajasPendientes;
-  const porcentaje = totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0;
+  const porcentaje = totalCajasSeguimiento ? Number(((totals.pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0;
 
   return {
     key: group.key,
@@ -577,9 +558,9 @@ function summarizeRefusalHistoryGroup(
     rangeLabel: group.rangeLabel,
     rutas: vehicles.length,
     totalCajasSeguimiento,
-    rechazadas,
-    gestionadas,
-    pendientes,
+    rechazadas: totals.rechazadas,
+    gestionadas: totals.gestionadas,
+    pendientes: totals.pendientes,
     porcentaje,
   };
 }

@@ -4,7 +4,7 @@ import type { Vehiculo } from "../../seguimiento/types";
 import { getVehicleRecordKey } from "../../seguimiento/utils";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { normalizeContractorName } from "../../lib/contractors";
+import { isSecurityOwnerEmail, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -207,19 +207,26 @@ export async function DELETE(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
-    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta el seguimiento global." }, { status: 403 });
+    if (!session.isAdmin || !isSecurityOwnerEmail(session.email)) {
+      return NextResponse.json({ error: "Los DT son permanentes. Solo saul808c@gmail.com puede autorizar una eliminación." }, { status: 403 });
+    }
 
     const body = (await request.json()) as {
+      contractor?: string;
       ids?: string[];
       routes?: Array<Pick<Vehiculo, "transporte" | "vehiculo" | "fechaDespacho">>;
     };
+    const targetContractor = String(body.contractor || "").trim();
+    if (!targetContractor || !normalizeContractorName(targetContractor)) {
+      return NextResponse.json({ error: "La aprobación debe indicar expresamente el contratista del DT." }, { status: 400 });
+    }
     const recordIds = Array.from(new Set((body.ids || []).map((id) => String(id).trim()).filter(Boolean)));
     if (!recordIds.length) return NextResponse.json({ error: "Falta el registro que se debe borrar." }, { status: 400 });
     if (recordIds.length > 100) return NextResponse.json({ error: "Solo se pueden borrar hasta 100 registros por operación." }, { status: 400 });
 
     // La vista agrupa las filas duplicadas de un mismo DT. Si se elimina solo
     // el record_id visible, una copia antigua reaparece en el siguiente GET.
-    const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}` });
+    const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${targetContractor}` });
     const currentRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(
       TABLE,
       currentParams,
@@ -245,7 +252,7 @@ export async function DELETE(request: Request) {
 
     const deleteError = await deleteSeguimientoRows(
       idsToDelete,
-      session.contractor,
+      targetContractor,
       session.accessToken,
       request,
       session,
@@ -255,7 +262,7 @@ export async function DELETE(request: Request) {
 
     const verificationRows = await readPagedRows<{ record_id: string }>(
       TABLE,
-      new URLSearchParams({ select: "record_id", contractor: `eq.${session.contractor}` }),
+      new URLSearchParams({ select: "record_id", contractor: `eq.${targetContractor}` }),
       supabaseUserHeaders(session.accessToken),
     );
     const remainingIds = new Set(verificationRows.map((row) => row.record_id));
@@ -419,7 +426,9 @@ function getSupersededRecordIds(records: Vehiculo[], rows: { record_id: string }
 async function deleteSeguimientoRows(recordIds: string[], contractor: string, accessToken: string, request: Request, session: AuthenticatedSession, reason: string) {
   if (!recordIds.length) return "";
 
-  const headers = getWriteHeaders(accessToken, { Prefer: "return=representation" });
+  // DELETE nunca utiliza la service role: Supabase debe evaluar el JWT del
+  // propietario de seguridad y su política RLS antes de borrar una fila.
+  const headers = supabaseUserHeaders(accessToken, { Prefer: "return=representation" });
   for (const recordId of recordIds) {
     const params = new URLSearchParams({ contractor: `eq.${contractor}`, record_id: `eq.${recordId}` });
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {

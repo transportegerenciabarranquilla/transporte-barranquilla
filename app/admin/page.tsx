@@ -7,8 +7,7 @@ import type { Vehiculo } from "../seguimiento/types";
 import { getProgress, getStatus, isLateDepartureTime, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "../seguimiento/utils";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, setManualResponsibleEditEnabled } from "../lib/adminSettings";
 import type { CheckinCajasRegistro } from "../lib/checkinStorage";
-import { normalizeContractorName } from "../lib/contractors";
-import { normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../lib/modulacionStorage";
+import { calculateRefusalTotals, normalizeDt, type ModulacionRegistro } from "../lib/modulacionStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
@@ -1170,23 +1169,10 @@ function calculateFinalRefusal(
   modulations: ModulacionRegistro[],
   checkins: AdminCheckinRecord[],
 ) {
-  return vehicles.reduce((total, vehicle) => {
-    const dt = normalizeDt(vehicle.transporte);
-    const contractor = normalizeContractorName(vehicle.transportista || "");
-    const date = getRecordDate(vehicle);
-    const vehicleModulations = modulations.filter((record) => {
-      const recordDate = getModulationDate(record);
-      return normalizeDt(record.dt) === dt
-        && (!contractor || normalizeContractorName(record.contratista || "") === contractor)
-        && (!date || !recordDate || recordDate === date);
-    });
-    const checkin = checkins.find((record) =>
-      normalizeDt(record.dt) === dt
-      && (!record.contratista || normalizeContractorName(record.contratista) === contractor)
-    );
-
-    return total + summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas).cajasPendientes;
-  }, 0);
+  return calculateRefusalTotals(vehicles, modulations, checkins, {
+    getVehicleDate: (vehicle) => getRecordDate(vehicle as Vehiculo),
+    getModulationDate,
+  }).pendientes;
 }
 
 function getModulationDate(record: ModulacionRegistro) {

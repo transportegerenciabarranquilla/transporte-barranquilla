@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileDown } from "lucide-react";
-import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
-import { getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, summarizeModulaciones, type ModulacionRegistro } from "../../../lib/modulacionStorage";
+import { CHECKIN_STORAGE_KEY, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../../lib/checkinStorage";
+import { calculateRefusalTotals, getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, type ModulacionRegistro } from "../../../lib/modulacionStorage";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../../lib/storageEvents";
+import { refreshRemoteRecords } from "../../../lib/remoteStore";
 import { AnalyticsDateFilter } from "../../components/AnalyticsDateFilter";
 import { loadSeguimientoVehiculos } from "../../services/vehicleRecords";
 import type { Vehiculo } from "../../types";
@@ -29,6 +30,7 @@ export default function ReportePdfPage() {
   const brand = useContractorBrand();
   const [selectedDate, setSelectedDate] = useState(getLocalDateKey);
   const [downloading, setDownloading] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const vehicles = useStorageSnapshot<Vehiculo[]>(
     [SEGUIMIENTO_STORAGE_KEY, MODULACION_STORAGE_KEY, CHECKIN_STORAGE_KEY],
@@ -41,6 +43,19 @@ export default function ReportePdfPage() {
   useEffect(() => {
     const fecha = new URLSearchParams(window.location.search).get("fecha") || getLocalDateKey();
     setSelectedDate(fecha);
+
+    let active = true;
+    Promise.all([
+      refreshRemoteRecords("/api/seguimiento", { force: true }),
+      refreshRemoteRecords("/api/modulaciones", { force: true }),
+      refreshRemoteRecords("/api/checkins", { force: true }),
+    ]).finally(() => {
+      if (active) setDataReady(true);
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const todayVehicles = useMemo(() => vehicles.filter((vehicle) => isVehicleForDate(vehicle, selectedDate)), [selectedDate, vehicles]);
@@ -66,21 +81,17 @@ export default function ReportePdfPage() {
 
   const refusal = useMemo(() => {
     const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
-    const byVehicle = todayVehicles.map((vehicle) => {
-      const registrosDt = visibleModulaciones.filter((registro) => normalizeDt(registro.dt) === normalizeDt(vehicle.transporte));
-      const checkin = getCheckinByDt(checkins, vehicle.transporte);
-      return summarizeModulaciones(registrosDt, vehicle.cajas || 0, checkin?.totalCajas);
+    const totals = calculateRefusalTotals(todayVehicles, visibleModulaciones, checkins, {
+      getVehicleDate: (vehicle) => toDateKey((vehicle as Vehiculo).fechaDespacho || (vehicle as Vehiculo).date || (vehicle as Vehiculo).createdAt),
+      getModulationDate: (record) => toDateKey(record.fechaDespacho || record.fechaDt || record.createdAt),
     });
-    const rechazadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasRechazadas, 0);
-    const gestionadas = byVehicle.reduce((acc, resumen) => acc + resumen.cajasGestionadas, 0);
-    const pendientes = byVehicle.reduce((acc, resumen) => acc + resumen.cajasPendientes, 0);
 
     return {
-      checkins: byVehicle.filter((resumen) => resumen.tieneCheckin).length,
-      gestionadas,
-      pendientes,
-      porcentaje: totalCajasSeguimiento ? Number(((pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
-      rechazadas,
+      checkins: totals.checkinsAplicados,
+      gestionadas: totals.gestionadas,
+      pendientes: totals.pendientes,
+      porcentaje: totalCajasSeguimiento ? Number(((totals.pendientes / totalCajasSeguimiento) * 100).toFixed(2)) : 0,
+      rechazadas: totals.rechazadas,
       totalCajasSeguimiento,
       topeMaximo: Math.floor(totalCajasSeguimiento / 100) || 1,
     };
@@ -335,12 +346,12 @@ export default function ReportePdfPage() {
             <AnalyticsDateFilter value={selectedDate} onChange={setSelectedDate} />
             <button
               className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[#10223d] px-3 text-xs font-semibold text-white transition hover:bg-[#1b355b] disabled:opacity-60"
-              disabled={downloading}
+              disabled={downloading || !dataReady}
               onClick={downloadPdf}
               type="button"
             >
               <FileDown size={16} />
-              {downloading ? "Generando..." : "Descargar PDF"}
+              {downloading ? "Generando..." : !dataReady ? "Sincronizando..." : "Descargar PDF"}
             </button>
           </div>
           {downloadError ? <p className="text-xs font-medium text-red-600">{downloadError}</p> : null}

@@ -21,7 +21,7 @@ import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargu
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
-import { deleteSeguimientoVehiculo, saveSeguimientoLiquidado, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { saveSeguimientoLiquidado, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
@@ -69,8 +69,6 @@ export default function SeguimientoPage() {
   
   const [importMessage, setImportMessage] = useState("");
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [deleteCandidateKey, setDeleteCandidateKey] = useState<string | null>(null);
-  const [isDeletingVehicle, setIsDeletingVehicle] = useState(false);
   const [modulacionAlertDismissed, setModulacionAlertDismissed] = useState(false);
   const [complaints, setComplaints] = useState<ComplaintRecord[]>([]);
   const [complaintsDismissed, setComplaintsDismissed] = useState(false);
@@ -80,7 +78,6 @@ export default function SeguimientoPage() {
   const saveTimerRef = useRef<number | null>(null);
   const saveVersionRef = useRef(0);
   const vehiclesRef = useRef<Vehiculo[]>([]);
-  const deletingVehicleRef = useRef(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -187,10 +184,6 @@ export default function SeguimientoPage() {
     const selectedKey = vehiculoSeleccionadoKey || getVehicleUiKey(vehiculoSeleccionado);
     return vehiculos.find((item) => getVehicleUiKey(item) === selectedKey) ?? vehiculoSeleccionado;
   }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
-  const deleteCandidate = useMemo(() => {
-    if (!deleteCandidateKey) return null;
-    return vehiculos.find((item) => getVehicleUiKey(item) === deleteCandidateKey) ?? null;
-  }, [deleteCandidateKey, vehiculos]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
@@ -219,7 +212,8 @@ export default function SeguimientoPage() {
     const response = await fetch("/api/complaints", { cache: "no-store" });
     if (!response.ok) return;
     const body = await response.json().catch(() => ({}));
-    setComplaints(Array.isArray(body.records) ? body.records : []);
+    const records = Array.isArray(body.records) ? body.records as ComplaintRecord[] : [];
+    setComplaints(records.filter((complaint) => !isClosedComplaint(complaint.status)));
   }
 
   useEffect(() => { setComplaintsDismissed(false); }, [complaints.length]);
@@ -482,60 +476,6 @@ export default function SeguimientoPage() {
     setVehiculoSeleccionadoKey(getVehicleUiKey(vehicle));
   }
 
-  function borrarVehiculo(recordKey: string) {
-    if (deletingVehicleRef.current) return;
-    setDeleteCandidateKey(recordKey);
-  }
-
-  async function confirmDeleteVehicle() {
-    if (!deleteCandidateKey || deletingVehicleRef.current) return;
-    deletingVehicleRef.current = true;
-    setIsDeletingVehicle(true);
-
-    const candidateKey = deleteCandidateKey;
-    const currentVehicles = vehiclesRef.current;
-    const vehicle = currentVehicles.find((item) => getVehicleUiKey(item) === candidateKey);
-
-    if (!vehicle?.recordId) {
-      deletingVehicleRef.current = false;
-      setIsDeletingVehicle(false);
-      setDeleteCandidateKey(null);
-      setImportMessage("No se pudo identificar el registro que se debe borrar.");
-      return;
-    }
-
-    const previousVehicles = currentVehicles;
-    const prepared = prepareSeguimientoVehicles(currentVehicles.filter((item) => getVehicleUiKey(item) !== candidateKey));
-    pendingLocalSaveRef.current = true;
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-
-    setImportMessage("Borrando DT en Supabase...");
-
-    try {
-      await deleteSeguimientoVehiculo(vehicle);
-      vehiclesRef.current = prepared;
-      setVehiculos(prepared);
-      removeStaleRouteData(vehicle, true);
-      if (vehiculoSeleccionadoKey === candidateKey) {
-        setVehiculoSeleccionado(null);
-        setVehiculoSeleccionadoKey(null);
-      }
-      setDeleteCandidateKey(null);
-      setImportMessage("DT borrado correctamente.");
-    } catch (error) {
-      vehiclesRef.current = previousVehicles;
-      setVehiculos(previousVehicles);
-      setImportMessage(error instanceof Error ? error.message : "No se pudo borrar el DT.");
-    } finally {
-      pendingLocalSaveRef.current = false;
-      deletingVehicleRef.current = false;
-      setIsDeletingVehicle(false);
-    }
-  }
-
   async function handleImport(file: File | undefined) {
     if (!file) return;
 
@@ -785,7 +725,6 @@ export default function SeguimientoPage() {
           operationalDate=""
           now={now}
           onSelectVehicle={seleccionarVehiculo}
-          onDeleteVehicle={borrarVehiculo}
           onUpdateVehicle={actualizarVehiculo}
           onUpdateVisited={actualizarVisitados}
         />
@@ -799,7 +738,6 @@ export default function SeguimientoPage() {
               setVehiculoSeleccionado(null);
               setVehiculoSeleccionadoKey(null);
             }}
-            onDeleteVehicle={borrarVehiculo}
             onSaveLateDeparture={guardarSalidaTardia}
             onUpdateVehicle={actualizarVehiculo}
             recordKey={vehiculoSeleccionadoKey || getVehicleUiKey(selectedVehicle)}
@@ -807,20 +745,17 @@ export default function SeguimientoPage() {
         ) : null}
       </section>
 
-      {deleteCandidate ? (
-        <DeleteVehicleDialog
-          isDeleting={isDeletingVehicle}
-          onCancel={() => {
-            if (!deletingVehicleRef.current) setDeleteCandidateKey(null);
-          }}
-          onConfirm={confirmDeleteVehicle}
-          vehicle={deleteCandidate}
-        />
-      ) : null}
     </main>
   );
 }
 
+function isClosedComplaint(status: string | null | undefined) {
+  return String(status ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("cerrad");
+}
+
+// El diálogo queda sin ruta de acceso después de retirar todos los controles
+// de borrado de Seguimiento.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function DeleteVehicleDialog({
   isDeleting,
   onCancel,

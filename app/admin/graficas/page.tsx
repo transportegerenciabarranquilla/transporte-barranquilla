@@ -11,7 +11,7 @@ import { parseDatabaseRows, recordDateKey } from "../../personas/rti/rtiUtils";
 import type { Vehiculo } from "../../seguimiento/types";
 import { normalizeCajasTotal } from "../../seguimiento/utils";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
-import { normalizeDt, summarizeModulaciones, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { calculateRefusalTotals, normalizeDt, type ModulacionRegistro } from "../../lib/modulacionStorage";
 import { ChartPanel, ContractorRefusalHistory, Metric, MiniStat, RefusalClientsByRange, RrRefusalTop, RefusalCausePreventistaBars, RefusalComBars, TopRefusalClientsTable } from "./components";
 import type { AdminRefusalComRow, ContractorRefusalTrend, ModulationRefusalRecord } from "./types";
 import {
@@ -636,15 +636,10 @@ function buildContractorRefusalHistory(
         const recordDate = (record.fechaDespacho || record.fechaDt || record.createdAt || "").slice(0, 10);
         return recordContractor === contractorKey && recordDate === date;
       });
-      const pendingBoxes = dayVehicles.reduce((sum, vehicle) => {
-        const vehicleDt = normalizeDt(vehicle.transporte);
-        const vehicleModulations = dayModulations.filter((record) => normalizeDt(record.dt) === vehicleDt) as ModulacionRegistro[];
-        const checkin = checkins.find((record) =>
-          normalizeDt(record.dt) === vehicleDt
-          && (!record.contratista || normalizeContractorName(record.contratista) === contractorKey)
-        );
-        return sum + summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas).cajasPendientes;
-      }, 0);
+      const pendingBoxes = calculateRefusalTotals(dayVehicles, dayModulations as ModulacionRegistro[], checkins, {
+        getVehicleDate: () => date,
+        getModulationDate: (record) => (record.fechaDespacho || record.fechaDt || record.createdAt || "").slice(0, 10),
+      }).pendientes;
       return {
         date,
         pending: pendingBoxes,

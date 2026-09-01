@@ -175,6 +175,65 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
   };
 }
 
+type RefusalVehicle = {
+  transporte?: string | number;
+  cajas?: number;
+  transportista?: string;
+};
+
+type RefusalCheckin = {
+  dt: string;
+  totalCajas: number;
+  contratista?: string;
+};
+
+export function calculateRefusalTotals(
+  vehicles: RefusalVehicle[],
+  modulations: ModulacionRegistro[],
+  checkins: RefusalCheckin[],
+  options: {
+    getVehicleDate?: (vehicle: RefusalVehicle) => string;
+    getModulationDate?: (record: ModulacionRegistro) => string;
+  } = {},
+) {
+  const summaries = vehicles.map((vehicle) => {
+    const dt = normalizeDt(vehicle.transporte);
+    const contractor = normalizeContractor(vehicle.transportista);
+    const vehicleDate = options.getVehicleDate?.(vehicle) || "";
+    const vehicleModulations = modulations.filter((record) => {
+      const recordContractor = normalizeContractor(record.contratista);
+      const recordDate = options.getModulationDate?.(record) || "";
+      return normalizeDt(record.dt) === dt
+        && (!contractor || !recordContractor || recordContractor === contractor)
+        && (!vehicleDate || !recordDate || recordDate === vehicleDate);
+    });
+    const checkin = checkins.find((record) => {
+      const recordContractor = normalizeContractor(record.contratista);
+      return normalizeDt(record.dt) === dt
+        && (!contractor || !recordContractor || recordContractor === contractor);
+    });
+
+    return summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas);
+  });
+  const cajasSeguimiento = vehicles.reduce((total, vehicle) => total + (Number(vehicle.cajas) || 0), 0);
+  const rechazadas = summaries.reduce((total, summary) => total + summary.cajasRechazadas, 0);
+  const gestionadas = summaries.reduce((total, summary) => total + summary.cajasGestionadas, 0);
+  const pendientes = summaries.reduce((total, summary) => total + summary.cajasPendientes, 0);
+
+  return {
+    cajasSeguimiento,
+    checkinsAplicados: summaries.filter((summary) => summary.tieneCheckin).length,
+    gestionadas,
+    pendientes,
+    porcentaje: cajasSeguimiento ? Number(((pendientes / cajasSeguimiento) * 100).toFixed(2)) : 0,
+    rechazadas,
+  };
+}
+
+function normalizeContractor(value: string | undefined) {
+  return (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
 function readNumber(value: unknown) {
   return readOptionalNumber(value) ?? 0;
 }
