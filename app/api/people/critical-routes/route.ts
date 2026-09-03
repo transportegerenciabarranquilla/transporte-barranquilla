@@ -39,6 +39,7 @@ export async function GET(request: Request) {
     if (searchParams.get("list") === "true") return listCriticalNeighborhoods(session.accessToken);
 
     const query = searchParams.get("q")?.trim().replace(/\s+/g, " ") || "";
+    const selectedRoute = searchParams.get("route")?.trim() || "";
     if (query.length < 3) return NextResponse.json({ error: "Escribe al menos tres caracteres." }, { status: 400 });
     if (query.length > 120) return NextResponse.json({ error: "La búsqueda es demasiado larga." }, { status: 400 });
 
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No se encontró una ruta vehicular hasta ese destino." }, { status: 404 });
     }
 
+    const routeHazards = selectedRoute ? await hazardsForRoute(selectedRoute, session.accessToken) : [];
     return NextResponse.json({
       origin: DISTRIBUTION_CENTER,
       destination,
@@ -68,6 +70,8 @@ export async function GET(request: Request) {
           })),
       },
       disclaimer: "Ruta estimada para automóvil, sin tráfico en tiempo real ni restricciones específicas de vehículos pesados.",
+      warnings: routeHazards.map((hazard) => hazard.description),
+      hazards: routeHazards,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo calcular la ruta." }, { status: 500 });
@@ -85,8 +89,29 @@ async function listCriticalNeighborhoods(accessToken: string) {
     id: Number(row["#"] ?? index + 1),
     route: String(row.RUTA ?? "").trim(),
     distributionCenter: String(row.CD ?? "").trim(),
+    warnings: parseWarnings(row.ADVERTENCIAS ?? row.advertencias),
   })).filter((row) => row.route).sort((a, b) => a.id - b.id);
   return NextResponse.json({ neighborhoods });
+}
+
+async function hazardsForRoute(routeName: string, accessToken: string) {
+  const params = new URLSearchParams({ select: "id,tipo,descripcion,latitud,longitud", ruta: `eq.${routeName}`, activo: "eq.true", order: "id.asc" });
+  const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(accessToken);
+  const response = await fetch(supabaseRest("ruta_criticas_riesgos", `?${params}`), { headers, cache: "no-store" });
+  if (!response.ok) return [];
+  const rows = (await response.json().catch(() => [])) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: Number(row.id),
+    type: String(row.tipo ?? "peligro"),
+    description: String(row.descripcion ?? "Precaución en este punto"),
+    latitude: Number(row.latitud),
+    longitude: Number(row.longitud),
+  })).filter((hazard) => Number.isFinite(hazard.latitude) && Number.isFinite(hazard.longitude));
+}
+
+function parseWarnings(value: unknown) {
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  return String(value ?? "").split(/\r?\n|;/).map((item) => item.trim()).filter(Boolean);
 }
 
 async function geocodeDestination(query: string) {

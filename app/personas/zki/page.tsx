@@ -78,6 +78,27 @@ function displayPlate(value: unknown) {
   return String(value || "").trim();
 }
 
+function resolveExportCrewIds(item: Candidate | undefined, personnel: PersonnelRule[], crewPairs: CrewPair[]) {
+  if (!item) return { responsibleId: "", driverId: "", auxiliaryId: "" };
+  const byName = (name: string, roles: PersonnelRule["role"][]) => personnel.find((person) =>
+    roles.includes(person.role) && normalizePerson(person.name) === normalizePerson(name),
+  )?.id.replace(/\D/g, "") || "";
+  const responsibleId = byName(item.rr, ["RR", "Líder de Ruta"])
+    || crewPairs.find((pair) => normalizePerson(pair.responsible) === normalizePerson(item.rr))?.responsibleId.replace(/\D/g, "")
+    || item.rrId.replace(/\D/g, "");
+  let driverId = byName(item.driver, ["Conductor"])
+    || crewPairs.find((pair) => normalizePerson(pair.driver) === normalizePerson(item.driver))?.driverId.replace(/\D/g, "")
+    || item.driverId.replace(/\D/g, "");
+  const auxiliaryId = byName(item.auxiliary, ["Auxiliar"])
+    || item.auxiliaryId.replace(/\D/g, "");
+
+  // Una cÃ©dula no puede identificar simultÃ¡neamente a dos nombres diferentes.
+  // Si una fuente histÃ³rica la trae cruzada, conserva la del RR validada y no
+  // replica el documento en la columna del conductor.
+  if (responsibleId && driverId === responsibleId && normalizePerson(item.rr) !== normalizePerson(item.driver)) driverId = "";
+  return { responsibleId, driverId, auxiliaryId };
+}
+
 export default function ZkiPage() {
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -318,7 +339,7 @@ export default function ZkiPage() {
     const relevantVisits = clientCodes.length ? clientCodes.flatMap((client) => visitsByClient.get(normalizePerson(client)) || []) : visits;
     const rankedWithHistory = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRangeRules, trip.clients)
       .filter((candidate) => candidate.zki > 0)
-      .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki * 2 }))
+      .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki }))
       .filter((candidate) => candidateIsLogisticsRr(candidate, personnelRules, data?.crew || []) && candidatePersonnelAvailable(candidate, personnelRules));
     const ranked = addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules);
     return { trip, candidates: ranked };
@@ -458,24 +479,27 @@ export default function ZkiPage() {
       return;
     }
     const XLSX = await import("xlsx");
-    const assignments = planning.map(({ trip, recommendation: item }) => ({
+    const assignments = planning.map(({ trip, recommendation: item }) => {
+      const ids = resolveExportCrewIds(item, personnelRules, data?.crew || []);
+      return {
       "ID territorio": trip.territoryId,
       "Peso territorio": trip.weight,
-      "Cedula responsable": item?.rrId || "",
+      "Cedula responsable": ids.responsibleId,
       "ZKI responsable": item?.zki || 0,
       "Nombre responsable": item?.rr || "Sin historial suficiente",
       "Nombre conductor": item?.driver || "",
-      "Cedula conductor": item?.driverId || "",
+      "Cedula conductor": ids.driverId,
       Placa: displayPlate(item?.vehicle),
       "Capacidad de carga": item?.capacity || 0,
       "Clientes únicos": item?.uniqueClients || 0,
       "Clientes territorio": item?.territoryClients || Math.max(trip.clients, new Set(territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client)).size),
-      "Cedula auxiliar": item?.auxiliaryId || "",
+      "Cedula auxiliar": ids.auxiliaryId,
       "ZKI auxiliar": item?.auxiliaryZki || 0,
       "Nombre auxiliar": item?.auxiliary || "",
       "ZKI total": item?.totalZki || 0,
       Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
-    }));
+      };
+    });
     const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge && item.zki > 0).map((item) => ({
       "ID territorio": trip.territoryId,
       "ID Empleado": item.rrId,
@@ -967,7 +991,7 @@ function AssignmentStatus({ candidate, minimumZki, tripWeight }: { candidate?: C
       ? "Bloqueada por peso"
       : !candidate.hasKnowledge
         ? "Sin historial ZKI"
-        : candidate.totalZki < minimumZki * 2
+        : candidate.totalZki < minimumZki
           ? "ZKI combinado insuficiente"
           : "Pendiente";
   return <div title={candidate.reason}><span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800"><AlertTriangle size={12} />{status}</span><p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-slate-500">{candidate.reason}</p></div>;

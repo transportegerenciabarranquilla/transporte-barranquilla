@@ -4,6 +4,7 @@ import path from "node:path";
 import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
 import { normalizeContractorName } from "../../../../lib/contractors";
+import { formatPersonName } from "../../../../lib/personNames";
 import { readServerCache } from "../../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
 import { readZkiCrewRows } from "../crewTable";
@@ -38,12 +39,13 @@ export async function GET() {
     .map(toPerson)
     .filter((person): person is Person => Boolean(person))
     .filter((person) => normalizeContractorName(person.contractor) === "logisticos")
-    .filter((person) => person.role !== "Conductor")
     .filter((person) => !["RR", "Líder de Ruta"].includes(person.role) || (externalAttendanceCounts.get(person.id) || 0) < 2);
   const drivers = crewRows.flatMap((row): Person[] => row.driver && row.driverId
     ? [{ id: row.driverId, name: row.driver, role: "Conductor", available: true, contractor: "Logisticos" }]
     : []);
-  const uniquePeople = [...new Map([...logisticsPeople, ...drivers].map((person) => [person.id, person])).values()];
+  // El catálogo oficial prevalece sobre Conductores-placas para nombre,
+  // cédula y cargo. Las parejas solo completan conductores ausentes del catálogo.
+  const uniquePeople = [...new Map([...drivers, ...logisticsPeople].map((person) => [person.id, person])).values()];
   const records = uniquePeople
     .map((person) => {
       const profile = profileById.get(person.id);
@@ -193,7 +195,7 @@ function toPerson(row: Record<string, unknown>): Person | null {
           : null;
   const id = String(row.CC || "").replace(/\D/g, "");
   if (!role || !id) return null;
-  return { id, name: String(row.NOMBRE || "Sin nombre"), role, available: true, contractor: String(row.CONTRATISTA || "") };
+  return { id, name: formatPersonName(row.NOMBRE || "Sin nombre"), role, available: true, contractor: String(row.CONTRATISTA || "") };
 }
 function normalize(value: string) { return normalizeContractorName(value).replace(/responsablederuta|responsabledereparto/, "responsable"); }
 function digits(value: unknown) { return String(value ?? "").replace(/\D/g, ""); }
@@ -202,7 +204,7 @@ function readOperationalPersonnel(sheet: XLSX.WorkSheet) {
   return (XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, unknown>[])
     .map((row) => ({
       id: digits(row["NÚMERO DE DOCUMENTO"] ?? row["NUMERO DE DOCUMENTO"]),
-      name: String(row["APELLIDOS Y NOMBRES"] ?? row["NOMBRES Y APELLIDOS"] ?? "").trim(),
+      name: formatPersonName(row["APELLIDOS Y NOMBRES"] ?? row["NOMBRES Y APELLIDOS"]),
       cargo: String(row.CARGO ?? "").trim(),
     }))
     .filter((person) => isZkiCrewRole(person.cargo) && person.id && person.name);

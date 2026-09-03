@@ -174,7 +174,7 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
       // Primero maximiza cuántas rutas quedan con conocimiento real; solo
       // después compara el puntaje ZKI y usa responsables de respaldo.
       + (candidate.zki > 0 ? 2_000 : 0)
-      + (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000 : 0)
+      + (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? 1_000 : 0)
     : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
@@ -191,7 +191,7 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
 function candidatePriority(candidate: Candidate, minimumZki: number) {
   return (candidate.zki > 0 ? 1_000_000 : 0)
     + (candidate.hasKnowledge ? 100_000 : 0)
-    + (candidate.totalZki >= minimumZki * 2 ? 10_000 : 0)
+    + (candidate.totalZki >= minimumZki ? 10_000 : 0)
     + candidate.totalZki
     + (candidate.workloadAdjustment || 0);
 }
@@ -300,7 +300,7 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Ca
       driverId: selected.driverId,
       vehicle: selected.plate.toUpperCase(),
       capacity: selected.capacity,
-      viable: activeRecommendation.hasKnowledge && activeRecommendation.totalZki >= minimumZki * 2 && fits,
+      viable: activeRecommendation.hasKnowledge && activeRecommendation.totalZki >= minimumZki && fits,
       habitualVehicle: selected.key === habitualKey,
       reason: !selected.capacity
         ? `Pendiente: falta registrar la capacidad de ${selected.plate.toUpperCase()}.`
@@ -308,8 +308,8 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Ca
           ? `Pendiente: ${formatKg(trip.weight)} kg superan la capacidad de ${selected.plate.toUpperCase()} (${formatKg(selected.capacity)} kg).`
         : !activeRecommendation.hasKnowledge
             ? "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio."
-            : activeRecommendation.totalZki < minimumZki * 2
-              ? `No viable: el ZKI combinado es ${Math.round(activeRecommendation.totalZki)} y requiere ${minimumZki * 2}.`
+            : activeRecommendation.totalZki < minimumZki
+              ? `No viable: el ZKI combinado es ${Math.round(activeRecommendation.totalZki)} y requiere ${minimumZki}.`
               : activeRecommendation.hasKnowledge
             ? "Viable: RR asignado por ZKI y pareja conductor–vehículo disponible."
             : "Pendiente: la tripulación está completa, pero el RR no tiene historial suficiente en el territorio.",
@@ -370,11 +370,13 @@ function assignCatalogPairsGlobally<T extends { trip: Trip; candidates?: Candida
   }));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
+  const usedPairKeys = new Set<string>();
   assignment.forEach((column, row) => {
     const option = column >= 0 ? options[row][column] : undefined;
     if (!option) return;
     const { candidate, pair } = option;
-    const viable = candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2;
+    usedPairKeys.add(pair.key);
+    const viable = candidate.hasKnowledge && candidate.totalZki >= minimumZki;
     result.set(plans[row].trip.id, {
       ...candidate,
       driver: pair.driver,
@@ -385,8 +387,8 @@ function assignCatalogPairsGlobally<T extends { trip: Trip; candidates?: Candida
       habitualVehicle: true,
       reason: !candidate.hasKnowledge
         ? "Pendiente: la pareja está completa, pero el RR no tiene historial ZKI en el territorio."
-        : candidate.totalZki < minimumZki * 2
-          ? `No viable: el ZKI combinado es ${Math.round(candidate.totalZki)} y requiere ${minimumZki * 2}.`
+        : candidate.totalZki < minimumZki
+          ? `No viable: el ZKI combinado es ${Math.round(candidate.totalZki)} y requiere ${minimumZki}.`
           : "Viable: pareja RR–conductor asignada globalmente al territorio con mejor ZKI.",
     });
   });
@@ -401,6 +403,28 @@ function assignCatalogPairsGlobally<T extends { trip: Trip; candidates?: Candida
       .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))[0];
     if (!candidate) return;
     usedResponsibles.add(personIdentity(candidate.rrId, candidate.rr));
+    const freePair = pairs
+      .filter((pair) => !usedPairKeys.has(pair.key) && pair.capacity >= trip.weight)
+      .sort((left, right) => left.capacity - right.capacity)[0];
+    if (freePair) {
+      usedPairKeys.add(freePair.key);
+      const viable = candidate.hasKnowledge && candidate.totalZki >= minimumZki;
+      result.set(trip.id, {
+        ...candidate,
+        driver: freePair.driver,
+        driverId: freePair.driverId,
+        vehicle: freePair.plate.toUpperCase(),
+        capacity: freePair.capacity,
+        viable,
+        habitualVehicle: false,
+        reason: !candidate.hasKnowledge
+          ? "Pendiente: tripulación completa con una pareja conductor-placa alternativa; el RR no tiene historial suficiente."
+          : candidate.totalZki < minimumZki
+            ? `No viable: tripulación completa, pero el ZKI combinado es ${Math.round(candidate.totalZki)} y requiere ${minimumZki}.`
+            : "Viable: RR y pareja conductor-placa disponibles, reasignados para completar la ruta.",
+      });
+      return;
+    }
     result.set(trip.id, {
       ...candidate,
       driver: "Sin conductor disponible",
@@ -420,7 +444,7 @@ function crewAssignmentPriority(candidate: Candidate | undefined, minimumZki: nu
   // El conductor no tiene ZKI propio. Cuando las parejas son insuficientes se
   // entregan primero a los territorios donde el RR logra mayor conocimiento;
   // la viabilidad combinada sigue siendo la prioridad superior.
-  return (candidate.hasKnowledge && candidate.totalZki >= minimumZki * 2 ? 1_000_000 : 0)
+  return (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? 1_000_000 : 0)
     + (candidate.hasKnowledge ? 100_000 : 0)
     + candidate.zki * 1_000
     + candidate.totalZki;
@@ -456,17 +480,21 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
     ...auxiliaryKeys.map((key) => {
       const option = options.get(key);
       if (!option) return 0;
-      const target = minimumZki * 2;
+      const target = minimumZki;
       const rrZki = rows[rowIndex][1].zki;
       const combined = rrZki + option.zki;
       if (option.zki <= 0) return 1;
       const needed = Math.max(0, target - rrZki);
       const usefulContribution = Math.min(option.zki, needed);
       const excess = Math.max(0, option.zki - needed);
+      const reachesTarget = combined >= target;
       // Solo premia el aporte que hace falta para llegar al objetivo. Un RR 100
       // aprovecha como máximo 60 puntos del auxiliar; el excedente se reserva
       // para una ruta con RR bajo.
-      return 1_000_000 + usefulContribution * 10_000 - excess * 100 + combined;
+      // Alcanzar el umbral tiene prioridad absoluta: así el reparto global
+      // maximiza primero la cantidad de rutas viables y luego el aporte útil.
+      return (reachesTarget ? 100_000_000 : 1_000_000)
+        + usefulContribution * 10_000 - excess * 100 + combined;
     }),
     ...new Array(rows.length).fill(0),
   ]);
@@ -485,19 +513,27 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
         auxiliaryId: "",
         auxiliaryZki: 0,
         totalZki,
-        viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
+        viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki,
         reason: `${candidate.reason} No quedó un auxiliar disponible con historial para este territorio.`,
       });
       return;
     }
     const totalZki = Math.round((candidate.zki + replacement.zki) * 100) / 100;
+    const viable = candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki;
     result.set(tripId, {
       ...candidate,
       auxiliary: replacement.name,
       auxiliaryId: replacement.id,
       auxiliaryZki: replacement.zki,
       totalZki,
-      viable: candidate.hasKnowledge && candidate.capacity > 0 && totalZki >= minimumZki * 2,
+      viable,
+      reason: !candidate.hasKnowledge
+        ? "Pendiente: la tripulación está completa, pero el RR no tiene historial ZKI en el territorio."
+        : totalZki < minimumZki
+          ? `No viable: el ZKI combinado es ${Math.round(totalZki)} y requiere ${minimumZki}.`
+          : candidate.habitualVehicle
+            ? "Viable: tripulación completa y ZKI combinado suficiente."
+            : "Viable: tripulación alternativa completa y ZKI combinado suficiente.",
     });
   });
   return result;
@@ -534,8 +570,8 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
     };
   };
   [...plans].sort((left, right) => {
-    const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki * 2);
-    const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki * 2);
+    const leftTeamViable = Boolean(left.recommendation?.hasKnowledge && left.recommendation.totalZki >= minimumZki);
+    const rightTeamViable = Boolean(right.recommendation?.hasKnowledge && right.recommendation.totalZki >= minimumZki);
     return Number(rightTeamViable) - Number(leftTeamViable) || right.trip.weight - left.trip.weight;
   }).forEach(({ trip, recommendation }) => {
     if (!recommendation) return;
@@ -591,7 +627,7 @@ export function assignCompatibleVehicles<T extends { trip: Trip; recommendation?
           ...recommendation,
           vehicle: replacementKey.toUpperCase(),
           capacity: replacementCapacity,
-          viable: recommendation.hasKnowledge && recommendation.totalZki >= minimumZki * 2,
+          viable: recommendation.hasKnowledge && recommendation.totalZki >= minimumZki,
           habitualVehicle: false,
           reason: `Viable: el VH habitual ${habitualKey.toUpperCase()} ${replacementCause}; el conductor conserva su asignación y cambia al VH ${replacementKey.toUpperCase()}.`,
         });
@@ -810,7 +846,7 @@ export function rankCandidates(
     const previousClients = 0;
     const hasKnowledge = rrVisits.length > 0;
     const hasCapacity = capacity > 0;
-    const meetsCombinedZki = zki + auxiliary.zki >= settings.minimumZki * 2;
+    const meetsCombinedZki = zki + auxiliary.zki >= settings.minimumZki;
     const viable = hasKnowledge && hasCapacity && meetsCombinedZki && trip.weight <= capacity;
     return {
       rr,
@@ -839,7 +875,7 @@ export function rankCandidates(
       reason: !hasKnowledge
         ? "No evaluable: el RR no tiene visitas ZKI para los clientes de este territorio."
         : !meetsCombinedZki
-            ? `No viable: el ZKI combinado es ${Math.round(zki + auxiliary.zki)} y requiere ${settings.minimumZki * 2}.`
+            ? `No viable: el ZKI combinado es ${Math.round(zki + auxiliary.zki)} y requiere ${settings.minimumZki}.`
           : !hasCapacity
             ? "Pendiente: conductor y placa se asignan desde el catálogo Conductores-placas."
           : trip.weight > capacity

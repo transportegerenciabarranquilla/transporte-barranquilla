@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { formatPersonName } from "../../../lib/personNames";
 import { readZkiCrewRows } from "./crewTable";
 
 const PAGE_SIZE = 1_000;
@@ -68,7 +69,7 @@ async function readZkiHistory(headers: Record<string, string>) {
     const key = columns.map((column) => String(row[column] ?? "").trim().toLocaleLowerCase("es")).join("\u001f");
     const current = compacted.get(key);
     if (current) current.Visitas = Number(current.Visitas || 1) + 1;
-    else compacted.set(key, { ...row, Visitas: 1 });
+    else compacted.set(key, { ...row, Nombre: formatPersonName(row.Nombre), Visitas: 1 });
   });
   return { rows: [...compacted.values()], sourceRows, columns };
 }

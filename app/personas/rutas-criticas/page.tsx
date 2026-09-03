@@ -2,34 +2,24 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ChevronRight, Clock3, MapPin, Navigation, Route, Search, ShieldCheck, Truck } from "lucide-react";
-import type { GeoJSONSource, Map as MapLibreMap, Marker as MapLibreMarker, StyleSpecification } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import { AlertTriangle, ArrowLeft, ChevronRight, Clock3, LocateFixed, MapPin, Navigation, Plus, Route, Search, ShieldCheck, Trash2, Truck } from "lucide-react";
+import type { Layer, Map as LeafletMap } from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 type Point = { label: string; latitude: number; longitude: number; type?: string };
 type RouteStep = { distanceMeters: number; durationSeconds: number; instruction: string };
+type RouteHazard = { id: number; type: string; description: string; latitude: number; longitude: number };
+type StoredHazard = { id: number; ruta: string; tipo: string; descripcion: string; latitud: number; longitud: number; activo: boolean };
 type RouteResult = {
   origin: Point;
   destination: Point;
   route: { coordinates: [number, number][]; distanceMeters: number; durationSeconds: number; steps: RouteStep[] };
   disclaimer: string;
+  warnings: string[];
+  hazards: RouteHazard[];
 };
 
-type CriticalNeighborhood = { id: number; route: string; distributionCenter: string };
-
-const MAP_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    openStreetMap: {
-      type: "raster",
-      tiles: ["/api/map-tiles/{z}/{x}/{y}"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "© OpenStreetMap contributors",
-    },
-  },
-  layers: [{ id: "open-street-map", type: "raster", source: "openStreetMap" }],
-};
+type CriticalNeighborhood = { id: number; route: string; distributionCenter: string; warnings: string[] };
 
 export default function CriticalRoutesPage() {
   const router = useRouter();
@@ -43,6 +33,11 @@ export default function CriticalRoutesPage() {
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState("");
   const mapSectionRef = useRef<HTMLDivElement>(null);
+  const [hazards, setHazards] = useState<StoredHazard[]>([]);
+  const [hazardForm, setHazardForm] = useState({ route: "", type: "cables_bajos", description: "", latitude: "", longitude: "" });
+  const [hazardMessage, setHazardMessage] = useState("");
+  const [savingHazard, setSavingHazard] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
@@ -64,6 +59,47 @@ export default function CriticalRoutesPage() {
       .finally(() => setListLoading(false));
   }, [access]);
 
+  useEffect(() => { if (access === "allowed") void loadHazards(); }, [access]);
+
+  async function loadHazards() {
+    const response = await fetch("/api/people/critical-routes/hazards", { cache: "no-store" });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) setHazards(Array.isArray(body.hazards) ? body.hazards : []);
+  }
+
+  async function saveHazard(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSavingHazard(true); setHazardMessage("");
+    const response = await fetch("/api/people/critical-routes/hazards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(hazardForm) });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) { setHazardMessage("Señal guardada correctamente."); setHazardForm((value) => ({ ...value, description: "", latitude: "", longitude: "" })); await loadHazards(); }
+    else setHazardMessage(body.error || "No se pudo guardar la señal.");
+    setSavingHazard(false);
+  }
+
+  function useCurrentLocation() {
+    setHazardMessage("");
+    if (!navigator.geolocation) { setHazardMessage("Este dispositivo no permite obtener la ubicación."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setHazardForm((value) => ({ ...value, latitude: position.coords.latitude.toFixed(7), longitude: position.coords.longitude.toFixed(7) }));
+        setHazardMessage(`Ubicación capturada con precisión aproximada de ${Math.round(position.coords.accuracy)} m.`);
+        setLocating(false);
+      },
+      (error) => {
+        setHazardMessage(error.code === error.PERMISSION_DENIED ? "Debes permitir el acceso a la ubicación del dispositivo." : "No pudimos obtener tu ubicación. Activa el GPS e inténtalo de nuevo.");
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
+  async function deleteHazard(id: number) {
+    if (!window.confirm("¿Eliminar esta señal del mapa?")) return;
+    const response = await fetch(`/api/people/critical-routes/hazards?id=${id}`, { method: "DELETE" });
+    if (response.ok) { await loadHazards(); if (selectedNeighborhood) await calculateRoute(`${selectedNeighborhood}, Barranquilla`, selectedNeighborhood); }
+  }
+
   async function searchRoute(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await calculateRoute(query.trim());
@@ -76,7 +112,8 @@ export default function CriticalRoutesPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/people/critical-routes?q=${encodeURIComponent(value)}`, { cache: "no-store" });
+      const routeParam = neighborhoodName ? `&route=${encodeURIComponent(neighborhoodName)}` : "";
+      const response = await fetch(`/api/people/critical-routes?q=${encodeURIComponent(value)}${routeParam}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo calcular la ruta.");
       setResult(body as RouteResult);
@@ -164,12 +201,14 @@ export default function CriticalRoutesPage() {
 
           <article className="relative order-3 min-h-[620px] scroll-mt-5 overflow-hidden rounded-2xl border border-slate-300 bg-[#dcecf3] shadow-sm xl:col-span-2" ref={mapSectionRef}>
             <RouteMap result={result} />
+            {result?.warnings?.length ? <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 mx-auto max-w-xl rounded-xl border border-amber-300 bg-amber-50/95 p-4 text-amber-950 shadow-xl backdrop-blur"><p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.12em]"><AlertTriangle size={18} />Advertencia en esta ruta</p><ul className="mt-2 space-y-1 text-sm font-semibold">{result.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div> : null}
             {!result ? <div className="pointer-events-none absolute inset-0 grid place-items-center p-6"><div className="max-w-sm rounded-2xl border border-white/80 bg-white/95 p-6 text-center shadow-xl backdrop-blur"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-cyan-50 text-[#176b73]"><MapPin size={27} /></span><h3 className="mt-4 text-lg font-semibold">Busca el primer destino</h3><p className="mt-2 text-sm leading-6 text-slate-500">El mapa mostrará el recorrido desde el Centro Distribución Galapa - Bavaria hasta el lugar encontrado.</p></div></div> : null}
           </article>
 
           <aside className="order-2 max-h-[460px] overflow-y-auto rounded-2xl border border-slate-300 bg-white shadow-sm">
             <div className="border-b border-slate-200 bg-[#0b2235] p-5 text-white"><p className="text-[9px] font-bold uppercase tracking-[.16em] text-cyan-300">Resumen del recorrido</p><h2 className="mt-1 text-lg font-semibold">{result ? shortDestination(result.destination.label) : "Sin destino seleccionado"}</h2></div>
             {result ? <>
+              {result.warnings?.length ? <div className="border-b border-amber-200 bg-amber-50 p-4 text-amber-900"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em]"><AlertTriangle size={16} />Precauciones de esta ruta</p><ul className="mt-2 space-y-1 text-xs font-semibold">{result.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div> : null}
               <div className="grid grid-cols-2 gap-3 border-b border-slate-200 p-4">
                 <Metric icon={<Navigation size={18} />} label="Distancia" value={formatDistance(result.route.distanceMeters)} />
                 <Metric icon={<Clock3 size={18} />} label="Tiempo estimado" value={formatDuration(result.route.durationSeconds)} />
@@ -186,6 +225,25 @@ export default function CriticalRoutesPage() {
             </> : <div className="p-6 text-sm leading-6 text-slate-500">Aquí aparecerán la distancia, el tiempo estimado y las indicaciones cuando realices una búsqueda.</div>}
           </aside>
         </div>
+
+        <article className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-[#0b2235] px-5 py-4 text-white"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Administración</p><h2 className="mt-1 text-lg font-semibold">Señales y riesgos del mapa</h2></div>
+          <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(380px,1fr)]">
+            <form className="grid gap-3 sm:grid-cols-2" onSubmit={saveHazard}>
+              <label className="text-xs font-bold text-slate-600">Barrio<select className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" required value={hazardForm.route} onChange={(e) => setHazardForm({ ...hazardForm, route: e.target.value })}><option value="">Seleccionar barrio</option>{neighborhoods.map((item) => { const name = neighborhoodName(item.route); return <option key={item.id} value={name}>{name}</option>; })}</select></label>
+              <label className="text-xs font-bold text-slate-600">Tipo<select className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" value={hazardForm.type} onChange={(e) => setHazardForm({ ...hazardForm, type: e.target.value })}><option value="cables_bajos">⚡ Cables bajos</option><option value="via_danada">🚧 Vía dañada</option><option value="inundacion">🌊 Zona inundable</option><option value="cierre">⛔ Cierre vial</option><option value="peligro">⚠️ Otro peligro</option></select></label>
+              <label className="text-xs font-bold text-slate-600 sm:col-span-2">Descripción<input className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm" required placeholder="Ej. Altura máxima 3,5 m" value={hazardForm.description} onChange={(e) => setHazardForm({ ...hazardForm, description: e.target.value })} /></label>
+              <button className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border-2 border-[#176b73] bg-cyan-50 text-sm font-black text-[#176b73] disabled:opacity-50 sm:col-span-2" disabled={locating} onClick={useCurrentLocation} type="button"><LocateFixed size={19} />{locating ? "Buscando ubicación…" : "Usar mi ubicación actual"}</button>
+              <label className="text-xs font-bold text-slate-600">Latitud<input className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm" readOnly required placeholder="Se obtiene con el GPS" value={hazardForm.latitude} /></label>
+              <label className="text-xs font-bold text-slate-600">Longitud<input className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm" readOnly required placeholder="Se obtiene con el GPS" value={hazardForm.longitude} /></label>
+              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#f5bd19] text-sm font-black text-[#10223d] disabled:opacity-50 sm:col-span-2" disabled={savingHazard} type="submit"><Plus size={17} />{savingHazard ? "Guardando…" : "Agregar señal al mapa"}</button>
+              {hazardMessage ? <p className="text-xs font-semibold text-[#176b73] sm:col-span-2">{hazardMessage}</p> : null}
+            </form>
+            <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-200">
+              {hazards.length ? hazards.map((hazard) => <div className="flex items-center gap-3 border-b border-slate-100 p-3 last:border-0" key={hazard.id}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-100 text-lg">{hazardIcon(hazard.tipo)}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{hazard.ruta}</p><p className="truncate text-xs text-slate-500">{hazard.descripcion}</p><p className="mt-0.5 font-mono text-[9px] text-slate-400">{hazard.latitud}, {hazard.longitud}</p></div><button aria-label={`Eliminar señal de ${hazard.ruta}`} className="grid h-9 w-9 place-items-center rounded-lg text-red-600 hover:bg-red-50" onClick={() => void deleteHazard(hazard.id)} type="button"><Trash2 size={17} /></button></div>) : <p className="p-6 text-center text-sm text-slate-500">No hay señales registradas.</p>}
+            </div>
+          </div>
+        </article>
       </section>
     </main>
   );
@@ -193,38 +251,26 @@ export default function CriticalRoutesPage() {
 
 function RouteMap({ result }: { result: RouteResult | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
-  const markersRef = useRef<MapLibreMarker[]>([]);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const routeLayersRef = useRef<Layer[]>([]);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     async function initialize() {
       try {
-        const { AttributionControl, Map, NavigationControl } = await import("maplibre-gl");
+        const L = await import("leaflet");
         if (cancelled || !containerRef.current) return;
-        const map = new Map({
-          attributionControl: false,
-          center: [-74.84523, 10.92614],
-          container: containerRef.current,
+        const map = L.map(containerRef.current, { zoomControl: true }).setView([10.92614, -74.84523], 11);
+        L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+          attribution: "Tiles © Esri",
           maxZoom: 19,
-          style: MAP_STYLE,
-          transformRequest: (url) => ({ url: clampOpenStreetMapTileUrl(url) }),
-          zoom: 10.5,
-        });
-        map.setMaxZoom(19);
-        map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
-        map.addControl(new AttributionControl({ compact: true }), "bottom-left");
-        map.on("load", () => { if (!cancelled) setMapReady(true); });
-        map.on("error", (event) => {
-          if (!cancelled && event.error?.message) setMapError("No se pudo cargar el mapa base. Revisa la conexión e inténtalo nuevamente.");
-        });
+        }).addTo(map);
         mapRef.current = map;
-        resizeObserverRef.current = new ResizeObserver(() => map.resize());
+        resizeObserverRef.current = new ResizeObserver(() => map.invalidateSize(false));
         resizeObserverRef.current.observe(containerRef.current);
-        requestAnimationFrame(() => map.resize());
+        requestAnimationFrame(() => map.invalidateSize(false));
       } catch {
         if (!cancelled) setMapError("No se pudo cargar el mapa.");
       }
@@ -232,7 +278,7 @@ function RouteMap({ result }: { result: RouteResult | null }) {
     void initialize();
     return () => {
       cancelled = true;
-      markersRef.current.forEach((marker) => marker.remove());
+      routeLayersRef.current = [];
       resizeObserverRef.current?.disconnect();
       mapRef.current?.remove();
       resizeObserverRef.current = null;
@@ -241,41 +287,45 @@ function RouteMap({ result }: { result: RouteResult | null }) {
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !result || !mapRef.current) return;
+    if (!result || !mapRef.current) return;
     const map = mapRef.current;
-    const data = { type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: result.route.coordinates } };
-    const source = map.getSource("fastest-route") as GeoJSONSource | undefined;
-    if (source) source.setData(data);
-    else {
-      map.addSource("fastest-route", { type: "geojson", data });
-      map.addLayer({ id: "fastest-route-outline", type: "line", source: "fastest-route", paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.9 } });
-      map.addLayer({ id: "fastest-route-line", type: "line", source: "fastest-route", paint: { "line-color": "#1264ff", "line-width": 5 } });
-    }
-
-    markersRef.current.forEach((marker) => marker.remove());
-    void import("maplibre-gl").then(({ LngLatBounds, Marker, Popup }) => {
-      markersRef.current = [
-        new Marker({ color: "#1264ff" }).setLngLat([result.origin.longitude, result.origin.latitude]).setPopup(new Popup({ offset: 20 }).setDOMContent(popupContent("Origen", result.origin.label))).addTo(map),
-        new Marker({ color: "#f97316" }).setLngLat([result.destination.longitude, result.destination.latitude]).setPopup(new Popup({ offset: 20 }).setDOMContent(popupContent("Destino", result.destination.label))).addTo(map),
-      ];
-      const bounds = result.route.coordinates.reduce((value, coordinate) => value.extend(coordinate), new LngLatBounds(result.route.coordinates[0], result.route.coordinates[0]));
-      map.fitBounds(bounds, { padding: 70, duration: 900, maxZoom: 15 });
+    void import("leaflet").then((L) => {
+      routeLayersRef.current.forEach((layer) => layer.removeFrom(map));
+      const coordinates = result.route.coordinates.map(([longitude, latitude]) => [latitude, longitude] as [number, number]);
+      const routeOutline = L.polyline(coordinates, { color: "white", weight: 9, opacity: 0.9 }).addTo(map);
+      const routeLine = L.polyline(coordinates, { color: "#1264ff", weight: 5, opacity: 1 }).addTo(map);
+      const origin = L.circleMarker([result.origin.latitude, result.origin.longitude], { color: "white", fillColor: "#1264ff", fillOpacity: 1, radius: 9, weight: 3 }).bindPopup(`<strong>Origen</strong><br>${escapeHtml(result.origin.label)}`).addTo(map);
+      const destination = L.circleMarker([result.destination.latitude, result.destination.longitude], { color: "white", fillColor: "#f97316", fillOpacity: 1, radius: 9, weight: 3 }).bindPopup(`<strong>Destino</strong><br>${escapeHtml(result.destination.label)}`).addTo(map);
+      const hazards = (result.hazards || []).map((hazard) => L.marker([hazard.latitude, hazard.longitude], {
+        icon: L.divIcon({ className: "", html: `<button aria-label="${escapeHtml(hazardLabel(hazard.type))}" class="grid h-10 w-10 place-items-center rounded-full border-2 border-white bg-amber-400 text-xl shadow-lg">${hazardIcon(hazard.type)}</button>`, iconAnchor: [20, 20], iconSize: [40, 40] }),
+      }).bindPopup(`<strong>${escapeHtml(hazardLabel(hazard.type))}</strong><br>${escapeHtml(hazard.description)}`).addTo(map));
+      routeLayersRef.current = [routeOutline, routeLine, origin, destination, ...hazards];
+      map.fitBounds(routeLine.getBounds(), { padding: [55, 55], maxZoom: 15 });
     });
-  }, [mapReady, result]);
+  }, [result]);
 
   if (mapError) return <div className="absolute inset-0 grid place-items-center text-sm font-semibold text-slate-500">{mapError}</div>;
   return <div aria-label="Mapa de la ruta crítica" className="absolute inset-0" ref={containerRef} role="img" />;
 }
 
-function clampOpenStreetMapTileUrl(url: string) {
-  const match = url.match(/^(https:\/\/tile\.openstreetmap\.org\/)(\d+)\/(\d+)\/(\d+)\.png(\?.*)?$/);
-  if (!match) return url;
-  const zoom = Number(match[2]);
-  if (zoom <= 19) return url;
-  const scale = 2 ** (zoom - 19);
-  const x = Math.floor(Number(match[3]) / scale);
-  const y = Math.floor(Number(match[4]) / scale);
-  return `${match[1]}19/${x}/${y}.png${match[5] || ""}`;
+function hazardIcon(type: string) {
+  if (type === "cables_bajos") return "⚡";
+  if (type === "via_danada") return "🚧";
+  if (type === "inundacion") return "🌊";
+  if (type === "cierre") return "⛔";
+  return "⚠️";
+}
+
+function hazardLabel(type: string) {
+  if (type === "cables_bajos") return "Cables bajos";
+  if (type === "via_danada") return "Vía dañada";
+  if (type === "inundacion") return "Zona inundable";
+  if (type === "cierre") return "Cierre vial";
+  return "Peligro en la ruta";
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] || character);
 }
 
 function popupContent(kind: string, label: string) {

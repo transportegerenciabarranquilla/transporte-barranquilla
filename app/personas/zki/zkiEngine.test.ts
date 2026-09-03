@@ -387,6 +387,53 @@ test("conserva un RR único cuando se agotan las parejas conductor vehículo", (
   assert.equal(assigned.get(trips[1].id)?.capacity, 0);
 });
 
+test("usa una pareja conductor-placa libre para completar una ruta aunque no sea la habitual del RR", () => {
+  const trips = parseTrips([
+    { Número: 1, Nombre: "Zona 1", Peso: 8_000 },
+    { Número: 2, Nombre: "Zona 2", Peso: 8_000 },
+  ]);
+  const first = { ...fakeCandidate("RR 1", 90), rrId: "1", zki: 90 };
+  const second = { ...fakeCandidate("RR 2", 85), rrId: "2", zki: 85 };
+  const assigned = assignDriverVehiclePairs(
+    [
+      { trip: trips[0], candidates: [first], recommendation: first },
+      { trip: trips[1], candidates: [second], recommendation: second },
+    ],
+    [
+      { plate: "AAA111", driver: "Conductor 1", driverId: "10", responsible: "RR 1", responsibleId: "1" },
+      { plate: "BBB222", driver: "Conductor 3", driverId: "30", responsible: "RR 3", responsibleId: "3" },
+    ],
+    new Map([["aaa111", 10_000], ["bbb222", 10_000]]),
+  );
+
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "AAA111");
+  assert.equal(assigned.get(trips[1].id)?.rr, "RR 2");
+  assert.equal(assigned.get(trips[1].id)?.driver, "Conductor 3");
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "BBB222");
+  assert.equal(assigned.get(trips[1].id)?.habitualVehicle, false);
+});
+
+test("considera viable un ZKI combinado de 80 cuando el umbral es 80", () => {
+  const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 8_000 }]);
+  const candidate = {
+    ...fakeCandidate("RR 1", 40),
+    rrId: "1",
+    zki: 40,
+    auxiliaryZki: 40,
+    totalZki: 80,
+    hasKnowledge: true,
+  };
+  const assigned = assignDriverVehiclePairs(
+    [{ trip, candidates: [candidate], recommendation: candidate }],
+    [{ plate: "AAA111", driver: "Conductor 1", driverId: "10", responsible: "RR 1", responsibleId: "1" }],
+    new Map([["aaa111", 10_000]]),
+    80,
+  ).get(trip.id);
+
+  assert.equal(assigned?.totalZki, 80);
+  assert.equal(assigned?.viable, true);
+});
+
 test("el respaldo ZKI cero no sobrescribe al mismo RR con historial positivo", () => {
   const historical = { ...fakeCandidate("Juan Perez", 85), rrId: "100", zki: 85, hasKnowledge: true };
   const fallback = { ...fakeCandidate("JUAN PEREZ", 0), rrId: "999", zki: 0, totalZki: 0, hasKnowledge: false, viable: false };
