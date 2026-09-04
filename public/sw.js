@@ -2,7 +2,9 @@ const CACHE_NAME = "torre-control-shell-v1";
 const STATIC_ASSETS = ["/favicon.jpeg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) =>
+    Promise.all(STATIC_ASSETS.map((asset) => cache.add(asset).catch(() => undefined))),
+  ));
   self.skipWaiting();
 });
 

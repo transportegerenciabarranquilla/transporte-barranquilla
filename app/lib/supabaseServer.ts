@@ -8,6 +8,7 @@ export const SUPABASE_KEY: string =
   "";
 
 export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+export const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || "";
 
 export function requireSupabaseKey() {
   if (!SUPABASE_KEY) {
@@ -37,6 +38,13 @@ export function supabaseReadHeaders(accessToken: string, extra?: Record<string, 
 }
 
 export function supabaseAdminHeaders(extra?: Record<string, string>) {
+  if (SUPABASE_SECRET_KEY) {
+    return {
+      apikey: SUPABASE_SECRET_KEY,
+      "Content-Type": "application/json",
+      ...extra,
+    };
+  }
   if (!SUPABASE_SERVICE_ROLE_KEY) return null;
 
   return {

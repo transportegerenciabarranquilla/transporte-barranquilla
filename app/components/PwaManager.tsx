@@ -77,7 +77,9 @@ export function PwaManager() {
 
   async function enableNotifications() {
     setBusy(true);
-    setMessage("");
+    setMessage("Preparando el dispositivo…");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
         throw new Error("Este navegador no admite notificaciones push.");
@@ -86,11 +88,17 @@ export function PwaManager() {
       setNotificationPermission(permission);
       if (permission !== "granted") throw new Error("Debes permitir las notificaciones en la configuración del navegador.");
 
-      const keyResponse = await fetch("/api/push/public-key", { cache: "no-store" });
+      setMessage("Verificando la configuración del servidor…");
+      const keyResponse = await fetch("/api/push/public-key", { cache: "no-store", signal: controller.signal });
       const keyBody = await keyResponse.json().catch(() => ({}));
       if (!keyResponse.ok || !keyBody.publicKey) throw new Error(keyBody.error || "Falta configurar la clave pública de notificaciones.");
 
-      const registration = await navigator.serviceWorker.ready;
+      setMessage("Registrando este dispositivo…");
+      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("El service worker no respondió. Cierra la aplicación y vuelve a abrirla.")), 10_000)),
+      ]);
       const previous = await registration.pushManager.getSubscription();
       const subscription = previous || await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -100,13 +108,17 @@ export function PwaManager() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription.toJSON()),
+        signal: controller.signal,
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo guardar la suscripción.");
       setMessage("Notificaciones administrativas activadas.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudieron activar las notificaciones.");
+      setMessage(error instanceof DOMException && error.name === "AbortError"
+        ? "La sincronización tardó demasiado. Revisa la conexión y vuelve a intentarlo."
+        : error instanceof Error ? error.message : "No se pudieron activar las notificaciones.");
     } finally {
+      window.clearTimeout(timeout);
       setBusy(false);
     }
   }
@@ -141,7 +153,7 @@ export function PwaManager() {
           <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-500 px-3 text-xs font-bold text-slate-950 disabled:opacity-60" disabled={busy} onClick={() => void enableNotifications()} type="button"><Bell size={15} /> {busy ? "Sincronizando…" : notificationPermission === "granted" ? "Sincronizar avisos" : "Activar avisos"}</button>
         ) : null}
       </div>
-      {message ? <p className={`mt-2 text-xs font-semibold ${message.startsWith("Notificaciones") ? "text-emerald-700" : "text-red-600"}`}>{message}</p> : null}
+      {message ? <p className={`mt-2 text-xs font-semibold ${message.startsWith("Notificaciones") ? "text-emerald-700" : busy ? "text-blue-700" : "text-red-600"}`}>{message}</p> : null}
     </aside>
   );
 }
