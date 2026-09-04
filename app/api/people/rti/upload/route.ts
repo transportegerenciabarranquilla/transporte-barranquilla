@@ -118,8 +118,16 @@ async function insertRows(table: string, headers: Record<string, string>, rows: 
 
 function normalizeRow(rawRow: Record<string, unknown>) {
   return Object.fromEntries(
-    Object.entries(rawRow).map(([header, value]) => [canonicalHeader(header), normalizeCell(value)]),
+    Object.entries(rawRow)
+      // SheetJS usa __EMPTY, __EMPTY_1, etc. cuando encuentra columnas sin
+      // encabezado. Esas claves no existen en RACOCIMI y Supabase las rechaza.
+      .filter(([header]) => !isGeneratedEmptyHeader(header))
+      .map(([header, value]) => [canonicalHeader(header), normalizeCell(value)]),
   );
+}
+
+function isGeneratedEmptyHeader(header: string) {
+  return /^__EMPTY(?:_\d+)?$/i.test(header.trim());
 }
 
 function canonicalHeader(header: string) {

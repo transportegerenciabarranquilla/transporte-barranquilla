@@ -57,6 +57,12 @@ export function OperationalAlerts({ isAdmin = false, isPeople = false }: { isAdm
   const totalIssues = alerts.reduce((total, alert) => total + alert.value, 0);
   const maxAlertValue = Math.max(...alerts.map((alert) => alert.value), 1);
   const criticalAlerts = alerts.filter((alert) => alert.value > 0).length;
+  const alertSignature = alerts.map((alert) => `${alert.id}:${alert.value}`).join("|");
+
+  useEffect(() => {
+    if (!isAdmin || totalIssues === 0) return;
+    void fetch("/api/push/admin-summary", { method: "POST" }).catch(() => undefined);
+  }, [alertSignature, isAdmin, totalIssues]);
 
   if (isPeople) return null;
 

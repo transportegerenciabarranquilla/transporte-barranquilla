@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, FileSpreadsheet, FileText, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Database, Download, FileSpreadsheet, FileText, LoaderCircle, PackageOpen, ShieldAlert, TrendingDown, Trophy, Truck, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DateInput, FilterSelect, formatChartNumber, PanelHeader } from "./components/RtiVisuals";
 import type { RtiRecord } from "./rtiTypes";
@@ -719,6 +719,15 @@ export default function RtiPage() {
                 <option value="RACOCIMI2">RACOCIMI2 · Retorno</option>
               </select>
             </label>
+            <a
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-semibold text-violet-800 transition hover:bg-violet-100"
+              href={`/api/people/rti/template?target=${uploadTarget}`}
+              title={`Descargar plantilla para ${uploadTarget}`}
+            >
+              <Download size={16} />
+              <span className="hidden xl:inline">Descargar plantilla</span>
+              <span className="xl:hidden">Plantilla</span>
+            </a>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
               disabled={exporting || exportingPdf || databaseState !== "connected" || !filteredRecords.length}
