@@ -31,11 +31,10 @@ export function PwaManager() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [dismissed, setDismissed] = useState(true);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setInstalled(isStandalone());
-    setDismissed(window.localStorage.getItem("pwa-admin-dismissed") === "true");
     setNotificationPermission("Notification" in window && "serviceWorker" in navigator && "PushManager" in window ? Notification.permission : "unsupported");
     navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
 
@@ -113,11 +112,10 @@ export function PwaManager() {
   }
 
   function close() {
-    window.localStorage.setItem("pwa-admin-dismissed", "true");
     setDismissed(true);
   }
 
-  if (!isAdmin || dismissed || (installed && notificationPermission === "granted")) return null;
+  if (!isAdmin || dismissed) return null;
 
   return (
     <aside className="fixed bottom-4 right-4 z-[80] w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-950/20">
@@ -139,8 +137,8 @@ export function PwaManager() {
         {!installed && (installPrompt || isIos()) ? (
           <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#10223d] px-3 text-xs font-bold text-white" onClick={() => void installApp()} type="button"><Download size={15} /> Instalar aplicación</button>
         ) : null}
-        {notificationPermission !== "unsupported" && notificationPermission !== "granted" && (!isIos() || installed) ? (
-          <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-500 px-3 text-xs font-bold text-slate-950 disabled:opacity-60" disabled={busy} onClick={() => void enableNotifications()} type="button"><Bell size={15} /> {busy ? "Activando…" : "Activar avisos"}</button>
+        {notificationPermission !== "unsupported" && (!isIos() || installed) ? (
+          <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-500 px-3 text-xs font-bold text-slate-950 disabled:opacity-60" disabled={busy} onClick={() => void enableNotifications()} type="button"><Bell size={15} /> {busy ? "Sincronizando…" : notificationPermission === "granted" ? "Sincronizar avisos" : "Activar avisos"}</button>
         ) : null}
       </div>
       {message ? <p className={`mt-2 text-xs font-semibold ${message.startsWith("Notificaciones") ? "text-emerald-700" : "text-red-600"}`}>{message}</p> : null}
