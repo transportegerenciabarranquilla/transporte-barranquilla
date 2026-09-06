@@ -1,0 +1,85 @@
+.dashboard :where(section, article, div) {
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .dashboard > header {
+    position: static;
+  }
+
+  .dashboard > section {
+    padding: 12px;
+  }
+
+  .dashboard h1 {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+
+  .dashboard nav[aria-label="Secciones de graficas"] {
+    top: 0;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    gap: 6px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    scroll-snap-type: x proximity;
+  }
+
+  .dashboard nav[aria-label="Secciones de graficas"] button {
+    flex: 0 0 140px;
+    min-height: 48px;
+    padding: 8px 10px;
+    scroll-snap-align: start;
+  }
+
+  .dashboard :where(input, select) {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .dashboard :where(h2, h3, p) {
+    overflow-wrap: anywhere;
+  }
+
+  /* Mantener las columnas legibles y desplazar solo la tabla. */
+  .dashboard div:has(> table) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .dashboard table {
+    min-width: 560px;
+  }
+
+  .dashboard :where(th, td) {
+    font-size: 11px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .dashboard td p[title] {
+    white-space: normal;
+  }
+
+  .dashboard :where([class*="text-[7px]"], [class*="text-[8px]"], [class*="text-[9px]"]) {
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .dashboard div:has(> svg[role="img"]) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .dashboard [class~="fixed"] {
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding: 12px;
+  }
+}

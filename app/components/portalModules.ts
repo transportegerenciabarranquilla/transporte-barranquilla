@@ -1,4 +1,4 @@
-import { contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors";
+import { contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
 
 export type PortalModule = {
   id: number;
@@ -68,6 +68,15 @@ const dailyControlModule: PortalModule = {
   href: "/control-diario",
   detail: "Checklists de salida, retorno y ausentismo",
   tone: "from-[#0891b2] to-[#7c3aed]",
+  accent: "border-l-[#06b6d4]",
+};
+
+const contractorChartsModule: PortalModule = {
+  id: 19,
+  title: "SIC / Gráficas",
+  href: "/sic/graficas",
+  detail: "Seguimiento, Refusal, rango, RTI y salidas",
+  tone: "from-[#0f172a] via-[#2563eb] to-[#06b6d4]",
   accent: "border-l-[#06b6d4]",
 };
 
@@ -194,8 +203,8 @@ export function getVisiblePortalModules({
     return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
-  const canSeePresale = normalizeContractorName(contractor) === "logisticos";
-  return contractor ? [...contractorModules, ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
+  const canSeePresale = isLogisticosContractor(contractor);
+  return contractor ? [...contractorModules, contractorChartsModule, ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {

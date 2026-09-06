@@ -6,7 +6,7 @@ import { normalizeContractorName } from "../../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 const TABLE = "preventa_clientes";
-const ALLOWED = ["logisticos"];
+const ALLOWED = ["logisticos", "logisticosarenosa"];
 const aliases = {
   code: ["cliente", "codigo cliente", "codigo del cliente", "codigo", "cod cliente", "customer code"],
   name: ["nombre cliente", "nombre del cliente", "nombre", "razon social", "nombre del establecimiento", "establecimiento"],

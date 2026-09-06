@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
-import { isComplaintsContractor, normalizeContractorName } from "../lib/contractors";
+import { CONTRACTORS, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../lib/contractors";
 
 type Access = "checking" | "allowed" | "denied";
 
@@ -15,6 +15,7 @@ export default function ComplaintsPage() {
   const [access, setAccess] = useState<Access>("checking");
   const [canUploadComplaints, setCanUploadComplaints] = useState(false);
   const [isAdminSession, setIsAdminSession] = useState(false);
+  const [isArenosaSession, setIsArenosaSession] = useState(false);
   const [records, setRecords] = useState<ComplaintRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -36,8 +37,9 @@ export default function ComplaintsPage() {
       const body = await response.json().catch(() => ({}));
       const contractor = String(body?.session?.contractor || "");
       setAccess(response.ok && (body?.session?.isAdmin || isComplaintsContractor(contractor)) ? "allowed" : "denied");
-      setCanUploadComplaints(response.ok && !body?.session?.isAdmin && normalizeContractorName(contractor) === "logisticos");
+      setCanUploadComplaints(response.ok && !body?.session?.isAdmin && isLogisticosContractor(contractor));
       setIsAdminSession(response.ok && Boolean(body?.session?.isAdmin));
+      setIsArenosaSession(normalizeContractorName(contractor) === "logisticosarenosa");
     }).catch(() => setAccess("denied"));
   }, []);
 
@@ -213,7 +215,7 @@ export default function ComplaintsPage() {
 
       <section className="mx-auto max-w-[1500px] space-y-5 px-5 py-6 sm:px-8">
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las tres transportistas." : canUploadComplaints ? "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos." : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las contratistas de ambas sedes." : canUploadComplaints ? (isArenosaSession ? "Administra las quejas de Logisticos Arenosa y Punto Corona Arenosa. Se asignan por transportista o por el cruce del DT." : "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos.") : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
           <div className="flex flex-wrap gap-2">
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("excel")} type="button">{exporting === "excel" ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}Exportar Excel</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("pdf")} type="button">{exporting === "pdf" ? <LoaderCircle className="animate-spin" size={16} /> : <FileText size={16} />}Exportar PDF</button>
@@ -228,7 +230,7 @@ export default function ComplaintsPage() {
         {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{message}</p> : null}
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p> : null}
 
-        <ComplaintFilters contractorFilter={contractorFilter} dateFrom={dateFrom} dateTo={dateTo} matchFilter={matchFilter} onClear={clearFilters} query={query} setContractorFilter={setContractorFilter} setDateFrom={setDateFrom} setDateTo={setDateTo} setMatchFilter={setMatchFilter} setQuery={setQuery} setStatusFilter={setStatusFilter} showContractor={isAdminSession || canUploadComplaints} statusFilter={statusFilter} total={records.length} visible={visible.length} />
+        <ComplaintFilters contractorFilter={contractorFilter} dateFrom={dateFrom} dateTo={dateTo} matchFilter={matchFilter} onClear={clearFilters} query={query} setContractorFilter={setContractorFilter} setDateFrom={setDateFrom} setDateTo={setDateTo} setMatchFilter={setMatchFilter} setQuery={setQuery} setStatusFilter={setStatusFilter} contractors={CONTRACTORS.filter((item) => isAdminSession || contractorSiteName(item) === (isArenosaSession ? "Arenosa" : "Galapa"))} showContractor={isAdminSession || canUploadComplaints} statusFilter={statusFilter} total={records.length} visible={visible.length} />
 
         {!isAdminSession ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<MessageSquareWarning />} label="Quejas visibles" value={visible.length} />
@@ -246,7 +248,7 @@ export default function ComplaintsPage() {
 
 type ComplaintFiltersProps = {
   contractorFilter: string; dateFrom: string; dateTo: string; matchFilter: string; query: string; statusFilter: string;
-  total: number; visible: number; showContractor: boolean; onClear: () => void;
+  total: number; visible: number; showContractor: boolean; contractors: readonly string[]; onClear: () => void;
   setContractorFilter: (value: string) => void; setDateFrom: (value: string) => void; setDateTo: (value: string) => void;
   setMatchFilter: (value: string) => void; setQuery: (value: string) => void; setStatusFilter: (value: string) => void;
 };
@@ -266,7 +268,7 @@ function ComplaintRecordsTable({ loading, now, onSelect, records }: { loading: b
 
 function ComplaintFilters(props: ComplaintFiltersProps) {
   const inputClass = "h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500";
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Filter className="text-blue-700" size={18} /><div><h2 className="font-black text-[#10223d]">Filtros</h2><p className="text-xs text-slate-500">Mostrando {props.visible} de {props.total} quejas</p></div></div><button className="text-xs font-black text-blue-700 hover:underline" onClick={props.onClear} type="button">Limpiar filtros</button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><input className={`${inputClass} xl:col-span-2`} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar ID, DT, placa, persona..." value={props.query} /><select className={inputClass} onChange={(event) => props.setStatusFilter(event.target.value)} value={props.statusFilter}><option value="all">Todos los estados</option><option value="open">Abiertas</option><option value="closed">Cerradas</option></select>{props.showContractor ? <select className={inputClass} onChange={(event) => props.setContractorFilter(event.target.value)} value={props.contractorFilter}><option value="all">Transportistas</option><option value="logisticos">Logisticos</option><option value="puntocorona">Punto Corona</option><option value="surticervezas">Surti Cervezas</option></select> : null}<select className={inputClass} onChange={(event) => props.setMatchFilter(event.target.value)} value={props.matchFilter}><option value="all">Todos los cruces</option><option value="matched">Con cruce</option><option value="unmatched">Sin cruce</option></select><div className="flex gap-2"><input aria-label="Fecha desde" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateFrom(event.target.value)} title="Fecha desde" type="date" value={props.dateFrom} /><input aria-label="Fecha hasta" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateTo(event.target.value)} title="Fecha hasta" type="date" value={props.dateTo} /></div></div></section>;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Filter className="text-blue-700" size={18} /><div><h2 className="font-black text-[#10223d]">Filtros</h2><p className="text-xs text-slate-500">Mostrando {props.visible} de {props.total} quejas</p></div></div><button className="text-xs font-black text-blue-700 hover:underline" onClick={props.onClear} type="button">Limpiar filtros</button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><input className={`${inputClass} xl:col-span-2`} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar ID, DT, placa, persona..." value={props.query} /><select className={inputClass} onChange={(event) => props.setStatusFilter(event.target.value)} value={props.statusFilter}><option value="all">Todos los estados</option><option value="open">Abiertas</option><option value="closed">Cerradas</option></select>{props.showContractor ? <select className={inputClass} onChange={(event) => props.setContractorFilter(event.target.value)} value={props.contractorFilter}><option value="all">Transportistas</option>{props.contractors.map((item) => <option key={item} value={normalizeContractorName(item)}>{item}</option>)}</select> : null}<select className={inputClass} onChange={(event) => props.setMatchFilter(event.target.value)} value={props.matchFilter}><option value="all">Todos los cruces</option><option value="matched">Con cruce</option><option value="unmatched">Sin cruce</option></select><div className="flex gap-2"><input aria-label="Fecha desde" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateFrom(event.target.value)} title="Fecha desde" type="date" value={props.dateFrom} /><input aria-label="Fecha hasta" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateTo(event.target.value)} title="Fecha hasta" type="date" value={props.dateTo} /></div></div></section>;
 }
 
 function normalizeTemplateRow(row: Record<string, unknown>) {
@@ -430,7 +432,7 @@ async function fillEstablishmentsFromClientCodes<T extends { code: unknown; esta
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><span className="grid h-11 w-11 place-items-center rounded-xl bg-red-50 text-red-700">{icon}</span><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="text-2xl font-black text-[#10223d]">{value.toLocaleString("es-CO")}</p></div></article>; }
 
 function ComplaintAdminCharts({ now, records }: { now: number; records: ComplaintRecord[] }) {
-  const contractors = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const contractors = CONTRACTORS;
   const contractorGroups = contractors.map((contractor) => ({
     contractor,
     records: records.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(contractor)),

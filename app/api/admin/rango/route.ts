@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { contractorLabel, isAdminRangoExcludedContractor } from "../../../lib/contractors";
+import { contractorLabel, isAdminRangoExcludedContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -24,7 +24,7 @@ type AdminRangoReport = {
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
-    if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
     const params = new URLSearchParams({
@@ -32,12 +32,14 @@ export async function GET() {
       order: "operational_date.desc,updated_at.desc",
       limit: "5000",
     });
+    if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
     const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<ReportRow[]>("supabase:admin-rango:all", LIST_CACHE_TTL_MS, url, { headers });
+    const rows = await cachedJsonFetch<ReportRow[]>(`supabase:admin-rango:${session.isAdmin ? "all" : normalizeContractorName(session.contractor)}`, LIST_CACHE_TTL_MS, url, { headers });
 
     const reports = rows
       .map(normalizeReport)
       .filter((report): report is AdminRangoReport => report !== null)
+      .filter((report) => session.isAdmin || normalizeContractorName(report.contractor) === normalizeContractorName(session.contractor))
       .filter((report) => !isAdminRangoExcludedContractor(report.contractor));
     return NextResponse.json({ reports });
   } catch (error) {

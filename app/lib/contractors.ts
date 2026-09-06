@@ -3,6 +3,7 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
   "puntocorona@bavaria-seguimiento.com": "Punto Corona",
   "surticervezas@bavaria-seguimiento.com": "Surti Cervezas",
   "logisticos@transporte.com": "Logisticos Arenosa",
+  "logisticosare@gmail.com": "Logisticos Arenosa",
   "corona@transporte.com": "Punto Corona Arenosa",
 };
 
@@ -63,7 +64,23 @@ export function contractorSiteName(value: string | null | undefined) {
 }
 
 export function isComplaintsContractor(value: string | null | undefined) {
-  return ["logisticos", "puntocorona", "surticervezas"].includes(normalizeContractorName(value));
+  return isOperationalContractor(value);
+}
+
+export function canManageComplaint(contractor: string | null | undefined, target: string | null | undefined) {
+  if (!isComplaintsContractor(contractor)) return false;
+  if (normalizeContractorName(contractor) === normalizeContractorName(target)) return true;
+  return isLogisticosContractor(contractor)
+    && (isComplaintsContractor(target) || normalizeContractorName(target) === "poridentificar")
+    && contractorSiteName(contractor) === contractorSiteName(target);
+}
+
+export function complaintUploadContractor(value: string | null | undefined, uploader: string) {
+  const label = contractorLabel(value);
+  if (contractorSiteName(uploader) !== "Arenosa") return label;
+  if (label === "Logisticos") return "Logisticos Arenosa";
+  if (label === "Punto Corona") return "Punto Corona Arenosa";
+  return label;
 }
 
 export function isOperationalContractor(value: string | null | undefined): value is string {

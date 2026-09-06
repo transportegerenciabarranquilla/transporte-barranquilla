@@ -51,6 +51,7 @@ export type GraphDateRange = {
 };
 
 export type ModulationRefusalRecord = {
+  origenReubicacion?: "Logística" | "Ventas";
   contratista?: string;
   dt: string;
   fechaDespacho?: string;
@@ -65,6 +66,7 @@ export type ModulationRefusalRecord = {
   preventistaNombre?: string;
   totalCajas: string;
   cajasGestionadas?: string;
+  causal?: string;
 };
 
 export type RrRefusalSummary = {

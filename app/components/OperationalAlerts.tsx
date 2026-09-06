@@ -67,16 +67,16 @@ export function OperationalAlerts({ isAdmin = false, isPeople = false }: { isAdm
   if (isPeople) return null;
 
   return (
-    <section className="mb-7">
-      <div className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white/90 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+    <section className="mb-5">
+      <div className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="grid gap-3 p-4 lg:grid-cols-[1fr_auto] lg:items-center">
           <div className="flex items-start gap-3">
             <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${totalIssues ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"}`}>
               {totalIssues ? <Activity size={21} /> : <ShieldCheck size={21} />}
             </span>
             <div>
               <p className="text-sm font-medium text-slate-500">Operacion de hoy</p>
-              <h2 className="mt-0.5 text-2xl font-semibold text-[#10223d]">Alertas operativas</h2>
+              <h2 className="mt-0.5 text-xl font-semibold text-[#10223d]">Alertas operativas</h2>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
                 {totalIssues ? "Prioriza las novedades abiertas por ruta, asistencia y modulacion." : "La operacion no registra novedades criticas en este momento."}
               </p>
@@ -93,7 +93,7 @@ export function OperationalAlerts({ isAdmin = false, isPeople = false }: { isAdm
           </div>
         </div>
 
-        <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+        <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-2">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
             <span className="rounded-md bg-white px-2.5 py-1 text-[#10223d] ring-1 ring-slate-200">Fecha {todayKey}</span>
             <span>{vehicles.length} rutas en memoria</span>
@@ -108,29 +108,29 @@ export function OperationalAlerts({ isAdmin = false, isPeople = false }: { isAdm
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {alerts.map((alert) => (
           <button
-            className={`group relative min-h-36 overflow-hidden rounded-lg border border-slate-200 bg-white/92 p-4 text-left shadow-[0_14px_32px_rgba(15,23,42,0.07)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-[0_18px_42px_rgba(15,23,42,0.11)] ${alert.accent}`}
+            className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white p-3.5 text-left transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${alert.value ? "border-amber-200/80 shadow-sm" : "border-slate-200/70"} ${alert.accent}`}
             key={alert.id}
             onClick={() => router.push(alert.href)}
             type="button"
           >
-            <span className="absolute inset-x-0 top-0 h-1 bg-current opacity-70" />
+            <span className="absolute inset-x-0 top-0 h-0.5 bg-current opacity-60" />
             <span className="flex items-start justify-between gap-3">
-              <span className={`grid h-10 w-10 place-items-center rounded-md ${alert.tone}`}>
+              <span className={`grid h-9 w-9 place-items-center rounded-lg ${alert.tone}`}>
                 <AlertIcon name={alert.icon} />
               </span>
               <span className="text-right">
-                <span className="block text-3xl font-semibold leading-none text-[#10223d]">{alert.value}</span>
-                <span className={`mt-1 inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${alert.value ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
+                <span className="block text-2xl font-semibold leading-none text-[#10223d]">{alert.value}</span>
+                <span className={`mt-1 inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${alert.value ? alert.tone : "bg-emerald-50 text-emerald-700"}`}>
                   {alert.value ? "Revisar" : "OK"}
                 </span>
               </span>
             </span>
-            <span className="mt-4 block text-sm font-semibold text-[#10223d]">{alert.title}</span>
-            <span className="mt-1 block text-xs leading-5 text-slate-500">{alert.detail}</span>
-            <span className="mt-4 block h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <span className="mt-2 block text-sm font-semibold text-[#10223d]">{alert.title}</span>
+            <span className="mb-3 mt-1 block flex-1 text-xs leading-4 text-[#52647a]">{alert.detail}</span>
+            <span className="mt-auto block h-1 overflow-hidden rounded-full bg-slate-100">
               <span className="block h-full rounded-full bg-current transition-all" style={{ width: `${Math.max(8, (alert.value / maxAlertValue) * 100)}%` }} />
             </span>
-            <span className="mt-3 flex items-center justify-between text-xs font-semibold text-slate-500">
+            <span className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Abrir detalle</span>
               <ArrowRight className="transition group-hover:translate-x-0.5" size={15} />
             </span>

@@ -5,7 +5,7 @@ import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders 
 
 const TABLE = "preventa_clientes";
 const MODULATIONS_TABLE = "modulaciones_ruta";
-const ALLOWED = ["logisticos"];
+const ALLOWED = ["logisticos", "logisticosarenosa"];
 
 export async function GET(request: Request) {
   try {
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const records = await response.json() as Array<Record<string, unknown>>;
     // El rango selecciona las plantillas cargadas. El ranking siempre usa todo
     // el histórico de Modulación de las tres contratistas.
-    const offenders = await readModulationOffenders(headers);
+    const offenders = await readModulationOffenders(headers, normalizeContractorName(session.contractor) === "logisticosarenosa" ? session.contractor : undefined);
     const refusalByClient = new Map(offenders.map((row) => [row.client_code.toLowerCase(), row.refusals]));
     const enrichedRecords = records.map((row) => ({
       ...row,
@@ -40,11 +40,12 @@ export async function GET(request: Request) {
 
 type ModulationClient = { contractor?: string; client_code?: string; client_name?: string; phone?: string; total_boxes?: string | number };
 
-async function readModulationOffenders(headers: Record<string, string>) {
+async function readModulationOffenders(headers: Record<string, string>, contractor?: string) {
   const totals = new Map<string, { contractor: string; client_code: string; client_name: string; phone: string; refusals: number; rejected_boxes: number; events: Array<{ date: string; contractor: string; boxes: number }> }>();
   const pageSize = 1_000;
   for (let offset = 0; ; offset += pageSize) {
     const params = new URLSearchParams({ select: "contractor,client_code:data->>codigoCliente,client_name:data->>nombreCliente,phone:data->>telefonoCliente,total_boxes:data->>totalCajas,dispatch_date:data->>fechaDespacho,dt_date:data->>fechaDt,record_date:data->>createdAt", limit: String(pageSize), offset: String(offset) });
+    if (contractor) params.set("contractor", `eq.${contractor}`);
     const response = await fetch(supabaseRest(MODULATIONS_TABLE, `?${params}`), { headers, cache: "no-store" });
     if (!response.ok) throw new Error(await supabaseError(response));
     const page = await response.json() as Array<ModulationClient & { dispatch_date?: string; dt_date?: string; record_date?: string }>;

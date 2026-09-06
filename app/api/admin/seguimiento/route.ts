@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { CONTRACTORS, contractorLabel, isPuntoCoronaContractor } from "../../../lib/contractors";
+import { CONTRACTORS, contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -44,15 +44,16 @@ const LIST_CACHE_TTL_MS = 30_000;
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
-    if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const adminHeaders = supabaseAdminHeaders();
     const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
     const publicHeaders = adminHeaders || supabaseHeaders();
+    const requestedContractors = session.isAdmin ? [...CONTRACTORS] : [session.contractor];
     const [rows, modulacionesRows, checkinRows, puntoCoronaRows] = await Promise.all([
-      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, publicHeaders, "seguimiento"),
-      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones"),
-      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "checkins").catch(() => []),
+      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, publicHeaders, "seguimiento", requestedContractors),
+      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones", requestedContractors),
+      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "checkins", requestedContractors).catch(() => []),
       fetchAdminRowsByContractor<PuntoCoronaReportRow>(
         "punto_corona_route_reports",
         PUNTO_CORONA_REPORT_SELECT,
@@ -60,6 +61,7 @@ export async function GET() {
         1200,
         sessionHeaders,
         "punto-corona",
+        requestedContractors.filter(isPuntoCoronaContractor),
       ).catch(() => []),
     ]);
     const modulaciones = modulacionesRows.map((row) => {
@@ -99,17 +101,6 @@ export async function GET() {
     });
     const records = appendPuntoCoronaReportRecords(seguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex);
     const refusalByComRows = buildRefusalByComRows(modulaciones, records);
-    const totals = records.reduce(
-      (acc, record) => ({
-        cajas: acc.cajas + readNumber(record.cajas),
-        rechazadas: acc.rechazadas + readNumber(record.cajasRechazadas),
-        gestionadas: acc.gestionadas + readNumber(record.cajasGestionadas),
-        refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
-      }),
-      { cajas: 0, rechazadas: 0, gestionadas: 0, refusalFinal: 0 },
-    );
-    const roundedTotalCajas = normalizeCajasTotal(totals.cajas);
-    const totalRefusal = roundedTotalCajas ? Number(((totals.refusalFinal / roundedTotalCajas) * 100).toFixed(2)) : 0;
     const summaries = CONTRACTORS.map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
       const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
@@ -128,16 +119,27 @@ export async function GET() {
       };
     });
 
+    const visibleRecords = session.isAdmin ? records : records.filter((record) => normalizeContractorName(record.transportista) === normalizeContractorName(session.contractor));
+    const visibleModulationRacocimi2 = session.isAdmin ? modulationRacocimi2 : modulationRacocimi2.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
+    const visibleRefusalByComRows = session.isAdmin ? refusalByComRows : refusalByComRows.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
+    const visibleTotals = visibleRecords.reduce((acc, record) => ({
+      cajas: acc.cajas + readNumber(record.cajas),
+      rechazadas: acc.rechazadas + readNumber(record.cajasRechazadas),
+      gestionadas: acc.gestionadas + readNumber(record.cajasGestionadas),
+      refusalFinal: acc.refusalFinal + readNumber(record.cajasRefusalFinal),
+    }), { cajas: 0, rechazadas: 0, gestionadas: 0, refusalFinal: 0 });
+    const visibleCajas = normalizeCajasTotal(visibleTotals.cajas);
+
     return NextResponse.json({
-      summaries,
-      records,
-      modulationRacocimi2,
-      refusalByComRows,
-      totalCajas: roundedTotalCajas,
-      totalRechazadas: totals.rechazadas,
-      totalGestionadas: totals.gestionadas,
-      totalRefusalFinal: totals.refusalFinal,
-      totalRefusal,
+      summaries: session.isAdmin ? summaries : summaries.filter((summary) => normalizeContractorName(summary.contractor) === normalizeContractorName(session.contractor)),
+      records: visibleRecords,
+      modulationRacocimi2: visibleModulationRacocimi2,
+      refusalByComRows: visibleRefusalByComRows,
+      totalCajas: visibleCajas,
+      totalRechazadas: visibleTotals.rechazadas,
+      totalGestionadas: visibleTotals.gestionadas,
+      totalRefusalFinal: visibleTotals.refusalFinal,
+      totalRefusal: visibleCajas ? Number(((visibleTotals.refusalFinal / visibleCajas) * 100).toFixed(2)) : 0,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando admin." }, { status: 500 });
@@ -166,9 +168,10 @@ async function fetchAdminRowsByContractor<T>(
   limit: number,
   headers: Record<string, string>,
   cacheKey: string,
+  contractors: readonly string[],
 ) {
   const groups = await Promise.all(
-    CONTRACTORS.map(async (contractor) => {
+    contractors.map(async (contractor) => {
       const records: T[] = [];
       for (let offset = 0; ; offset += limit) {
         const params = new URLSearchParams({

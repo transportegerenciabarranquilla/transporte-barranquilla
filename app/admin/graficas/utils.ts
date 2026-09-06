@@ -237,7 +237,7 @@ export function buildFilteredHref(path: string, range: GraphDateRange, dt: strin
 export function getInitialGraphFilters(today: string) {
   if (typeof window === "undefined") {
     return {
-      autoDateRange: true,
+      autoDateRange: false,
       contractor: "Todas",
       dateRange: { from: today, to: today },
       dtSearch: "",
@@ -252,7 +252,7 @@ export function getInitialGraphFilters(today: string) {
   const hasDateFilter = Boolean(from || to);
 
   return {
-    autoDateRange: !hasDateFilter,
+    autoDateRange: false,
     contractor,
     dateRange: hasDateFilter ? normalizeDateRange(from || to, to || from) : { from: today, to: today },
     dtSearch,

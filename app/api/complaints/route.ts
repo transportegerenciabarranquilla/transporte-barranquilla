@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { complaintClosingDeadline, complaintDateKey, complaintIdentityKey, normalizeComplaintDt, type ComplaintRecord } from "../../lib/complaints";
-import { contractorLabel, isComplaintsContractor, normalizeContractorName } from "../../lib/contractors";
+import { canManageComplaint, complaintUploadContractor, contractorLabel, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 import type { Vehiculo } from "../../seguimiento/types";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
@@ -24,10 +24,14 @@ export async function GET() {
   const tracking = [...seguimiento, ...crossContractorTracking];
   const uniqueRows = Array.from(new Map(rows.map((row) => [complaintIdentityKey(row.complaint_id), row])).values());
   const resolved = uniqueRows.map((row) => {
-    const match = findSeguimientoMatch(row.data.dt, row.data.createdDate, tracking, row.contractor);
+    const matchesAssignment = (contractor: string) => isComplaintsContractor(row.contractor)
+      ? normalizeContractorName(contractor) === normalizeContractorName(row.contractor)
+      : contractorSiteName(contractor) === contractorSiteName(row.contractor);
+    const siteTracking = tracking.filter((item) => matchesAssignment(item.contractor));
+    const match = findSeguimientoMatch(row.data.dt, row.data.createdDate, siteTracking, row.contractor);
     const vehicle = match?.data;
-    const attendance = vehicle ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, attendances, row.contractor);
-    const modulation = vehicle || attendance ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, modulations, row.contractor);
+    const attendance = vehicle ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, attendances.filter((item) => matchesAssignment(item.contractor)), row.contractor);
+    const modulation = vehicle || attendance ? undefined : findFallbackMatch(row.data.dt, row.data.createdDate, modulations.filter((item) => matchesAssignment(item.contractor)), row.contractor);
     const fallback = attendance || modulation;
     const resolvedContractor = contractorLabel(match?.contractor || vehicle?.transportista || fallback?.contractor || row.contractor) || row.contractor;
     return {
@@ -39,9 +43,9 @@ export async function GET() {
       closingTime: complaintClosingDisplay(row.data.createdDate, row.data.uploadedAt || row.uploaded_at),
     };
   });
-  const records = session.isAdmin || isComplaintsUploader(session.contractor)
+  const records = session.isAdmin
     ? resolved
-    : resolved.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
+    : resolved.filter((record) => canManageComplaint(session.contractor, record.contractor));
   return NextResponse.json({ records });
 }
 
@@ -82,12 +86,12 @@ export async function POST(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-  if (!session.isAdmin && !isComplaintsUploader(session.contractor)) return NextResponse.json({ error: "Solo Logisticos puede cargar quejas." }, { status: 403 });
+  if (!session.isAdmin && !isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "Solo Logisticos puede cargar quejas." }, { status: 403 });
   const body = await request.json().catch(() => ({})) as { records?: Array<Record<string, unknown>> };
   if (!Array.isArray(body.records) || !body.records.length) return NextResponse.json({ error: "El archivo no contiene quejas." }, { status: 400 });
   if (body.records.length > 5000) return NextResponse.json({ error: "El archivo supera el limite de 5.000 quejas." }, { status: 413 });
 
-  const missingIds = body.records.filter((input) => !text(input.id));
+  const missingIds = body.records.filter((input) => !complaintIdentityKey(input.id));
   if (missingIds.length) return NextResponse.json({ error: `${missingIds.length} filas no tienen ID. El ID es obligatorio para evitar quejas duplicadas.` }, { status: 400 });
 
   const [seguimiento, crossContractorTracking, existingRows] = await Promise.all([
@@ -98,10 +102,19 @@ export async function POST(request: Request) {
   const tracking = [...seguimiento, ...crossContractorTracking];
   const existingByIdentity = new Map(existingRows.map((row) => [complaintIdentityKey(row.complaint_id), row]));
   const uploadedAt = new Date().toISOString();
+  const ownContractorOnly = !session.isAdmin && contractorSiteName(session.contractor) === "Arenosa";
+  if (!session.isAdmin && body.records.some((input) => {
+    const requested = complaintUploadContractor(text(input.contractor ?? input.transportista), session.contractor);
+    const existing = existingByIdentity.get(complaintIdentityKey(input.id));
+    return (requested && !canManageComplaint(session.contractor, requested))
+      || (existing && !canManageComplaint(session.contractor, existing.contractor));
+  })) return NextResponse.json({ error: "Solo puedes cargar o actualizar quejas de las contratistas de tu sede." }, { status: 403 });
+  const uploadTracking = session.isAdmin ? tracking : tracking.filter((row) => canManageComplaint(session.contractor, row.contractor));
   const enrichedRecords = body.records.map((input, index) => {
-    const requestedContractor = contractorLabel(text(input.contractor ?? input.transportista));
+    const requestedContractor = complaintUploadContractor(text(input.contractor ?? input.transportista), session.contractor);
     const targetContractor = isComplaintsContractor(requestedContractor) ? requestedContractor : "";
-    const record = enrichComplaint(input, index, tracking, session.email, uploadedAt, targetContractor);
+    const targetTracking = targetContractor ? uploadTracking.filter((row) => normalizeContractorName(row.contractor) === normalizeContractorName(targetContractor)) : uploadTracking;
+    const record = enrichComplaint(input, index, targetTracking, session.email, uploadedAt, targetContractor);
     return { ...record, contractor: record.contractor || targetContractor || "Por identificar" };
   });
   const recordsById = new Map<string, ComplaintRecord>();
@@ -115,16 +128,18 @@ export async function POST(request: Request) {
       ...(existing.data.closedAt ? { closedAt: existing.data.closedAt } : {}),
       ...(existing.data.closedBy ? { closedBy: existing.data.closedBy } : {}),
       status: normalizeClosedStatus(existing.data.status) ? existing.data.status : incoming.status,
-    } : incoming;
+    } : { ...incoming, id: identity };
     recordsById.set(identity, record);
   }
   const records = Array.from(recordsById.values());
+  if (ownContractorOnly && records.some((record) => !canManageComplaint(session.contractor, record.contractor))) return NextResponse.json({ error: "No se pudo identificar la contratista de algunas quejas. Indica Logisticos Arenosa o Punto Corona Arenosa en la columna transportista." }, { status: 400 });
   const duplicates = enrichedRecords.length - records.length;
   const invalid = records.filter((record) => !record.id || !record.createdDate);
   if (invalid.length) return NextResponse.json({ error: `${invalid.length} filas no tienen id o fecha creacion validos.` }, { status: 400 });
   const rows = records.map((record) => ({ complaint_id: record.id, contractor: record.contractor, created_date: record.createdDate, dt: record.dt, uploaded_by: session.email, uploaded_at: uploadedAt, data: record }));
   const headers = supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
   const response = await fetch(supabaseRest(TABLE, "?on_conflict=complaint_id"), { method: "POST", headers, body: JSON.stringify(rows), cache: "no-store" });
+  if (response.status === 409) return NextResponse.json({ error: "Ya existe una queja con ese ID. Recarga e intenta de nuevo; no se creó un duplicado." }, { status: 409 });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
   await writeAuditLog({ action: "quejas_cargadas", contractor: session.contractor, details: { total: records.length, duplicadasOmitidas: duplicates, cruzadas: records.filter((record) => record.matched).length }, module: "quejas", request, session });
   return NextResponse.json({ records, inserted: records.length, duplicates, matched: records.filter((record) => record.matched).length });
@@ -143,7 +158,7 @@ export async function PATCH(request: Request) {
   if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
   const current = (await currentResponse.json() as Array<{ contractor: string; data: ComplaintRecord }>)[0];
   if (!current) return NextResponse.json({ error: "Queja no encontrada." }, { status: 404 });
-  if (!session.isAdmin && !isComplaintsUploader(session.contractor) && current.contractor !== session.contractor) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (!session.isAdmin && !canManageComplaint(session.contractor, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   if (body.action === "comment") {
     const comments = text(body.comments);
     if (comments.length > 2000) return NextResponse.json({ error: "El comentario no puede superar 2.000 caracteres." }, { status: 400 });
@@ -318,8 +333,4 @@ function bogotaDateKey() {
   const parts = new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "2-digit", timeZone: "America/Bogota", year: "numeric" }).formatToParts(new Date());
   const values = new Map(parts.map((part) => [part.type, part.value]));
   return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
-}
-
-function isComplaintsUploader(contractor: string | null | undefined) {
-  return normalizeContractorName(contractor) === "logisticos";
 }
