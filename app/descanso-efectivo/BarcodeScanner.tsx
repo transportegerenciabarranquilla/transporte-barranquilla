@@ -23,7 +23,10 @@ export function BarcodeScanner({ onScan, onStart, disabled }: { onScan: (value: 
     };
     const start = async () => {
       try {
-        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error("Abre la aplicación por HTTPS para usar la cámara.");
+        if (!window.isSecureContext) { setError("La cámara necesita una dirección HTTPS. Abre la dirección segura de la aplicación y vuelve a intentar."); setActive(false); return; }
+        const policy = (document as Document & { featurePolicy?: { allowsFeature: (feature: string) => boolean } }).featurePolicy;
+        if (policy && !policy.allowsFeature("camera")) { setError("La configuración del sitio está bloqueando la cámara. Recarga la página después de actualizar la aplicación; cambiar los permisos de la tablet no resuelve este bloqueo."); setActive(false); return; }
+        if (!navigator.mediaDevices?.getUserMedia) { setError("Este navegador no permite abrir la cámara. Abre la aplicación directamente en Chrome actualizado."); setActive(false); return; }
         const reader = new BrowserMultiFormatReader(new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]]]));
         controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } } }, preview!, (result, _error, scanner) => {
           if (cancelled || consumed || !result) return;
@@ -39,7 +42,14 @@ export function BarcodeScanner({ onScan, onStart, disabled }: { onScan: (value: 
         stop();
         if (!cancelled) {
           setActive(false);
-          setError(caught instanceof Error && caught.name === "NotAllowedError" ? "Permite el acceso a la cámara en el navegador e intenta de nuevo." : "No se pudo abrir la cámara. Comprueba el permiso, usa HTTPS y cierra otras aplicaciones que la estén usando.");
+          const name = caught instanceof Error ? caught.name : "";
+          setError(name === "NotAllowedError"
+            ? "El navegador denegó la cámara. En Chrome, abre los permisos de este sitio y permite Cámara. Revisa también Ajustes de Android > Aplicaciones > Chrome > Permisos > Cámara y vuelve a cargar la página."
+            : name === "NotReadableError"
+              ? "La cámara está ocupada o Android no permite abrirla. Cierra otras aplicaciones que usen la cámara y comprueba que el acceso general a la cámara esté activado."
+              : name === "NotFoundError"
+                ? "No se encontró una cámara disponible en este dispositivo."
+                : "No se pudo abrir la cámara. Cierra otras aplicaciones que la estén usando e intenta de nuevo.");
         }
       }
     };

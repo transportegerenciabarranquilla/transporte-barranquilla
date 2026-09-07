@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
         ],
       },
+      {
+        source: "/descanso-efectivo",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=(self)" },
+        ],
+      },
     ];
   },
   turbopack: {

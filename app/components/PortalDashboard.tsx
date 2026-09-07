@@ -98,7 +98,11 @@ export function PortalDashboard({
               style={{ "--accent": (modulePalette[module.id] || ["#475569"])[0], "--soft": (modulePalette[module.id] || ["", "#f1f5f9"])[1] } as CSSProperties}
               whileTap={reduceMotion ? undefined : { scale: 0.985 }}
               key={module.id}
-              onClick={() => router.push(module.href)}
+              onClick={() => {
+                // Load a new document so the scanner receives its camera policy.
+                if (module.href === "/descanso-efectivo") window.location.assign(module.href);
+                else router.push(module.href);
+              }}
               transition={{ delay: 0.05 * index, duration: 0.28 }}
               type="button"
             >
