@@ -16,6 +16,10 @@ export function isSiteAdminEmail(email: string | null | undefined) {
 }
 export const SECURITY_OWNER_EMAIL = "saul808c@gmail.com";
 export const PEOPLE_EMAIL = "people@transporte.com";
+export const EFFECTIVE_REST_EMAIL = "honor-gl@gmail.com";
+export function isEffectiveRestEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === EFFECTIVE_REST_EMAIL;
+}
 export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
 const VALID_OPERATIONAL_CONTRACTORS = new Set([
   ...CONTRACTORS.map((contractor) => normalizeContractorName(contractor)),
@@ -36,6 +40,7 @@ export function isPeopleEmail(email: string | null | undefined) {
 }
 
 export function contractorForEmail(email: string | null | undefined) {
+  if (isEffectiveRestEmail(email)) return "Control de ingreso";
   if (isSiteAdminEmail(email)) return "Admin Arenosa";
   if (isAdminEmail(email)) return "Admin";
   if (isPeopleEmail(email)) return "People";

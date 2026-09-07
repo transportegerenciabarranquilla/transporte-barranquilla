@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isSiteAdminEmail } from "./contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isSiteAdminEmail, isEffectiveRestEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
 import { readSecurityState } from "./securityState";
 import { supabaseUserHeaders } from "./supabaseServer";
@@ -16,7 +16,7 @@ type SupabaseRefreshResponse = {
   user?: SupabaseUser;
 };
 
-export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean } = {}) {
+export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean; allowEffectiveRest?: boolean } = {}) {
   const cookieStore = await cookies();
   let accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
@@ -42,6 +42,8 @@ export async function getAuthenticatedSession(options: { allowDuringLockdown?: b
   if (!accessToken || !user) return null;
 
   const email = user.email?.toLowerCase() || "";
+  // This account must explicitly opt in: all other authenticated APIs deny it.
+  if (isEffectiveRestEmail(email) && !options.allowEffectiveRest) return null;
   // Regional administrators must be explicitly supported by each handler.
   if (isSiteAdminEmail(email) && !options.allowSiteAdmin) return null;
   const contractor = contractorForEmail(email);

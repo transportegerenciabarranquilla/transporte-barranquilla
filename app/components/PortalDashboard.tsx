@@ -79,7 +79,7 @@ export function PortalDashboard({
           </div>
         </motion.div>
 
-        <GlobalOperationsSearch isAdmin={isAdmin} />
+        {contractor !== "Control de ingreso" && <GlobalOperationsSearch isAdmin={isAdmin} />}
 
         <div className="mb-4 mt-6 flex items-end justify-between gap-4 border-b border-slate-200/70 pb-4">
           <div>

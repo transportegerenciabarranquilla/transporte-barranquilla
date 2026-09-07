@@ -34,5 +34,5 @@ test("mismo menú admin para Arenosa y NPS retirado de People", () => {
   assert.deepEqual(getVisiblePortalModules(site).map((item) => item.id), getVisiblePortalModules({ contractor: "Admin", isAdmin: true }).map((item) => item.id));
   const people = getVisiblePortalModules({ isPeople: true });
   assert.equal(people.some((item) => item.href === "/personas/nps"), false);
-  assert.equal(people.length, 7);
+  assert.equal(people.length, 6);
 });

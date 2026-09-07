@@ -7,9 +7,9 @@ import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import type { Vehiculo } from "../../seguimiento/types";
 import { calculateDriverAdherence, type DriverAdherenceRow } from "./adherence";
 import {
-  assignResponsiblesWithCrewRetention,
-  assignDriverVehiclePairs,
-  assignCompatibleVehicles,
+  assignUniqueResponsibles,
+  assignFreeResponsiblesToDriverVehicles,
+
   enforceUniqueAssignedCrew,
   capacityMap,
   DEFAULT_ZKI_SETTINGS,
@@ -20,7 +20,6 @@ import {
   rankCandidates,
   type Candidate,
   type RawRow,
-  type Trip,
   type ZkiVisit,
   type ZkiSettings,
 } from "./zkiEngine";
@@ -30,7 +29,7 @@ type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; crew: 
 type PersonnelClientRange = { minimumClients?: number; maximumClients?: number };
 type PersonnelRule = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string; minimumClients?: number; maximumClients?: number; historical?: boolean };
 type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
-const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v6-rr-driver-retention";
+const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v7-free-rr";
 const ZKI_ADHERENCE_CACHE_KEY = "zki-driver-adherence-v5-complete-table";
 const PERSONNEL_PAGE_SIZE = 40;
 let zkiMemoryCache: ApiData | null = null;
@@ -345,26 +344,15 @@ export default function ZkiPage() {
     return { trip, candidates: ranked };
   }), [auxiliaryRoster, capacities, clientsByTerritory, data?.crew, history, personnelRangeRules, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
-    // La pareja RR-conductor participa desde el cruce territorial: si el ZKI
-    // cambia, ambos pasan al territorio donde el RR aporta el mejor resultado
-    // y los responsables desplazados se redistribuyen en cadena.
-    const assignments = assignResponsiblesWithCrewRetention(
-      rankedPlanning.map(({ trip, candidates: ranked }) => ({ tripId: trip.id, candidates: ranked })),
-      data?.crew || [],
-      settings.crewRetentionPercent,
+    const assignments = assignUniqueResponsibles(
+      rankedPlanning.map(({ trip, candidates }) => ({ tripId: trip.id, candidates })),
       settings.minimumZki,
     );
-    const preliminaryPlanning = rankedPlanning.map(({ trip, candidates: ranked }) => ({
-      trip,
-      candidates: ranked,
-      recommendation: preserveDriverVehicle(trip, assignments.get(trip.id), data?.crew || []),
-    }));
-    const pairedCrew = assignDriverVehiclePairs(preliminaryPlanning, data?.crew || [], capacities, settings.minimumZki, settings.crewRetentionPercent);
-    const uniqueCrew = enforceUniqueAssignedCrew(preliminaryPlanning.map((item) => ({ tripId: item.trip.id, recommendation: pairedCrew.get(item.trip.id) })), settings.minimumZki);
-    const basePlanning = preliminaryPlanning.map((item) => ({ ...item, recommendation: uniqueCrew.get(item.trip.id) }));
-    const vehicleAssignments = assignCompatibleVehicles(basePlanning, capacities, settings.minimumZki);
-    return basePlanning.map((item) => ({ ...item, recommendation: vehicleAssignments.get(item.trip.id) || item.recommendation }));
-  }, [capacities, data?.crew, rankedPlanning, settings.crewRetentionPercent, settings.minimumZki]);
+    const preliminary = rankedPlanning.map(({ trip, candidates }) => ({ trip, candidates, recommendation: assignments.get(trip.id) }));
+    const paired = assignFreeResponsiblesToDriverVehicles(preliminary, data?.crew || [], capacities, settings.minimumZki);
+    const unique = enforceUniqueAssignedCrew(preliminary.map(item => ({ tripId: item.trip.id, recommendation: paired.get(item.trip.id) })), settings.minimumZki);
+    return preliminary.map(item => ({ ...item, recommendation: unique.get(item.trip.id) }));
+  }, [capacities, data?.crew, rankedPlanning, settings.minimumZki]);
   const candidates = useMemo(
     () => activeTrip ? rankedPlanning.find((item) => item.trip.id === activeTrip.id)?.candidates || [] : [],
     [activeTrip, rankedPlanning],
@@ -373,8 +361,6 @@ export default function ZkiPage() {
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
   const incompleteTrips = planning.filter(({ recommendation: item }) => !hasCompleteCrew(item));
   const planningComplete = planning.length > 0 && incompleteTrips.length === 0;
-  const retainedCrewCount = planning.filter(({ recommendation: item }) => item && crewMatchesResponsible(item, data?.crew || [])).length;
-  const retainedCrewPercent = planning.length ? Math.round((retainedCrewCount / planning.length) * 100) : 0;
   const incompleteDetails = incompleteTrips.map(({ trip, recommendation: item }) => {
     const tripCandidates = rankedPlanning.find((entry) => entry.trip.id === trip.id)?.candidates || [];
     return { trip, candidates: tripCandidates.length, reason: incompleteCrewReason(item, tripCandidates.length, trip.weight) };
@@ -698,7 +684,7 @@ export default function ZkiPage() {
                 <Setting label="Tope frecuencia" value={settings.frequencyCap} onChange={(value) => setSettings({ ...settings, frequencyCap: Math.max(1, value) })} />
                 <Setting label="Visitas para profundidad" value={settings.depthThreshold} onChange={(value) => setSettings({ ...settings, depthThreshold: Math.max(1, value) })} />
                 <Setting label="Umbral viable" suffix="%" value={settings.minimumZki} onChange={(value) => setSettings({ ...settings, minimumZki: value })} />
-                <div><span className="text-xs font-semibold text-slate-600">Objetivo RR + conductor habitual</span><div className="mt-1 grid grid-cols-3 gap-1.5">{[50, 60, 70, 80, 90, 100].map((value) => <button className={`rounded-lg px-2 py-2 text-xs font-black transition ${settings.crewRetentionPercent === value ? "bg-cyan-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-cyan-50"}`} key={value} onClick={() => setSettings({ ...settings, crewRetentionPercent: value })} type="button">{value}%</button>)}</div><p className="mt-2 text-[10px] font-semibold text-slate-500">Resultado actual: {retainedCrewCount}/{planning.length || 0} rutas ({retainedCrewPercent}%). Los auxiliares se asignan libremente.</p></div>
+                <p className="text-xs text-slate-600">Los RR y auxiliares se asignan libremente según ZKI. Cada conductor conserva su VH.</p>
               </div>
               <p className="mt-4 text-xs leading-5 text-slate-500">Profundidad cuenta los clientes que el RR atendió al menos el número de veces configurado.</p>
             </section>
@@ -942,24 +928,6 @@ function withAvailableAuxiliary(candidate: Candidate, rules: PersonnelRule[]) {
     auxiliaryOptions: options,
     totalZki: Math.round((candidate.zki + selected.zki) * 100) / 100,
   };
-}
-
-function preserveDriverVehicle(trip: Trip, candidate: Candidate | undefined, crewPairs: CrewPair[]) {
-  if (!candidate) return undefined;
-  const vehicleKey = normalizePerson(trip.assignedPlate || trip.vehicle || candidate.vehicle);
-  const crew = crewPairs.find((row) => vehicleKey && normalizePerson(row.plate) === vehicleKey);
-  if (!crew) return candidate;
-  return { ...candidate, driver: crew.driver || candidate.driver, driverId: crew.driverId || candidate.driverId, vehicle: crew.plate || candidate.vehicle };
-}
-
-function crewMatchesResponsible(candidate: Candidate, crewPairs: CrewPair[]) {
-  return crewPairs.some((pair) => {
-    const sameRr = (pair.responsibleId && candidate.rrId && pair.responsibleId.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
-      || (pair.responsible && normalizePerson(pair.responsible) === normalizePerson(candidate.rr));
-    const sameDriver = (pair.driverId && candidate.driverId && pair.driverId.replace(/\D/g, "") === candidate.driverId.replace(/\D/g, ""))
-      || (pair.driver && normalizePerson(pair.driver) === normalizePerson(candidate.driver));
-    return Boolean(sameRr && sameDriver);
-  });
 }
 
 function CandidateRow({ candidate }: { candidate: Candidate }) {

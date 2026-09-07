@@ -89,6 +89,14 @@ export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
   crewRetentionPercent: 70,
 };
 
+// El RR elegido por ZKI no depende de su pareja histórica.
+export function assignFreeResponsiblesToDriverVehicles<T extends { trip: Trip; candidates?: Candidate[]; recommendation?: Candidate }>(
+  plans: T[], pairs: DriverVehiclePair[], capacities: Map<string, number>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki,
+) {
+  const fixedPairs = pairs.map(({ plate, driver, driverId }) => ({ plate, driver, driverId }));
+  return assignDriverVehiclePairs(plans, fixedPairs, capacities, minimumZki, 0);
+}
+
 export function assignResponsiblesWithCrewRetention(
   plans: Array<{ tripId: string; candidates: Candidate[] }>,
   pairs: DriverVehiclePair[],

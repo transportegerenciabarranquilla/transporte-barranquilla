@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assignCompatibleVehicles, assignDriverVehiclePairs, assignResponsiblesWithCrewRetention, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, enforceUniqueAssignedCrew, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
+import { assignFreeResponsiblesToDriverVehicles, assignCompatibleVehicles, assignDriverVehiclePairs, assignResponsiblesWithCrewRetention, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, enforceUniqueAssignedCrew, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
 
 test("interpreta las columnas operativas del Excel ZKI", () => {
   const [trip] = parseTrips([{ "Fecha de entrega": "8/6/2026", Número: 1, Nombre: "El Triunfo", Peso: "8547,08", Clientes: 20, "Peso Maximo": 9710 }]);
@@ -546,3 +546,20 @@ function fakeCandidate(rr: string, totalZki: number): Candidate {
     capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable",
   };
 }
+
+test('RR libre conserva mejor ZKI aunque su conductor habitual no pueda cargar el viaje', () => {
+  const trip = parseTrips([{ Numero: 1, Nombre: 'Zona', Peso: 9000 }])[0];
+  const best = { ...fakeCandidate('RR experto', 95), zki: 95, rrId: '1', vehicle: 'AAA111' };
+  const lower = { ...fakeCandidate('RR habitual', 40), zki: 40, rrId: '2', vehicle: 'BBB222' };
+  const pairs = [
+    { plate: 'AAA111', driver: 'Conductor A', driverId: '10', responsible: best.rr, responsibleId: '1' },
+    { plate: 'BBB222', driver: 'Conductor B', driverId: '20', responsible: lower.rr, responsibleId: '2' },
+  ];
+  const capacities = new Map([['aaa111', 5000], ['bbb222', 10000]]);
+  const rr = assignUniqueResponsibles([{ tripId: trip.id, candidates: [best, lower] }]).get(trip.id);
+  const result = assignFreeResponsiblesToDriverVehicles([{ trip, candidates: [best, lower], recommendation: rr }], pairs, capacities).get(trip.id);
+  assert.equal(result?.rr, best.rr);
+  assert.equal(result?.vehicle, 'BBB222');
+  assert.equal(result?.driver, 'Conductor B');
+  assert.equal(result?.driverId, '20');
+});
