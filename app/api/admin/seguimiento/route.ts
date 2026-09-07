@@ -183,18 +183,22 @@ async function fetchAdminRowsByContractor<T>(
   const groups = await Promise.all(
     contractors.map(async (contractor) => {
       const records: T[] = [];
-      for (let offset = 0; ; offset += limit) {
+      // Supabase puede devolver menos filas que el límite solicitado.
+      // Avanzar por las recibidas y terminar solo al agotar los datos.
+      const pageSize = Math.min(limit, 1000);
+      for (let offset = 0; ;) {
         const params = new URLSearchParams({
           select,
           contractor: `eq.${contractor}`,
           order,
-          limit: String(limit),
+          limit: String(pageSize),
           offset: String(offset),
         });
         const url = supabaseRest(table, `?${params.toString()}`);
         const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
         records.push(...page);
-        if (page.length < limit) break;
+        if (!page.length) break;
+        offset += page.length;
       }
       return records;
     }),

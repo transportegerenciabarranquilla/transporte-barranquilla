@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { CONTRACTORS } from "../lib/contractors";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
 import {
   createAttendanceKey,
@@ -30,7 +31,7 @@ const initialForm: FormState = {
   cedulaAuxiliar2: "",
 };
 
-const contractors = ["Punto Corona", "Logisticos", "Surti Cervezas"];
+const contractors = CONTRACTORS;
 const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
 
 function onlyNumbers(value: string) {

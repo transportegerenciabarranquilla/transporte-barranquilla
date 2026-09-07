@@ -1005,7 +1005,7 @@ function buildModulationTiming(
   selectedContractor: string,
   dtSearch: string,
 ): ModulationTimingRow[] {
-  const contractors = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const contractors = Array.from(new Set(records.map((record) => onTimeContractorLabel(record.contratista || "")).filter(Boolean)));
   const groups = new Map<string, { seconds: number[]; clientsByBucket: Map<string, Set<string>> }>(
     contractors.map((name) => [name, { seconds: [], clientsByBucket: new Map(MODULATION_TIME_BUCKETS.map((bucket) => [bucket.key, new Set<string>()])) }]),
   );
@@ -1128,7 +1128,7 @@ function LegacyModulationTimingChart({ data }: { data: ModulationTimingRow[] }) 
 void LegacyModulationTimingChart;
 
 function buildOnTimeByContractor(records: Vehiculo[]): OnTimeContractorRow[] {
-  const contractorOrder = ["Logisticos", "Punto Corona", "Surti Cervezas"];
+  const contractorOrder = Array.from(new Set(records.map((record) => onTimeContractorLabel(record.transportista)).filter(Boolean)));
   const groups = new Map<string, Omit<OnTimeContractorRow, "classified" | "percentage">>(
     contractorOrder.map((contractor) => [contractor, { contractor, onTime: 0, noOnTime: 0, unclassified: 0 }]),
   );
@@ -1150,8 +1150,10 @@ function buildOnTimeByContractor(records: Vehiculo[]): OnTimeContractorRow[] {
 
 function onTimeContractorLabel(value: string) {
   const normalized = normalizeContractorName(value);
-  if (normalized === "logisticos" || normalized === "logisticosarenosa") return "Logisticos";
-  if (["puntocorona", "corona", "puntocoronaarenosa", "coronaarenosa"].includes(normalized)) return "Punto Corona";
+  if (normalized === "logisticosarenosa") return "Logisticos Arenosa";
+  if (["puntocoronaarenosa", "coronaarenosa"].includes(normalized)) return "Punto Corona Arenosa";
+  if (normalized === "logisticos") return "Logisticos";
+  if (["puntocorona", "corona"].includes(normalized)) return "Punto Corona";
   if (normalized === "surticervezas") return "Surti Cervezas";
   return value.trim();
 }

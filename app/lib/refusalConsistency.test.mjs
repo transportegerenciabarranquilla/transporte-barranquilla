@@ -50,11 +50,46 @@ test('administracion conserva el DT mas reciente sin sumar duplicados', async ()
  '../../../lib/serverCache': { cachedJsonFetch: async (_key, _ttl, raw) => {
  const url = new URL(raw);
  const contractor = url.searchParams.get('contractor').slice(3);
- if (url.pathname !== '/seguimiento_vehiculos') return [];
+ if (url.pathname !== '/seguimiento_vehiculos' || Number(url.searchParams.get('offset')) > 0) return [];
  return [22286, 999].map(cajas => ({ contractor, data: { transporte: '123', fechaDespacho: '2026-09-05', cajas } }));
  } },
  });
  const result = await route.GET();
  assert.equal(result.records.length, 2);
  assert.deepEqual(result.records.map(row => row.cajas), [22286, 22286]);
+});
+test('cierre completo aunque la base limite cada respuesta a menos filas', async () => {
+ const contractors = ['Logisticos', 'Surti Cervezas'];
+ const calls = [];
+ const route = compile('../api/admin/seguimiento/route.ts', {
+ '../../../lib/adminScope': { allowedContractors: () => contractors },
+ 'next/server': { NextResponse: { json: body => body } },
+ '../../../lib/authServer': { getAuthenticatedSession: async () => ({ isAdmin: true }) },
+ '../../../lib/contractors': { CONTRACTORS: contractors, contractorLabel: value => value, isPuntoCoronaContractor: () => false, normalizeContractorName: value => value || '' },
+ '../../../seguimiento/utils': { normalizeCajasTotal: Number, normalizeCajasValue: Number },
+ '../../../lib/supabaseServer': { supabaseAdminHeaders: () => ({}), supabaseHeaders: () => ({}), supabaseUserHeaders: () => ({}), supabaseRest: (table, query) => `https://example.test/${table}${query}` },
+ '../../../lib/serverCache': { cachedJsonFetch: async (_key, _ttl, raw) => {
+ const url = new URL(raw);
+ const contractor = url.searchParams.get('contractor').slice(3);
+ const offset = Number(url.searchParams.get('offset'));
+ const logisticos = contractor === 'Logisticos';
+ if (url.pathname === '/seguimiento_vehiculos') {
+ calls.push([contractor, offset]);
+ // Emula un servidor cuyo límite real es inferior al solicitado.
+ const boxes = logisticos ? [15000, 7286] : [13000, 4083];
+ return boxes.slice(offset, offset + 1).map((cajas, i) => ({ contractor, data: { transporte: String(offset + i + 1), fechaDespacho: '2026-09-05', cajas } }));
+ }
+ if (url.pathname === '/checkins_cajas' && offset === 0) return [{ contractor, data: { dt: '1', totalCajas: logisticos ? 713 : 253 } }];
+ return [];
+ } },
+ });
+ const result = await route.GET();
+ assert.equal(result.records.length, 4);
+ for (const contractor of contractors) assert.deepEqual(calls.filter(row => row[0] === contractor).map(row => row[1]), [0, 1, 2]);
+ for (const [contractor, boxes, final, percentage] of [['Logisticos', 22286, 713, 3.2], ['Surti Cervezas', 17083, 253, 1.48]]) {
+ const records = result.records.filter(row => row.transportista === contractor);
+ assert.equal(records.reduce((sum, row) => sum + row.cajas, 0), boxes);
+ assert.equal(records.reduce((sum, row) => sum + row.cajasRefusalFinal, 0), final);
+ assert.equal(Number((final / boxes * 100).toFixed(2)), percentage);
+ }
 });
