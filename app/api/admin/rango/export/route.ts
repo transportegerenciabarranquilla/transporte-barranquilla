@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import type { AsistenciaRegistro } from "../../../../lib/asistenciaStorage";
@@ -29,7 +30,7 @@ type ExportReport = {
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const searchParams = new URL(request.url).searchParams;
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
     if (range.from) params.set("operational_date", `gte.${range.from}`);
     if (range.to) params.append("operational_date", `lte.${range.to}`);
 
+    scopeQuery(params, session);
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
       cache: "no-store",
       headers: supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken),
@@ -55,7 +57,7 @@ export async function GET(request: Request) {
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
 
     const sourceRows = (await response.json()) as ReportRow[];
-    const reports = getPreferredReports(sourceRows);
+    const reports = getPreferredReports(sourceRows, session.isSiteAdmin);
     const attendanceIndex = await getAttendanceIndex(
       Array.from(new Set(reports.map((report) => report.contractor))),
       session.accessToken,
@@ -100,7 +102,7 @@ export async function GET(request: Request) {
   }
 }
 
-function getPreferredReports(rows: ReportRow[]) {
+function getPreferredReports(rows: ReportRow[], includeArenosa = false) {
   const preferred = new Map<string, ExportReport>();
 
   rows.forEach((row) => {
@@ -112,7 +114,7 @@ function getPreferredReports(rows: ReportRow[]) {
       rows: row.data.rows,
       timestamp: getTimestamp(row),
     };
-    if (isAdminRangoExcludedContractor(report.contractor)) return;
+    if (!includeArenosa && isAdminRangoExcludedContractor(report.contractor)) return;
     const key = `${report.contractor}:${report.operationalDate}`;
     const current = preferred.get(key);
     if (!current || isPreferred(report, current)) preferred.set(key, report);

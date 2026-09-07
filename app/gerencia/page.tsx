@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { useAdminScope } from "../lib/useAdminScope";
 import { useRouter } from "next/navigation";
 import { Archive, ArrowLeft, Building2, ChevronDown, ChevronUp, Clock3, FileSpreadsheet, Maximize2, Minimize2, RefreshCw, Upload } from "lucide-react";
 
@@ -106,6 +107,7 @@ const DEPARTURE_CONTRACTORS = [
 
 export default function ManagementPage() {
   const router = useRouter();
+  const { isSiteAdmin, ready: scopeReady } = useAdminScope();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dateSelectedByUser = useRef(false);
   const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
@@ -416,7 +418,7 @@ export default function ManagementPage() {
         {!isTvMode && !clockRows.length ? (
           <div className="flex flex-col gap-3 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-900 sm:flex-row sm:items-center sm:justify-between">
             <p>Sube el Excel de asistencia para separar pendientes, personal en CD y personal en ruta.</p>
-            <button className="rounded-xl bg-[#2d1b4e] px-4 py-2 font-bold text-white" onClick={() => fileInputRef.current?.click()} type="button">Subir Excel</button>
+            <button className="rounded-xl bg-[#2d1b4e] px-4 py-2 font-bold text-white" disabled={!scopeReady || isSiteAdmin} onClick={() => fileInputRef.current?.click()} type="button">Subir Excel</button>
           </div>
         ) : null}
 

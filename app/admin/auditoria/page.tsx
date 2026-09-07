@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, History, MonitorSmartphone, RefreshCw, Search, ShieldAlert } from "lucide-react";
-import { CONTRACTORS } from "../../lib/contractors";
+import { useAdminScope } from "../../lib/useAdminScope";
 import type { AuditLogRecord } from "../../lib/auditLog";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -19,6 +19,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 export default function AuditoriaAdminPage() {
   const router = useRouter();
+  const { contractors: scopedContractors } = useAdminScope();
   const [records, setRecords] = useState<AuditLogRecord[]>([]);
   const [contractor, setContractor] = useState("Todas");
   const [action, setAction] = useState("");
@@ -110,7 +111,7 @@ export default function AuditoriaAdminPage() {
             <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-slate-500">Contratista</span>
             <select className="h-10 w-full rounded-md border border-slate-200 bg-white px-3" onChange={(event) => setContractor(event.target.value)} value={contractor}>
               <option value="Todas">Todas</option>
-              {CONTRACTORS.map((item) => (
+              {scopedContractors.map((item) => (
                 <option key={item} value={item}>{item}</option>
               ))}
             </select>

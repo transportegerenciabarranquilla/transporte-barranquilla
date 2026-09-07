@@ -1,3 +1,6 @@
+import { readSiteAdminRoutes } from "../../../lib/siteAdminRoutes";
+import { allowedContractors } from "../../../lib/adminScope";
+import { normalizeComplaintDt } from "../../../lib/complaints";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../lib/authServer";
@@ -11,8 +14,15 @@ type StatusLiqRow = { DT: number | string; "Hora liquidacion": string };
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    if (session.isSiteAdmin) {
+      const { rows, dts } = await readSiteAdminRoutes(session);
+      const response = await fetch(supabaseRest(TABLE, "?select=*"), { headers: supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken), cache: "no-store" });
+      if (!response.ok) throw new Error(await supabaseError(response));
+      const status = await response.json() as StatusLiqRow[];
+      return NextResponse.json({ records: status.filter((row) => dts.has(normalizeComplaintDt(row.DT))), seguimiento: rows.map((row) => ({ ...row.data, transportista: row.contractor })), readOnly: true, contractors: allowedContractors(session) });
+    }
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const [statusResponse, seguimientoResponse] = await Promise.all([
       fetch(supabaseRest(TABLE, "?select=*"), { headers, cache: "no-store" }),

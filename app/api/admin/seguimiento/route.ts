@@ -1,3 +1,4 @@
+import { allowedContractors } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS, contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
@@ -43,13 +44,13 @@ const LIST_CACHE_TTL_MS = 30_000;
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const adminHeaders = supabaseAdminHeaders();
     const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
     const publicHeaders = adminHeaders || supabaseHeaders();
-    const requestedContractors = session.isAdmin ? [...CONTRACTORS] : [session.contractor];
+    const requestedContractors = allowedContractors(session);
     const [rows, modulacionesRows, checkinRows, puntoCoronaRows] = await Promise.all([
       fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, publicHeaders, "seguimiento", requestedContractors),
       fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones", requestedContractors),
@@ -99,9 +100,18 @@ export async function GET() {
         refusal: refusal.refusal,
       };
     });
-    const records = appendPuntoCoronaReportRecords(seguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex);
+    // Igual que seguimiento: conservar la fila más reciente por contratista, DT y fecha.
+    const seenRoutes = new Set<string>();
+    const uniqueSeguimientoRecords = seguimientoRecords.filter((record) => {
+      const key = buildRouteKey(record.transportista, record.transporte, getVehicleDate(record));
+      if (!key) return true;
+      if (seenRoutes.has(key)) return false;
+      seenRoutes.add(key);
+      return true;
+    });
+    const records = appendPuntoCoronaReportRecords(uniqueSeguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex);
     const refusalByComRows = buildRefusalByComRows(modulaciones, records);
-    const summaries = CONTRACTORS.map((contractor) => {
+    const summaries = allowedContractors(session).map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
       const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
       const refusalFinal = contractorRecords.reduce((total, record) => total + readNumber(record.cajasRefusalFinal), 0);

@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../../lib/auditLog";
 import { getAuthenticatedSession } from "../../../lib/authServer";
@@ -47,13 +48,14 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await getAuthenticatedSession();
+  const session = await getAuthenticatedSession({ allowSiteAdmin: true });
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const id = new URL(request.url).searchParams.get("id") || "";
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const current = await readComplaint(id, headers);
   if (current && !session.isAdmin && !canManageComplaint(session.contractor, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (current && session.isSiteAdmin && !canAccessContractor(session, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const evidence = current?.data.evidence;
   if (!evidence?.path) return NextResponse.json({ error: "La queja no tiene evidencia." }, { status: 404 });
   const storageResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${BUCKET}/${evidence.path.split("/").map(encodeURIComponent).join("/")}`, { headers, cache: "no-store" });

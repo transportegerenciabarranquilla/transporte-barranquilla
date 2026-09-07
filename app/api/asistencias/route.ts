@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -11,12 +12,13 @@ const LIST_CACHE_TTL_MS = 45_000;
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
 
     const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
     if (!session.isAdmin && !session.isPeople) params.set("contractor", `eq.${session.contractor}`);
 
+    scopeQuery(params, session);
     const url = supabaseRest(TABLE, `?${params.toString()}`);
     const headers = session.isAdmin || session.isPeople
       ? supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken)

@@ -140,14 +140,6 @@ const managementModule: PortalModule = {
   accent: "border-l-[#7c3aed]",
 };
 
-const peopleNpsModule: PortalModule = {
-  id: 9,
-  title: "NPS",
-  href: "/personas/nps",
-  detail: "Módulo reservado para People",
-  tone: "from-[#0f766e] to-[#2563a6]",
-  accent: "border-l-[#0f766e]",
-};
 
 const peopleRtiModule: PortalModule = {
   id: 11,
@@ -197,7 +189,7 @@ export function getVisiblePortalModules({
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
-  if (isPeople) return [peopleModule, peopleEffectiveRestModule, peopleDelaysModule, managementModule, peopleNpsModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule];
+  if (isPeople) return [peopleModule, peopleEffectiveRestModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
     return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
@@ -216,7 +208,7 @@ function getModuleHref(href: string, contractor?: string) {
 
 export function getPortalSessionLabel({ contractor, isAdmin, isPeople }: { contractor?: string; isAdmin?: boolean; isPeople?: boolean }) {
   if (isPeople) return "People Transporte";
-  if (isAdmin) return "Administrador";
+  if (isAdmin) return contractor === "Admin Arenosa" ? "Administrador - CD Arenosa" : "Administrador";
   if (!contractor) return "Operacion en tiempo real";
   return `${contractor} - ${contractorSiteName(contractor)}`;
 }

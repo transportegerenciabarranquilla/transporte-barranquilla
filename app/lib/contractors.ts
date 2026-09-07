@@ -8,6 +8,12 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
 };
 
 export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
+export const ARENOSA_ADMIN_EMAIL = "adminare@gmail.com";
+export const ARENOSA_CONTRACTORS = ["Logisticos Arenosa", "Punto Corona Arenosa"] as const;
+
+export function isSiteAdminEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === ARENOSA_ADMIN_EMAIL;
+}
 export const SECURITY_OWNER_EMAIL = "saul808c@gmail.com";
 export const PEOPLE_EMAIL = "people@transporte.com";
 export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
@@ -18,7 +24,7 @@ const VALID_OPERATIONAL_CONTRACTORS = new Set([
 
 export function isAdminEmail(email: string | null | undefined) {
   const normalized = email?.trim().toLowerCase();
-  return normalized === ADMIN_EMAIL || normalized === SECURITY_OWNER_EMAIL;
+  return normalized === ADMIN_EMAIL || normalized === SECURITY_OWNER_EMAIL || isSiteAdminEmail(normalized);
 }
 
 export function isSecurityOwnerEmail(email: string | null | undefined) {
@@ -30,6 +36,7 @@ export function isPeopleEmail(email: string | null | undefined) {
 }
 
 export function contractorForEmail(email: string | null | undefined) {
+  if (isSiteAdminEmail(email)) return "Admin Arenosa";
   if (isAdminEmail(email)) return "Admin";
   if (isPeopleEmail(email)) return "People";
   return CONTRACTOR_BY_EMAIL[email?.trim().toLowerCase() || ""] || null;

@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -15,7 +16,7 @@ const LIST_SELECT =
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
 
     const params = new URLSearchParams(
@@ -24,12 +25,14 @@ export async function GET() {
         : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
     const rows: ModulacionListRow[] = [];
+    scopeQuery(params, session);
     const headers = supabaseReadHeaders(session.accessToken);
     for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
       const pageParams = new URLSearchParams(params);
       pageParams.set("limit", String(LIST_PAGE_SIZE));
       pageParams.set("offset", String(offset));
-      const url = supabaseRest(TABLE, `?${pageParams.toString()}`);
+
+    const url = supabaseRest(TABLE, `?${pageParams.toString()}`);
       const page = await cachedJsonFetch<ModulacionListRow[]>(
         `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${offset}:${url}`,
         LIST_CACHE_TTL_MS,

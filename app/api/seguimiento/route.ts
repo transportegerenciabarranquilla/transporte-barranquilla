@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -25,7 +26,7 @@ const PUBLIC_CONTRACTORS: Record<string, string> = {
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     const searchParams = new URL(request.url).searchParams;
     const requestedContractor = searchParams.get("contratista");
     const requestedDt = normalizeDt(searchParams.get("dt") || "");
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
         ? { select: "record_id,contractor,data", order: "updated_at.desc" }
         : { select: "record_id,contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
+    if (session) scopeQuery(params, session);
     if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
     const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(

@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../../../lib/adminScope";
 import { jsPDF } from "jspdf";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
@@ -20,7 +21,7 @@ type SeguimientoRow = {
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const searchParams = new URL(request.url).searchParams;
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
 
     const records = (await readAllAttendances(session.accessToken))
       .map((row) => ({ ...row.data!, contratista: contractorLabel(row.contractor || row.data?.contratista) }))
+      .filter((record) => canAccessContractor(session, record.contratista))
       .filter((record) => !contractor || normalizeContractorName(record.contratista) === normalizeContractorName(contractor))
       .filter((record) => isInPeriod(record, period))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

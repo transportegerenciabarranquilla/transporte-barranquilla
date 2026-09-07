@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../../../lib/adminScope";
 import { jsPDF } from "jspdf";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
@@ -12,7 +13,7 @@ type RouteRow = { contractor?: string; data?: Vehiculo };
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const params = new URL(request.url).searchParams;
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
     const records = (await readAllRoutes(session.accessToken))
       .filter((row): row is RouteRow & { data: Vehiculo } => Boolean(row.data))
       .map((row) => ({ ...row.data, transportista: contractorLabel(row.contractor || row.data.transportista) || row.data.transportista }))
+      .filter((record) => canAccessContractor(session, record.transportista))
       .filter((record) => !contractor || normalizeContractorName(record.transportista) === normalizeContractorName(contractor))
       .filter((record) => isInPeriod(record, period))
       .sort((a, b) => vehicleDate(b).localeCompare(vehicleDate(a)) || String(b.transporte).localeCompare(String(a.transporte)));

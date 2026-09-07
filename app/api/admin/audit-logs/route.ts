@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { fromAuditRow } from "../../../lib/auditLog";
@@ -8,7 +9,7 @@ const SELECT = "audit_id,action,module,contractor,user_email,ip_address,user_age
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const searchParams = new URL(request.url).searchParams;
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
       params.append("created_at", `lt.${date}T23:59:59`);
     }
 
+    scopeQuery(params, session);
     const rows: Parameters<typeof fromAuditRow>[0][] = [];
     const pageSize = 1000;
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);

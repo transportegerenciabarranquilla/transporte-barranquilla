@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
@@ -11,7 +12,7 @@ import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 const TABLE = "route_complaints";
 
 export async function GET() {
-  const session = await getAuthenticatedSession();
+  const session = await getAuthenticatedSession({ allowSiteAdmin: true });
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const rows = await readComplaintRows(session.accessToken);
@@ -43,9 +44,9 @@ export async function GET() {
       closingTime: complaintClosingDisplay(row.data.createdDate, row.data.uploadedAt || row.uploaded_at),
     };
   });
-  const records = session.isAdmin
+  const records = session.isAdmin && !session.isSiteAdmin
     ? resolved
-    : resolved.filter((record) => canManageComplaint(session.contractor, record.contractor));
+    : resolved.filter((record) => session.isSiteAdmin ? canAccessContractor(session, record.contractor) : canManageComplaint(session.contractor, record.contractor));
   return NextResponse.json({ records });
 }
 

@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -8,7 +9,7 @@ type AttendanceRecord = { operational_date: string; contractor: string; file_nam
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     const response = await fetch(
       supabaseRest("attendance_snapshots", "?select=operational_date,contractor,file_name,rows,uploaded_at,closed_at&order=operational_date.desc"),
@@ -16,7 +17,7 @@ export async function GET() {
     );
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const records = (await response.json().catch(() => [])) as AttendanceRecord[];
-    return NextResponse.json({ snapshots: records.map(toSnapshot) });
+    return NextResponse.json({ snapshots: records.filter((row) => !session.isSiteAdmin || canAccessContractor(session, row.contractor)).map((row) => session.isSiteAdmin ? { ...toSnapshot(row), rows: (row.rows || []).filter((person) => canAccessContractor(session, person.contratista || row.contractor)) } : toSnapshot(row)) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar la asistencia." }, { status: 500 });
   }

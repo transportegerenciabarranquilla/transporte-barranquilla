@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Clock3, Download, LoaderCircle, RefreshCw, Truck, Upload, X } from "lucide-react";
-import { CONTRACTORS } from "../../lib/contractors";
+import { useAdminScope } from "../../lib/useAdminScope";
 import { normalizeDt } from "../../lib/modulacionStorage";
 import type { Vehiculo } from "../../seguimiento/types";
 
@@ -14,10 +14,11 @@ type DurationBandKey = "under1" | "oneToTwo" | "twoToFour" | "overFour";
 
 export default function AdminLiquidationStatusPage() {
   const router = useRouter();
+  const { contractors: scopedContractors, isSiteAdmin, ready } = useAdminScope();
   const [records, setRecords] = useState<Vehiculo[]>([]);
   const [statusRecords, setStatusRecords] = useState<StatusLiqRecord[]>([]);
   const [date, setDate] = useState("");
-  const [contractor, setContractor] = useState("Logisticos");
+  const [contractor, setContractor] = useState("Todas");
   const [hourInterval, setHourInterval] = useState<2 | 3>(2);
   const [detailModal, setDetailModal] = useState<{ title: string; rows: CrossedRecord[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,7 +123,7 @@ export default function AdminLiquidationStatusPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50" download href="/api/admin/status-liq/template">
+            {ready && !isSiteAdmin ? <><a className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50" download href="/api/admin/status-liq/template">
               <Download size={17} />
               Descargar plantilla
             </a>
@@ -130,7 +131,7 @@ export default function AdminLiquidationStatusPage() {
               {uploading ? <LoaderCircle className="animate-spin" size={17} /> : <Upload size={17} />}
               Subir Excel diario
               <input accept=".xlsx,.xls" className="hidden" disabled={uploading} onChange={(event) => { void uploadExcel(event.target.files?.[0]); event.target.value = ""; }} type="file" />
-            </label>
+            </label></> : <span className="self-center text-xs text-slate-500">Consulta de tu CD</span>}
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#10223d] px-4 text-sm font-semibold text-white transition hover:bg-[#1b355b] disabled:opacity-60" disabled={loading} onClick={loadRecords} type="button">
               {loading ? <LoaderCircle className="animate-spin" size={17} /> : <RefreshCw size={17} />} Actualizar
             </button>
@@ -148,7 +149,7 @@ export default function AdminLiquidationStatusPage() {
             Contratista
             <select className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-[#10223d] outline-none focus:border-indigo-400" onChange={(event) => setContractor(event.target.value)} value={contractor}>
               <option>Todas</option>
-              {CONTRACTORS.map((item) => <option key={item}>{item}</option>)}
+              {scopedContractors.map((item) => <option key={item}>{item}</option>)}
             </select>
           </label>
           <label className="text-sm font-semibold text-slate-600">

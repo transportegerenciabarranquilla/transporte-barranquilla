@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel, isAdminRangoExcludedContractor, normalizeContractorName } from "../../../lib/contractors";
@@ -23,7 +24,7 @@ type AdminRangoReport = {
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
 
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
@@ -33,14 +34,15 @@ export async function GET() {
       limit: "5000",
     });
     if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
+    scopeQuery(params, session);
     const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<ReportRow[]>(`supabase:admin-rango:${session.isAdmin ? "all" : normalizeContractorName(session.contractor)}`, LIST_CACHE_TTL_MS, url, { headers });
+    const rows = await cachedJsonFetch<ReportRow[]>(`supabase:admin-rango:${session.contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
 
     const reports = rows
       .map(normalizeReport)
       .filter((report): report is AdminRangoReport => report !== null)
       .filter((report) => session.isAdmin || normalizeContractorName(report.contractor) === normalizeContractorName(session.contractor))
-      .filter((report) => !isAdminRangoExcludedContractor(report.contractor));
+      .filter((report) => (session.isSiteAdmin || !isAdminRangoExcludedContractor(report.contractor)));
     return NextResponse.json({ reports });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando historial de rango." }, { status: 500 });

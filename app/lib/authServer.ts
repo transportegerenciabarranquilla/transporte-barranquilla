@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "./contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isSiteAdminEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
 import { readSecurityState } from "./securityState";
 import { supabaseUserHeaders } from "./supabaseServer";
@@ -16,7 +16,7 @@ type SupabaseRefreshResponse = {
   user?: SupabaseUser;
 };
 
-export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean } = {}) {
+export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean } = {}) {
   const cookieStore = await cookies();
   let accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
@@ -42,13 +42,15 @@ export async function getAuthenticatedSession(options: { allowDuringLockdown?: b
   if (!accessToken || !user) return null;
 
   const email = user.email?.toLowerCase() || "";
+  // Regional administrators must be explicitly supported by each handler.
+  if (isSiteAdminEmail(email) && !options.allowSiteAdmin) return null;
   const contractor = contractorForEmail(email);
   if (!contractor || !user.id) return null;
   if (!options.allowDuringLockdown && !isSecurityOwnerEmail(email)) {
     const security = await readSecurityState(supabaseUserHeaders(accessToken));
     if (security.state.active) return null;
   }
-  return { accessToken, userId: user.id, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email) };
+  return { accessToken, userId: user.id, email, contractor, isAdmin: isAdminEmail(email), isPeople: isPeopleEmail(email), isSiteAdmin: isSiteAdminEmail(email) };
 }
 
 async function fetchSupabaseUser(supabaseKey: string, accessToken: string) {

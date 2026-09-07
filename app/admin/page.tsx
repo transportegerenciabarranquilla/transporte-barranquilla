@@ -413,7 +413,7 @@ export default function AdminPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f5bd19]">Vista global</p>
               <h1 className="mt-2 text-3xl font-semibold leading-tight">Seguimiento de transportistas</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/68">
-                Control operativo de rutas, refusal, alertas y tripulacion para Logisticos, Punto Corona y Surti Cervezas.
+                Control operativo de rutas, refusal, alertas y tripulacion de las contratistas autorizadas.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <button

@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
@@ -9,13 +10,14 @@ const TABLE = "daily_route_checklists";
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: "contractor,data", order: "updated_at.desc" }
         : { select: "contractor,data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
+    scopeQuery(params, session);
     const response = await fetch(supabaseRest(TABLE, `?${params}`), { cache: "no-store", headers: supabaseReadHeaders(session.accessToken) });
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const rows = (await response.json()) as Array<{ contractor: string; data: DailyChecklistRecord }>;

@@ -1,3 +1,5 @@
+import { readSiteAdminRoutes } from "../../../lib/siteAdminRoutes";
+import { canAccessContractor } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { normalizeComplaintDt } from "../../../lib/complaints";
@@ -5,7 +7,7 @@ import { supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders }
 import type { Vehiculo } from "../../../seguimiento/types";
 
 export async function GET() {
-  const session = await getAuthenticatedSession();
+  const session = await getAuthenticatedSession({ allowSiteAdmin: true });
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin) return NextResponse.json({ error: "Solo administracion puede consultar Cashell." }, { status: 403 });
 
@@ -23,11 +25,18 @@ export async function GET() {
     if (page.length < pageSize) break;
   }
 
+  if (session.isSiteAdmin) {
+    const { dts } = await readSiteAdminRoutes(session);
+    return NextResponse.json({ records: records.filter((row) => {
+      const entry = Object.entries(row).find(([key]) => ["dt", "transporte", "transport"].includes(key.toLowerCase().replace(/[^a-z]/g, "")));
+      return entry && dts.has(normalizeComplaintDt(entry[1]));
+    }) });
+  }
   return NextResponse.json({ records });
 }
 
 export async function POST(request: Request) {
-  const session = await getAuthenticatedSession();
+  const session = await getAuthenticatedSession({ allowSiteAdmin: true });
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin) return NextResponse.json({ error: "Solo administracion puede cruzar Seguimiento." }, { status: 403 });
   const body = await request.json().catch(() => ({})) as { dts?: unknown[] };
@@ -46,5 +55,5 @@ export async function POST(request: Request) {
     if (!response.ok) return NextResponse.json({ error: `Seguimiento: ${await supabaseError(response)}` }, { status: response.status });
     records.push(...await response.json() as Array<{ contractor: string; data: Vehiculo }>);
   }
-  return NextResponse.json({ records });
+  return NextResponse.json({ records: records.filter((row) => !session.isSiteAdmin || canAccessContractor(session, row.contractor)) });
 }

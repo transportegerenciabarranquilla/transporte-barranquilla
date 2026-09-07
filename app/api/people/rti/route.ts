@@ -1,3 +1,4 @@
+import { canAccessContractor } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
@@ -19,7 +20,7 @@ const RESPONSIBLE_ATTRIBUTION_VERSION = "tracking-priority-v4-rti-read-permissio
 export async function GET(request: Request) {
   const requestStartedAt = performance.now();
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
 
     const params = new URL(request.url).searchParams;
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     // del servidor cómo se arma el RTI paso a paso (totales, llaves
     // coincidentes/sin coincidencia, filas inválidas). No afecta la
     // respuesta ni el cálculo, solo imprime logs.
-    const debug = !isContractorSession && params.get("debug") === "1";
+    const debug = !session.isSiteAdmin && !isContractorSession && params.get("debug") === "1";
     const responseCacheKey = `rti-response:${RESPONSIBLE_ATTRIBUTION_VERSION}:${session.userId}`;
     const isUnfilteredOperationalRequest = !debug && !dateFilterActive && !responsibleFilter && !referenceFilter && !carrierFilter;
     if (isUnfilteredOperationalRequest) {
@@ -279,7 +280,7 @@ export async function GET(request: Request) {
     const skuUniverseAttributes = Array.from(skuUniverseKeys, (key) => attributesByKey.get(key)).filter((value): value is RtiKeyAttributes => Boolean(value));
     const optionAttributes = isContractorSession
       ? skuUniverseAttributes.filter((value) => comparableText(value.carrier) === comparableText(carrierFilter))
-      : skuUniverseAttributes;
+      : skuUniverseAttributes.filter((value) => !session.isSiteAdmin || canAccessContractor(session, value.carrier));
     const filterOptions = {
       responsible: distinctStrings(optionAttributes.map((value) => value.responsible)),
       reference: distinctStrings(optionAttributes.map((value) => value.reference)),
@@ -287,6 +288,7 @@ export async function GET(request: Request) {
     };
     const allowedKeys = new Set(Array.from(attributesByKey, ([key, value]) => ({ key, value }))
       .filter(({ value }) =>
+        (!session.isSiteAdmin || canAccessContractor(session, value.carrier)) &&
         (!responsibleFilter || comparablePerson(value.responsible) === comparablePerson(responsibleFilter)) &&
         (!referenceFilter || comparableText(value.reference) === comparableText(referenceFilter)) &&
         (!carrierFilter || comparableText(value.carrier) === comparableText(carrierFilter))
@@ -470,7 +472,7 @@ export async function GET(request: Request) {
       total: skuUniverseRecords.length,
       skuCatalogRows: skuRows.length,
       matchedRouteManagers: [...scopedOutbound, ...scopedReturned].filter((row) => row["Nombre RR"]).length,
-      routeDtCount: routeDts.length,
+      routeDtCount: session.isSiteAdmin ? new Set(scopedOutbound.map(routeMaterialKey)).size : routeDts.length,
     };
     if (isUnfilteredOperationalRequest) writeServerCache(responseCacheKey, responsePayload, RTI_RESPONSE_CACHE_MS);
     return NextResponse.json(responsePayload, { headers: { "X-RTI-Cache": "MISS" } });

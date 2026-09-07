@@ -27,7 +27,7 @@ export function PortalDashboard({
   const reduceMotion = useReducedMotion();
   const visibleModules = getVisiblePortalModules({ contractor, isAdmin, isPeople });
   const sessionLabel = getPortalSessionLabel({ contractor, isAdmin, isPeople });
-  const heroTitle = isPeople ? "Gestion de personas por contratista" : `Gestion central para ${isAdmin ? "toda la operacion" : sessionLabel}`;
+  const heroTitle = isPeople ? "Gestion de personas por contratista" : `Gestion central para ${contractor === "Admin Arenosa" ? "CD Arenosa" : isAdmin ? "toda la operacion" : sessionLabel}`;
   const heroCopy = getPortalHeroCopy(isPeople);
 
   return (

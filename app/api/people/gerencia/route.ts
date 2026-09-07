@@ -1,3 +1,4 @@
+import { allowedContractors, canAccessContractor } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest } from "../../../lib/supabaseServer";
@@ -43,17 +44,17 @@ const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"]
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) {
       return NextResponse.json({ error: "No tienes permiso para consultar Gerencia." }, { status: 403 });
     }
 
     const headers = supabaseAdminHeaders() ?? supabaseHeaders();
-    const [people, seguimientoByContractor, attendanceRows] = await Promise.all([
+    const [allPeople, seguimientoByContractor, allAttendanceRows] = await Promise.all([
       readRows<PersonRow>("transporte_barranquilla", "select=CC,NOMBRE,CARGO,CONTRATISTA&order=NOMBRE.asc&limit=1500", headers),
       Promise.all(
-        SEGUIMIENTO_CONTRACTORS.map((contractor) =>
+        (session.isSiteAdmin ? allowedContractors(session) : SEGUIMIENTO_CONTRACTORS).map((contractor) =>
           readRowsPaged<SeguimientoRow>(
             "seguimiento_vehiculos",
             new URLSearchParams({
@@ -67,10 +68,12 @@ export async function GET() {
       ),
       readRows<AttendanceRow>(
         "asistencias_ruta",
-        new URLSearchParams({ select: ATTENDANCE_SELECT, contractor: "eq.Logisticos", order: "updated_at.desc", limit: "1000" }).toString(),
+        new URLSearchParams({ select: ATTENDANCE_SELECT, ...(session.isSiteAdmin ? { contractor: 'in.("Logisticos Arenosa","Punto Corona Arenosa")' } : { contractor: "eq.Logisticos" }), order: "updated_at.desc", limit: "1000" }).toString(),
         headers,
       ),
     ]);
+    const people = allPeople.filter((row) => !session.isSiteAdmin || canAccessContractor(session, row.CONTRATISTA));
+    const attendanceRows = allAttendanceRows.filter((row) => !session.isSiteAdmin || canAccessContractor(session, row.contractor));
     const seguimientoRows = seguimientoByContractor.flat().filter((row) => isFirstTrip(row.viaje));
 
     const contractors = Array.from(

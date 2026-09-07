@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -11,20 +12,31 @@ type CheckinWithContractor = CheckinCajasRegistro & { contratista?: string };
 
 export async function GET() {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: "contractor,data", order: "updated_at.desc" }
         : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
     );
-    const url = supabaseRest(TABLE, `?${params.toString()}`);
-    const rows = await cachedJsonFetch<{ contractor?: string; data: CheckinWithContractor }[]>(
-      `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
-      LIST_CACHE_TTL_MS,
-      url,
-      { headers: supabaseReadHeaders(session.accessToken) },
-    );
+    scopeQuery(params, session);
+    const rows: { contractor?: string; data: CheckinWithContractor }[] = [];
+    const pageSize = 1000;
+    const headers = supabaseReadHeaders(session.accessToken);
+    for (let offset = 0; ; offset += pageSize) {
+      const pageParams = new URLSearchParams(params);
+      pageParams.set("limit", String(pageSize));
+      pageParams.set("offset", String(offset));
+      const url = supabaseRest(TABLE, `?${pageParams.toString()}`);
+      const page = await cachedJsonFetch<typeof rows>(
+        `supabase:${TABLE}:list:${session.isAdmin ? "admin" : session.contractor}:${url}`,
+        LIST_CACHE_TTL_MS,
+        url,
+        { headers },
+      );
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
     return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando check-in." }, { status: 500 });

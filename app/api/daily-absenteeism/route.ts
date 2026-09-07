@@ -1,3 +1,4 @@
+import { scopeQuery } from "../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
@@ -7,9 +8,10 @@ import { supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders }
 const TABLE = "daily_absenteeism";
 
 export async function GET() {
-  const session = await getAuthenticatedSession();
+  const session = await getAuthenticatedSession({ allowSiteAdmin: true });
   if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
   const params = new URLSearchParams(session.isAdmin ? { select: "contractor,data", order: "absence_date.desc" } : { select: "contractor,data", contractor: `eq.${session.contractor}`, order: "absence_date.desc" });
+  scopeQuery(params, session);
   const response = await fetch(supabaseRest(TABLE, `?${params}`), { cache: "no-store", headers: supabaseReadHeaders(session.accessToken) });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
   const rows = (await response.json()) as Array<{ contractor: string; data: DailyAbsenteeismRecord }>;

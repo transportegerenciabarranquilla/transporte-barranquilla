@@ -1,3 +1,4 @@
+import { allowedContractors, canAccessContractor, scopeQuery } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { CONTRACTORS, normalizeContractorName } from "../../../lib/contractors";
@@ -89,7 +90,7 @@ const SUMMARY_CACHE_VERSION = "v5-seguimiento-vh";
 
 export async function GET(request: Request) {
   try {
-    const session = await getAuthenticatedSession();
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) {
       return NextResponse.json({ error: "No tienes permiso para consultar personas." }, { status: 403 });
@@ -97,19 +98,22 @@ export async function GET(request: Request) {
 
     const searchParams = new URL(request.url).searchParams;
     const rangeDate = dateKey(searchParams.get("date"));
-    const cacheKey = `supabase:people-summary:${SUMMARY_CACHE_VERSION}:${session.isAdmin ? "admin" : session.contractor}:${rangeDate || "all"}`;
+    const cacheKey = `supabase:people-summary:${SUMMARY_CACHE_VERSION}:${session.contractor}:${rangeDate || "all"}`;
     const loadSummary = async () => {
       const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
       const seguimientoHeaders = supabaseAdminHeaders() ?? supabaseHeaders();
-      const [peopleByContractor, vehicles, modulations, puntoCoronaReports] = await Promise.all([
+      const [peopleByContractor, allVehicles, allModulations, allPuntoCoronaReports] = await Promise.all([
         readPeople(headers),
-        readVehicles(seguimientoHeaders),
-        readModulations(headers),
-        readPuntoCoronaRouteReports(headers),
+        readVehicles(seguimientoHeaders, session),
+        readModulations(headers, session),
+        readPuntoCoronaRouteReports(headers, session),
       ]);
 
-      const contractors = CONTRACTORS.map((contractor) => {
-        const people = peopleByContractor.get(contractor) || [];
+      const vehicles = allVehicles.filter((row) => canAccessContractor(session, row.contractor));
+      const modulations = allModulations.filter((row) => canAccessContractor(session, row.contractor));
+      const puntoCoronaReports = allPuntoCoronaReports.filter((row) => canAccessContractor(session, row.contractor));
+      const contractors = allowedContractors(session).map((contractor) => {
+        const people = peopleByContractor.get(contractor as typeof CONTRACTORS[number]) || [];
         return {
           name: contractor,
           total: people.length,
@@ -166,12 +170,13 @@ async function readPeople(headers: Record<string, string>) {
   return new Map(entries);
 }
 
-async function readVehicles(headers: Record<string, string>) {
+async function readVehicles(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
   const params = new URLSearchParams({
     select: VEHICLE_SELECT,
     order: "updated_at.desc",
     limit: "1200",
   });
+  scopeQuery(params, session);
   const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${params.toString()}`), {
     headers,
     cache: "no-store",
@@ -181,12 +186,13 @@ async function readVehicles(headers: Record<string, string>) {
   return ((await response.json().catch(() => [])) as VehicleRow[]).map(normalizeVehicle);
 }
 
-async function readModulations(headers: Record<string, string>) {
+async function readModulations(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
   const params = new URLSearchParams({
     select: MODULATION_SELECT,
     order: "updated_at.desc",
     limit: "1200",
   });
+  scopeQuery(params, session);
   const response = await fetch(supabaseRest("modulaciones_ruta", `?${params.toString()}`), {
     headers,
     cache: "no-store",
@@ -196,12 +202,13 @@ async function readModulations(headers: Record<string, string>) {
   return ((await response.json().catch(() => [])) as ModulationRow[]).map(normalizeModulation);
 }
 
-async function readPuntoCoronaRouteReports(headers: Record<string, string>) {
+async function readPuntoCoronaRouteReports(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
   const params = new URLSearchParams({
     select: "contractor,operational_date,kind,data",
     order: "operational_date.desc,updated_at.desc",
     limit: "1200",
   });
+  scopeQuery(params, session);
   const response = await fetch(supabaseRest("punto_corona_route_reports", `?${params.toString()}`), {
     headers,
     cache: "no-store",
