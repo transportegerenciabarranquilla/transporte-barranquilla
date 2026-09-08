@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, BadgeCheck, BellRing, Coffee, LoaderCircle, Search, ShieldAlert } from "lucide-react";
 import { BarcodeScanner } from "./BarcodeScanner";
 import { BarcodeLabels } from "./BarcodeLabels";
+import { FacialRecognition } from "./FacialRecognition";
 import { useRouter } from "next/navigation";
 
 type Result = { person: { document: string; name: string; role: string; contractor: string }; allowedAt: string; allowed: boolean };
@@ -77,6 +78,7 @@ export default function EffectiveRestAccessPage() {
       <Intro />
       <div className="rounded-3xl border border-white bg-white/95 p-7 shadow-xl"><form onSubmit={search}><label className="text-xs font-black uppercase text-slate-500" htmlFor="document">Número de cédula</label><div className="mt-2 flex gap-2"><div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={19} /><input autoComplete="off" autoFocus className="h-14 w-full rounded-2xl border border-slate-300 pl-12 pr-4 text-lg font-bold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" id="document" inputMode="numeric" onChange={(event) => setDocument(event.target.value.replace(/\D/g, ""))} placeholder="Número de cédula" value={document} /></div><button aria-label="Consultar" className="grid h-14 min-w-14 place-items-center rounded-2xl bg-emerald-600 px-5 font-black text-white disabled:opacity-60" disabled={loading} type="submit">{loading ? <LoaderCircle className="animate-spin" /> : "Consultar"}</button></div></form>
         <BarcodeScanner onScan={lookup} onStart={prepareAudio} disabled={loading} />
+        <FacialRecognition disabled={loading} documentValue={document} onRecognize={lookup} onStart={prepareAudio} />
         {error ? <p className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">{error}</p> : null}
         {result ? <ResultCard allowedAt={allowedAt} result={result} /> : null}
       </div>

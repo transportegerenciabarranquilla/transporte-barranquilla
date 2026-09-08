@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Activity, CalendarDays, Download, EllipsisVertical, Filter, Search, TrendingDown, TrendingUp, UsersRound, X } from "lucide-react";
 import { Icon } from "../components/Icon";
 
 type PersonHistory = {
@@ -17,7 +18,13 @@ type Person = {
   nombre: string;
   cargo: string;
   contratista: string;
-  stats: {
+  stats: PersonStats;
+  previousStats?: PersonStats;
+  history: PersonHistory[];
+  isLocal?: boolean;
+};
+
+type PersonStats = {
     rutas: number;
     modulaciones: number;
     reubicaciones: number;
@@ -29,9 +36,6 @@ type Person = {
     porcentajeRango?: number;
     tiempoPromedioRuta: string;
     ultimoDt: string;
-  };
-  history: PersonHistory[];
-  isLocal?: boolean;
 };
 
 type ContractorGroup = {
@@ -59,6 +63,7 @@ type PeopleProfile = {
 
 const CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
 const PAGE_SIZE = 10;
+type PeopleSort = "nombre" | "rutas" | "hl" | "rango" | "gestionadas";
 
 const emptyDraft: DraftPerson = {
   cc: "",
@@ -77,27 +82,42 @@ export default function PeoplePage() {
   const [selectedContractor, setSelectedContractor] = useState("Logisticos");
   const [selectedCc, setSelectedCc] = useState("");
   const [query, setQuery] = useState("");
-  const [rangeDate, setRangeDate] = useState("");
+  const [roleFilter, setRoleFilter] = useState("Todos");
+  const [activityOnly, setActivityOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<PeopleSort>("nombre");
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [draft, setDraft] = useState<DraftPerson>(emptyDraft);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAllowed, setIsAllowed] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/session/session", { cache: "no-store" })
+    let cancelled = false;
+    const controller = new AbortController();
+    setIsRefreshing(true);
+    fetch("/api/session/session", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const body = await response.json().catch(() => null);
+        if (cancelled) throw new DOMException("Request cancelled", "AbortError");
         const allowed = Boolean(body?.session?.isPeople || body?.session?.isAdmin);
         setIsAllowed(allowed);
         if (!allowed) throw new Error("No tienes permiso para entrar a People.");
-        const summaryUrl = rangeDate ? `/api/people/summary?date=${encodeURIComponent(rangeDate)}` : "/api/people/summary";
+        const params = new URLSearchParams();
+        if (rangeFrom) params.set("from", rangeFrom);
+        if (rangeTo) params.set("to", rangeTo);
+        const summaryUrl = params.size ? `/api/people/summary?${params}` : "/api/people/summary";
         return Promise.all([
-          fetch(summaryUrl, { cache: "no-store" }),
-          fetch("/api/people/profiles", { cache: "no-store" }),
+          fetch(summaryUrl, { cache: "no-store", signal: controller.signal }),
+          fetch("/api/people/profiles", { cache: "no-store", signal: controller.signal }),
         ]);
       })
       .then(async ([summaryResponse, profilesResponse]) => {
+        if (cancelled) return;
         const summaryBody = await summaryResponse.json().catch(() => ({}));
         if (!summaryResponse.ok) throw new Error(summaryBody.error || "No se pudo cargar People.");
         setGroups(summaryBody.contractors || []);
@@ -105,10 +125,14 @@ export default function PeoplePage() {
         const profilesBody = await profilesResponse.json().catch(() => ({}));
         if (!profilesResponse.ok) throw new Error(profilesBody.error || "No se pudieron cargar fotos de People.");
         applyProfiles(profilesBody.profiles || []);
+        setError("");
       })
-      .catch((caughtError) => setError(caughtError instanceof Error ? caughtError.message : "Error cargando People."))
-      .finally(() => setIsLoading(false));
-  }, [rangeDate]);
+      .catch((caughtError) => {
+        if (!cancelled && (!(caughtError instanceof Error) || caughtError.name !== "AbortError")) setError(caughtError instanceof Error ? caughtError.message : "Error cargando People.");
+      })
+      .finally(() => { if (!cancelled) { setIsLoading(false); setIsRefreshing(false); } });
+    return () => { cancelled = true; controller.abort(); };
+  }, [rangeFrom, rangeTo]);
 
   const mergedGroups = useMemo(() => {
     const removed = new Set(removedPeople);
@@ -126,16 +150,30 @@ export default function PeoplePage() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [selectedContractor, query]);
+  }, [activityOnly, query, roleFilter, selectedContractor, sortBy]);
+
+  const availableRoles = useMemo(
+    () => Array.from(new Set((selectedGroup?.people || []).map((person) => person.cargo.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es")),
+    [selectedGroup],
+  );
 
   const filteredPeople = useMemo(() => {
     const needle = normalizeText(query);
-    if (!needle) return selectedGroup?.people || [];
+    const matches = (selectedGroup?.people || []).filter((person) => {
+      const matchesQuery = !needle || normalizeText(`${person.nombre} ${person.cc} ${person.cargo}`).includes(needle);
+      const matchesRole = roleFilter === "Todos" || person.cargo === roleFilter;
+      const matchesActivity = !activityOnly || person.stats.rutas > 0 || person.stats.modulaciones > 0;
+      return matchesQuery && matchesRole && matchesActivity;
+    });
 
-    return (selectedGroup?.people || []).filter((person) =>
-      normalizeText(`${person.nombre} ${person.cc} ${person.cargo}`).includes(needle),
-    );
-  }, [query, selectedGroup]);
+    return [...matches].sort((left, right) => {
+      if (sortBy === "rutas") return right.stats.rutas - left.stats.rutas || left.nombre.localeCompare(right.nombre, "es");
+      if (sortBy === "hl") return hlMoved(right) - hlMoved(left) || left.nombre.localeCompare(right.nombre, "es");
+      if (sortBy === "rango") return Number(right.stats.porcentajeRango || 0) - Number(left.stats.porcentajeRango || 0) || left.nombre.localeCompare(right.nombre, "es");
+      if (sortBy === "gestionadas") return managedCount(right) - managedCount(left) || left.nombre.localeCompare(right.nombre, "es");
+      return left.nombre.localeCompare(right.nombre, "es");
+    });
+  }, [activityOnly, query, roleFilter, selectedGroup, sortBy]);
   const visiblePeople = filteredPeople.slice(0, visibleCount);
   const hasMorePeople = visibleCount < filteredPeople.length;
 
@@ -146,6 +184,11 @@ export default function PeoplePage() {
   useEffect(() => {
     if (selectedPerson && selectedPerson.cc !== selectedCc) setSelectedCc(selectedPerson.cc);
   }, [selectedPerson, selectedCc]);
+
+  useEffect(() => {
+    setHistoryExpanded(false);
+    setProfileMenuOpen(false);
+  }, [selectedCc]);
 
   function handleAddPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -224,9 +267,48 @@ export default function PeoplePage() {
     }
   }
 
+  async function exportFilteredPeople() {
+    if (!filteredPeople.length) return;
+    try {
+      const XLSX = await import("xlsx");
+      const rows = filteredPeople.map((person) => ({
+        Cédula: person.cc,
+        Nombre: person.nombre,
+        Cargo: person.cargo,
+        Contratista: person.contratista,
+        Rutas: person.stats.rutas,
+        "HL movidos": hlMoved(person),
+        "Cajas reubicadas": managedCount(person),
+        "Visitas en rango": person.stats.enRango || 0,
+        "Visitas fuera de rango": person.stats.fueraRango || 0,
+        "% en rango": Number(person.stats.porcentajeRango || 0) / 100,
+        "Tiempo promedio": person.stats.tiempoPromedioRuta || "Sin dato",
+        "Último DT": person.stats.ultimoDt || "",
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      for (let row = 2; row <= rows.length + 1; row += 1) {
+        if (sheet[`J${row}`]) sheet[`J${row}`].z = "0.00%";
+      }
+      sheet["!cols"] = [{ wch: 16 }, { wch: 34 }, { wch: 24 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 13 }, { wch: 16 }, { wch: 16 }];
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, "Personas");
+      XLSX.writeFile(book, `personas-${normalizeText(selectedContractor).replace(/\s+/g, "-")}.xlsx`);
+    } catch {
+      setError("No se pudo exportar el listado de personas.");
+    }
+  }
+
+  function setQuickPeriod(period: "today" | "week" | "month" | "history") {
+    if (period === "history") { setRangeFrom(""); setRangeTo(""); return; }
+    const today = localDateKey();
+    setRangeTo(today);
+    setRangeFrom(period === "today" ? today : period === "week" ? shiftDateKey(today, -6) : `${today.slice(0, 7)}-01`);
+  }
+
   const totals = useMemo(
     () => ({
       people: mergedGroups.reduce((total, group) => total + group.total, 0),
+      routes: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + person.stats.rutas, 0),
       hectoliters: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + hlMoved(person), 0),
       managed: mergedGroups.flatMap((group) => group.people).reduce((total, person) => total + managedCount(person), 0),
     }),
@@ -267,10 +349,23 @@ export default function PeoplePage() {
       <section className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
         {error ? <p className="mb-4 rounded-md border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p> : null}
 
-        <div className="mb-5 grid gap-4 md:grid-cols-3">
+        <section className="relative mb-5 overflow-hidden rounded-2xl bg-[linear-gradient(125deg,#10223d_0%,#1e3a8a_58%,#6d28d9_100%)] p-5 text-white shadow-[0_18px_45px_rgba(30,58,138,.2)] sm:p-7">
+          <div className="absolute -right-16 -top-20 h-60 w-60 rounded-full bg-cyan-300/15 blur-2xl" />
+          <div className="relative grid gap-5 xl:grid-cols-[1fr_auto] xl:items-end">
+            <div className="max-w-xl"><span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.18em] text-cyan-100"><UsersRound size={13} />Panel de talento operativo</span><h2 className="mt-4 text-2xl font-black sm:text-3xl">Personas, actividad y desempeño en un solo lugar</h2><p className="mt-2 text-sm leading-6 text-blue-100/80">Consulta el histórico completo o analiza un periodo específico. Los indicadores operativos responden al rango seleccionado.</p></div>
+            <div className="rounded-xl border border-white/15 bg-white/10 p-3 backdrop-blur-md">
+              <div className="mb-2 flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 text-xs font-bold"><CalendarDays size={15} />Periodo</span>{isRefreshing ? <span className="text-[10px] font-semibold text-cyan-200">Actualizando…</span> : <span className="text-[10px] text-blue-100/70">{rangeLabel(rangeFrom, rangeTo)}</span>}</div>
+              <div className="grid gap-2 sm:grid-cols-2"><label className="text-[9px] font-bold uppercase tracking-wider text-blue-100/70">Desde<input className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-white px-3 text-sm font-semibold text-[#10223d]" max={rangeTo || undefined} onChange={(event) => setRangeFrom(event.target.value)} type="date" value={rangeFrom} /></label><label className="text-[9px] font-bold uppercase tracking-wider text-blue-100/70">Hasta<input className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-white px-3 text-sm font-semibold text-[#10223d]" min={rangeFrom || undefined} onChange={(event) => setRangeTo(event.target.value)} type="date" value={rangeTo} /></label></div>
+              <div className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-slate-950/20 p-1"><PeriodButton active={rangeFrom === localDateKey() && rangeTo === localDateKey()} label="Hoy" onClick={() => setQuickPeriod("today")} /><PeriodButton active={rangeFrom === shiftDateKey(localDateKey(), -6) && rangeTo === localDateKey()} label="7 días" onClick={() => setQuickPeriod("week")} /><PeriodButton active={rangeFrom === `${localDateKey().slice(0, 7)}-01` && rangeTo === localDateKey()} label="Mes" onClick={() => setQuickPeriod("month")} /><PeriodButton active={!rangeFrom && !rangeTo} label="Histórico" onClick={() => setQuickPeriod("history")} /></div>
+            </div>
+          </div>
+        </section>
+
+        <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Trabajadores" value={totals.people} />
+          <Metric label="Asignaciones de ruta" value={totals.routes.toLocaleString("es-CO")} />
           <Metric label="HL movidos" value={formatHl(totals.hectoliters)} />
-          <Metric label="Gestionadas" value={totals.managed} />
+          <Metric label="Cajas reubicadas" value={totals.managed.toLocaleString("es-CO")} />
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-3">
@@ -283,6 +378,7 @@ export default function PeoplePage() {
               onClick={() => {
                 setSelectedContractor(group.name);
                 setSelectedCc("");
+                setRoleFilter("Todos");
               }}
               type="button"
             >
@@ -290,24 +386,32 @@ export default function PeoplePage() {
               <h2 className="mt-1 text-xl font-semibold text-[#10223d]">{group.name}</h2>
               <p className="mt-4 text-3xl font-semibold text-[#7c3aed]">{group.total}</p>
               <p className="text-sm text-slate-500">personas visibles</p>
+              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-200/70 pt-3">
+                <ContractorMiniStat label="Rutas" value={contractorStats(group).routes} />
+                <ContractorMiniStat label="HL" value={formatCompact(contractorStats(group).hl)} />
+                <ContractorMiniStat label="Rango" value={formatPercent(contractorStats(group).range)} />
+              </div>
             </button>
           ))}
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
           <section className="rounded-lg border border-white/70 bg-white/86 p-4 shadow-sm backdrop-blur">
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{selectedContractor}</p>
                 <h2 className="text-xl font-semibold text-[#10223d]">Trabajadores</h2>
               </div>
-              <input
-                className="h-11 rounded-md border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-[#7c3aed]"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar nombre, cedula o cargo"
-                value={query}
-              />
+              <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#10223d] px-3 text-xs font-semibold text-white disabled:opacity-50" disabled={!filteredPeople.length} onClick={() => void exportFilteredPeople()} type="button"><Download size={15} />Exportar ({filteredPeople.length})</button>
             </div>
+
+            <div className="mb-4 grid gap-2 md:grid-cols-[minmax(220px,1fr)_minmax(150px,.55fr)_minmax(160px,.55fr)_auto]">
+              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Buscar personas" className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-9 text-sm outline-none transition focus:border-[#7c3aed]" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, cédula o cargo" value={query} />{query ? <button aria-label="Limpiar búsqueda" className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded hover:bg-slate-100" onClick={() => setQuery("")} type="button"><X size={14} /></button> : null}</div>
+              <select aria-label="Filtrar por cargo" className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setRoleFilter(event.target.value)} value={roleFilter}><option>Todos</option>{availableRoles.map((role) => <option key={role}>{role}</option>)}</select>
+              <select aria-label="Ordenar personas" className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setSortBy(event.target.value as PeopleSort)} value={sortBy}><option value="nombre">Orden: nombre</option><option value="rutas">Más rutas</option><option value="hl">Más HL</option><option value="rango">Mejor rango</option><option value="gestionadas">Más cajas reubicadas</option></select>
+              <button aria-pressed={activityOnly} className={`inline-flex h-11 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold ${activityOnly ? "border-violet-300 bg-violet-50 text-violet-700" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setActivityOnly((value) => !value)} type="button"><Filter size={15} />Con actividad</button>
+            </div>
+            <p className="mb-3 text-xs font-medium text-slate-500">{filteredPeople.length} de {selectedGroup?.total || 0} personas</p>
 
             <div className="overflow-hidden rounded-lg border border-slate-200">
               {visiblePeople.map((person) => (
@@ -335,6 +439,7 @@ export default function PeoplePage() {
                   </div>
                 </button>
               ))}
+              {!visiblePeople.length ? <div className="px-5 py-12 text-center"><Search className="mx-auto text-slate-300" size={30} /><p className="mt-3 text-sm font-semibold text-slate-600">No encontramos personas con estos filtros.</p><button className="mt-3 text-xs font-semibold text-violet-700" onClick={() => { setQuery(""); setRoleFilter("Todos"); setActivityOnly(false); }} type="button">Limpiar filtros</button></div> : null}
             </div>
             {hasMorePeople ? (
               <div className="mt-4 flex justify-center">
@@ -379,50 +484,30 @@ export default function PeoplePage() {
                 </div>
 
                 <div className="bg-gradient-to-b from-white to-slate-50 p-4">
-                  <div className="mb-3 rounded-md border border-slate-200 bg-white p-2.5">
-                    <div className="flex items-end gap-2">
-                      <label className="min-w-0 flex-1">
-                        <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Fecha rango</span>
-                        <input
-                          className="mt-1 h-9 w-full rounded-md border border-slate-200 px-2 text-sm font-semibold text-[#10223d] outline-none focus:border-[#7c3aed]"
-                          onChange={(event) => setRangeDate(event.target.value)}
-                          type="date"
-                          value={rangeDate}
-                        />
-                      </label>
-                      {rangeDate ? (
-                        <button
-                          className="h-9 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                          onClick={() => setRangeDate("")}
-                          type="button"
-                        >
-                          Historico
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-[10px] font-semibold text-slate-400">
-                      {rangeDate ? "Mostrando rango solo de la fecha seleccionada." : "Mostrando historico completo de rango."}
-                    </p>
-                  </div>
+                  <div className="mb-3 flex items-center gap-2 rounded-md border border-violet-100 bg-violet-50/80 px-2.5 py-2 text-xs font-semibold text-[#10223d]"><CalendarDays className="shrink-0 text-violet-500" size={15} /><span className="truncate">{rangeLabel(rangeFrom, rangeTo)}</span></div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <StickerStat label="HL movidos" value={formatHl(hlMoved(selectedPerson))} />
-                    <StickerStat label="Visitados" value={selectedPerson.stats.visitasRango || 0} />
-                    <StickerStat label="En rango" value={selectedPerson.stats.enRango || 0} tone="green" />
-                    <StickerStat label="Fuera rango" value={selectedPerson.stats.fueraRango || 0} tone="red" />
-                    <StickerStat label="% rango" value={formatPercent(selectedPerson.stats.porcentajeRango)} tone="violet" />
+                    <StickerStat label="Clientes visitados" value={selectedPerson.stats.visitasRango || 0} />
+                    <StickerStat label="Rutas realizadas" value={selectedPerson.stats.rutas} tone="violet" />
+                    <StickerStat label="Modulaciones" value={selectedPerson.stats.modulaciones} />
                     <StickerStat label="Tiempo prom." value={selectedPerson.stats.tiempoPromedioRuta || "Sin dato"} />
-                    <StickerStat label="Ultimo DT" value={selectedPerson.stats.ultimoDt || "-"} />
-                    <StickerStat label="Gestionadas" value={managedCount(selectedPerson)} tone="amber" />
+                    <StickerStat label="Cajas reubicadas" value={managedCount(selectedPerson)} tone="amber" />
                   </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                  <ComplianceCard stats={selectedPerson.stats} />
+                  <PerformanceComparison current={selectedPerson.stats} previous={selectedPerson.previousStats} rangeFrom={rangeFrom} rangeTo={rangeTo} />
+
+                  <ActivityTimeline expanded={historyExpanded} items={selectedPerson.history} onToggle={() => setHistoryExpanded((value) => !value)} />
+
+                <div className="mt-4 flex items-center gap-2">
                   <label className="cursor-pointer rounded-md border border-[#7c3aed]/25 bg-[#f5f3ff] px-3 py-1.5 text-xs font-semibold text-[#5b21b6] transition hover:bg-[#ede9fe]">
                     Subir foto
                     <input accept="image/*" className="hidden" onChange={(event) => handlePhoto(selectedPerson, event.target.files?.[0] || null)} type="file" />
                   </label>
-                  <button className="rounded-md border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100" onClick={() => removePerson(selectedPerson)} type="button">
-                    Quitar
-                  </button>
+                  <div className="relative ml-auto">
+                    <button aria-expanded={profileMenuOpen} aria-label="Opciones de persona" className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" onClick={() => setProfileMenuOpen((value) => !value)} type="button"><EllipsisVertical size={17} /></button>
+                    {profileMenuOpen ? <div className="absolute bottom-full right-0 z-10 mb-2 w-44 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50" onClick={() => { setProfileMenuOpen(false); if (window.confirm(`¿Quitar a ${selectedPerson.nombre} del módulo People?`)) removePerson(selectedPerson); }} type="button">Quitar persona</button></div> : null}
+                  </div>
                   </div>
                 </div>
               </section>
@@ -431,7 +516,6 @@ export default function PeoplePage() {
             <form className="rounded-lg border border-white/70 bg-white/90 p-5 shadow-sm backdrop-blur" onSubmit={handleAddPerson}>
               <h2 className="text-lg font-semibold text-[#10223d]">Nueva persona</h2>
               <div className="mt-4 space-y-3">
-                <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cc: event.target.value })} placeholder="Cedula" value={draft.cc} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cc: event.target.value })} placeholder="Cedula" value={draft.cc} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, nombre: event.target.value })} placeholder="Nombre completo" value={draft.nombre} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cargo: event.target.value })} placeholder="Cargo" value={draft.cargo} />
@@ -461,6 +545,164 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <p className="mt-2 text-3xl font-semibold text-[#10223d]">{value}</p>
     </div>
   );
+}
+
+function PeriodButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      aria-pressed={active}
+      className={`rounded-md px-2 py-2 text-[10px] font-bold transition ${active ? "bg-white text-[#10223d] shadow-sm" : "text-blue-100/80 hover:bg-white/10 hover:text-white"}`}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function ContractorMiniStat({ label, value }: { label: string; value: string | number }) {
+  return <div><p className="truncate text-sm font-black text-[#10223d]">{value}</p><p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400">{label}</p></div>;
+}
+
+function contractorStats(group: ContractorGroup) {
+  const inRange = group.people.reduce((total, person) => total + Number(person.stats.enRango || 0), 0);
+  const outOfRange = group.people.reduce((total, person) => total + Number(person.stats.fueraRango || 0), 0);
+  const visits = inRange + outOfRange;
+  return {
+    routes: group.people.reduce((total, person) => total + Number(person.stats.rutas || 0), 0),
+    hl: group.people.reduce((total, person) => total + hlMoved(person), 0),
+    range: visits ? (inRange / visits) * 100 : 0,
+  };
+}
+
+function formatCompact(value: number) {
+  return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1, notation: "compact" }).format(Number(value || 0));
+}
+
+function formatHistoryDate(value: string) {
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00Z` : value);
+  if (Number.isNaN(parsed.getTime())) return value || "Sin fecha";
+  return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Bogota" }).format(parsed);
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateKey(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateKey(date);
+}
+
+function rangeLabel(from: string, to: string) {
+  if (!from && !to) return "Histórico completo";
+  if (from && to && from === to) return formatPeriodDate(from);
+  if (!from) return `Hasta ${formatPeriodDate(to)}`;
+  if (!to) return `Desde ${formatPeriodDate(from)}`;
+  return `${formatPeriodDate(from)} – ${formatPeriodDate(to)}`;
+}
+
+function formatPeriodDate(value: string) {
+  if (!value) return "";
+  const parsed = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Bogota" }).format(parsed);
+}
+
+function ComplianceCard({ stats }: { stats: PersonStats }) {
+  const evaluated = Number(stats.enRango || 0) + Number(stats.fueraRango || 0);
+  const total = Math.max(Number(stats.visitasRango || 0), evaluated);
+  const percentage = Math.min(Math.max(Number(stats.porcentajeRango || 0), 0), 100);
+
+  return (
+    <section className="mt-3 rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-3">
+      <div className="flex items-end justify-between gap-3">
+        <div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Cumplimiento de rango</p><p className="mt-1 text-sm font-bold text-[#10223d]">{stats.enRango || 0} de {total} visitas · {formatPercent(percentage)}</p></div>
+        <span className="text-2xl font-black text-emerald-600">{formatPercent(percentage)}</span>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all" style={{ width: `${percentage}%` }} /></div>
+      <div className="mt-2 flex justify-between text-[10px] font-semibold"><span className="text-emerald-700">{stats.enRango || 0} en rango</span><span className="text-red-500">{stats.fueraRango || 0} fuera de rango</span></div>
+    </section>
+  );
+}
+
+function PerformanceComparison({ current, previous, rangeFrom, rangeTo }: { current: PersonStats; previous?: PersonStats; rangeFrom: string; rangeTo: string }) {
+  return (
+    <section className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">Desempeño del período</p><p className="mt-0.5 text-[10px] text-slate-400">{previous ? `Vs. ${previousRangeLabel(rangeFrom, rangeTo)}` : "Selecciona un rango para comparar"}</p></div>{previous ? <span className="rounded bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">PERÍODO ANTERIOR</span> : null}</div>
+      <div className="mt-3 space-y-3">
+        <ComparisonRow current={current.rutas} label="Rutas" previous={previous?.rutas} />
+        <ComparisonRow current={hlMovedFromStats(current)} decimals={1} label="HL" previous={previous ? hlMovedFromStats(previous) : undefined} />
+        <ComparisonRow current={Number(current.porcentajeRango || 0)} decimals={1} isPercentage label="Cumplimiento" previous={previous ? Number(previous.porcentajeRango || 0) : undefined} />
+      </div>
+    </section>
+  );
+}
+
+function ComparisonRow({ current, decimals = 0, isPercentage = false, label, previous }: { current: number; decimals?: number; isPercentage?: boolean; label: string; previous?: number }) {
+  const comparable = previous !== undefined;
+  const maximum = Math.max(current, previous || 0, 1);
+  const delta = comparable ? current - previous : 0;
+  const currentLabel = `${current.toLocaleString("es-CO", { maximumFractionDigits: decimals })}${isPercentage ? "%" : ""}`;
+  const previousLabel = comparable ? `${previous.toLocaleString("es-CO", { maximumFractionDigits: decimals })}${isPercentage ? "%" : ""}` : "—";
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[10px]"><span className="font-bold text-slate-600">{label}</span><span className="flex items-center gap-2"><b className="text-[#10223d]">{currentLabel}</b>{comparable ? <DeltaBadge delta={delta} isPercentage={isPercentage} previous={previous} /> : null}</span></div>
+      <div className="space-y-1"><div className="h-1.5 overflow-hidden rounded-full bg-violet-50"><div className="h-full rounded-full bg-violet-600" style={{ width: `${(current / maximum) * 100}%` }} /></div>{comparable ? <div className="flex items-center gap-2"><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-slate-300" style={{ width: `${(previous / maximum) * 100}%` }} /></div><span className="w-12 text-right text-[8px] font-semibold text-slate-400">{previousLabel}</span></div> : null}</div>
+    </div>
+  );
+}
+
+function DeltaBadge({ delta, isPercentage, previous }: { delta: number; isPercentage: boolean; previous: number }) {
+  const positive = delta > 0;
+  const negative = delta < 0;
+  const label = isPercentage ? `${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 1 })} pts` : previous ? `${delta > 0 ? "+" : ""}${((delta / previous) * 100).toLocaleString("es-CO", { maximumFractionDigits: 0 })}%` : delta > 0 ? "Nuevo" : "0%";
+  return <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[8px] font-black ${positive ? "bg-emerald-50 text-emerald-700" : negative ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-500"}`}>{positive ? <TrendingUp size={10} /> : negative ? <TrendingDown size={10} /> : null}{label}</span>;
+}
+
+function ActivityTimeline({ expanded, items, onToggle }: { expanded: boolean; items: PersonHistory[]; onToggle: () => void }) {
+  const visibleItems = items.slice(0, expanded ? 8 : 4);
+  return (
+    <section className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><Activity className="text-violet-600" size={16} /><h3 className="text-xs font-black uppercase tracking-[0.14em] text-slate-600">Actividad reciente</h3></div>{items.length > 4 ? <button className="text-[10px] font-bold text-violet-700 hover:underline" onClick={onToggle} type="button">{expanded ? "Ver menos" : `Ver todas (${items.length})`}</button> : null}</div>
+      {visibleItems.length ? <div className="mt-3 space-y-3">{visibleItems.map((item, index) => { const tone = activityTone(item); return <div className={`border-l-2 pl-3 ${tone.border}`} key={`${item.type}-${item.date}-${index}`}><div className="flex items-start justify-between gap-2"><div className="min-w-0"><span className={`mb-1 inline-flex rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide ${tone.badge}`}>{activityLabel(item)}</span><p className="truncate text-xs font-semibold text-[#10223d]">{item.title}</p></div><time className="shrink-0 text-[9px] font-semibold text-slate-400">{formatHistoryDate(item.date)}</time></div><p className="mt-0.5 text-[10px] leading-4 text-slate-500">{item.detail}</p></div>; })}</div> : <p className="mt-3 text-xs text-slate-500">Esta persona todavía no tiene actividad registrada.</p>}
+    </section>
+  );
+}
+
+function activityTone(item: PersonHistory) {
+  const value = normalizeText(`${item.type} ${item.detail}`);
+  if (value.includes("finalizado")) return { badge: "bg-emerald-50 text-emerald-700", border: "border-emerald-300" };
+  if (value.includes("modulacion")) return { badge: "bg-amber-50 text-amber-700", border: "border-amber-300" };
+  if (value.includes("en ruta")) return { badge: "bg-blue-50 text-blue-700", border: "border-blue-300" };
+  return { badge: "bg-violet-50 text-violet-700", border: "border-violet-300" };
+}
+
+function activityLabel(item: PersonHistory) {
+  const detail = normalizeText(item.detail);
+  if (detail.includes("finalizado")) return "Finalizada";
+  if (detail.includes("en ruta")) return "En ruta";
+  return item.type;
+}
+
+function previousRangeLabel(from: string, to: string) {
+  if (!from && !to) return "período anterior";
+  const normalizedFrom = from || to;
+  const normalizedTo = to || from;
+  const fromDate = new Date(`${normalizedFrom}T12:00:00`);
+  const toDate = new Date(`${normalizedTo}T12:00:00`);
+  const durationDays = Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1;
+  const previousTo = shiftDateKey(normalizedFrom, -1);
+  return rangeLabel(shiftDateKey(previousTo, -durationDays + 1), previousTo);
+}
+
+function hlMovedFromStats(stats: PersonStats) {
+  return Number(stats.hectolitros || 0);
 }
 
 function Avatar({ compact = false, image, name, large = false, sticker = false }: { compact?: boolean; image?: string; name: string; large?: boolean; sticker?: boolean }) {

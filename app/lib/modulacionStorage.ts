@@ -1,4 +1,5 @@
 import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords } from "./remoteStore";
+import { calculatePendingRefusalBoxes } from "./refusalCalculation";
 
 export const MODULACION_STORAGE_KEY = "bavaria.modulacion.registros";
 
@@ -156,7 +157,7 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
   const cajasPendientesModulacion = Math.max(cajasRechazadas - cajasGestionadas, 0);
   const cajasCheckinFinal = readOptionalNumber(cajasCheckin);
   const tieneCheckin = cajasCheckinFinal !== null;
-  const cajasPendientes = tieneCheckin ? Math.max(cajasCheckinFinal, 0) : cajasPendientesModulacion;
+  const cajasPendientes = calculatePendingRefusalBoxes(cajasRechazadas, cajasGestionadas, cajasCheckin);
   const moduladores = Array.from(new Set(records.map((record) => (record.personaNombre || record.persona)?.trim()).filter(Boolean))) as string[];
   const causales = Array.from(new Set(records.map((record) => record.causal).filter(Boolean)));
 

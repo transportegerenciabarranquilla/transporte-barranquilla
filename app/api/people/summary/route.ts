@@ -85,8 +85,10 @@ const VEHICLE_SELECT =
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 const NOT_STARTED = "NOT_STARTED";
+const PAGE_SIZE = 1_000;
 const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000;
-const SUMMARY_CACHE_VERSION = "v5-seguimiento-vh";
+const SUMMARY_CACHE_VERSION = "v7-period-comparison";
+type DateRange = { from: string; to: string };
 
 export async function GET(request: Request) {
   try {
@@ -97,8 +99,10 @@ export async function GET(request: Request) {
     }
 
     const searchParams = new URL(request.url).searchParams;
-    const rangeDate = dateKey(searchParams.get("date"));
-    const cacheKey = `supabase:people-summary:${SUMMARY_CACHE_VERSION}:${session.contractor}:${rangeDate || "all"}`;
+    const legacyDate = dateKey(searchParams.get("date"));
+    const dateRange = normalizeDateRange(dateKey(searchParams.get("from")) || legacyDate, dateKey(searchParams.get("to")) || legacyDate);
+    const previousDateRange = getPreviousDateRange(dateRange);
+    const cacheKey = `supabase:people-summary:${SUMMARY_CACHE_VERSION}:${session.contractor}:${dateRange ? `${dateRange.from}:${dateRange.to}` : "all"}`;
     const loadSummary = async () => {
       const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
       const seguimientoHeaders = supabaseAdminHeaders() ?? supabaseHeaders();
@@ -117,7 +121,14 @@ export async function GET(request: Request) {
         return {
           name: contractor,
           total: people.length,
-          people: people.map((person) => buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, rangeDate)),
+          people: people.map((person) => {
+            const summary = buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, dateRange);
+            if (!previousDateRange) return summary;
+            return {
+              ...summary,
+              previousStats: buildPersonSummary(person, vehicles, modulations, puntoCoronaReports, previousDateRange).stats,
+            };
+          }),
         };
       });
 
@@ -174,49 +185,42 @@ async function readVehicles(headers: Record<string, string>, session: NonNullabl
   const params = new URLSearchParams({
     select: VEHICLE_SELECT,
     order: "updated_at.desc",
-    limit: "1200",
   });
   scopeQuery(params, session);
-  const response = await fetch(supabaseRest("seguimiento_vehiculos", `?${params.toString()}`), {
-    headers,
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(await supabaseError(response));
-
-  return ((await response.json().catch(() => [])) as VehicleRow[]).map(normalizeVehicle);
+  return (await readPagedRows<VehicleRow>("seguimiento_vehiculos", params, headers)).map(normalizeVehicle);
 }
 
 async function readModulations(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
   const params = new URLSearchParams({
     select: MODULATION_SELECT,
     order: "updated_at.desc",
-    limit: "1200",
   });
   scopeQuery(params, session);
-  const response = await fetch(supabaseRest("modulaciones_ruta", `?${params.toString()}`), {
-    headers,
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(await supabaseError(response));
-
-  return ((await response.json().catch(() => [])) as ModulationRow[]).map(normalizeModulation);
+  return (await readPagedRows<ModulationRow>("modulaciones_ruta", params, headers)).map(normalizeModulation);
 }
 
 async function readPuntoCoronaRouteReports(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
   const params = new URLSearchParams({
     select: "contractor,operational_date,kind,data",
     order: "operational_date.desc,updated_at.desc",
-    limit: "1200",
   });
   scopeQuery(params, session);
-  const response = await fetch(supabaseRest("punto_corona_route_reports", `?${params.toString()}`), {
-    headers,
-    cache: "no-store",
-  });
-  if (!response.ok) return [];
-
-  const rows = (await response.json().catch(() => [])) as PuntoCoronaReportRow[];
+  const rows = await readPagedRows<PuntoCoronaReportRow>("punto_corona_route_reports", params, headers).catch(() => []);
   return rows.map(normalizePuntoCoronaReport).filter(Boolean) as PuntoCoronaRouteReport[];
+}
+
+async function readPagedRows<T>(table: string, baseParams: URLSearchParams, headers: Record<string, string>) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const params = new URLSearchParams(baseParams);
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(offset));
+    const response = await fetch(supabaseRest(table, `?${params.toString()}`), { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(await supabaseError(response));
+    const page = (await response.json().catch(() => [])) as T[];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
 }
 
 function buildPersonSummary(
@@ -224,7 +228,7 @@ function buildPersonSummary(
   vehicles: Required<VehicleRow>[],
   modulations: Required<ModulationRow>[],
   puntoCoronaReports: PuntoCoronaRouteReport[],
-  rangeDate: string,
+  dateRange: DateRange | null,
 ) {
   const personCc = normalizeId(person.CC);
   const personName = normalizeText(person.NOMBRE);
@@ -239,17 +243,18 @@ function buildPersonSummary(
     const names = [vehicle.nombreResponsable, vehicle.nombreAuxiliar1, vehicle.nombreAuxiliar2, vehicle.responsable].map(normalizeText);
     return Boolean(personName && names.some((name) => name === personName));
   });
-  const personVehicles = uniqueVehiclesByDt(matchedVehicles);
+  const personVehicles = uniqueVehiclesByDt(matchedVehicles).filter((vehicle) => isDateInRange(dateKey(vehicle.fechaDespacho || vehicle.fechaDt), dateRange));
 
   const personModulations = modulations.filter((modulation) => {
     if (normalizeContractorName(modulation.contractor) !== contractorKey) return false;
-    return normalizeId(modulation.persona) === personCc || normalizeText(modulation.personaNombre) === personName;
+    const belongsToPerson = normalizeId(modulation.persona) === personCc || normalizeText(modulation.personaNombre) === personName;
+    return belongsToPerson && isDateInRange(dateKey(modulation.fechaDespacho || modulation.createdAt), dateRange);
   });
 
   const routeMinutes = personVehicles.map((vehicle) => parseRouteMinutes(vehicle.tiempoRuta)).filter((value) => Number.isFinite(value));
   const hectolitros = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.hl), 0);
   const seguimientoVisitados = personVehicles.reduce((total, vehicle) => total + numberValue(vehicle.visitados), 0);
-  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports, rangeDate);
+  const rangeStats = getPuntoCoronaRangeStats(personVehicles, puntoCoronaReports, dateRange);
   const managedBoxes = personModulations.reduce((total, modulation) => total + numberValue(modulation.cajasGestionadas), 0);
   const history = [
     ...personVehicles.slice(0, 5).map((vehicle) => ({
@@ -278,7 +283,7 @@ function buildPersonSummary(
       modulaciones: personModulations.length,
       gestionadas: managedBoxes,
       hectolitros: Number(hectolitros.toFixed(1)),
-      visitasRango: rangeDate ? rangeStats.totalStarted : seguimientoVisitados || rangeStats.totalStarted,
+      visitasRango: dateRange ? rangeStats.totalStarted : seguimientoVisitados || rangeStats.totalStarted,
       enRango: rangeStats.inRange,
       fueraRango: rangeStats.outOfRange,
       porcentajeRango: percentage(rangeStats.inRange, rangeStats.totalStarted),
@@ -361,12 +366,12 @@ function uniqueVehiclesByDt(vehicles: Required<VehicleRow>[]) {
   return Array.from(byDt.values());
 }
 
-function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[], rangeDate = "") {
+function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: PuntoCoronaRouteReport[], dateRange: DateRange | null = null) {
   const reportByDate = new Map<string, PuntoCoronaRouteReport>();
 
   reports.forEach((report) => {
     const date = dateKey(report.operationalDate);
-    if (rangeDate && date !== rangeDate) return;
+    if (!isDateInRange(date, dateRange)) return;
     const contractor = normalizeContractorName(report.contractor);
     const key = `${contractor}:${date}`;
     if (!date && !contractor) {
@@ -413,10 +418,10 @@ function getPuntoCoronaRangeStats(vehicles: Required<VehicleRow>[], reports: Pun
   return vehicles.reduce(
     (totals, vehicle) => {
       const date = dateKey(vehicle.fechaDespacho || vehicle.fechaDt);
-      if (rangeDate && date !== rangeDate) return totals;
+      if (!isDateInRange(date, dateRange)) return totals;
       const dt = normalizeId(vehicle.transporte);
       const contractor = normalizeContractorName(vehicle.contractor);
-      const crew = rangeDate
+      const crew = dateRange
         ? rowStatsByDateDt.get(`${contractor}:${date}:${dt}`) ||
           rowStatsByDateDt.get(`:${date}:${dt}`) ||
           crewByDateDt.get(`${contractor}:${date}:${dt}`) ||
@@ -522,6 +527,30 @@ function dateKey(value: unknown) {
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
+function normalizeDateRange(from: string, to: string): DateRange | null {
+  if (!from && !to) return null;
+  const first = from || to;
+  const last = to || from;
+  return first <= last ? { from: first, to: last } : { from: last, to: first };
+}
+
+function getPreviousDateRange(range: DateRange | null): DateRange | null {
+  if (!range) return null;
+  const from = new Date(`${range.from}T12:00:00Z`);
+  const to = new Date(`${range.to}T12:00:00Z`);
+  const durationDays = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
+  const previousTo = new Date(from);
+  previousTo.setUTCDate(previousTo.getUTCDate() - 1);
+  const previousFrom = new Date(previousTo);
+  previousFrom.setUTCDate(previousFrom.getUTCDate() - durationDays + 1);
+  return { from: previousFrom.toISOString().slice(0, 10), to: previousTo.toISOString().slice(0, 10) };
+}
+
+function isDateInRange(value: string, range: DateRange | null) {
+  if (!range) return true;
+  return Boolean(value && value >= range.from && value <= range.to);
+}
+
 function normalizeText(value: unknown) {
   return readString(value)
     .toLowerCase()
@@ -554,5 +583,5 @@ function formatMinutes(value: number) {
   if (!Number.isFinite(value)) return "Sin dato";
   const hours = Math.floor(value / 60);
   const minutes = Math.round(value % 60);
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return hours ? `${hours} h ${String(minutes).padStart(2, "0")} min` : `${minutes} min`;
 }

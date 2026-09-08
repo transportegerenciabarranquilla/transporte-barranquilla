@@ -7,6 +7,7 @@ import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/Anal
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { calculateRefusalTotals, getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import { calculatePendingRefusalBoxes } from "../../lib/refusalCalculation";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import { useContractorBrand } from "../../lib/contractorBranding";
@@ -741,7 +742,7 @@ function findVehicleForModulacion(modulacion: ModulacionRegistro, rangeVehicles:
 }
 
 function getCajasRechazoFinal(modulacion: ModulacionRegistro, checkin: CheckinCajasRegistro | undefined) {
-  return typeof checkin?.totalCajas === "number" ? checkin.totalCajas : Number(modulacion.totalCajas || 0);
+  return calculatePendingRefusalBoxes(modulacion.totalCajas, modulacion.cajasGestionadas, checkin?.totalCajas);
 }
 
 function groupModulationRowsByVehicle<T extends { bloque: string; cajasRechazo: number; id: string; responsable: string; status: string; tieneCheckin: boolean; vehiculo: string }>(rows: T[]) {
