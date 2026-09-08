@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, CameraOff, ScanFace, ShieldCheck, Trash2, UserRoundPlus } from "lucide-react";
+import { Camera, CameraOff, RefreshCw, ScanFace, ShieldCheck, Trash2, UserRoundPlus } from "lucide-react";
 
 type FaceDetection = {
   descriptor: Float32Array;
@@ -34,6 +34,7 @@ const FACE_API_URLS = [
 const MODEL_URL = "https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights";
 const MATCH_THRESHOLD = 0.5;
 let faceApiPromise: Promise<FaceApi> | null = null;
+type CameraFacing = "user" | "environment";
 
 export function FacialRecognition({ disabled, documentValue, onRecognize, onStart }: { disabled: boolean; documentValue: string; onRecognize: (document: string) => Promise<void>; onStart: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -42,6 +43,9 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
   const profilesRef = useRef(new Map<string, { name: string; samples: Float32Array[] }>());
   const recognitionTimerRef = useRef<number | null>(null);
   const recognitionVersionRef = useRef(0);
+  const recognizingRef = useRef(false);
+  const readinessTimerRef = useRef<number | null>(null);
+  const readinessVersionRef = useRef(0);
   const busyRef = useRef(false);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -50,10 +54,16 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
   const [message, setMessage] = useState("Prepara la IA para registrar o reconocer un rostro.");
   const [registered, setRegistered] = useState<Array<{ document: string; name: string; samples: number }>>([]);
   const [registrationDocument, setRegistrationDocument] = useState(documentValue);
+  const [cameraFacing, setCameraFacing] = useState<CameraFacing>("environment");
+  const [faceReady, setFaceReady] = useState(false);
+  const [faceReadinessLabel, setFaceReadinessLabel] = useState("Enciende la cámara para detectar el rostro.");
 
   useEffect(() => () => {
     recognitionVersionRef.current += 1;
+    recognizingRef.current = false;
     if (recognitionTimerRef.current) window.clearTimeout(recognitionTimerRef.current);
+    readinessVersionRef.current += 1;
+    if (readinessTimerRef.current) window.clearTimeout(readinessTimerRef.current);
     streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
   useEffect(() => {
@@ -86,23 +96,29 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
     }
   }
 
-  async function startCamera() {
-    if (!modelsReady || busyRef.current || streamRef.current) return;
+  async function startCamera(facing: CameraFacing = cameraFacing) {
+    if (!modelsReady || busyRef.current) return;
     onStart();
     setBusyState(true);
-    setMessage("Solicitando acceso a la cámara frontal…");
+    setMessage(`Solicitando acceso a la cámara ${cameraLabel(facing).toLowerCase()}…`);
     try {
       if (!window.isSecureContext) throw new Error("La cámara necesita abrirse desde una dirección HTTPS segura.");
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador no permite utilizar la cámara.");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } });
+      stopRecognition(false);
+      stopStream();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } } });
       const video = videoRef.current;
       if (!video) { stream.getTracks().forEach((track) => track.stop()); return; }
       streamRef.current = stream;
+      const actualFacing = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      const activeFacing: CameraFacing = actualFacing === "user" || actualFacing === "environment" ? actualFacing : facing;
+      setCameraFacing(activeFacing);
       video.srcObject = stream;
       await video.play();
       resizeCanvas();
       setCameraActive(true);
-      setMessage("Cámara encendida. Coloca un solo rostro dentro del encuadre.");
+      startFaceReadiness();
+      setMessage(`Cámara ${cameraLabel(activeFacing).toLowerCase()} encendida. Coloca un solo rostro dentro del encuadre.`);
     } catch (error) {
       const name = error instanceof Error ? error.name : "";
       setMessage(name === "NotAllowedError" ? "El navegador denegó la cámara. Permítela en los ajustes del sitio y vuelve a cargar." : error instanceof Error ? error.message : "No se pudo abrir la cámara.");
@@ -110,6 +126,50 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
     } finally {
       setBusyState(false);
     }
+  }
+
+  function changeCamera(facing: CameraFacing) {
+    if (cameraActive && facing === cameraFacing) return;
+    void startCamera(facing);
+  }
+
+  function startFaceReadiness() {
+    stopFaceReadiness();
+    setFaceReady(false);
+    setFaceReadinessLabel("Buscando un rostro…");
+    const version = ++readinessVersionRef.current;
+    void checkFaceReadiness(version);
+  }
+
+  async function checkFaceReadiness(version: number) {
+    if (version !== readinessVersionRef.current || !streamRef.current || busyRef.current || recognizingRef.current) return;
+    try {
+      const faces = await detectFaces();
+      if (version !== readinessVersionRef.current || !streamRef.current) return;
+      if (faces.length === 1) {
+        setFaceReady(true);
+        setFaceReadinessLabel("Rostro listo. Ya puedes reconocer e ingresar.");
+      } else if (faces.length > 1) {
+        setFaceReady(false);
+        setFaceReadinessLabel("Hay más de un rostro. Deja solo una persona frente a la cámara.");
+      } else {
+        setFaceReady(false);
+        setFaceReadinessLabel("Buscando un rostro…");
+      }
+    } catch {
+      setFaceReady(false);
+      setFaceReadinessLabel("No se puede analizar el rostro todavía. Revisa la cámara.");
+    }
+    if (version === readinessVersionRef.current && streamRef.current && !busyRef.current && !recognizingRef.current) {
+      readinessTimerRef.current = window.setTimeout(() => void checkFaceReadiness(version), 550);
+    }
+  }
+
+  function stopFaceReadiness() {
+    readinessVersionRef.current += 1;
+    if (readinessTimerRef.current) window.clearTimeout(readinessTimerRef.current);
+    readinessTimerRef.current = null;
+    setFaceReady(false);
   }
 
   function resizeCanvas() {
@@ -124,6 +184,7 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
     const document = registrationDocument.trim();
     if (!/^\d{1,15}$/.test(document)) { setMessage("Escribe una cédula válida para registrar el rostro."); return; }
     if (!cameraActive || busyRef.current || recognizing) return;
+    stopFaceReadiness();
     setBusyState(true);
     setMessage("Validando la cédula y analizando el rostro…");
     try {
@@ -154,12 +215,15 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
       setMessage(error instanceof Error ? error.message : "No se pudo registrar el rostro.");
     } finally {
       setBusyState(false);
+      if (streamRef.current) startFaceReadiness();
     }
   }
 
   function startRecognition() {
     if (!cameraActive || !profilesRef.current.size || recognizing || busyRef.current) return;
     onStart();
+    stopFaceReadiness();
+    recognizingRef.current = true;
     setRecognizing(true);
     setMessage("Reconocimiento activo. Mira de frente a la cámara.");
     const version = ++recognitionVersionRef.current;
@@ -181,6 +245,7 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
           stopRecognition(false);
           setMessage(`${match.name} reconocido(a). Consultando descanso efectivo…`);
           await onRecognize(match.document);
+          if (streamRef.current) startFaceReadiness();
           return;
         }
         setMessage("Rostro no reconocido. Intenta mirar de frente y con buena iluminación.");
@@ -236,14 +301,17 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
 
   function stopRecognition(updateMessage = true) {
     recognitionVersionRef.current += 1;
+    recognizingRef.current = false;
     if (recognitionTimerRef.current) window.clearTimeout(recognitionTimerRef.current);
     recognitionTimerRef.current = null;
     setRecognizing(false);
     clearCanvas();
     if (updateMessage) setMessage("Reconocimiento detenido.");
+    if (updateMessage && streamRef.current) startFaceReadiness();
   }
 
   function stopStream() {
+    stopFaceReadiness();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -311,7 +379,12 @@ export function FacialRecognition({ disabled, documentValue, onRecognize, onStar
       {!modelsReady ? <div className="px-4 pb-4"><button className="min-h-11 w-full rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50" disabled={busy || disabled} onClick={() => void prepareModels()} type="button">{busy ? "Preparando reconocimiento…" : "Preparar reconocimiento facial"}</button></div> : null}
       {modelsReady ? <div className="border-t border-violet-100 bg-white p-4">
         <div className={`relative overflow-hidden rounded-xl bg-slate-950 ${cameraActive ? "block" : "hidden"}`}><video className="aspect-[4/3] w-full object-contain" muted onLoadedMetadata={resizeCanvas} playsInline ref={videoRef} /><canvas className="pointer-events-none absolute inset-0 h-full w-full" ref={canvasRef} /></div>
-        {!cameraActive ? <button className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#10223d] px-4 text-sm font-bold text-white disabled:opacity-50" disabled={busy || disabled} onClick={() => void startCamera()} type="button"><Camera size={18} />Encender cámara frontal</button> : <div className="mt-3 grid grid-cols-2 gap-2"><button className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 text-xs font-bold text-white disabled:opacity-50" disabled={busy || recognizing || disabled} onClick={() => void registerFace()} type="button"><UserRoundPlus size={17} />Registrar esta cédula</button><button className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white disabled:opacity-50" disabled={busy || recognizing || !registered.length || disabled} onClick={startRecognition} type="button"><ShieldCheck size={17} />Reconocer e ingresar</button>{recognizing ? <button className="col-span-2 min-h-10 rounded-xl border border-amber-200 bg-amber-50 text-xs font-bold text-amber-800" onClick={() => stopRecognition()} type="button">Detener reconocimiento</button> : null}<button className="col-span-2 flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600" onClick={stopCamera} type="button"><CameraOff size={16} />Apagar cámara</button></div>}
+        <div aria-label="Seleccionar cámara" className="grid grid-cols-2 gap-2" role="group">
+          <button aria-pressed={cameraFacing === "environment"} className={`min-h-10 rounded-xl border px-3 text-xs font-black transition ${cameraFacing === "environment" ? "border-violet-600 bg-violet-600 text-white" : "border-slate-200 bg-white text-slate-600"}`} disabled={busy || disabled} onClick={() => changeCamera("environment")} type="button"><Camera className="mr-1 inline" size={16} />Trasera</button>
+          <button aria-pressed={cameraFacing === "user"} className={`min-h-10 rounded-xl border px-3 text-xs font-black transition ${cameraFacing === "user" ? "border-violet-600 bg-violet-600 text-white" : "border-slate-200 bg-white text-slate-600"}`} disabled={busy || disabled} onClick={() => changeCamera("user")} type="button"><RefreshCw className="mr-1 inline" size={15} />Frontal</button>
+        </div>
+        <p className="mt-2 text-center text-[10px] font-semibold text-slate-500">Para registrar a otra persona usa preferiblemente la cámara trasera.</p>
+        {!cameraActive ? <button className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#10223d] px-4 text-sm font-bold text-white disabled:opacity-50" disabled={busy || disabled} onClick={() => void startCamera()} type="button"><Camera size={18} />Encender cámara {cameraLabel(cameraFacing).toLowerCase()}</button> : <><div aria-live="polite" className={`mt-3 flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-center text-[11px] font-bold ${faceReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}><span className={`h-2 w-2 rounded-full ${faceReady ? "bg-emerald-500" : "animate-pulse bg-amber-400"}`} />{faceReadinessLabel}</div><div className="mt-3 grid grid-cols-2 gap-2"><button className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 text-xs font-bold text-white disabled:opacity-50" disabled={busy || recognizing || disabled} onClick={() => void registerFace()} type="button"><UserRoundPlus size={17} />Registrar esta cédula</button><button className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white disabled:opacity-50" disabled={busy || recognizing || !registered.length || !faceReady || disabled} onClick={startRecognition} type="button"><ShieldCheck size={17} />{faceReady ? "Reconocer e ingresar" : "Esperando rostro…"}</button>{recognizing ? <button className="col-span-2 min-h-10 rounded-xl border border-amber-200 bg-amber-50 text-xs font-bold text-amber-800" onClick={() => stopRecognition()} type="button">Detener reconocimiento</button> : null}<button className="col-span-2 flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600" onClick={stopCamera} type="button"><CameraOff size={16} />Apagar cámara</button></div></>}
         <p aria-live="polite" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600">{message}</p>
         {registered.length ? <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3"><div className="flex items-center justify-between gap-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Personas guardadas en Supabase</p><button aria-label="Borrar rostros guardados" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-red-600 hover:bg-red-50" disabled={busy} onClick={() => void clearProfiles()} type="button"><Trash2 size={16} /></button></div><div className="mt-2 space-y-1.5">{registered.map((person) => <div className="flex items-center justify-between gap-3 text-xs" key={person.document}><span className="min-w-0 truncate font-bold text-[#10223d]">{person.name}</span><span className="shrink-0 text-[10px] font-semibold text-slate-400">CC {person.document} · {person.samples} muestra(s)</span></div>)}</div></div> : null}
       </div> : <p className="px-4 pb-4 text-xs font-semibold text-slate-500">{message}</p>}
@@ -352,4 +425,8 @@ function normalizeStoredDescriptors(value: unknown) {
   return value
     .filter((descriptor): descriptor is number[] => Array.isArray(descriptor) && descriptor.length === 128 && descriptor.every((number) => Number.isFinite(Number(number))))
     .map((descriptor) => new Float32Array(descriptor.map(Number)));
+}
+
+function cameraLabel(facing: CameraFacing) {
+  return facing === "environment" ? "Trasera" : "Frontal";
 }
