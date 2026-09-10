@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, CheckCircle2, Download, History, LoaderCircle, MapPinCheck, Search, Table2, Truck, X, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, Download, History, LoaderCircle, MapPinCheck, Search, Table2, Truck, X, XCircle } from "lucide-react";
 import { CONTRACTORS } from "../../lib/contractors";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
+import RangoCharts from "./RangoCharts";
 
 type AdminRangoReport = {
   id: string;
@@ -42,6 +43,7 @@ export default function AdminRangoPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+  const [showCharts, setShowCharts] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/rango", { cache: "no-store" })
@@ -135,9 +137,14 @@ export default function AdminRangoPage() {
             </button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Modulo admin</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">Entrega en rango</h1>
+              <h1 className="text-2xl font-semibold text-[#10223d]">{showCharts ? "Gráficas de rango" : "Entrega en rango"}</h1>
             </div>
           </div>
+          <div className="flex flex-wrap gap-2">
+          <button type="button" aria-expanded={showCharts} onClick={() => setShowCharts(!showCharts)} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold shadow-sm transition ${showCharts ? "border border-slate-200 bg-white text-[#10223d] hover:bg-slate-50" : "bg-[#0f7c58] text-white hover:bg-[#0b684a]"}`}>
+            {showCharts ? <ArrowLeft size={16} /> : <BarChart3 size={16} />}
+            {showCharts ? "Volver al rango" : "Gráficas"}
+          </button>
           <button
             className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
             onClick={() => router.push("/admin")}
@@ -146,6 +153,7 @@ export default function AdminRangoPage() {
             <Table2 size={16} />
             Panel admin
           </button>
+          </div>
         </div>
       </header>
 
@@ -154,7 +162,7 @@ export default function AdminRangoPage() {
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando historial de rango...</div> : null}
 
         <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto_auto]">
+          <div className={`grid gap-3 ${showCharts ? "lg:grid-cols-[1fr_1fr_1fr_auto]" : "lg:grid-cols-[1fr_1fr_1fr_auto_auto]"}`}>
             <label className="text-sm font-semibold text-[#10223d]">
               <span className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-slate-500">
                 <CalendarDays size={16} />
@@ -201,7 +209,7 @@ export default function AdminRangoPage() {
               <X size={16} />
               Limpiar
             </button>
-            <button
+            {!showCharts && <button
               className="mt-6 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={exporting || totals.outOfRange === 0}
               onClick={downloadHistory}
@@ -210,7 +218,7 @@ export default function AdminRangoPage() {
             >
               {exporting ? <LoaderCircle className="animate-spin" size={16} /> : <Download size={16} />}
               {exporting ? "Generando..." : "Descargar historial"}
-            </button>
+            </button>}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {["Todas", ...contractors].map((item) => (
@@ -228,6 +236,10 @@ export default function AdminRangoPage() {
           </div>
         </section>
 
+        <div hidden={!showCharts}>
+          <RangoCharts reports={historyReports} contractor={contractor} from={dateRange.from} to={dateRange.to} dt={dtSearch} />
+        </div>
+        <div hidden={showCharts}>
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<History size={20} />} label="Historial global" value={`${totals.reports.toLocaleString("es-CO")} fechas`} tone="blue" />
           <Metric icon={<MapPinCheck size={20} />} label="% entrega en rango" value={`${totals.deliveryPercent.toLocaleString("es-CO")}%`} tone="green" />
@@ -274,6 +286,7 @@ export default function AdminRangoPage() {
         </section>
 
         <RangoHistoryTable reports={visibleReports} />
+        </div>
       </section>
     </main>
   );
@@ -487,4 +500,3 @@ function formatDateTime(value: string) {
     year: "numeric",
   });
 }
-
