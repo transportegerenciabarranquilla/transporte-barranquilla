@@ -1,7 +1,7 @@
 "use client";
 
 import CrewRangeTable from "./CrewRangeTable";
-import { assignRouteRrs, type RouteAttendance } from "./foxtrot";
+import { assignRouteRrs, type RouteAttendance, type RouteVehicle } from "./foxtrot";
 import RrRangeTable from "./RrRangeTable";
 import { useState } from "react";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
@@ -13,9 +13,10 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<FoxtrotRow[] | null>(null);
   const [attendance, setAttendance] = useState<RouteAttendance[]>([]);
+  const [vehicles, setVehicles] = useState<RouteVehicle[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const assignedRows = rows === null ? null : assignRouteRrs(assignContractors(rows, reports), attendance);
+  const assignedRows = rows === null ? null : assignRouteRrs(assignContractors(rows, reports), attendance, vehicles);
   const inDate = (date: string) => (!from || date >= from) && (!to || date <= to);
   const matchesDt = (value: string) => !dt.trim() || normalizeDt(value).includes(normalizeDt(dt));
   const visible = (assignedRows || []).filter(row => (contractor === "Todas" || normalize(contractorLabel(row.contractor)) === normalize(contractor)) && inDate(row.date) && matchesDt(row.dt));
@@ -81,10 +82,16 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
       if (!data.length) throw new Error("La primera hoja está vacía. Los encabezados deben estar en la primera fila.");
       const columns = Object.keys(data[0]);
       const suggestedMapping = suggestMapping(columns);
-      const response = await fetch("/api/asistencias?live=1", { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "No se pudo consultar el RR de cada ruta.");
-      setAttendance(body.records || []);
+      const results = await Promise.allSettled(["/api/asistencias?live=1", "/api/seguimiento"].map(async url => {
+        const response = await fetch(url, { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "No se pudo consultar el RR de cada ruta.");
+        return body.records || [];
+      }));
+      const failed = results.find(result => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      if (results[0].status === "fulfilled") setAttendance(results[0].value);
+      if (results[1].status === "fulfilled") setVehicles(results[1].value);
       setFileName(file.name);
       generate(data, suggestedMapping);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo leer el archivo."); }

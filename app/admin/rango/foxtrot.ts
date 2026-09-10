@@ -54,8 +54,20 @@ export const distanceBands = [
 export function inBand(row: FoxtrotRow, min: number, max: number) { return row.inRange === false && row.meters !== null && row.meters > min && row.meters <= max; }
 
 export type RouteAttendance = { contratista: string; dt: string; createdAt: string; nombreResponsable?: string; cedulaResponsable: string };
+export type RouteVehicle = { transportista: string; transporte: string; fechaDespacho?: string; date?: string; createdAt?: string; nombreResponsable?: string; responsable?: string; cedulaResponsable?: string };
 
-export function assignRouteRrs(rows: FoxtrotRow[], attendance: RouteAttendance[]): FoxtrotRow[] {
+export function assignRouteRrs(rows: FoxtrotRow[], attendance: RouteAttendance[], vehicles: RouteVehicle[] = []): FoxtrotRow[] {
+  const vehicleIndex = new Map<string, Map<string, string>>();
+  for (const vehicle of vehicles) {
+    const date = dateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    const dt = normalizeDt(vehicle.transporte);
+    const name = vehicle.nombreResponsable?.trim() || vehicle.responsable?.trim();
+    if (!date || !dt || !name || normalize(name) === "sinidentificar") continue;
+    const key = `${normalize(vehicle.transportista)}:${date}:${dt}`;
+    const candidates = vehicleIndex.get(key) || new Map<string, string>();
+    candidates.set(normalize(vehicle.cedulaResponsable) || normalize(name), name);
+    vehicleIndex.set(key, candidates);
+  }
   const index = new Map<string, Map<string, string>>();
   for (const record of attendance) {
     const date = dateKey(record.createdAt);
@@ -70,7 +82,8 @@ export function assignRouteRrs(rows: FoxtrotRow[], attendance: RouteAttendance[]
     index.set(key, candidates);
   }
   return rows.map(row => {
-    const candidates = index.get(`${normalize(row.contractor)}:${row.date}:${normalizeDt(row.dt)}`);
+    const key = `${normalize(row.contractor)}:${row.date}:${normalizeDt(row.dt)}`;
+    const candidates = vehicleIndex.get(key) || index.get(key);
     const rr = candidates?.size === 1 ? [...candidates.values()][0] : candidates?.size ? "RR con varias coincidencias" : "RR sin coincidencia";
     return { ...row, rr };
   });
