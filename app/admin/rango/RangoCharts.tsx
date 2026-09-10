@@ -1,6 +1,7 @@
 "use client";
 
 import CrewRangeTable from "./CrewRangeTable";
+import { assignRouteRrs, type RouteAttendance } from "./foxtrot";
 import RrRangeTable from "./RrRangeTable";
 import { useState } from "react";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
@@ -11,9 +12,10 @@ type Report = Pick<PuntoCoronaRouteReport, "contractor" | "operationalDate" | "s
 export default function RangoCharts({ reports, contractor, from, to, dt }: { reports: Report[]; contractor: string; from: string; to: string; dt: string }) {
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<FoxtrotRow[] | null>(null);
+  const [attendance, setAttendance] = useState<RouteAttendance[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const assignedRows = rows === null ? null : assignContractors(rows, reports);
+  const assignedRows = rows === null ? null : assignRouteRrs(assignContractors(rows, reports), attendance);
   const inDate = (date: string) => (!from || date >= from) && (!to || date <= to);
   const matchesDt = (value: string) => !dt.trim() || normalizeDt(value).includes(normalizeDt(dt));
   const visible = (assignedRows || []).filter(row => (contractor === "Todas" || normalize(contractorLabel(row.contractor)) === normalize(contractor)) && inDate(row.date) && matchesDt(row.dt));
@@ -79,6 +81,10 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
       if (!data.length) throw new Error("La primera hoja está vacía. Los encabezados deben estar en la primera fila.");
       const columns = Object.keys(data[0]);
       const suggestedMapping = suggestMapping(columns);
+      const response = await fetch("/api/asistencias?live=1", { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No se pudo consultar el RR de cada ruta.");
+      setAttendance(body.records || []);
       setFileName(file.name);
       generate(data, suggestedMapping);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo leer el archivo."); }

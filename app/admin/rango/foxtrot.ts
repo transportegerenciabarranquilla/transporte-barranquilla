@@ -47,11 +47,34 @@ export function mapRows(rows: FileRow[], mapping: Mapping, contractor: string, d
   });
 }
 export const distanceBands = [
-  { min: 0, max: 100, label: "0–100 m" },
+  { min: 50, max: 100, label: "50–100 m" },
   { min: 100, max: 180, label: "100–180 m" },
   { min: 180, max: Number.POSITIVE_INFINITY, label: "180+ m" },
 ];
-export function inBand(row: FoxtrotRow, min: number, max: number) { return row.inRange === false && row.meters !== null && row.meters - FOXTROT_RANGE_LIMIT_METERS > min && row.meters - FOXTROT_RANGE_LIMIT_METERS <= max; }
+export function inBand(row: FoxtrotRow, min: number, max: number) { return row.inRange === false && row.meters !== null && row.meters > min && row.meters <= max; }
+
+export type RouteAttendance = { contratista: string; dt: string; createdAt: string; nombreResponsable?: string; cedulaResponsable: string };
+
+export function assignRouteRrs(rows: FoxtrotRow[], attendance: RouteAttendance[]): FoxtrotRow[] {
+  const index = new Map<string, Map<string, string>>();
+  for (const record of attendance) {
+    const date = dateKey(record.createdAt);
+    const dt = normalizeDt(record.dt);
+    if (!date || !dt) continue;
+    const key = `${normalize(record.contratista)}:${date}:${dt}`;
+    const candidates = index.get(key) || new Map<string, string>();
+    const name = record.nombreResponsable?.trim();
+    const id = normalize(record.cedulaResponsable) || normalize(name);
+    if (!id) continue;
+    candidates.set(id, name || `CC ${record.cedulaResponsable}`);
+    index.set(key, candidates);
+  }
+  return rows.map(row => {
+    const candidates = index.get(`${normalize(row.contractor)}:${row.date}:${normalizeDt(row.dt)}`);
+    const rr = candidates?.size === 1 ? [...candidates.values()][0] : candidates?.size ? "RR con varias coincidencias" : "RR sin coincidencia";
+    return { ...row, rr };
+  });
+}
 
 export function assignContractors(rows: FoxtrotRow[], reports: { contractor: string; operationalDate: string; summary: { crews: { dt: string }[] } }[]) {
   const byDate = new Map<string, Map<string, string>>();
