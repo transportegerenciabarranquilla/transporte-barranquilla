@@ -20,6 +20,7 @@ type AdminRangoReport = {
   closedAt?: string;
   updatedAt: string;
   summary: PuntoCoronaRouteReport["summary"];
+  rows: PuntoCoronaRouteReport["rows"];
 };
 
 export async function GET() {
@@ -72,5 +73,6 @@ function normalizeReport(row: ReportRow): AdminRangoReport | null {
     closedAt: row.data.closedAt,
     updatedAt: row.updated_at,
     summary: row.data.summary,
+    rows: row.data.rows || [],
   };
 }

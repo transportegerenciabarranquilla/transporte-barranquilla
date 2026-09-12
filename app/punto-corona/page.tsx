@@ -79,6 +79,7 @@ export default function PuntoCoronaPage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
+  const [historyRr, setHistoryRr] = useState("");
 
   useEffect(() => {
     fetch("/api/session/session", { cache: "no-store" })
@@ -379,7 +380,9 @@ export default function PuntoCoronaPage() {
               setIsHistoryOpen(false);
             }}
             onToChange={setHistoryTo}
+            onRrChange={setHistoryRr}
             reports={historyReports}
+            rr={historyRr}
             to={historyTo}
           />
         ) : visibleReport ? (
@@ -422,7 +425,9 @@ function RangoHistoryCharts({
   onFromChange,
   onSelectDate,
   onToChange,
+  onRrChange,
   reports,
+  rr,
   to,
 }: {
   from: string;
@@ -430,11 +435,15 @@ function RangoHistoryCharts({
   onFromChange: (value: string) => void;
   onSelectDate: (value: string) => void;
   onToChange: (value: string) => void;
+  onRrChange: (value: string) => void;
   reports: PuntoCoronaRouteReport[];
+  rr: string;
   to: string;
 }) {
+  const targetRr = rr.trim().toLocaleLowerCase("es-CO");
   const rows = reports
     .filter((report) => (!from || report.operationalDate >= from) && (!to || report.operationalDate <= to))
+    .filter((report) => !targetRr || report.rows.some((row) => row.driverName.toLocaleLowerCase("es-CO").includes(targetRr)))
     .map((report) => ({
       date: report.operationalDate,
       delivery: report.summary.deliveryRangePercent,
@@ -470,7 +479,7 @@ function RangoHistoryCharts({
           <h2 className="mt-1 text-xl font-semibold text-[#10223d]">Entrega en rango por día</h2>
           <p className="mt-1 text-sm text-slate-500">Compara entrega en rango y modulación real dentro del período seleccionado.</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
             Desde
             <input className="mt-1 block h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d]" max={to || undefined} onChange={(event) => onFromChange(event.target.value)} type="date" value={from} />
@@ -478,6 +487,10 @@ function RangoHistoryCharts({
           <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
             Hasta
             <input className="mt-1 block h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d]" min={from || undefined} onChange={(event) => onToChange(event.target.value)} type="date" value={to} />
+          </label>
+          <label className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+            RR
+            <input className="mt-1 block h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-[#10223d]" onChange={(event) => onRrChange(event.target.value)} placeholder="Nombre del RR" type="search" value={rr} />
           </label>
         </div>
       </header>

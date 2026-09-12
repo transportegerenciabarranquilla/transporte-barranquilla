@@ -17,6 +17,7 @@ type AdminRangoReport = {
   closedAt?: string;
   updatedAt: string;
   summary: PuntoCoronaRouteReport["summary"];
+  rows: PuntoCoronaRouteReport["rows"];
 };
 
 type DateRange = {
@@ -137,7 +138,7 @@ export default function AdminRangoPage() {
             </button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">Modulo admin</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">{showCharts ? "Gráficas de rango" : "Entrega en rango"}</h1>
+              <h1 className="text-2xl font-semibold text-[#10223d]">{showCharts ? "Gráficas de rango" : "Rango"}</h1>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -242,9 +243,9 @@ export default function AdminRangoPage() {
         <div hidden={showCharts}>
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<History size={20} />} label="Historial global" value={`${totals.reports.toLocaleString("es-CO")} fechas`} tone="blue" />
-          <Metric icon={<MapPinCheck size={20} />} label="% entrega en rango" value={`${totals.deliveryPercent.toLocaleString("es-CO")}%`} tone="green" />
-          <Metric icon={<CheckCircle2 size={20} />} label="Visitas en rango" value={totals.inRange.toLocaleString("es-CO")} tone="green" />
-          <Metric icon={<XCircle size={20} />} label="Visitas fuera" value={totals.outOfRange.toLocaleString("es-CO")} tone="red" />
+          <Metric icon={<MapPinCheck size={20} />} label="% en rango" value={`${totals.deliveryPercent.toLocaleString("es-CO")}%`} tone="green" />
+          <Metric icon={<CheckCircle2 size={20} />} label="Clientes en rango" value={totals.inRange.toLocaleString("es-CO")} tone="green" />
+          <Metric icon={<XCircle size={20} />} label="Clientes fuera de rango" value={totals.outOfRange.toLocaleString("es-CO")} tone="red" />
         </div>
 
         <section className="mb-5">
@@ -271,7 +272,7 @@ export default function AdminRangoPage() {
                   <div>
                     <p className="text-sm font-semibold text-[#10223d]">{item.contractor}</p>
                     <p className="mt-2 text-3xl font-semibold leading-none text-[#0f7c58]">{item.totals.deliveryPercent.toLocaleString("es-CO")}%</p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">entrega en rango</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">en rango</p>
                   </div>
                   <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">{item.totals.reports} fechas</span>
                 </div>
@@ -322,7 +323,7 @@ function RangoHistoryTable({ reports }: { reports: AdminRangoReport[] }) {
                 <th className="px-3 py-2 text-right">En rango</th>
                 <th className="px-3 py-2 text-right">Fuera</th>
                 <th className="px-3 py-2 text-right">Sin validar</th>
-                <th className="px-3 py-2 text-right">% entrega</th>
+                <th className="px-3 py-2 text-right">% en rango</th>
                 <th className="px-3 py-2 text-right">Tripulaciones</th>
                 <th className="px-3 py-2 text-right">Ultimo evento</th>
               </tr>
