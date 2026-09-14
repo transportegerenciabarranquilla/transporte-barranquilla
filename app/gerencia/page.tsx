@@ -746,16 +746,19 @@ function DepartureIntervalsChart({ compact = false, records, selectedDate }: { c
   const width = 960;
   const height = 270;
   const padding = { top: 32, right: 28, bottom: 48, left: 44 };
-  const contractors = DEPARTURE_CONTRACTORS.map((contractor) => ({
-    ...contractor,
-    color: contractor.id === "surti" ? "#2563eb" : contractor.id === "punto-corona" ? "#16a34a" : "#7c3aed",
-  }));
+  const contractors = DEPARTURE_CONTRACTORS
+    .filter((contractor) => contractor.id !== "punto-corona")
+    .map((contractor) => ({
+      ...contractor,
+      color: contractor.id === "surti" ? "#2563eb" : "#7c3aed",
+    }));
   const uniqueDepartures = new Map<string, SeguimientoRoute>();
   records
     .filter((record) =>
       seguimientoDate(record) === selectedDate &&
       isFirstTrip(record.viaje) &&
-      operationalTimeSeconds(record.horaSalida) !== null,
+      operationalTimeSeconds(record.horaSalida) !== null &&
+      contractors.some((contractor) => contractor.aliases.includes(normalizeText(record.contractor) as never)),
     )
     .forEach((record, index) => {
       const routeKey = [
