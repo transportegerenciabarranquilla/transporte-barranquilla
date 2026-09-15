@@ -68,28 +68,29 @@ export default function RefusalTvPage() {
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[#030912] text-white">
-      <section className="relative flex h-screen w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_72%_7%,rgba(20,84,153,.22),transparent_26%),linear-gradient(145deg,#081a31,#061326_62%,#071a2f)]">
-        <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(62,112,163,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(62,112,163,.13) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
+    <main className="h-screen overflow-hidden bg-white text-[#10213b]" data-tv-light>
+      <TvLightTheme />
+      <section className="relative flex h-screen w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_5%,rgba(34,211,238,.13),transparent_28%),linear-gradient(145deg,#ffffff,#f2f7fb_62%,#eaf3f8)]">
+        <div className="pointer-events-none absolute inset-0 opacity-50" style={{ backgroundImage: "linear-gradient(rgba(35,91,137,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(35,91,137,.08) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
 
-        <header className="relative z-10 flex min-h-20 items-center justify-between border-b border-[#193451] bg-[#07172b]/92 px-5 py-3 lg:px-7 2xl:min-h-24 2xl:px-9">
+        <header className="relative z-10 flex min-h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-5 py-3 shadow-sm lg:px-7 2xl:min-h-24 2xl:px-9">
           <div className="flex items-center gap-3">
-            <button aria-label="Volver al seguimiento TV" className="grid h-11 w-11 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-300 hover:bg-[#102b4d]" onClick={() => router.push("/admin/modo-tv")} type="button"><ArrowLeft size={20} /></button>
+            <button aria-label="Volver al seguimiento TV" className="grid h-11 w-11 place-items-center rounded-lg border border-slate-200 bg-slate-50 text-cyan-700 hover:bg-cyan-50" onClick={() => router.push("/admin/modo-tv")} type="button"><ArrowLeft size={20} /></button>
             <span className="grid h-11 w-11 place-items-center text-rose-500"><Box size={31} strokeWidth={1.8} /></span>
             <div>
               <h1 className="text-xl font-extrabold tracking-tight lg:text-2xl 2xl:text-3xl">Control refusal Galapa</h1>
-              <p className="text-[10px] font-medium tracking-wide text-cyan-100/75 lg:text-xs 2xl:text-sm">Centro de operaciones</p>
+              <p className="text-[10px] font-medium tracking-wide text-slate-500 lg:text-xs 2xl:text-sm">Centro de operaciones</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3 lg:gap-5">
             <div className="hidden text-right sm:block">
-              <p className="text-[9px] font-semibold capitalize text-slate-300 lg:text-[10px] 2xl:text-xs">{formatLongDate(today)}</p>
-              <p className="text-sm font-black tabular-nums text-white lg:text-base 2xl:text-lg">{updated}</p>
+              <p className="text-[9px] font-semibold capitalize text-slate-500 lg:text-[10px] 2xl:text-xs">{formatLongDate(today)}</p>
+              <p className="text-sm font-black tabular-nums text-[#10213b] lg:text-base 2xl:text-lg">{updated}</p>
             </div>
             <span className="hidden items-center gap-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 md:inline-flex"><i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" /><span><strong className="block text-[10px] text-emerald-200 2xl:text-xs">Operación activa</strong><small className="block text-[8px] text-emerald-100/65 2xl:text-[10px]">Refresco automático</small></span></span>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 text-xs font-bold text-cyan-200 hover:bg-cyan-400/20 2xl:text-sm" onClick={() => router.push("/admin/modo-tv")} type="button"><Truck size={17} />Seguimiento</button>
-            <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-200 hover:bg-[#102b4d]" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
+            <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-slate-50 text-cyan-700 hover:bg-cyan-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
             <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
           </div>
         </header>
@@ -114,6 +115,23 @@ export default function RefusalTvPage() {
       </section>
     </main>
   );
+}
+
+function TvLightTheme() {
+  return <style jsx global>{`
+    [data-tv-light] > section { background: #f4f8fb !important; color: #10213b !important; }
+    [data-tv-light] header { background: rgba(255,255,255,.97) !important; color: #10213b !important; border-color: #dbe5ef !important; }
+    [data-tv-light] header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
+    [data-tv-light] section[class*="rounded"], [data-tv-light] article { background: #fff !important; color: #10213b !important; border-color: #dbe5ef !important; box-shadow: 0 10px 28px rgba(15,39,68,.09) !important; }
+    [data-tv-light] div[class*="bg-[#0a274a]"], [data-tv-light] div[class*="bg-[#092644]"], [data-tv-light] div[class*="bg-[#071d38]"] { background: #fff !important; }
+    [data-tv-light] [class*="text-cyan-100"], [data-tv-light] [class*="text-cyan-50"] { color: #64748b !important; }
+    [data-tv-light] [class*="text-cyan-200"], [data-tv-light] [class*="text-cyan-300"] { color: #087d9c !important; }
+    [data-tv-light] section[class*="rounded"] strong[class*="text-white"] { color: #10213b !important; }
+    [data-tv-light] table thead { background: #eef4f8 !important; color: #334155 !important; }
+    [data-tv-light] table tbody { color: #334155 !important; }
+    [data-tv-light] table tbody tr { background: #fff !important; border-color: #e2e8f0 !important; }
+    [data-tv-light] table tbody tr:nth-child(even) { background: #f8fafc !important; }
+  `}</style>;
 }
 
 function DashboardMetric({ icon, label, value, color }: { icon: ReactNode; label: string; value: number; color: "blue" | "red" | "green" | "amber" }) {
@@ -162,7 +180,7 @@ function ContractorRiskPanel({ general, items }: { general: RefusalStats; items:
   const controlled = general.percent < 1;
   const circles = items;
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden rounded-xl border bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)] ${controlled ? "border-[#1d4165]" : "border-red-500/60 shadow-[0_0_35px_rgba(220,38,38,.16)]"}`}>
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#1c3f61] px-5 2xl:h-14">
         <h2 className="flex items-center gap-2 text-sm font-extrabold 2xl:text-base"><Activity className="text-cyan-300" size={18} />Contratistas</h2>
         <div className="flex items-center gap-2"><span className="rounded-full border border-[#294765] bg-[#0a203b] px-3 py-1.5 text-[9px] font-bold text-cyan-100/70">META &lt; 1%</span><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${controlled ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-red-400/40 bg-red-500/15 text-red-300"}`}><i className={`h-2 w-2 rounded-full ${controlled ? "bg-emerald-400" : "animate-pulse bg-red-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span></div>
@@ -171,7 +189,7 @@ function ContractorRiskPanel({ general, items }: { general: RefusalStats; items:
       <div className="grid min-h-0 flex-1 grid-cols-2 items-center gap-3 px-4 py-3 2xl:gap-5 2xl:px-6">
         {circles.map((item, index) => <RefusalBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : "#d4a017"} key={item.contractor} label={item.contractor} stats={item.stats} />)}
       </div>
-      <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-[#1c3f61] bg-[#06172c]/75 text-center 2xl:h-20">
+      <footer className="hidden">
         <SummaryMini color="text-amber-300" label="Rechazadas" value={general.reportadas} />
         <SummaryMini color="text-emerald-300" label="Gestionadas" value={general.gestionadas} />
         <SummaryMini color="text-rose-400" label="Refusal final" value={general.final} />
@@ -186,7 +204,7 @@ function RefusalBubble({ label, stats, accent }: { label: string; stats: Refusal
   const fill = Math.min(100, stats.percent * 100);
   const isGeneral = label === "General";
   const risk = stats.percent >= 1 ? { label: "Crítico", color: "text-red-300", dot: "animate-pulse bg-red-500" } : stats.percent >= 0.75 ? { label: "Atención", color: "text-amber-300", dot: "bg-amber-400" } : { label: "Estable", color: "text-emerald-300", dot: "bg-emerald-400" };
-  return <div className="flex min-w-0 flex-col items-center gap-2"><div className={`grid aspect-square w-[clamp(125px,17vh,185px)] place-items-center rounded-full p-2.5 ${isGeneral ? "ring-2 ring-amber-300/25" : ""}`} style={{ background: `conic-gradient(from -90deg,${circleColor} ${fill}%,#174a7a 0)`, boxShadow: isGeneral ? "0 0 32px rgba(212,160,23,.22)" : `0 0 28px ${circleColor}20` }}><div className="grid h-full w-full place-items-center rounded-full bg-[#092644] text-center shadow-inner"><strong className={`text-[clamp(1.35rem,3.2vh,2.4rem)] font-black tabular-nums ${isGeneral && controlled ? "text-amber-300" : controlled ? "text-white" : "text-red-300"}`}>{stats.percent.toFixed(2)}%</strong><span className="text-[7px] font-bold uppercase tracking-wider text-cyan-100/50 2xl:text-[9px]">{stats.final.toLocaleString("es-CO")} / {stats.max.toLocaleString("es-CO")} cajas</span></div></div><span className={`truncate rounded-full border px-3 py-1 text-[10px] font-bold 2xl:text-xs ${isGeneral ? "border-amber-400/25 bg-amber-400/10 text-amber-300" : label === "Logisticos" ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-200" : "border-blue-400/25 bg-blue-400/10 text-blue-200"}`}>{label}</span><span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-wider 2xl:text-[9px] ${risk.color}`}><i className={`h-1.5 w-1.5 rounded-full ${risk.dot}`} />{risk.label}</span></div>;
+  return <div className="flex min-w-0 flex-col items-center gap-0.5"><div className={`grid aspect-square w-[clamp(64px,8vh,92px)] place-items-center rounded-full p-1.5 ${isGeneral ? "ring-2 ring-amber-300/25" : ""}`} style={{ background: `conic-gradient(from -90deg,${circleColor} ${fill}%,#174a7a 0)`, boxShadow: isGeneral ? "0 0 32px rgba(212,160,23,.22)" : `0 0 28px ${circleColor}20` }}><div className="grid h-full w-full place-items-center rounded-full bg-[#092644] text-center shadow-inner"><strong className={`text-[clamp(.8rem,1.8vh,1.25rem)] font-black tabular-nums ${isGeneral && controlled ? "text-amber-300" : controlled ? "text-white" : "text-red-300"}`}>{stats.percent.toFixed(2)}%</strong><span className="text-[5px] font-bold uppercase tracking-wider text-cyan-100/50 2xl:text-[7px]">{stats.final.toLocaleString("es-CO")} / {stats.max.toLocaleString("es-CO")} cajas</span></div></div><span className={`truncate rounded-full border px-2.5 py-0.5 text-[8px] font-bold 2xl:text-[10px] ${isGeneral ? "border-amber-400/25 bg-amber-400/10 text-amber-300" : label === "Logisticos" ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-200" : "border-blue-400/25 bg-blue-400/10 text-blue-200"}`}>{label}</span><span className={`inline-flex items-center gap-1 text-[6px] font-bold uppercase tracking-wider 2xl:text-[8px] ${risk.color}`}><i className={`h-1.5 w-1.5 rounded-full ${risk.dot}`} />{risk.label}</span></div>;
 }
 
 function SummaryMini({ label, value, color }: { label: string; value: number; color: string }) {

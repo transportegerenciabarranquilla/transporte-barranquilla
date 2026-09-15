@@ -78,7 +78,8 @@ export default function AdminModoTvPage() {
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[#030912] text-white">
+    <main className="h-screen overflow-hidden bg-white text-[#10213b]" data-tv-light>
+      <TvLightTheme />
       <section className="relative flex h-screen w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_72%_7%,rgba(20,84,153,.22),transparent_26%),linear-gradient(145deg,#081a31,#061326_62%,#071a2f)]">
         <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(62,112,163,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(62,112,163,.13) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
 
@@ -164,6 +165,20 @@ export default function AdminModoTvPage() {
   );
 }
 
+function TvLightTheme() {
+  return <style jsx global>{`
+    [data-tv-light] > section { background: #f4f8fb !important; color: #10213b !important; }
+    [data-tv-light] header { background: rgba(255,255,255,.97) !important; color: #10213b !important; border-color: #dbe5ef !important; }
+    [data-tv-light] header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
+    [data-tv-light] section[class*="rounded"], [data-tv-light] article { background: #fff !important; color: #10213b !important; border-color: #dbe5ef !important; box-shadow: 0 10px 28px rgba(15,39,68,.09) !important; }
+    [data-tv-light] div[class*="bg-[#0a274a]"], [data-tv-light] div[class*="bg-[#092644]"], [data-tv-light] div[class*="bg-[#071d38]"] { background: #fff !important; }
+    [data-tv-light] [class*="text-cyan-100"], [data-tv-light] [class*="text-cyan-50"] { color: #64748b !important; }
+    [data-tv-light] [class*="text-cyan-200"], [data-tv-light] [class*="text-cyan-300"] { color: #087d9c !important; }
+    [data-tv-light] section[class*="rounded"] strong[class*="text-white"] { color: #10213b !important; }
+    [data-tv-light] .tv-operation-scene { background: transparent !important; }
+  `}</style>;
+}
+
 function ProgressDonut({ value }: { value: number }) {
   const safe = Math.min(100, Math.max(0, value));
   return <div className="grid aspect-square w-[clamp(135px,18vh,190px)] place-items-center rounded-full p-[clamp(12px,1.5vh,17px)]" style={{ background: `conic-gradient(from -90deg,#34d399 ${safe}%,#174a7a 0)`, boxShadow: "0 0 35px rgba(16,185,129,.14)" }}><div className="grid h-full w-full place-items-center rounded-full bg-[#0a274a] shadow-inner"><strong className="text-[clamp(1.9rem,4vh,3rem)] font-black tabular-nums">{safe.toFixed(1)}%</strong></div></div>;
@@ -191,7 +206,7 @@ function ContractorLine({ color, label, value }: { color: string; label: string;
 }
 
 function OperationsScene() {
-  return <div className="relative h-full w-full overflow-hidden bg-[linear-gradient(90deg,rgba(6,26,53,0),rgba(5,21,42,.72))]"><div className="absolute bottom-7 right-12 h-24 w-[54%] border border-blue-300/10 bg-[#17395b]/35 [clip-path:polygon(12%_20%,100%_0,100%_100%,0_100%,0_42%)]" /><div className="absolute bottom-7 right-[37%] h-16 w-20 border border-cyan-200/10 bg-[#1b456e]/35" /><Truck className="absolute bottom-8 right-[23%] text-cyan-100/15" size={86} strokeWidth={1} /><div className="absolute bottom-7 left-0 right-0 h-px bg-cyan-200/15" /><div className="absolute inset-0 bg-[radial-gradient(circle_at_60%_48%,rgba(59,130,246,.20),transparent_24%)]" /></div>;
+  return <div className="tv-operation-scene relative h-full w-full overflow-hidden bg-[linear-gradient(90deg,rgba(6,26,53,0),rgba(5,21,42,.72))]"><div className="absolute bottom-7 right-12 h-24 w-[54%] border border-blue-300/10 bg-[#17395b]/35 [clip-path:polygon(12%_20%,100%_0,100%_100%,0_100%,0_42%)]" /><div className="absolute bottom-7 right-[37%] h-16 w-20 border border-cyan-200/10 bg-[#1b456e]/35" /><Truck className="absolute bottom-8 right-[23%] text-cyan-100/15" size={86} strokeWidth={1} /><div className="absolute bottom-7 left-0 right-0 h-px bg-cyan-200/15" /><div className="absolute inset-0 bg-[radial-gradient(circle_at_60%_48%,rgba(59,130,246,.20),transparent_24%)]" /></div>;
 }
 
 function summaryFor(contractor: string, records: Vehiculo[]): Summary {
