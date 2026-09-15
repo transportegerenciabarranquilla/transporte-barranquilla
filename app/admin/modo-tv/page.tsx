@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, Box, Boxes, ClipboardList, Maximize, RefreshCw, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { Activity, Boxes, Maximize, RefreshCw, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Vehiculo } from "../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../seguimiento/utils";
@@ -71,6 +71,7 @@ export default function AdminModoTvPage() {
   );
   const progress = total.clientes ? (total.visitados / total.clientes) * 100 : 0;
   const delayed = records.filter((record) => getProgress(record) < 50 && getStatus(getProgress(record), record) === "En ruta").length;
+  const totalModules = normalizeCajasTotal(modules.reduce((sum, row) => sum + Number(row.modulationBoxes || 0), 0));
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -84,25 +85,18 @@ export default function AdminModoTvPage() {
         <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(62,112,163,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(62,112,163,.13) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
 
         <header className="relative z-10 flex min-h-20 items-center justify-between border-b border-[#193451] bg-[#07172b]/92 px-5 py-3 lg:px-7 2xl:min-h-24 2xl:px-9">
-          <div className="flex items-center gap-3">
-            <button aria-label="Volver al admin" className="grid h-11 w-11 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-300 transition hover:bg-[#102b4d]" onClick={() => router.push("/admin")} type="button"><ArrowLeft size={20} /></button>
-            <span className="grid h-11 w-11 place-items-center text-rose-500"><Box size={31} strokeWidth={1.8} /></span>
-            <div>
-              <h1 className="text-xl font-extrabold tracking-tight lg:text-2xl 2xl:text-3xl">Seguimiento Galapa</h1>
-              <p className="text-[10px] font-medium tracking-wide text-cyan-100/75 lg:text-xs 2xl:text-sm">Centro de operaciones</p>
-            </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[.3em] text-emerald-600 lg:text-[10px] 2xl:text-xs">Analítica diaria</p>
+            <h1 className="text-2xl font-black tracking-tight lg:text-3xl 2xl:text-4xl">Seguimiento Galapa</h1>
           </div>
 
           <div className="flex items-center gap-3 lg:gap-5">
-            <div className="hidden text-right sm:block">
-              <p className="text-[9px] font-semibold capitalize text-slate-300 lg:text-[10px] 2xl:text-xs">{formatLongDate(today)}</p>
-              <p className="text-sm font-black tabular-nums text-white lg:text-base 2xl:text-lg">{updated}</p>
-            </div>
-            <span className="hidden items-center gap-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 md:inline-flex">
+            <span className="hidden items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-2 md:inline-flex">
               <i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" />
-              <span><strong className="block text-[10px] text-emerald-200 2xl:text-xs">Operación activa</strong><small className="block text-[8px] text-emerald-100/65 2xl:text-[10px]">Todo en marcha</small></span>
+              <strong className="text-[9px] font-black uppercase text-emerald-700 2xl:text-[10px]">En vivo</strong>
             </span>
-            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-400/30 bg-red-500/10 px-3 text-xs font-bold text-red-200 hover:bg-red-500/20 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/refusal")} type="button"><ShieldAlert size={17} />Refusal</button>
+            <div className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right sm:block"><p className="text-[7px] font-bold uppercase text-slate-400">Hoy · última actualización</p><p className="text-[10px] font-black tabular-nums text-slate-700 2xl:text-xs">{formatShortDate(today)} · {updated}</p></div>
+            <button className="tv-refusal-button inline-flex h-10 items-center gap-2 rounded-lg border border-red-600 bg-red-600 px-3 text-xs font-bold text-white shadow-md shadow-red-500/20 hover:bg-red-700 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/refusal")} type="button"><ShieldAlert size={17} />Refusal TV</button>
             <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-200 hover:bg-[#102b4d]" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
             <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
           </div>
@@ -111,7 +105,7 @@ export default function AdminModoTvPage() {
         <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-3 p-4 lg:gap-4 lg:p-5">
           {error && <p className="rounded-lg border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-bold text-red-200">{error}</p>}
 
-          <section className="relative h-[clamp(175px,24vh,230px)] shrink-0 overflow-hidden rounded-xl border border-[#1f4d7c] bg-[linear-gradient(100deg,#08254a_0%,#07305a_47%,#061a35_100%)] shadow-[inset_0_1px_rgba(255,255,255,.04),0_16px_40px_rgba(0,0,0,.22)]">
+          <section className="hidden">
             <div className="absolute inset-y-0 right-0 w-[48%] opacity-50">
               <OperationsScene />
             </div>
@@ -132,32 +126,29 @@ export default function AdminModoTvPage() {
             </div>
           </section>
 
-          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4 2xl:gap-5">
-            <DashboardMetric color="green" detail="En operación" icon={<Truck />} label="Vehículos" value={total.rutas.toLocaleString("es-CO")} />
-            <DashboardMetric color="cyan" detail="Completados" icon={<Users />} label="Clientes" value={`${total.visitados.toLocaleString("es-CO")}/${total.clientes.toLocaleString("es-CO")}`} />
-            <DashboardMetric color="amber" detail="Por atender" icon={<ClipboardList />} label="Pendientes" value={delayed.toLocaleString("es-CO")} />
-            <DashboardMetric color="violet" detail="Procesadas" icon={<Boxes />} label="Cajas" value={total.cajas.toLocaleString("es-CO")} />
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:gap-4 2xl:gap-5">
+            <DashboardMetric color="green" detail="Rutas del día" icon={<Truck />} label="Vehículos" value={total.rutas.toLocaleString("es-CO")} />
+            <DashboardMetric color="green" detail={`${progress.toFixed(1)}% visitados`} icon={<Users />} label="Clientes" value={`${total.visitados.toLocaleString("es-CO")}/${total.clientes.toLocaleString("es-CO")}`} />
+            <DashboardMetric color="red" detail={`${total.rutas ? ((delayed / total.rutas) * 100).toFixed(1) : "0.0"}% de rutas`} icon={<ShieldAlert />} label="Retrasados" value={delayed.toLocaleString("es-CO")} />
+            <DashboardMetric color="violet" detail={`${totalModules.toLocaleString("es-CO")} moduladas`} icon={<Boxes />} label="Cajas" value={total.cajas.toLocaleString("es-CO")} />
+            <DashboardMetric color="blue" detail="Seguimiento Galapa" icon={<Activity />} label="Avance global" value={`${progress.toFixed(1)}%`} />
           </section>
 
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
-            <header className="flex h-11 items-center gap-2 border-b border-[#1c3f61] px-5 text-sm font-extrabold 2xl:h-14 2xl:text-base"><Users className="text-cyan-300" size={18} />Contratistas</header>
-            <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[1fr_1fr_250px] 2xl:grid-cols-[1fr_1fr_310px] 2xl:gap-5 2xl:p-4">
-              {summaries.map((summary, index) => (
-                <ContractorCard
-                  accent={index === 0 ? "#22d3ee" : "#3b82f6"}
-                  key={summary.contractor}
-                  modules={modules.filter((row) => row.contractor === summary.contractor)}
-                  records={records.filter((record) => record.transportista === summary.contractor)}
-                  summary={summary}
-                />
-              ))}
-              <div className="hidden items-center justify-center border-l border-[#1d4165] px-7 lg:flex">
-                <div className="flex items-start gap-4">
-                  <span className="mt-1 flex items-end gap-1 text-blue-300"><i className="h-3 w-1 rounded-sm bg-blue-400" /><i className="h-6 w-1 rounded-sm bg-blue-300" /><i className="h-9 w-1 rounded-sm bg-blue-200" /></span>
-                  <div><p className="text-sm font-semibold leading-5 text-cyan-50 2xl:text-base">Logística<br />que conecta<br />resultados</p><i className="mt-3 block h-0.5 w-12 bg-rose-500" /></div>
-                </div>
+          <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[0.86fr_1.14fr] 2xl:gap-5">
+            <DailyProgressPanel summaries={summaries} total={total} />
+            <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
+              <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[#1c3f61] px-5 text-sm font-extrabold 2xl:h-14 2xl:text-base"><Truck className="text-cyan-300" size={18} />Estado de las contratistas · Galapa</header>
+              <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 p-3 2xl:gap-5 2xl:p-4">
+                {summaries.map((summary) => (
+                  <ContractorCard
+                    key={summary.contractor}
+                    modules={modules.filter((row) => row.contractor === summary.contractor)}
+                    records={records.filter((record) => record.transportista === summary.contractor)}
+                    summary={summary}
+                  />
+                ))}
               </div>
-            </div>
+            </section>
           </section>
         </div>
       </section>
@@ -168,8 +159,9 @@ export default function AdminModoTvPage() {
 function TvLightTheme() {
   return <style jsx global>{`
     [data-tv-light] > section { background: #f4f8fb !important; color: #10213b !important; }
-    [data-tv-light] header { background: rgba(255,255,255,.97) !important; color: #10213b !important; border-color: #dbe5ef !important; }
-    [data-tv-light] header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
+    [data-tv-light] section > header { background: rgba(255,255,255,.97) !important; color: #10213b !important; border-color: #dbe5ef !important; }
+    [data-tv-light] > section > header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
+    [data-tv-light] > section > header button.tv-refusal-button { background: #dc2626 !important; color: #fff !important; border-color: #dc2626 !important; }
     [data-tv-light] section[class*="rounded"], [data-tv-light] article { background: #fff !important; color: #10213b !important; border-color: #dbe5ef !important; box-shadow: 0 10px 28px rgba(15,39,68,.09) !important; }
     [data-tv-light] div[class*="bg-[#0a274a]"], [data-tv-light] div[class*="bg-[#092644]"], [data-tv-light] div[class*="bg-[#071d38]"] { background: #fff !important; }
     [data-tv-light] [class*="text-cyan-100"], [data-tv-light] [class*="text-cyan-50"] { color: #64748b !important; }
@@ -179,30 +171,64 @@ function TvLightTheme() {
   `}</style>;
 }
 
+function DailyProgressPanel({ summaries, total }: { summaries: Summary[]; total: { rutas: number; cajas: number; clientes: number; visitados: number } }) {
+  const circles = [
+    ...summaries,
+    { contractor: "General", ...total },
+  ];
+
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[#1c3f61] px-5 text-sm font-extrabold 2xl:h-14 2xl:text-base"><Activity className="text-cyan-300" size={18} />Avance diario</header>
+      <div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-3 px-4 py-3 2xl:gap-5 2xl:px-6">
+        {circles.map((item, index) => <DailyProgressBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : "#d4a017"} item={item} key={item.contractor} />)}
+      </div>
+      <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center 2xl:h-20">
+        <ProgressMini label="Rutas" value={total.rutas.toLocaleString("es-CO")} />
+        <ProgressMini label="Clientes" value={`${total.visitados.toLocaleString("es-CO")}/${total.clientes.toLocaleString("es-CO")}`} />
+        <ProgressMini label="Cajas" value={total.cajas.toLocaleString("es-CO")} />
+      </footer>
+    </section>
+  );
+}
+
+function DailyProgressBubble({ item, accent }: { item: Summary; accent: string }) {
+  const value = item.clientes ? (item.visitados / item.clientes) * 100 : 0;
+  return <div className="flex min-w-0 flex-col items-center gap-2"><div className="grid aspect-square w-[clamp(135px,18vh,180px)] place-items-center rounded-full p-3" style={{ background: `conic-gradient(from -90deg,${accent} ${Math.min(100, value)}%,#dbe7f1 0)`, boxShadow: `0 10px 30px ${accent}24` }}><div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><div><strong className={`block text-[clamp(1.55rem,3.4vh,2.4rem)] font-black tabular-nums ${item.contractor === "General" ? "text-amber-600" : "text-[#10213b]"}`}>{value.toFixed(1)}%</strong><span className="text-[7px] font-bold uppercase tracking-wider text-slate-500 2xl:text-[9px]">{item.visitados}/{item.clientes}</span></div></div></div><span className={`truncate rounded-full border px-3 py-1 text-[9px] font-extrabold 2xl:text-xs ${item.contractor === "General" ? "border-amber-200 bg-amber-50 text-amber-700" : item.contractor === "Logisticos" ? "border-cyan-200 bg-cyan-50 text-cyan-700" : "border-blue-200 bg-blue-50 text-blue-700"}`}>{item.contractor}</span></div>;
+}
+
+function ProgressMini({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 2xl:text-[9px]">{label}</p><p className="mt-0.5 text-lg font-black tabular-nums text-[#10213b] 2xl:text-xl">{value}</p></div>;
+}
+
 function ProgressDonut({ value }: { value: number }) {
   const safe = Math.min(100, Math.max(0, value));
   return <div className="grid aspect-square w-[clamp(135px,18vh,190px)] place-items-center rounded-full p-[clamp(12px,1.5vh,17px)]" style={{ background: `conic-gradient(from -90deg,#34d399 ${safe}%,#174a7a 0)`, boxShadow: "0 0 35px rgba(16,185,129,.14)" }}><div className="grid h-full w-full place-items-center rounded-full bg-[#0a274a] shadow-inner"><strong className="text-[clamp(1.9rem,4vh,3rem)] font-black tabular-nums">{safe.toFixed(1)}%</strong></div></div>;
 }
 
-function DashboardMetric({ icon, label, value, detail, color }: { icon: ReactNode; label: string; value: string; detail: string; color: "green" | "cyan" | "amber" | "violet" }) {
-  const tones = { green: "from-emerald-500 to-emerald-700 shadow-emerald-500/20", cyan: "from-cyan-400 to-blue-600 shadow-cyan-500/20", amber: "from-amber-400 to-orange-600 shadow-amber-500/20", violet: "from-violet-500 to-blue-700 shadow-violet-500/20" };
-  return <article className="relative overflow-hidden rounded-lg border border-[#1e456e] bg-gradient-to-br from-[#0b2b51] to-[#071d38] px-4 py-3 shadow-[0_10px_25px_rgba(0,0,0,.18)] 2xl:px-5 2xl:py-4"><div className="flex items-start gap-3"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-lg 2xl:h-12 2xl:w-12 ${tones[color]}`}>{icon}</span><div className="min-w-0"><p className="text-xs font-semibold text-cyan-50/85 2xl:text-sm">{label}</p><strong className="block truncate text-3xl font-black tabular-nums tracking-tight 2xl:text-4xl">{value}</strong><p className="text-[9px] text-cyan-100/60 2xl:text-xs">{detail}</p></div></div><i className="absolute bottom-0 left-0 h-0.5 w-full bg-gradient-to-r from-transparent via-cyan-400/35 to-transparent" /></article>;
+function DashboardMetric({ icon, label, value, detail, color }: { icon: ReactNode; label: string; value: string; detail: string; color: "green" | "red" | "violet" | "blue" }) {
+  const tones = { green: { icon: "from-emerald-500 to-emerald-700 shadow-emerald-500/20", line: "bg-emerald-500" }, red: { icon: "from-rose-500 to-red-700 shadow-red-500/20", line: "bg-rose-500" }, violet: { icon: "from-violet-500 to-blue-700 shadow-violet-500/20", line: "bg-violet-500" }, blue: { icon: "from-blue-500 to-cyan-600 shadow-blue-500/20", line: "bg-blue-500" } };
+  return <article className="relative overflow-hidden rounded-lg border border-[#1e456e] bg-gradient-to-br from-[#0b2b51] to-[#071d38] px-4 py-3 shadow-[0_10px_25px_rgba(0,0,0,.18)] 2xl:px-5 2xl:py-4"><i className={`absolute left-0 right-0 top-0 h-1 ${tones[color].line}`} /><i className="absolute right-4 top-5 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_9px_rgba(16,185,129,.55)]" /><div className="flex items-start gap-3 pt-1"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-lg 2xl:h-12 2xl:w-12 ${tones[color].icon}`}>{icon}</span><div className="min-w-0"><p className="text-xs font-semibold text-cyan-50/85 2xl:text-sm">{label}</p><strong className="block truncate text-3xl font-black tabular-nums tracking-tight 2xl:text-4xl">{value}</strong><p className="text-[9px] text-cyan-100/60 2xl:text-xs">{detail}</p></div></div></article>;
 }
 
-function ContractorCard({ summary, records, modules, accent }: { summary: Summary; records: Vehiculo[]; modules: ModulationRow[]; accent: string }) {
+function ContractorCard({ summary, records, modules }: { summary: Summary; records: Vehiculo[]; modules: ModulationRow[] }) {
   const statuses = records.map((record) => getStatus(getProgress(record), record));
   const inRoute = statuses.filter((status) => status === "En ruta").length;
   const completed = statuses.filter((status) => status === "Finalizado").length;
-  const pending = statuses.filter((status) => !["En ruta", "Finalizado"].includes(status)).length;
-  const incidents = records.filter((record) => getProgress(record) < 50 && getStatus(getProgress(record), record) === "En ruta").length;
+  const delayed = records.filter((record) => getProgress(record) < 50 && getStatus(getProgress(record), record) === "En ruta").length;
   const boxes = normalizeCajasTotal(modules.reduce((sum, row) => sum + Number(row.modulationBoxes || 0), 0));
-  const progress = summary.clientes ? (summary.visitados / summary.clientes) * 100 : 0;
+  const logisticos = summary.contractor === "Logisticos";
 
-  return <article className="flex min-h-0 items-center gap-4 rounded-lg border border-[#1c4b78] bg-gradient-to-br from-[#0a315b] to-[#061d38] p-4 shadow-[inset_0_1px_rgba(255,255,255,.04)] 2xl:gap-6"><div className="shrink-0"><div className="grid h-28 w-28 place-items-center rounded-full p-2.5 2xl:h-32 2xl:w-32" style={{ background: `conic-gradient(from -90deg,${accent} ${progress}%,#174a7a 0)`, boxShadow: `0 0 25px ${accent}22` }}><div className="grid h-full w-full place-items-center rounded-full bg-[#092644] text-center"><strong className="text-3xl font-black tabular-nums 2xl:text-4xl">{inRoute}</strong><span className="text-[8px] font-bold uppercase tracking-widest text-cyan-200">En ruta</span></div></div></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-extrabold 2xl:text-base">{summary.contractor}</p><div className="mt-3 space-y-2 text-[10px] 2xl:text-xs"><ContractorLine color="bg-emerald-400" label="Completadas" value={completed} /><ContractorLine color="bg-amber-400" label="Pendientes" value={pending} /><ContractorLine color="bg-rose-500" label="Incidencias" value={incidents} /></div><div className="mt-3 border-t border-[#20517d] pt-2 text-[9px] text-cyan-100/55 2xl:text-[10px]">{summary.visitados}/{summary.clientes} clientes · {boxes.toLocaleString("es-CO")} moduladas</div></div></article>;
+  return <article className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-0 shadow-[0_8px_24px_rgba(15,39,68,.08)]"><header className={`flex h-14 shrink-0 items-center justify-between px-4 text-white ${logisticos ? "bg-gradient-to-r from-emerald-700 to-teal-600" : "bg-gradient-to-r from-[#102f67] to-blue-600"}`}><div><p className="text-[7px] font-black uppercase tracking-[.18em] text-white/70">Contratista · En vivo</p><h3 className="mt-0.5 text-sm font-extrabold 2xl:text-base">{summary.contractor}</h3></div><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" /><Truck size={19} /></span></header><div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 px-3 py-3"><StatusOrb color="emerald" label="En ruta" value={inRoute} /><StatusOrb color="rose" label="Retrasados" value={delayed} /><StatusOrb color="blue" label="Finalizados" value={completed} /></div><footer className="grid h-14 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center"><ContractorDatum label="Clientes" value={`${summary.visitados}/${summary.clientes}`} /><ContractorDatum label="Cajas" value={summary.cajas.toLocaleString("es-CO")} /><ContractorDatum label="Moduladas" value={boxes.toLocaleString("es-CO")} /></footer></article>;
 }
 
-function ContractorLine({ color, label, value }: { color: string; label: string; value: number }) {
-  return <div className="flex items-center gap-2"><i className={`h-2 w-2 rounded-full ${color}`} /><strong className="w-5 text-right tabular-nums">{value}</strong><span className="text-cyan-100/65">{label}</span></div>;
+function StatusOrb({ label, value, color }: { label: string; value: number; color: "emerald" | "rose" | "blue" }) {
+  const tones = { emerald: "border-emerald-200 bg-emerald-50 text-emerald-700", rose: "border-rose-200 bg-rose-50 text-rose-600", blue: "border-blue-200 bg-blue-50 text-blue-700" };
+  return <div className={`mx-auto grid aspect-square w-[clamp(82px,10vh,112px)] place-items-center rounded-full border-2 text-center shadow-sm ${tones[color]}`}><div><strong className="block text-[clamp(1.5rem,3vh,2.2rem)] font-black tabular-nums">{value}</strong><span className="text-[7px] font-black uppercase tracking-wide 2xl:text-[8px]">{label}</span></div></div>;
+}
+
+function ContractorDatum({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0"><p className="text-[7px] font-bold uppercase tracking-wide text-slate-400">{label}</p><strong className="block truncate px-1 text-xs font-black tabular-nums text-[#10213b] 2xl:text-sm">{value}</strong></div>;
 }
 
 function OperationsScene() {
@@ -215,4 +241,4 @@ function summaryFor(contractor: string, records: Vehiculo[]): Summary {
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function recordDate(record: Vehiculo) { const raw = record.fechaDespacho || record.fechaDt || record.date || record.createdAt || ""; if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/); if (!match) return ""; return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`; }
 function formatBogotaTime(value: string | undefined) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
-function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
+function formatShortDate(value: string) { return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
