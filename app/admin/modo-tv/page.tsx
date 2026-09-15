@@ -137,7 +137,7 @@ export default function AdminModoTvPage() {
           <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[0.86fr_1.14fr] 2xl:gap-5">
             <DailyProgressPanel summaries={summaries} total={total} />
             <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
-              <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[#1c3f61] px-5 text-base font-extrabold 2xl:h-14 2xl:text-lg"><Truck className="text-cyan-600" size={20} />Estado de las contratistas · Galapa</header>
+              <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[#1c3f61] px-5 text-lg font-extrabold 2xl:h-16 2xl:text-xl"><Truck className="text-cyan-600" size={23} />Estado de las contratistas · Galapa</header>
               <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 p-3 2xl:gap-5 2xl:p-4">
                 {summaries.map((summary) => (
                   <ContractorCard
@@ -219,16 +219,16 @@ function ContractorCard({ summary, records, modules }: { summary: Summary; recor
   const boxes = normalizeCajasTotal(modules.reduce((sum, row) => sum + Number(row.modulationBoxes || 0), 0));
   const logisticos = summary.contractor === "Logisticos";
 
-  return <article className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-0 shadow-[0_8px_24px_rgba(15,39,68,.08)]"><header className={`flex h-16 shrink-0 items-center justify-between px-4 text-white ${logisticos ? "bg-gradient-to-r from-emerald-700 to-teal-600" : "bg-gradient-to-r from-[#102f67] to-blue-600"}`}><div><p className="text-[9px] font-black uppercase tracking-[.18em] text-white/70">Contratista · En vivo</p><h3 className="mt-0.5 text-base font-extrabold 2xl:text-lg">{summary.contractor}</h3></div><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" /><Truck size={21} /></span></header><div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 px-3 py-3"><StatusOrb color="emerald" label="En ruta" value={inRoute} /><StatusOrb color="rose" label="Retrasados" value={delayed} /><StatusOrb color="blue" label="Finalizados" value={completed} /></div><footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center"><ContractorDatum label="Clientes" value={`${summary.visitados}/${summary.clientes}`} /><ContractorDatum label="Cajas" value={summary.cajas.toLocaleString("es-CO")} /><ContractorDatum label="Moduladas" value={boxes.toLocaleString("es-CO")} /></footer></article>;
+  return <article className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-[0_10px_28px_rgba(15,39,68,.10)]"><header className={`flex h-[72px] shrink-0 items-center justify-between px-5 text-white 2xl:h-20 ${logisticos ? "bg-gradient-to-r from-emerald-700 to-teal-600" : "bg-gradient-to-r from-[#102f67] to-blue-600"}`}><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-white/75 2xl:text-xs">Contratista · En vivo</p><h3 className="mt-1 text-lg font-extrabold 2xl:text-xl">{summary.contractor}</h3></div><span className="flex items-center gap-2"><i className="h-3 w-3 rounded-full bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" /><Truck size={24} /></span></header><div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 px-3 py-4 2xl:px-4"><StatusOrb color="emerald" label="En ruta" value={inRoute} /><StatusOrb color="rose" label="Retrasados" value={delayed} /><StatusOrb color="blue" label="Finalizados" value={completed} /></div><footer className="grid h-[72px] shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center 2xl:h-20"><ContractorDatum label="Clientes" value={`${summary.visitados}/${summary.clientes}`} /><ContractorDatum label="Cajas" value={summary.cajas.toLocaleString("es-CO")} /><ContractorDatum label="Moduladas" value={boxes.toLocaleString("es-CO")} /></footer></article>;
 }
 
 function StatusOrb({ label, value, color }: { label: string; value: number; color: "emerald" | "rose" | "blue" }) {
   const tones = { emerald: "border-emerald-200 bg-emerald-50 text-emerald-700", rose: "border-rose-200 bg-rose-50 text-rose-600", blue: "border-blue-200 bg-blue-50 text-blue-700" };
-  return <div className={`mx-auto grid aspect-square w-[clamp(98px,7.5vw,125px)] place-items-center rounded-full border-2 text-center shadow-sm ${tones[color]}`}><div><strong className="block text-[clamp(1.8rem,2.8vw,2.5rem)] font-black tabular-nums">{value}</strong><span className="text-[9px] font-black uppercase tracking-wide 2xl:text-[10px]">{label}</span></div></div>;
+  return <div className={`mx-auto grid aspect-square w-[clamp(112px,8.5vw,145px)] place-items-center rounded-full border-2 text-center shadow-md ${tones[color]}`}><div><strong className="block text-[clamp(2.1rem,3.1vw,3rem)] font-black tabular-nums">{value}</strong><span className="text-[10px] font-black uppercase tracking-wide 2xl:text-xs">{label}</span></div></div>;
 }
 
 function ContractorDatum({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{label}</p><strong className="block truncate px-1 text-sm font-black tabular-nums text-[#10213b] 2xl:text-base">{value}</strong></div>;
+  return <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 2xl:text-xs">{label}</p><strong className="block truncate px-1 text-base font-black tabular-nums text-[#10213b] 2xl:text-xl">{value}</strong></div>;
 }
 
 function OperationsScene() {

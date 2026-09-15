@@ -227,23 +227,23 @@ function OffendersTable({ records }: { records: Vehiculo[] }) {
   const rows = [...records].sort((a, b) => refusalBoxes(b) - refusalBoxes(a) || String(a.vehiculo).localeCompare(String(b.vehiculo))).slice(0, 10);
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#1c3f61] px-4 2xl:h-14">
-        <div className="flex min-w-0 items-center gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20"><ClipboardList size={22} /></span><div className="min-w-0"><h2 className="truncate text-lg font-extrabold 2xl:text-xl">Top 10 ofensores · Logisticos y Surti</h2><p className="truncate text-[11px] font-medium text-slate-500 2xl:text-sm">Mayor refusal por ruta y responsable</p></div></div>
-        <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-black text-cyan-200">{rows.length}</span>
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#1c3f61] px-5 2xl:h-[72px]">
+        <div className="flex min-w-0 items-center gap-3"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20 2xl:h-14 2xl:w-14"><ClipboardList size={25} /></span><div className="min-w-0"><h2 className="truncate text-xl font-extrabold 2xl:text-2xl">Top 10 ofensores · Logisticos y Surti</h2><p className="truncate text-sm font-medium text-slate-500 2xl:text-base">Mayor refusal por ruta y responsable</p></div></div>
+        <span className="rounded-lg border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-black text-cyan-700 2xl:text-base">{rows.length}</span>
       </header>
       <div className="min-h-0 flex-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <table className="w-full table-fixed text-xs 2xl:text-sm">
-          <thead className="sticky top-0 z-10 bg-[#0d3159] text-[10px] uppercase tracking-wide text-cyan-50/80 2xl:text-xs">
-            <tr><th className="w-[21%] px-3 py-2.5 text-left">Contratista</th><th className="w-[18%] px-3 py-2.5 text-left">Vehículo</th><th className="w-[34%] px-3 py-2.5 text-left">Responsable</th><th className="w-[16%] px-3 py-2.5 text-left">Status</th><th className="w-[11%] px-3 py-2.5 text-right">Cajas</th></tr>
+        <table className="w-full table-fixed text-sm 2xl:text-base">
+          <thead className="sticky top-0 z-10 bg-[#0d3159] text-xs uppercase tracking-wide text-cyan-50/80 2xl:text-sm">
+            <tr><th className="w-[21%] px-4 py-3 text-left">Contratista</th><th className="w-[18%] px-4 py-3 text-left">Vehículo</th><th className="w-[34%] px-4 py-3 text-left">Responsable</th><th className="w-[16%] px-4 py-3 text-left">Status</th><th className="w-[11%] px-4 py-3 text-right">Cajas</th></tr>
           </thead>
           <tbody className="divide-y divide-[#173b5e]">
             {rows.length ? rows.map((record, index) => (
               <tr className={index % 2 ? "bg-[#081d36]" : "bg-[#0a2340]"} key={record.recordId || `${record.transportista}-${record.transporte}-${record.vehiculo}`}>
-                <td className="truncate px-3 py-2"><span className={`inline-flex max-w-full truncate rounded px-2.5 py-1 font-bold ${record.transportista === "Logisticos" ? "bg-cyan-50 text-cyan-700" : "bg-blue-50 text-blue-700"}`}>{record.transportista}</span></td>
-                <td className="truncate px-3 py-2 font-bold text-cyan-700">{record.vehiculo || `DT ${record.transporte}`}</td>
-                <td className="truncate px-3 py-2 font-medium text-slate-600" title={responsible(record)}>{responsible(record)}</td>
-                <td className="px-3 py-2"><StatusBadge value={getStatus(getProgress(record), record)} /></td>
-                <td className="px-3 py-2 text-right"><span className="inline-flex min-w-11 justify-center rounded border border-red-200 bg-red-50 px-2.5 py-1 font-black tabular-nums text-red-600">{refusalBoxes(record).toLocaleString("es-CO")}</span></td>
+                <td className="truncate px-4 py-2.5"><span className={`inline-flex max-w-full truncate rounded-md px-3 py-1.5 font-bold ${record.transportista === "Logisticos" ? "bg-cyan-50 text-cyan-700" : "bg-blue-50 text-blue-700"}`}>{record.transportista}</span></td>
+                <td className="truncate px-4 py-2.5 font-extrabold text-cyan-700">{record.vehiculo || `DT ${record.transporte}`}</td>
+                <td className="truncate px-4 py-2.5 font-medium text-slate-700" title={responsible(record)}>{responsible(record)}</td>
+                <td className="px-4 py-2.5"><StatusBadge value={getStatus(getProgress(record), record)} /></td>
+                <td className="px-4 py-2.5 text-right"><span className="inline-flex min-w-12 justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 font-black tabular-nums text-red-600">{refusalBoxes(record).toLocaleString("es-CO")}</span></td>
               </tr>
             )) : <tr><td className="px-5 py-16 text-center text-xs font-medium text-cyan-100/50" colSpan={5}>No hay rutas para hoy.</td></tr>}
           </tbody>
@@ -255,7 +255,7 @@ function OffendersTable({ records }: { records: Vehiculo[] }) {
 
 function StatusBadge({ value }: { value: string }) {
   const tone = value === "Finalizado" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "En ruta" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600";
-  return <span className={`inline-flex max-w-full truncate rounded border px-2.5 py-1 text-[11px] font-bold 2xl:text-sm ${tone}`}>{value}</span>;
+  return <span className={`inline-flex max-w-full truncate rounded-md border px-3 py-1.5 text-xs font-bold 2xl:text-base ${tone}`}>{value}</span>;
 }
 
 function buildStats(records: Vehiculo[]): RefusalStats {
