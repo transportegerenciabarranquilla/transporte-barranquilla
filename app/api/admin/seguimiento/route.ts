@@ -141,6 +141,7 @@ export async function GET() {
     const visibleCajas = normalizeCajasTotal(visibleTotals.cajas);
 
     return NextResponse.json({
+      today: bogotaDateKey(),
       summaries: session.isAdmin ? summaries : summaries.filter((summary) => normalizeContractorName(summary.contractor) === normalizeContractorName(session.contractor)),
       records: visibleRecords,
       modulationRacocimi2: visibleModulationRacocimi2,
@@ -551,6 +552,12 @@ function toDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function bogotaDateKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function fromModulacionListRow(row: ModulacionListRow): ModulacionRegistro {

@@ -8,10 +8,11 @@ import { getProgress, getStatus, normalizeCajasTotal } from "../../seguimiento/u
 
 type Summary = { contractor: string; rutas: number; cajas: number; clientes: number; visitados: number; rechazadas: number; gestionadas: number; refusalFinal: number; refusal: number };
 type ModulationRow = { contractor: string; dt: string; date: string; modulationBoxes: number; racocimi2Boxes: number };
-type TvData = { summaries: Summary[]; records: Vehiculo[]; modulationRacocimi2: ModulationRow[] };
+type TvData = { today?: string; summaries: Summary[]; records: Vehiculo[]; modulationRacocimi2: ModulationRow[] };
 const GALAPA = ["Logisticos", "Surti Cervezas"];
 function getTodayKey() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function recordDate(record: Vehiculo) { const raw = record.fechaDespacho || record.fechaDt || record.date || record.createdAt || ""; if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/); if (match) return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`; return ""; }
+function normalizeDt(value: unknown) { return String(value || "").replace(/^DT-?/i, "").replace(/\D/g, ""); }
 function summaryFor(contractor: string, records: Vehiculo[]): Summary { return { contractor, rutas: records.length, cajas: normalizeCajasTotal(records.reduce((sum, record) => sum + Number(record.cajas || 0), 0)), clientes: records.reduce((sum, record) => sum + Number(record.clientes || 0), 0), visitados: records.reduce((sum, record) => sum + Number(record.visitados || 0), 0), rechazadas: 0, gestionadas: 0, refusalFinal: 0, refusal: 0 }; }
 
 export default function AdminModoTvPage() {
@@ -21,10 +22,11 @@ export default function AdminModoTvPage() {
   const [error, setError] = useState("");
   const [updated, setUpdated] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
-  const load = useCallback(async () => { try { const response = await fetch("/api/admin/seguimiento", { cache: "no-store" }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "No se pudo cargar el seguimiento."); setData({ summaries: body.summaries || [], records: body.records || [], modulationRacocimi2: body.modulationRacocimi2 || [] }); setUpdated(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })); setError(""); } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo cargar el seguimiento."); } finally { setLoading(false); } }, []);
+  const [operationalDate, setOperationalDate] = useState("");
+  const load = useCallback(async () => { try { const response = await fetch("/api/admin/seguimiento", { cache: "no-store" }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "No se pudo cargar el seguimiento."); setData({ summaries: body.summaries || [], records: body.records || [], modulationRacocimi2: body.modulationRacocimi2 || [] }); setOperationalDate(body.today || ""); setUpdated(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })); setError(""); } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo cargar el seguimiento."); } finally { setLoading(false); } }, []);
   useEffect(() => { void load(); const interval = window.setInterval(() => void load(), 30_000); const onFullscreen = () => setFullscreen(Boolean(document.fullscreenElement)); document.addEventListener("fullscreenchange", onFullscreen); return () => { window.clearInterval(interval); document.removeEventListener("fullscreenchange", onFullscreen); }; }, [load]);
   async function toggleFullscreen() { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
-  const today = getTodayKey();
+  const today = operationalDate || getTodayKey();
   const records = data.records.filter((record) => GALAPA.includes(record.transportista) && recordDate(record) === today);
   const modules = data.modulationRacocimi2.filter((row) => GALAPA.includes(row.contractor) && row.date === today);
   const summaries = useMemo(() => GALAPA.map((name) => summaryFor(name, records.filter((record) => record.transportista === name))), [records]);
