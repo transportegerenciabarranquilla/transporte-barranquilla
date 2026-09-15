@@ -142,6 +142,7 @@ export async function GET() {
 
     return NextResponse.json({
       today: bogotaDateKey(),
+      now: new Date().toISOString(),
       summaries: session.isAdmin ? summaries : summaries.filter((summary) => normalizeContractorName(summary.contractor) === normalizeContractorName(session.contractor)),
       records: visibleRecords,
       modulationRacocimi2: visibleModulationRacocimi2,

@@ -1,29 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, CheckCircle2, ClipboardList, Maximize, Package, RefreshCw, Target, TrendingDown, Truck, Users, X, XCircle } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, ClipboardList, Maximize, Package, RefreshCw, Truck, Users, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Vehiculo } from "../../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../../seguimiento/utils";
 
 type TvData = { records: Vehiculo[] };
-type RefusalStats = {
-  cajas: number;
-  reportadas: number;
-  gestionadas: number;
-  final: number;
-  checkins: number;
-  percent: number;
-  max: number;
-};
-
+type RefusalStats = { cajas: number; reportadas: number; gestionadas: number; final: number; checkins: number; percent: number; max: number };
 const GALAPA = ["Logisticos", "Surti Cervezas"];
 
 export default function RefusalTvPage() {
   const router = useRouter();
   const [data, setData] = useState<TvData>({ records: [] });
   const [operationalDate, setOperationalDate] = useState("");
-  const [updated, setUpdated] = useState("");
+  const [updated, setUpdated] = useState("—");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -35,7 +26,7 @@ export default function RefusalTvPage() {
       if (!response.ok) throw new Error(body.error || "No se pudo cargar el refusal.");
       setData({ records: body.records || [] });
       setOperationalDate(body.today || "");
-      setUpdated(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+      setUpdated(formatBogotaTime(body.now));
       setError("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo cargar el refusal.");
@@ -55,13 +46,21 @@ export default function RefusalTvPage() {
     };
   }, [load]);
 
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, []);
+
   const today = operationalDate || bogotaToday();
   const records = data.records.filter((record) => GALAPA.includes(record.transportista) && recordDate(record) === today);
-  const stats = buildStats(records);
-  const contractorStats = GALAPA.map((contractor) => ({
-    contractor,
-    stats: buildStats(records.filter((record) => record.transportista === contractor)),
-  }));
+  const general = buildStats(records);
+  const contractorStats = GALAPA.map((contractor) => ({ contractor, stats: buildStats(records.filter((record) => record.transportista === contractor)) }));
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -69,152 +68,154 @@ export default function RefusalTvPage() {
   }
 
   return (
-    <main className="tech-grid min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,.10),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(15,124,88,.08),transparent_30%),#edf4f8] text-[#10223d]">
-      <header className="border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-4 px-6 py-4 lg:px-10 2xl:px-14 2xl:py-5">
-          <div className="flex items-center gap-4">
-            <button aria-label="Volver al seguimiento TV" className="grid h-11 w-11 place-items-center rounded-md hover:bg-slate-100" onClick={() => router.push("/admin/modo-tv")} type="button"><ArrowLeft size={24} /></button>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[.18em] text-red-600 2xl:text-sm">Analítica diaria</p>
-              <h1 className="text-2xl font-bold lg:text-3xl 2xl:text-4xl">Control refusal · Galapa</h1>
-            </div>
-          </div>
+    <main className="h-screen overflow-hidden bg-[#030912] text-white">
+      <section className="relative flex h-screen w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_72%_7%,rgba(20,84,153,.22),transparent_26%),linear-gradient(145deg,#081a31,#061326_62%,#071a2f)]">
+        <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(62,112,163,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(62,112,163,.13) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
+
+        <header className="relative z-10 flex min-h-20 items-center justify-between border-b border-[#193451] bg-[#07172b]/92 px-5 py-3 lg:px-7 2xl:min-h-24 2xl:px-9">
           <div className="flex items-center gap-3">
-            <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold uppercase tracking-wider text-emerald-700 lg:inline-flex"><i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,.14)]" />En vivo</span>
-            <div className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right lg:block">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Hoy · última actualización</p>
-              <p className="text-sm font-bold text-slate-700">{formatDate(today)} · {updated || "—"}</p>
+            <button aria-label="Volver al seguimiento TV" className="grid h-11 w-11 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-300 hover:bg-[#102b4d]" onClick={() => router.push("/admin/modo-tv")} type="button"><ArrowLeft size={20} /></button>
+            <span className="grid h-11 w-11 place-items-center text-rose-500"><Box size={31} strokeWidth={1.8} /></span>
+            <div>
+              <h1 className="text-xl font-extrabold tracking-tight lg:text-2xl 2xl:text-3xl">Control refusal Galapa</h1>
+              <p className="text-[10px] font-medium tracking-wide text-cyan-100/75 lg:text-xs 2xl:text-sm">Centro de operaciones</p>
             </div>
-            <button className="inline-flex h-11 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-bold text-white hover:bg-[#0b684a]" onClick={() => router.push("/admin/modo-tv")} type="button"><Truck size={19} />Seguimiento TV</button>
-            <button aria-label="Actualizar" className="grid h-11 w-11 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={20} /></button>
-            <button aria-label="Pantalla completa" className="grid h-11 w-11 place-items-center rounded-md bg-red-600 text-white hover:bg-red-700" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={21} /> : <Maximize size={21} />}</button>
           </div>
-        </div>
-      </header>
 
-      <section className="mx-auto max-w-[1920px] px-5 py-5 lg:px-8 2xl:px-12 2xl:py-7">
-        {error && <p className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 font-semibold text-red-700">{error}</p>}
+          <div className="flex items-center gap-3 lg:gap-5">
+            <div className="hidden text-right sm:block">
+              <p className="text-[9px] font-semibold capitalize text-slate-300 lg:text-[10px] 2xl:text-xs">{formatLongDate(today)}</p>
+              <p className="text-sm font-black tabular-nums text-white lg:text-base 2xl:text-lg">{updated}</p>
+            </div>
+            <span className="hidden items-center gap-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 md:inline-flex"><i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" /><span><strong className="block text-[10px] text-emerald-200 2xl:text-xs">Operación activa</strong><small className="block text-[8px] text-emerald-100/65 2xl:text-[10px]">Refresco automático</small></span></span>
+            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 text-xs font-bold text-cyan-200 hover:bg-cyan-400/20 2xl:text-sm" onClick={() => router.push("/admin/modo-tv")} type="button"><Truck size={17} />Seguimiento</button>
+            <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-200 hover:bg-[#102b4d]" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
+            <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
+          </div>
+        </header>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4 2xl:gap-6">
-          <Metric icon={<Package />} label="Cajas seguimiento" tone="blue" value={stats.cajas} />
-          <Metric icon={<XCircle />} label="Rechazadas" tone="red" value={stats.reportadas} />
-          <Metric icon={<CheckCircle2 />} label="Gestionadas" tone="green" value={stats.gestionadas} />
-          <Metric icon={<Users />} label="Checkins" tone="amber" value={stats.checkins} />
-        </div>
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-3 p-4 lg:gap-4 lg:p-5">
+          {error && <p className="rounded-lg border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-bold text-red-200">{error}</p>}
 
-        <div className="grid items-stretch gap-6 xl:grid-cols-[0.92fr_1.08fr] 2xl:gap-8">
-          <RefusalSummary general={stats} items={contractorStats} />
-          <OffendersTable records={records} />
+          <OverallRefusalHero general={general} />
+
+          <section className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4 2xl:gap-5">
+            <DashboardMetric color="blue" icon={<Package />} label="Cajas seguimiento" value={general.cajas} />
+            <DashboardMetric color="red" icon={<XCircle />} label="Rechazadas" value={general.reportadas} />
+            <DashboardMetric color="green" icon={<CheckCircle2 />} label="Gestionadas" value={general.gestionadas} />
+            <DashboardMetric color="amber" icon={<Users />} label="Checkins" value={general.checkins} />
+          </section>
+
+          <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[0.78fr_1.22fr] 2xl:gap-5">
+            <ContractorRiskPanel general={general} items={contractorStats} />
+            <OffendersTable records={records} />
+          </section>
         </div>
       </section>
     </main>
   );
 }
 
-function Metric({ icon, label, value, tone }: { icon: ReactNode; label: string; value: number; tone: "blue" | "red" | "green" | "amber" }) {
-  const colors = {
-    blue: "border-blue-100 bg-blue-50 text-[#10223d]",
-    red: "border-red-100 bg-red-50 text-red-600",
-    green: "border-emerald-100 bg-emerald-50 text-emerald-700",
-    amber: "border-amber-100 bg-amber-50 text-amber-700",
-  };
+function DashboardMetric({ icon, label, value, color }: { icon: ReactNode; label: string; value: number; color: "blue" | "red" | "green" | "amber" }) {
+  const tones = { blue: "from-blue-500 to-blue-700 shadow-blue-500/20", red: "from-rose-500 to-red-700 shadow-red-500/20", green: "from-emerald-400 to-emerald-700 shadow-emerald-500/20", amber: "from-amber-400 to-orange-600 shadow-amber-500/20" };
+  return <article className="relative overflow-hidden rounded-lg border border-[#1e456e] bg-gradient-to-br from-[#0b2b51] to-[#071d38] px-4 py-3 shadow-[0_10px_25px_rgba(0,0,0,.18)] 2xl:px-5 2xl:py-4"><div className="flex items-center gap-3"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-lg 2xl:h-12 2xl:w-12 ${tones[color]}`}>{icon}</span><div><p className="text-xs font-semibold text-cyan-50/80 2xl:text-sm">{label}</p><strong className="block text-3xl font-black tabular-nums tracking-tight 2xl:text-4xl">{value.toLocaleString("es-CO")}</strong><p className="text-[9px] text-cyan-100/55 2xl:text-xs">Datos del día</p></div></div></article>;
+}
+
+function OverallRefusalHero({ general }: { general: RefusalStats }) {
+  const controlled = general.percent < 1;
+  const fill = Math.min(100, general.percent * 100);
+  const managedPercent = general.reportadas ? Math.min(100, (general.gestionadas / general.reportadas) * 100) : 0;
+  const ringColor = controlled ? "#d4a017" : "#fb7185";
+
   return (
-    <article className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm 2xl:p-6 before:absolute before:inset-x-0 before:top-0 before:h-1 ${tone === "blue" ? "before:bg-blue-500" : tone === "red" ? "before:bg-red-500" : tone === "green" ? "before:bg-emerald-500" : "before:bg-amber-400"}`}>
-      <span className={`grid h-12 w-12 place-items-center rounded-lg border ${colors[tone]}`}>{icon}</span>
-      <p className="mt-4 text-sm font-semibold text-slate-500 2xl:text-base">{label}</p>
-      <strong className="mt-1 block text-3xl font-bold tabular-nums 2xl:text-4xl">{value.toLocaleString("es-CO")}</strong>
-    </article>
+    <section className={`relative h-[clamp(180px,25vh,235px)] shrink-0 overflow-hidden rounded-xl border bg-[linear-gradient(100deg,#08254a_0%,#07305a_47%,#061a35_100%)] shadow-[inset_0_1px_rgba(255,255,255,.04),0_16px_40px_rgba(0,0,0,.22)] ${controlled ? "border-[#1f4d7c]" : "border-rose-500/45"}`}>
+      <div className={`absolute -right-20 -top-36 h-96 w-96 rounded-full blur-3xl ${controlled ? "bg-emerald-400/10" : "bg-rose-500/10"}`} />
+      <div className="relative z-10 grid h-full grid-cols-[150px_1fr_auto] items-center gap-6 px-7 py-3 lg:grid-cols-[180px_1fr_310px] 2xl:grid-cols-[205px_1fr_390px] 2xl:gap-8 2xl:px-9">
+        <div className="grid aspect-square w-[clamp(140px,19vh,195px)] place-items-center rounded-full p-[clamp(11px,1.5vh,16px)]" style={{ background: `conic-gradient(from -90deg,${ringColor} ${fill}%,#174a7a 0)`, boxShadow: `0 0 38px ${ringColor}30` }}>
+          <div className="grid h-full w-full place-items-center rounded-full bg-[#0a274a] text-center shadow-inner">
+            <div><strong className={`block text-[clamp(1.8rem,4vh,3rem)] font-black tabular-nums ${controlled ? "text-amber-300" : "text-rose-300"}`}>{general.percent.toFixed(2)}%</strong><span className="text-[8px] font-black uppercase tracking-[.2em] text-cyan-100/55 2xl:text-[10px]">Refusal general</span></div>
+          </div>
+        </div>
+
+        <div className="min-w-0 max-w-xl">
+          <div className="flex items-center gap-3"><h2 className="text-lg font-extrabold 2xl:text-2xl">Control general de refusal</h2><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-wider ${controlled ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-rose-400/35 bg-rose-500/15 text-rose-300"}`}><i className={`h-2 w-2 rounded-full ${controlled ? "bg-emerald-400" : "animate-pulse bg-rose-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span></div>
+          <p className="mt-2 text-xs text-cyan-100/65 2xl:text-sm"><strong className="text-white">{general.final.toLocaleString("es-CO")}</strong> cajas finales sobre un máximo recomendado de <strong className="text-amber-300">{general.max.toLocaleString("es-CO")}</strong></p>
+          <div className="mt-4 max-w-lg"><div className="mb-1.5 flex justify-between text-[9px] font-bold uppercase tracking-wide text-cyan-100/55"><span>Uso del límite diario</span><span>{fill.toFixed(0)}%</span></div><div className="h-3 overflow-hidden rounded-full bg-[#0a4f8e]"><div className={`h-full rounded-full ${controlled ? "bg-gradient-to-r from-emerald-400 to-amber-300" : "bg-gradient-to-r from-amber-400 to-rose-500 shadow-[0_0_16px_rgba(244,63,94,.55)]"}`} style={{ width: `${fill}%` }} /></div></div>
+        </div>
+
+        <div className="hidden h-[72%] grid-cols-2 gap-2 border-l border-[#245079] pl-6 lg:grid">
+          <HeroDatum color="text-amber-300" label="Reportadas" value={general.reportadas} />
+          <HeroDatum color="text-emerald-300" label="Gestionadas" value={general.gestionadas} />
+          <HeroDatum color="text-rose-300" label="Refusal final" value={general.final} />
+          <div className="flex flex-col justify-center rounded-lg border border-[#245079] bg-[#071d38]/70 px-4"><span className="text-[9px] font-bold uppercase tracking-wider text-cyan-100/50">Gestión</span><strong className="text-xl font-black tabular-nums text-cyan-200 2xl:text-2xl">{managedPercent.toFixed(1)}%</strong></div>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function RefusalSummary({ general, items }: { general: RefusalStats; items: Array<{ contractor: string; stats: RefusalStats }> }) {
-  const controlled = general.percent < 1;
-  const circles = [...items, { contractor: "General", stats: general }];
-  return (
-    <section className={`rounded-xl bg-white p-6 shadow-sm 2xl:p-7 ${controlled ? "border border-slate-200" : "border-2 border-red-300 shadow-[0_16px_45px_rgba(220,38,38,.14)]"}`}>
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="flex items-center gap-2 text-xl font-bold 2xl:text-2xl"><TrendingDown size={22} />Resumen de refusal</h2>
-        <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 sm:inline-flex"><Target size={14} />Meta &lt; 1%</span>
-          <span className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold ${controlled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700 shadow-[0_0_22px_rgba(220,38,38,.18)]"}`}><i className={`h-2.5 w-2.5 rounded-full ${controlled ? "bg-emerald-500" : "animate-pulse bg-red-600"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span>
-        </div>
-      </div>
+function HeroDatum({ label, value, color }: { label: string; value: number; color: string }) {
+  return <div className="flex flex-col justify-center rounded-lg border border-[#245079] bg-[#071d38]/70 px-4"><span className="text-[9px] font-bold uppercase tracking-wider text-cyan-100/50">{label}</span><strong className={`text-xl font-black tabular-nums 2xl:text-2xl ${color}`}>{value.toLocaleString("es-CO")}</strong></div>;
+}
 
-      <div className="mt-7 grid grid-cols-3 gap-3 2xl:gap-5">
-        {circles.map((item, index) => (
-          <RefusalBubble
-            accent={index === 0 ? "#06b6d4" : index === 1 ? "#2563eb" : "#d4a017"}
-            key={item.contractor}
-            label={item.contractor}
-            stats={item.stats}
-          />
-        ))}
+function ContractorRiskPanel({ general, items }: { general: RefusalStats; items: Array<{ contractor: string; stats: RefusalStats }> }) {
+  const controlled = general.percent < 1;
+  const circles = items;
+  return (
+    <section className={`flex min-h-0 flex-col overflow-hidden rounded-xl border bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)] ${controlled ? "border-[#1d4165]" : "border-red-500/60 shadow-[0_0_35px_rgba(220,38,38,.16)]"}`}>
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#1c3f61] px-5 2xl:h-14">
+        <h2 className="flex items-center gap-2 text-sm font-extrabold 2xl:text-base"><Activity className="text-cyan-300" size={18} />Contratistas</h2>
+        <div className="flex items-center gap-2"><span className="rounded-full border border-[#294765] bg-[#0a203b] px-3 py-1.5 text-[9px] font-bold text-cyan-100/70">META &lt; 1%</span><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${controlled ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-red-400/40 bg-red-500/15 text-red-300"}`}><i className={`h-2 w-2 rounded-full ${controlled ? "bg-emerald-400" : "animate-pulse bg-red-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span></div>
+      </header>
+
+      <div className="grid min-h-0 flex-1 grid-cols-2 items-center gap-3 px-4 py-3 2xl:gap-5 2xl:px-6">
+        {circles.map((item, index) => <RefusalBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : "#d4a017"} key={item.contractor} label={item.contractor} stats={item.stats} />)}
       </div>
-      <div className="mt-7 grid grid-cols-3 gap-3 border-t border-slate-100 pt-5 text-center">
-        <SummaryMini color="text-amber-700" label="Rechazadas" value={general.reportadas} />
-        <SummaryMini color="text-emerald-700" label="Gestionadas" value={general.gestionadas} />
-        <SummaryMini color="text-red-700" label="Refusal final" value={general.final} />
-      </div>
+      <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-[#1c3f61] bg-[#06172c]/75 text-center 2xl:h-20">
+        <SummaryMini color="text-amber-300" label="Rechazadas" value={general.reportadas} />
+        <SummaryMini color="text-emerald-300" label="Gestionadas" value={general.gestionadas} />
+        <SummaryMini color="text-rose-400" label="Refusal final" value={general.final} />
+      </footer>
     </section>
   );
 }
 
 function RefusalBubble({ label, stats, accent }: { label: string; stats: RefusalStats; accent: string }) {
   const controlled = stats.percent < 1;
-  const circleColor = controlled ? accent : "#dc2626";
+  const circleColor = controlled ? accent : "#ef4444";
+  const fill = Math.min(100, stats.percent * 100);
   const isGeneral = label === "General";
-  const gaugeFill = Math.min(100, stats.percent * 100);
-  const risk = stats.percent >= 1 ? { label: "Crítico", tone: "text-red-700", dot: "animate-pulse bg-red-600" } : stats.percent >= 0.75 ? { label: "Atención", tone: "text-amber-700", dot: "bg-amber-500" } : { label: "Estable", tone: "text-emerald-700", dot: "bg-emerald-500" };
-  return <div className="flex min-w-0 flex-col items-center gap-2"><div className={`relative grid aspect-square w-full max-w-[185px] place-items-center rounded-full p-3 transition-transform 2xl:max-w-[215px] ${isGeneral ? "ring-4 ring-amber-100" : ""}`} style={{ background: `conic-gradient(from -90deg, ${circleColor} ${gaugeFill}%, #e2e8f0 0)`, boxShadow: isGeneral ? "0 14px 32px rgba(212,160,23,.24)" : `0 12px 28px ${circleColor}22` }}>{!controlled && <i className="absolute right-2 top-2 h-3.5 w-3.5 animate-pulse rounded-full bg-red-600 shadow-[0_0_0_5px_rgba(220,38,38,.14)]" />}<div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><strong className={`text-2xl font-bold tabular-nums 2xl:text-4xl ${controlled ? isGeneral ? "text-amber-700" : "text-[#10223d]" : "text-red-600"}`}>{stats.percent.toFixed(2)}%</strong><span className="text-[8px] font-bold uppercase tracking-wider text-slate-400 2xl:text-[10px]">{stats.final.toLocaleString("es-CO")} / {stats.max.toLocaleString("es-CO")} cajas</span></div></div><span className={`truncate rounded-full px-3 py-1 text-center text-xs font-bold 2xl:text-sm ${isGeneral ? "bg-amber-50 text-amber-800" : label === "Logisticos" ? "bg-cyan-50 text-cyan-800" : "bg-blue-50 text-blue-800"}`}>{label}</span><span className={`inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider ${risk.tone}`}><i className={`h-2 w-2 rounded-full ${risk.dot}`} />{risk.label}</span></div>;
+  const risk = stats.percent >= 1 ? { label: "Crítico", color: "text-red-300", dot: "animate-pulse bg-red-500" } : stats.percent >= 0.75 ? { label: "Atención", color: "text-amber-300", dot: "bg-amber-400" } : { label: "Estable", color: "text-emerald-300", dot: "bg-emerald-400" };
+  return <div className="flex min-w-0 flex-col items-center gap-2"><div className={`grid aspect-square w-[clamp(125px,17vh,185px)] place-items-center rounded-full p-2.5 ${isGeneral ? "ring-2 ring-amber-300/25" : ""}`} style={{ background: `conic-gradient(from -90deg,${circleColor} ${fill}%,#174a7a 0)`, boxShadow: isGeneral ? "0 0 32px rgba(212,160,23,.22)" : `0 0 28px ${circleColor}20` }}><div className="grid h-full w-full place-items-center rounded-full bg-[#092644] text-center shadow-inner"><strong className={`text-[clamp(1.35rem,3.2vh,2.4rem)] font-black tabular-nums ${isGeneral && controlled ? "text-amber-300" : controlled ? "text-white" : "text-red-300"}`}>{stats.percent.toFixed(2)}%</strong><span className="text-[7px] font-bold uppercase tracking-wider text-cyan-100/50 2xl:text-[9px]">{stats.final.toLocaleString("es-CO")} / {stats.max.toLocaleString("es-CO")} cajas</span></div></div><span className={`truncate rounded-full border px-3 py-1 text-[10px] font-bold 2xl:text-xs ${isGeneral ? "border-amber-400/25 bg-amber-400/10 text-amber-300" : label === "Logisticos" ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-200" : "border-blue-400/25 bg-blue-400/10 text-blue-200"}`}>{label}</span><span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-wider 2xl:text-[9px] ${risk.color}`}><i className={`h-1.5 w-1.5 rounded-full ${risk.dot}`} />{risk.label}</span></div>;
 }
 
 function SummaryMini({ label, value, color }: { label: string; value: number; color: string }) {
-  return <div><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 2xl:text-[10px]">{label}</p><p className={`mt-1 text-xl font-bold tabular-nums 2xl:text-2xl ${color}`}>{value.toLocaleString("es-CO")}</p></div>;
+  return <div><p className="text-[8px] font-bold uppercase tracking-wider text-cyan-100/45 2xl:text-[9px]">{label}</p><p className={`mt-0.5 text-xl font-black tabular-nums 2xl:text-2xl ${color}`}>{value.toLocaleString("es-CO")}</p></div>;
 }
 
 function OffendersTable({ records }: { records: Vehiculo[] }) {
-  const rows = [...records]
-    .sort((a, b) => refusalBoxes(b) - refusalBoxes(a) || String(a.vehiculo).localeCompare(String(b.vehiculo)))
-    .slice(0, 10);
-
+  const rows = [...records].sort((a, b) => refusalBoxes(b) - refusalBoxes(a) || String(a.vehiculo).localeCompare(String(b.vehiculo))).slice(0, 10);
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between gap-4 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-lg shadow-blue-500/20"><ClipboardList size={20} /></span>
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-bold 2xl:text-lg">Top 10 ofensores · Logisticos y Surti</h2>
-            <p className="truncate text-xs text-slate-500">Mayor refusal por ruta y responsable.</p>
-          </div>
-        </div>
-        <span className="shrink-0 rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm font-bold text-[#07556b]">{rows.length}</span>
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#1c3f61] px-4">
+        <div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20"><ClipboardList size={18} /></span><div className="min-w-0"><h2 className="truncate text-sm font-extrabold 2xl:text-base">Top 10 ofensores · Logisticos y Surti</h2><p className="truncate text-[9px] text-cyan-100/50 2xl:text-[10px]">Mayor refusal por ruta y responsable</p></div></div>
+        <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-black text-cyan-200">{rows.length}</span>
       </header>
-
-      <div className="overflow-auto">
-        <table className="w-full table-fixed text-xs 2xl:text-sm">
-          <thead className="sticky top-0 z-10 bg-gradient-to-r from-[#10223d] to-[#1264ff] text-[9px] uppercase tracking-wide text-white 2xl:text-[10px]">
-            <tr>
-              <th className="w-[21%] px-3 py-2.5 text-left">Contratista</th>
-              <th className="w-[18%] px-3 py-2.5 text-left">Vehículo</th>
-              <th className="w-[34%] px-3 py-2.5 text-left">Responsable</th>
-              <th className="w-[16%] px-3 py-2.5 text-left">Status</th>
-              <th className="w-[11%] px-3 py-2.5 text-right">Cajas</th>
-            </tr>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full table-fixed text-[10px] 2xl:text-xs">
+          <thead className="sticky top-0 z-10 bg-[#0d3159] text-[8px] uppercase tracking-wide text-cyan-50/80 2xl:text-[9px]">
+            <tr><th className="w-[21%] px-3 py-2 text-left">Contratista</th><th className="w-[18%] px-3 py-2 text-left">Vehículo</th><th className="w-[34%] px-3 py-2 text-left">Responsable</th><th className="w-[16%] px-3 py-2 text-left">Status</th><th className="w-[11%] px-3 py-2 text-right">Cajas</th></tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-[#173b5e]">
             {rows.length ? rows.map((record, index) => (
-              <tr className={index % 2 ? "bg-slate-50" : "bg-white"} key={record.recordId || `${record.transportista}-${record.transporte}-${record.vehiculo}`}>
-                <td className="truncate px-3 py-1.5">
-                  <span className={`inline-flex max-w-full truncate rounded-md px-2 py-0.5 font-bold ${record.transportista === "Logisticos" ? "bg-blue-50 text-blue-700" : "bg-violet-50 text-violet-700"}`}>{record.transportista}</span>
-                </td>
-                <td className="truncate px-3 py-1.5"><span className="inline-flex max-w-full truncate rounded bg-[#e8f7ff] px-2 py-0.5 font-bold text-[#07556b]">{record.vehiculo || `DT ${record.transporte}`}</span></td>
-                <td className="truncate px-3 py-1.5 text-slate-600" title={responsible(record)}>{responsible(record)}</td>
+              <tr className={index % 2 ? "bg-[#081d36]" : "bg-[#0a2340]"} key={record.recordId || `${record.transportista}-${record.transporte}-${record.vehiculo}`}>
+                <td className="truncate px-3 py-1.5"><span className={`inline-flex max-w-full truncate rounded px-2 py-0.5 font-bold ${record.transportista === "Logisticos" ? "bg-cyan-400/10 text-cyan-200" : "bg-blue-400/10 text-blue-200"}`}>{record.transportista}</span></td>
+                <td className="truncate px-3 py-1.5 font-bold text-cyan-300">{record.vehiculo || `DT ${record.transporte}`}</td>
+                <td className="truncate px-3 py-1.5 text-cyan-50/65" title={responsible(record)}>{responsible(record)}</td>
                 <td className="px-3 py-1.5"><StatusBadge value={getStatus(getProgress(record), record)} /></td>
-                <td className="px-3 py-1.5 text-right"><span className="inline-flex min-w-10 justify-center rounded-md border border-red-100 bg-red-50 px-2 py-0.5 font-bold tabular-nums text-red-700">{refusalBoxes(record).toLocaleString("es-CO")}</span></td>
+                <td className="px-3 py-1.5 text-right"><span className="inline-flex min-w-9 justify-center rounded border border-red-400/20 bg-red-500/10 px-2 py-0.5 font-black tabular-nums text-red-300">{refusalBoxes(record).toLocaleString("es-CO")}</span></td>
               </tr>
-            )) : (
-              <tr><td className="px-5 py-16 text-center text-sm font-medium text-slate-500" colSpan={5}>No hay rutas para hoy.</td></tr>
-            )}
+            )) : <tr><td className="px-5 py-16 text-center text-xs font-medium text-cyan-100/50" colSpan={5}>No hay rutas para hoy.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -223,8 +224,8 @@ function OffendersTable({ records }: { records: Vehiculo[] }) {
 }
 
 function StatusBadge({ value }: { value: string }) {
-  const tone = value === "Finalizado" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "En ruta" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700";
-  return <span className={`inline-flex max-w-full truncate rounded-md border px-2 py-0.5 text-[10px] font-semibold 2xl:text-xs ${tone}`}>{value}</span>;
+  const tone = value === "Finalizado" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : value === "En ruta" ? "border-amber-400/20 bg-amber-400/10 text-amber-300" : "border-slate-400/20 bg-slate-400/10 text-slate-300";
+  return <span className={`inline-flex max-w-full truncate rounded border px-2 py-0.5 text-[8px] font-bold 2xl:text-[9px] ${tone}`}>{value}</span>;
 }
 
 function buildStats(records: Vehiculo[]): RefusalStats {
@@ -241,4 +242,5 @@ function refusalBoxes(record: Vehiculo) { return normalizeCajasTotal(Number(reco
 function responsible(record: Vehiculo) { return record.nombreResponsable || record.responsable || "Sin responsable"; }
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function recordDate(record: Vehiculo) { const raw = record.fechaDespacho || record.fechaDt || record.date || record.createdAt || ""; if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/); if (!match) return ""; return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`; }
-function formatDate(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString("es-CO"); }
+function formatBogotaTime(value: string | undefined) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
+function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }

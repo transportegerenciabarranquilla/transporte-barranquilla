@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell, Download, Share, Smartphone, X } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type InstallPromptEvent = Event & {
@@ -24,6 +25,7 @@ function decodeVapidKey(value: string) {
 }
 
 export function PwaManager() {
+  const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
@@ -127,7 +129,7 @@ export function PwaManager() {
     setDismissed(true);
   }
 
-  if (!isAdmin || dismissed) return null;
+  if (!isAdmin || dismissed || pathname.startsWith("/admin/modo-tv")) return null;
 
   return (
     <aside className="fixed bottom-4 right-4 z-[80] w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-950/20">
