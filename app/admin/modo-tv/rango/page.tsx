@@ -5,7 +5,7 @@ import { ArrowLeft, CheckCircle2, MapPinCheck, Maximize, RefreshCw, Truck, X, XC
 import { useRouter } from "next/navigation";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
 
-type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
+type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
 type TvData = { reports: TvReport[] };
 type RangeStats = { visits: number; inRange: number; outOfRange: number; percent: number };
 
@@ -64,6 +64,7 @@ export default function RangoTvPage() {
     [reports],
   );
   const general = reports.reduce((total, report) => addStats(total, statsFor(report)), emptyStats());
+  const lastUpload = useMemo(() => getLastUpload(data.reports.filter((report) => report.operationalDate === today)), [data.reports, today]);
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -101,7 +102,7 @@ export default function RangoTvPage() {
           <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[.9fr_1.1fr] 2xl:gap-5">
             <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_28px_rgba(15,39,68,.09)]">
               <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-5"><h2 className="flex items-center gap-2 text-lg font-extrabold"><MapPinCheck className="text-emerald-600" size={21} />Resumen por contratista</h2><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{contractors.length}</span></header>
-              <div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 p-3 2xl:gap-4 2xl:p-4">{contractors.length ? contractors.map((contractor) => <RangeBubble key={contractor} label={contractor} stats={statsFor(reports.find((report) => report.contractor === contractor)!)} />) : <p className="col-span-3 text-center text-sm text-slate-500">No hay reportes de rango para hoy.</p>}{reports.length > 1 ? <RangeBubble label="General" stats={general} /> : null}</div>
+              <div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 p-3 2xl:gap-4 2xl:p-4">{contractors.length ? contractors.map((contractor) => <RangeBubble key={contractor} label={contractor} stats={statsFor(reports.find((report) => report.contractor === contractor)!)} uploadedAt={getLastUpload(data.reports.filter((report) => report.operationalDate === today && report.contractor === contractor))} />) : <p className="col-span-3 text-center text-sm text-slate-500">No hay reportes de rango para hoy.</p>}{reports.length > 1 ? <RangeBubble label="General" stats={general} uploadedAt={lastUpload} /> : null}</div>
             </section>
             <RangeTable reports={reports} />
           </section>
@@ -116,9 +117,14 @@ function DashboardMetric({ icon, label, value, color }: { icon: ReactNode; label
   return <article className="relative overflow-hidden rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_25px_rgba(15,39,68,.08)] 2xl:px-5 2xl:py-4"><div className="flex items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-lg ${tones[color]}`}>{icon}</span><div className="min-w-0"><p className="text-sm font-bold text-slate-600 2xl:text-base">{label}</p><strong className="block truncate text-[clamp(2rem,2.8vw,2.8rem)] font-black tabular-nums leading-none tracking-tight text-[#10213b]">{typeof value === "number" ? value.toLocaleString("es-CO") : value}</strong><p className="mt-1 text-[10px] font-medium text-slate-500 2xl:text-xs">Datos del día</p></div></div></article>;
 }
 
-function RangeBubble({ label, stats }: { label: string; stats: RangeStats }) {
+function RangeBubble({ label, stats, uploadedAt }: { label: string; stats: RangeStats; uploadedAt?: string }) {
   const percent = Math.min(100, stats.percent);
-  return <div className="flex min-w-0 flex-col items-center justify-center gap-2"><div className="grid aspect-square w-[clamp(115px,10vw,175px)] place-items-center rounded-full p-3" style={{ background: `conic-gradient(from -90deg,#10b981 ${percent}%,#dbe7f1 0)`, boxShadow: "0 10px 30px rgba(16,185,129,.16)" }}><div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><div><strong className="block text-[clamp(1.45rem,2.35vw,2.45rem)] font-black tabular-nums text-emerald-700">{stats.percent.toFixed(1)}%</strong><span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 2xl:text-[10px]">{stats.inRange} / {stats.visits}</span></div></div></div><span className="inline-flex max-w-full truncate rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-extrabold text-emerald-700 2xl:text-sm">{label}</span></div>;
+  const critical = stats.percent < 50;
+  const warning = stats.percent < 90;
+  const color = critical ? "#ef4444" : warning ? "#f59e0b" : "#10b981";
+  const tone = critical ? "border-red-200 bg-red-50 text-red-700" : warning ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700";
+  const status = critical ? "Crítico" : warning ? "Atención" : "Estable";
+  return <div className="flex min-w-0 flex-col items-center justify-center gap-2"><div className="grid aspect-square w-[clamp(115px,10vw,175px)] place-items-center rounded-full p-3" style={{ background: `conic-gradient(from -90deg,${color} ${percent}%,#dbe7f1 0)`, boxShadow: `0 10px 30px ${color}28` }}><div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><div><strong className="block text-[clamp(1.45rem,2.35vw,2.45rem)] font-black tabular-nums" style={{ color }}>{stats.percent.toFixed(1)}%</strong><span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 2xl:text-[10px]">{stats.inRange} / {stats.visits}</span></div></div></div><span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-[10px] font-extrabold 2xl:text-sm ${tone}`}>{label}</span><span className={`text-[9px] font-black uppercase tracking-wider 2xl:text-[10px] ${critical ? "text-red-700" : warning ? "text-amber-700" : "text-emerald-700"}`}><i className={`mr-1.5 inline-block h-2 w-2 rounded-full ${critical ? "bg-red-500" : warning ? "bg-amber-400" : "bg-emerald-400"}`} />{status}</span><span className="text-[9px] font-semibold text-slate-500 2xl:text-[10px]">Último archivo: <strong className="text-[#10223d]">{formatUploadTime(uploadedAt || "")}</strong></span></div>;
 }
 
 function RangeTable({ reports }: { reports: TvReport[] }) {
@@ -133,3 +139,6 @@ function preferredReports(reports: TvReport[]) { const byContractor = new Map<st
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function formatBogotaTime() { return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date()); }
 function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
+function getLastUpload(reports: TvReport[]) { return reports.map((report) => report.uploadedAt || report.updatedAt).filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || ""; }
+function formatUploadDate(value: string) { if (!value) return "Sin archivos cargados"; const date = new Date(value); if (Number.isNaN(date.getTime())) return "Sin hora disponible"; return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" }).format(date); }
+function formatUploadTime(value: string) { if (!value) return "Sin archivo"; const date = new Date(value); if (Number.isNaN(date.getTime())) return "Sin hora"; return new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" }).format(date); }

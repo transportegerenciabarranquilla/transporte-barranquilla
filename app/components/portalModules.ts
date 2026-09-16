@@ -19,6 +19,14 @@ const modules: PortalModule[] = [
     accent: "border-l-[#1264ff]",
   },
   {
+    id: 20,
+    title: "Segundos viajes",
+    href: "/segundos-viajes",
+    detail: "Viaje 11 y cambio de placa",
+    tone: "from-[#ea580c] to-[#f59e0b]",
+    accent: "border-l-[#ea580c]",
+  },
+  {
     id: 2,
     title: "Modulacion",
     href: "/modulacion",

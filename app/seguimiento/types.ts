@@ -16,6 +16,7 @@ export type Vehiculo = {
   fechaDt: string;
   fechaDespacho: string;
   vehiculo: string;
+  vehiculoAnterior?: string;
   responsable: string;
   territorio: string;
   viaje: string;

@@ -157,7 +157,15 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as { recordId?: string; changes?: Partial<Vehiculo> };
     const recordId = String(body.recordId || "").trim();
     const changes = body.changes;
-    if (!recordId || !changes || (changes.status === undefined && changes.liquidado === undefined)) {
+    const hasSupportedChange = changes && (
+      changes.status !== undefined ||
+      changes.liquidado !== undefined ||
+      changes.vehiculo !== undefined ||
+      changes.vehiculoAnterior !== undefined ||
+      changes.capacidad !== undefined ||
+      changes.validadorPeso !== undefined
+    );
+    if (!recordId || !changes || !hasSupportedChange) {
       return NextResponse.json({ error: "Falta el registro o el cambio a guardar." }, { status: 400 });
     }
 
