@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Activity, Boxes, MapPinCheck, Maximize, RefreshCw, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { Activity, Boxes, MapPinCheck, Maximize, RefreshCw, Route, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTvData } from "./TvDataCache";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -78,6 +78,7 @@ export default function AdminModoTvPage() {
             <button className="tv-refusal-button inline-flex h-10 items-center gap-2 rounded-lg border border-red-600 bg-red-600 px-3 text-xs font-bold text-white shadow-md shadow-red-500/20 hover:bg-red-700 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/refusal")} type="button"><ShieldAlert size={17} />Refusal TV</button>
             <button className="tv-refusal-com-button inline-flex h-10 items-center gap-2 rounded-lg border border-orange-500 bg-orange-500 px-3 text-xs font-bold text-white shadow-md shadow-orange-500/20 hover:bg-orange-600 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/refusal-com")} type="button"><ShieldAlert size={17} />Refusal por COM</button>
             <button className="tv-range-button inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 text-xs font-bold text-white shadow-md shadow-emerald-500/20 hover:bg-emerald-700 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/rango")} type="button"><MapPinCheck size={17} />Rango TV</button>
+            <button className="tv-sip-button inline-flex h-10 items-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-3 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 2xl:text-sm" onClick={() => router.push("/admin/modo-tv/ruta-sip")} type="button"><Route size={17} />Ruta SIP</button>
             <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-[#294765] bg-[#0a203b] text-cyan-200 hover:bg-[#102b4d]" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
             <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
           </div>
@@ -144,6 +145,7 @@ function TvLightTheme() {
     [data-tv-light] > section > header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
     [data-tv-light] > section > header button.tv-refusal-button { background: #dc2626 !important; color: #fff !important; border-color: #dc2626 !important; }
     [data-tv-light] > section > header button.tv-range-button { background: #059669 !important; color: #fff !important; border-color: #059669 !important; }
+    [data-tv-light] > section > header button.tv-sip-button { background: #2563eb !important; color: #fff !important; border-color: #2563eb !important; }
     [data-tv-light] section[class*="rounded"], [data-tv-light] article { background: #fff !important; color: #10213b !important; border-color: #dbe5ef !important; box-shadow: 0 10px 28px rgba(15,39,68,.09) !important; }
     [data-tv-light] div[class*="bg-[#0a274a]"], [data-tv-light] div[class*="bg-[#092644]"], [data-tv-light] div[class*="bg-[#071d38]"] { background: #fff !important; }
     [data-tv-light] [class*="text-cyan-100"], [data-tv-light] [class*="text-cyan-50"] { color: #64748b !important; }

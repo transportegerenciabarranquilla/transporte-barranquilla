@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-const TV_ROUTES = ["/admin/modo-tv", "/admin/modo-tv/refusal", "/admin/modo-tv/refusal-com", "/admin/modo-tv/rango"];
+const TV_ROUTES = ["/admin/modo-tv", "/admin/modo-tv/refusal", "/admin/modo-tv/refusal-com", "/admin/modo-tv/rango", "/admin/modo-tv/ruta-sip"];
 const ROTATION_MS = 15_000;
 
 export function TvRotationProvider({ children }: { children: ReactNode }) {
