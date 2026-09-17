@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, MapPinCheck, Maximize, Package, RefreshCw, ShieldAlert, Truck, Users, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTvData } from "../TvDataCache";
+import { ExitTvButton } from "../ExitTvButton";
 import type { Vehiculo } from "../../../seguimiento/types";
 import { normalizeCajasTotal } from "../../../seguimiento/utils";
 
@@ -87,6 +88,7 @@ export default function RefusalComTvPage() {
             <span className="hidden items-center gap-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 md:inline-flex"><i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" /><span><strong className="block text-[10px] text-emerald-700 2xl:text-xs">Operación activa</strong><small className="block text-[8px] text-emerald-600 2xl:text-[10px]">Refresco automático</small></span></span>
             <button className="inline-flex h-11 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 text-sm font-bold text-cyan-200 hover:bg-cyan-400/20 2xl:text-base" onClick={() => router.push("/admin/modo-tv")} type="button"><Truck size={19} />Seguimiento</button>
             <button className="inline-flex h-11 items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-4 text-sm font-bold text-emerald-700 hover:bg-emerald-400/20 2xl:text-base" onClick={() => router.push("/admin/modo-tv/rango")} type="button"><MapPinCheck size={19} />Entrega en rango</button>
+            <ExitTvButton />
             <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-slate-50 text-cyan-700 hover:bg-cyan-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
             <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
           </div>

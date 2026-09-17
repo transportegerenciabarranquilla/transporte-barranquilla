@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ExitTvButton } from "./ExitTvButton";
 
 const TV_ROUTES = ["/admin/modo-tv", "/admin/modo-tv/refusal", "/admin/modo-tv/refusal-com", "/admin/modo-tv/rango", "/admin/modo-tv/ruta-sip"];
 const ROTATION_MS = 15_000;
@@ -22,5 +23,5 @@ export function TvRotationProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [active, pathname, router]);
 
-  return <>{children}</>;
+  return <>{children}{active ? <div className="fixed bottom-4 right-4 z-[100]"><ExitTvButton /></div> : null}</>;
 }

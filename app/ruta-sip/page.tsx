@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { normalizeContractorName } from "../lib/contractors";
 import type { Vehiculo } from "../seguimiento/types";
 import { calculateRouteTime, getStatus, toDateKey } from "../seguimiento/utils";
+import { ExitTvButton } from "../admin/modo-tv/ExitTvButton";
 
 const LOGISTICOS = "logisticos";
 const SURTI = "surticervezas";
@@ -75,7 +76,7 @@ export default function RutaSipPage() {
       <header className="sticky top-0 z-20 border-b border-white/70 bg-white/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
           <div className="flex items-center gap-3"><button aria-label="Volver" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-[#10223d] shadow-sm hover:bg-slate-50" onClick={() => router.push(isTvMode ? "/admin/modo-tv" : "/")} type="button"><ArrowLeft size={19} /></button><span className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-[#0f766e] to-[#2563eb] text-white shadow-lg shadow-blue-200"><Route size={22} /></span><div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-[#0f766e]">{isTvMode ? "Modo TV · Galapa" : "Gestión Central · Logísticos Galapa"}</p><h1 className="text-2xl font-black tracking-tight text-[#10223d]">Ruta SIP</h1></div></div>
-          <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm"><CalendarDays size={16} className="text-[#2563eb]" /><span className="sr-only">Fecha</span><input className="bg-transparent outline-none" onChange={(event) => setToday(event.target.value)} type="date" value={today} /></label>
+          <div className="flex items-center gap-2"><label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm"><CalendarDays size={16} className="text-[#2563eb]" /><span className="sr-only">Fecha</span><input className="bg-transparent outline-none" onChange={(event) => setToday(event.target.value)} type="date" value={today} /></label>{isTvMode ? <ExitTvButton /> : null}</div>
         </div>
       </header>
 

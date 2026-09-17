@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, MapPinCheck, Maximize, RefreshCw, Truck, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTvData } from "../TvDataCache";
+import { ExitTvButton } from "../ExitTvButton";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
 
 type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
@@ -66,6 +67,7 @@ export default function RangoTvPage() {
             <span className="hidden items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-50 px-3 py-2 md:inline-flex"><i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400" /><strong className="text-[10px] text-emerald-700 2xl:text-xs">En vivo</strong></span>
             <button className="inline-flex h-11 items-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 px-4 text-sm font-bold text-cyan-700 hover:bg-cyan-100 2xl:text-base" onClick={() => router.push("/admin/modo-tv")} type="button"><Truck size={19} />Seguimiento</button>
             <button className="inline-flex h-11 items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-4 text-sm font-bold text-rose-700 hover:bg-rose-100 2xl:text-base" onClick={() => router.push("/admin/modo-tv/refusal")} type="button"><XCircle size={19} />Refusal</button>
+            <ExitTvButton />
             <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-slate-50 text-emerald-700 hover:bg-emerald-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={17} /></button>
             <button aria-label="Pantalla completa" className="grid h-10 w-10 place-items-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" onClick={() => void toggleFullscreen()} type="button">{fullscreen ? <X size={18} /> : <Maximize size={18} />}</button>
           </div>
@@ -120,5 +122,4 @@ function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZo
 function formatBogotaTime(value: string) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
 function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
 function getLastUpload(reports: TvReport[]) { return reports.map((report) => report.uploadedAt || report.updatedAt).filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || ""; }
-function formatUploadDate(value: string) { if (!value) return "Sin archivos cargados"; const date = new Date(value); if (Number.isNaN(date.getTime())) return "Sin hora disponible"; return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" }).format(date); }
 function formatUploadTime(value: string) { if (!value) return "Sin archivo"; const date = new Date(value); if (Number.isNaN(date.getTime())) return "Sin hora"; return new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" }).format(date); }
