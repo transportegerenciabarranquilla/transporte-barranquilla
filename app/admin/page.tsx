@@ -433,6 +433,15 @@ export default function AdminPage() {
                   Modo TV
                 </button>
                 <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-cyan-300/30 bg-cyan-400/15 px-4 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/25"
+                  onClick={() => router.push("/admin/modo-tv?transicion=1")}
+                  title="Seguimiento Galapa → Refusal TV → Rango TV · cada 15 segundos"
+                  type="button"
+                >
+                  <Maximize size={16} />
+                  Modo transición
+                </button>
+                <button
                   className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/15"
                   onClick={() => router.push("/admin/rango")}
                   type="button"

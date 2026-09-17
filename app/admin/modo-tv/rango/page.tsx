@@ -1,47 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, MapPinCheck, Maximize, RefreshCw, Truck, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useTvData } from "../TvDataCache";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
 
 type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
-type TvData = { reports: TvReport[] };
 type RangeStats = { visits: number; inRange: number; outOfRange: number; percent: number };
 
 export default function RangoTvPage() {
   const router = useRouter();
-  const [data, setData] = useState<TvData>({ reports: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [updated, setUpdated] = useState("—");
+  const { data, updated: cachedUpdated, loading, error, load } = useTvData().rango;
+  const updated = formatBogotaTime(cachedUpdated);
   const [fullscreen, setFullscreen] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/admin/rango", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo cargar entrega en rango.");
-      setData({ reports: Array.isArray(body.reports) ? body.reports : [] });
-      setUpdated(formatBogotaTime());
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo cargar entrega en rango.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-    const interval = window.setInterval(() => void load(), 30_000);
     const onFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onFullscreen);
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener("fullscreenchange", onFullscreen);
     };
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -137,7 +117,7 @@ function statsFor(report: TvReport): RangeStats { const visits = Number(report.s
 function addStats(left: RangeStats, right: RangeStats): RangeStats { const visits = left.visits + right.visits; return { visits, inRange: left.inRange + right.inRange, outOfRange: left.outOfRange + right.outOfRange, percent: visits ? ((left.inRange + right.inRange) / visits) * 100 : 0 }; }
 function preferredReports(reports: TvReport[]) { const byContractor = new Map<string, TvReport>(); reports.forEach((report) => { const current = byContractor.get(report.contractor); if (!current || (report.kind === "closure" && current.kind !== "closure") || report.updatedAt > current.updatedAt) byContractor.set(report.contractor, report); }); return Array.from(byContractor.values()); }
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
-function formatBogotaTime() { return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date()); }
+function formatBogotaTime(value: string) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
 function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
 function getLastUpload(reports: TvReport[]) { return reports.map((report) => report.uploadedAt || report.updatedAt).filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || ""; }
 function formatUploadDate(value: string) { if (!value) return "Sin archivos cargados"; const date = new Date(value); if (Number.isNaN(date.getTime())) return "Sin hora disponible"; return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" }).format(date); }

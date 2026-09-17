@@ -1,51 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Activity, Boxes, MapPinCheck, Maximize, RefreshCw, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useTvData } from "./TvDataCache";
 import type { Vehiculo } from "../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../seguimiento/utils";
 
 type Summary = { contractor: string; rutas: number; cajas: number; clientes: number; visitados: number };
 type ModulationRow = { contractor: string; date: string; modulationBoxes: number };
-type TvData = { records: Vehiculo[]; modulationRacocimi2: ModulationRow[] };
 const GALAPA = ["Logisticos", "Surti Cervezas"];
 
 export default function AdminModoTvPage() {
   const router = useRouter();
-  const [data, setData] = useState<TvData>({ records: [], modulationRacocimi2: [] });
-  const [operationalDate, setOperationalDate] = useState("");
-  const [updated, setUpdated] = useState("—");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data, updated: cachedUpdated, loading, error, load } = useTvData().seguimiento;
+  const operationalDate = data.today;
+  const updated = formatBogotaTime(cachedUpdated);
   const [fullscreen, setFullscreen] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/admin/seguimiento", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo cargar el seguimiento.");
-      setData({ records: body.records || [], modulationRacocimi2: body.modulationRacocimi2 || [] });
-      setOperationalDate(body.today || "");
-      setUpdated(formatBogotaTime(body.now));
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo cargar el seguimiento.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-    const interval = window.setInterval(() => void load(), 30_000);
     const onFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onFullscreen);
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener("fullscreenchange", onFullscreen);
     };
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;

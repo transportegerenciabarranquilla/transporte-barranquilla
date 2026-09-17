@@ -1,50 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, ClipboardList, MapPinCheck, Maximize, Package, RefreshCw, Truck, Users, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useTvData } from "../TvDataCache";
 import type { Vehiculo } from "../../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../../seguimiento/utils";
 
-type TvData = { records: Vehiculo[] };
 type RefusalStats = { cajas: number; reportadas: number; gestionadas: number; final: number; checkins: number; percent: number; max: number };
 const GALAPA = ["Logisticos", "Surti Cervezas"];
 
 export default function RefusalTvPage() {
   const router = useRouter();
-  const [data, setData] = useState<TvData>({ records: [] });
-  const [operationalDate, setOperationalDate] = useState("");
-  const [updated, setUpdated] = useState("—");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data, updated: cachedUpdated, loading, error, load } = useTvData().seguimiento;
+  const operationalDate = data.today;
+  const updated = formatBogotaTime(cachedUpdated);
   const [fullscreen, setFullscreen] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/admin/seguimiento", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo cargar el refusal.");
-      setData({ records: body.records || [] });
-      setOperationalDate(body.today || "");
-      setUpdated(formatBogotaTime(body.now));
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo cargar el refusal.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-    const interval = window.setInterval(() => void load(), 30_000);
     const onFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onFullscreen);
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener("fullscreenchange", onFullscreen);
     };
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
