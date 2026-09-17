@@ -1,7 +1,7 @@
 import { allowedContractors } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { CONTRACTORS, contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
+import { contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -110,7 +110,7 @@ export async function GET() {
       return true;
     });
     const records = appendPuntoCoronaReportRecords(uniqueSeguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex);
-    const refusalByComRows = buildRefusalByComRows(modulaciones, records);
+    const refusalByComRows = buildRefusalByComRows(modulaciones);
     const summaries = allowedContractors(session).map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
       const cajas = normalizeCajasTotal(contractorRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
@@ -479,20 +479,10 @@ function percentage(value: number, total: number) {
   return total ? Number(((value / total) * 100).toFixed(2)) : 0;
 }
 
-function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehiculo[]): AdminRefusalComRow[] {
-  const vehicleByDtContractor = new Map(
-    records.map((record) => [`${normalizeContractor(record.transportista)}:${normalizeDt(record.transporte)}:${getVehicleDate(record)}`, record]),
-  );
-  const fallbackVehicleByDtContractor = new Map(
-    records.map((record) => [`${normalizeContractor(record.transportista)}:${normalizeDt(record.transporte)}`, record]),
-  );
-
+function buildRefusalByComRows(modulaciones: ModulacionRegistro[]): AdminRefusalComRow[] {
   return modulaciones.map((record) => {
     const contractor = contractorLabel(record.contratista) || record.contratista || "Sin contratista";
     const date = getRecordDate(record);
-    const vehicle =
-      vehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}:${date}`) ||
-      fallbackVehicleByDtContractor.get(`${normalizeContractor(contractor)}:${normalizeDt(record.dt)}`);
     const reportadas = readNumber(record.totalCajas);
     const gestionadas = readNumber(record.cajasGestionadas);
 
@@ -500,7 +490,7 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
       causal: record.causal?.trim() || "Sin causal",
       contractor,
       codigoCliente: record.codigoCliente?.trim() || "Sin codigo",
-      com: getCom(record, vehicle),
+      com: getCom(record),
       date,
       dt: normalizeDt(record.dt),
       jefeVentas: getJefeVentas(record),
@@ -513,15 +503,9 @@ function buildRefusalByComRows(modulaciones: ModulacionRegistro[], records: Vehi
   });
 }
 
-function getCom(record: ModulacionRegistro, vehicle: Vehiculo | undefined) {
-  if (record.com?.trim()) return record.com.trim().toUpperCase();
-
-  const candidates = [vehicle?.bloque, vehicle?.viaje, vehicle?.territorio].filter(Boolean) as string[];
-  const found = candidates.find((value) => /^COM/i.test(value.trim()));
-  if (found) return found.trim().toUpperCase();
-
-  const code = String(record.codigoCliente || record.dt || "").replace(/\D/g, "");
-  return code ? `COM${code.slice(-3).padStart(3, "0")}` : "Sin asignacion";
+function getCom(record: ModulacionRegistro) {
+  // Algunas cargas históricas de modulación guardan el código COM en Preventista.
+  return record.com?.trim().toUpperCase() || record.preventista?.trim().toUpperCase() || "";
 }
 
 function getPreventista(record: ModulacionRegistro) {

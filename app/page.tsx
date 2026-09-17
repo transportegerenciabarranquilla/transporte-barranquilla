@@ -16,18 +16,41 @@ export default function Home() {
   const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
-    fetch("/api/session/session", { cache: "no-store" })
-      .then(async (response) => {
-        setIsLoggedIn(response.ok);
-        const body = response.ok ? await response.json().catch(() => null) : null;
-        setSession(body?.session ?? null);
-        cacheContractor(body?.session?.contractor || "");
-      })
-      .catch(() => {
-        setSessionError("No se pudo validar la sesion. Revisa la conexion e intenta nuevamente.");
-        setIsLoggedIn(false);
-      })
-      .finally(() => setIsCheckingSession(false));
+    let disposed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+
+    async function checkSession() {
+      try {
+        const response = await fetch("/api/session/session", { cache: "no-store", signal: controller.signal });
+        if (response.status === 401) {
+          if (disposed) return;
+          setSession(null);
+          setIsLoggedIn(false);
+          cacheContractor("");
+        } else {
+          if (!response.ok) throw new Error("Session service unavailable");
+          const body = await response.json();
+          if (!body?.session?.email || !body?.session?.contractor) throw new Error("Invalid session response");
+          if (disposed) return;
+          setSession(body.session);
+          setIsLoggedIn(true);
+          cacheContractor(body.session.contractor);
+        }
+        setSessionError("");
+        setIsCheckingSession(false);
+      } catch {
+        if (disposed) return;
+        setSessionError("No se pudo comprobar tu sesión por un problema de conexión. Reintentaremos automáticamente.");
+        retry = setTimeout(() => void checkSession(), 10_000);
+      }
+    }
+    void checkSession();
+    return () => {
+      disposed = true;
+      controller.abort();
+      clearTimeout(retry);
+    };
   }, []);
 
   async function handleLogin(form: LoginForm) {
@@ -53,7 +76,12 @@ export default function Home() {
   }
 
   if (isCheckingSession) {
-    return <main className="min-h-screen bg-[#f4f7fb]" />;
+    return <main className="grid min-h-screen place-items-center bg-[#f4f7fb] p-6">
+      <div role="status" className="max-w-md rounded-2xl bg-white p-6 text-center text-slate-700 shadow-sm">
+        <h1 className="text-lg font-bold">{sessionError ? "Conexión temporalmente interrumpida" : "Comprobando sesión"}</h1>
+        {sessionError && <p className="mt-3 text-sm">{sessionError}</p>}
+      </div>
+    </main>;
   }
 
   if (isLoggedIn) {

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { isRejectedAuthResponse, sharePendingAuthRequests } from "./authResponse";
 import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isSiteAdminEmail, isEffectiveRestEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
 import { readSecurityState } from "./securityState";
@@ -15,6 +16,8 @@ type SupabaseRefreshResponse = {
   refresh_token?: string;
   user?: SupabaseUser;
 };
+
+const sharedRefresh = sharePendingAuthRequests<SupabaseRefreshResponse | null>();
 
 export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean; allowEffectiveRest?: boolean } = {}) {
   const cookieStore = await cookies();
@@ -60,19 +63,23 @@ async function fetchSupabaseUser(supabaseKey: string, accessToken: string) {
     headers: { apikey: supabaseKey, Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
-  if (!response.ok) return null;
+  if (isRejectedAuthResponse(response)) return null;
 
   return (await response.json()) as SupabaseUser;
 }
 
 async function refreshSupabaseSession(supabaseKey: string, refreshToken: string) {
+  return sharedRefresh(refreshToken, () => requestSupabaseRefresh(supabaseKey, refreshToken));
+}
+
+async function requestSupabaseRefresh(supabaseKey: string, refreshToken: string) {
   const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",
     headers: { apikey: supabaseKey, "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
     cache: "no-store",
   });
-  if (!response.ok) return null;
+  if (isRejectedAuthResponse(response, true)) return null;
 
   return (await response.json()) as SupabaseRefreshResponse;
 }

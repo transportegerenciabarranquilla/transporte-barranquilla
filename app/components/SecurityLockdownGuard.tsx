@@ -27,8 +27,15 @@ export function SecurityLockdownGuard() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 10_000);
+    const poll = () => {
+      void refresh().catch(() => {
+        // Keep the last confirmed security state during a temporary network failure.
+        // The next poll retries; server-side access checks remain authoritative.
+        console.warn("No se pudo consultar la seguridad global. Se reintentará automáticamente.");
+      });
+    };
+    poll();
+    const timer = window.setInterval(poll, 10_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
 

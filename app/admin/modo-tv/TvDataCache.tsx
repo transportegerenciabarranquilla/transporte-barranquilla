@@ -7,18 +7,37 @@ import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage"
 type SeguimientoData = {
   records: Vehiculo[];
   modulationRacocimi2: { contractor: string; date: string; modulationBoxes: number }[];
+  refusalByComRows: Array<{
+    causal: string;
+    contractor: string;
+    codigoCliente: string;
+    com: string;
+    date: string;
+    dt: string;
+    jefeVentas: string;
+    nombreCliente: string;
+    preventista: string;
+    reportadas: number;
+    gestionadas: number;
+    refusalFinal: number;
+  }>;
   today: string;
 };
 type RangoData = {
   reports: { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] }[];
 };
-const EMPTY_SEGUIMIENTO: SeguimientoData = { records: [], modulationRacocimi2: [], today: "" };
+const EMPTY_SEGUIMIENTO: SeguimientoData = { records: [], modulationRacocimi2: [], refusalByComRows: [], today: "" };
 const EMPTY_RANGO: RangoData = { reports: [] };
 function seguimientoData(body: SeguimientoData): SeguimientoData {
-  if (!Array.isArray(body.records) || !Array.isArray(body.modulationRacocimi2) || typeof body.today !== "string") {
+  if (!Array.isArray(body.records) || !Array.isArray(body.modulationRacocimi2) || !Array.isArray(body.refusalByComRows) || typeof body.today !== "string") {
     throw new Error("La respuesta de seguimiento no es válida.");
   }
-  return { records: body.records, modulationRacocimi2: body.modulationRacocimi2, today: body.today };
+  return {
+    records: body.records,
+    modulationRacocimi2: body.modulationRacocimi2,
+    refusalByComRows: body.refusalByComRows,
+    today: body.today,
+  };
 }
 function rangoData(body: RangoData): RangoData {
   if (!Array.isArray(body.reports)) throw new Error("La respuesta de rango no es válida.");
