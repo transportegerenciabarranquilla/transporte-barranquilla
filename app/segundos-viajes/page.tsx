@@ -7,7 +7,7 @@ import type { Vehiculo } from "../seguimiento/types";
 
 type PlateCheck = { capacidad: number | null; placa: string; ok: boolean; error?: string };
 
-const SECOND_TRIP_STATUSES = ["Cargando", "Retornando", "Contando", "En ruta"] as const;
+const SECOND_TRIP_STATUSES = ["Cargando", "Retornando", "Contando", "En ruta" , "En muelle" , "pendiente"] as const;
 
 export default function SegundosViajesPage() {
   const router = useRouter();
@@ -176,7 +176,7 @@ export default function SegundosViajesPage() {
       <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 bg-slate-50 px-5 py-3"><h2 className="text-sm font-black text-[#10223d]">Estado de los segundos viajes</h2><p className="mt-0.5 text-xs text-slate-500">Selecciona el estado operativo de cada DT.</p></div><div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{trips.map((record) => <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2" key={`status-${record.recordId || record.transporte}`}><span className="text-xs font-black text-[#10223d]">DT {record.transporte || "Sin DT"}</span><select aria-label={`Estado del DT ${record.transporte || "sin número"}`} className={`h-8 rounded-lg border px-2 text-xs font-black outline-none focus:ring-2 focus:ring-orange-500/20 ${statusSelectClass(record.status)}`} disabled={savingStatus === record.recordId} onChange={(event) => void updateStatus(record, event.target.value)} value={SECOND_TRIP_STATUSES.includes(record.status as (typeof SECOND_TRIP_STATUSES)[number]) ? record.status : "Cargando"}>{SECOND_TRIP_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>)}</div></section>
     </main>
   );
-} 
+}   
 function isSecondTrip(value: string) { return /^(?:viaje\s*)?11(?:\D.*)?$/i.test(String(value || "").trim()); }
 function isWeightAccepted(record: Vehiculo) { return /aceptad|validad/i.test(String(record.validadorPeso || "")); }
 function recordDate(record: Vehiculo) { const raw = String(record.fechaDespacho || record.fechaDt || record.date || record.createdAt || ""); if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/); if (!match) return ""; return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`; }

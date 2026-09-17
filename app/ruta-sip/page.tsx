@@ -7,6 +7,7 @@ import { normalizeContractorName } from "../lib/contractors";
 import type { Vehiculo } from "../seguimiento/types";
 import { calculateRouteTime, getStatus, toDateKey } from "../seguimiento/utils";
 import { ExitTvButton } from "../admin/modo-tv/ExitTvButton";
+import { useOptionalTvData } from "../admin/modo-tv/TvDataCache";
 
 const LOGISTICOS = "logisticos";
 const SURTI = "surticervezas";
@@ -15,6 +16,8 @@ export default function RutaSipPage() {
   const router = useRouter();
   const pathname = usePathname();
   const isTvMode = pathname.startsWith("/admin/modo-tv");
+  const tvData = useOptionalTvData();
+  const tvSeguimiento = tvData?.seguimiento;
   const [today, setToday] = useState(() => dateKey(new Date()));
   const [now, setNow] = useState(() => new Date());
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -28,6 +31,8 @@ export default function RutaSipPage() {
   }, []);
 
   useEffect(() => {
+    if (isTvMode && tvSeguimiento) return;
+
     let active = true;
     const loadRoutes = async () => {
       try {
@@ -47,20 +52,33 @@ export default function RutaSipPage() {
     void loadRoutes();
     const interval = window.setInterval(() => void loadRoutes(), 30_000);
     return () => { active = false; window.clearInterval(interval); };
-  }, []);
+  }, [isTvMode, tvSeguimiento]);
 
   useEffect(() => {
+    if (isTvMode) {
+      setAllowed(true);
+      return;
+    }
+
     fetch("/api/session/session", { cache: "no-store" })
       .then(async (response) => response.ok ? response.json() : null)
       .then((body) => setAllowed(Boolean(body?.session?.isAdmin || normalizeContractorName(body?.session?.contractor) === LOGISTICOS)))
       .catch(() => setAllowed(false));
-  }, []);
+  }, [isTvMode]);
 
-  const routes = useMemo(() => vehicles
+  useEffect(() => {
+    if (isTvMode && tvSeguimiento?.data.today) setToday(tvSeguimiento.data.today);
+  }, [isTvMode, tvSeguimiento?.data.today]);
+
+  const sourceVehicles = isTvMode && tvSeguimiento ? tvSeguimiento.data.records : vehicles;
+  const routesLoading = isTvMode && tvSeguimiento ? tvSeguimiento.loading : loadingRoutes;
+  const routesError = isTvMode && tvSeguimiento ? tvSeguimiento.error : loadError;
+
+  const routes = useMemo(() => sourceVehicles
     .filter((vehicle) => toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === today)
     .filter((vehicle) => [LOGISTICOS, SURTI].includes(normalizeContractorName(vehicle.transportista)))
     .map((vehicle) => toRouteRow(vehicle, now))
-    .sort((a, b) => a.contractor.localeCompare(b.contractor) || a.departure.localeCompare(b.departure) || a.dt.localeCompare(b.dt, "es-CO", { numeric: true })), [vehicles, now, today]);
+    .sort((a, b) => a.contractor.localeCompare(b.contractor) || a.departure.localeCompare(b.departure) || a.dt.localeCompare(b.dt, "es-CO", { numeric: true })), [sourceVehicles, now, today]);
 
   const logisticosRoutes = routes.filter((route) => route.contractorKey === LOGISTICOS);
   const surtiRoutes = routes.filter((route) => route.contractorKey === SURTI);
@@ -91,10 +109,10 @@ export default function RutaSipPage() {
           </div>
         </section>
 
-        {loadError ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{loadError}</p> : null}
+        {routesError ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{routesError}</p> : null}
         <section className="grid gap-5 xl:grid-cols-[minmax(420px,1.15fr)_minmax(360px,.85fr)]">
           <RouteTable rows={logisticosRoutes} title="Rutas" tone="blue" />
-          <ShipmentsTable loading={loadingRoutes} rows={routes} />
+          <ShipmentsTable loading={routesLoading} rows={routes} />
         </section>
       </section>
     </main>

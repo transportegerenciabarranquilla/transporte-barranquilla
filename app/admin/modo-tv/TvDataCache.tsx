@@ -113,3 +113,7 @@ export function useTvData() {
   if (!cache) throw new Error("Falta el proveedor de datos de TV.");
   return cache;
 }
+
+export function useOptionalTvData() {
+  return useContext(TvDataContext);
+}
