@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpDown, CalendarDays, Clock3, Download, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, BarChart3, CalendarDays, Clock3, Download, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
 import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { isLogisticosContractor } from "../lib/contractors";
@@ -10,7 +10,8 @@ import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimi
 import type { Vehiculo } from "../seguimiento/types";
 import { getStatus, getVehicleUiKey, hasTimeValue, ROUTE_STATUSES, toDateKey } from "../seguimiento/utils";
 
-const META_RELEVO_MINUTES = 10 * 60 + 30;
+// El rótulo 10:30 se conserva por solicitud operativa; el umbral real es de 10 horas.
+const META_RELEVO_MINUTES = 10 * 60;
 const SIF_ALERT_MINUTES = 13 * 60;
 const META_RELEVO_SECONDS = META_RELEVO_MINUTES * 60;
 const SIF_ALERT_SECONDS = SIF_ALERT_MINUTES * 60;
@@ -38,6 +39,7 @@ export default function JornadaLaboralPage() {
   const [exportPeriod, setExportPeriod] = useState<ExportPeriod>("day");
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
+  const [showCharts, setShowCharts] = useState(false);
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [operationalStatusFilter, setOperationalStatusFilter] = useState("");
@@ -301,6 +303,7 @@ export default function JornadaLaboralPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button aria-expanded={showCharts} aria-controls="relevo-charts" className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] hover:bg-slate-50" onClick={() => setShowCharts((current) => !current)} type="button"><BarChart3 size={18} />{showCharts ? "Ocultar gráficas" : "Gráficas"}</button>
             <select
               aria-label="Periodo para exportar"
               className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
@@ -342,6 +345,8 @@ export default function JornadaLaboralPage() {
           <Metric icon={<Save size={20} />} label="Relevadas" value={resumen.relevadas} tone="ok" />
           <Metric icon={<X size={20} />} label="No efectivos" value={resumen.noEfectivos} tone="danger" />
         </div>
+
+        {showCharts ? <RelevoCharts vehicles={jornadaVehiculos} date={selectedDate} now={now} /> : null}
 
         {sifRows.length ? (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-800 shadow-sm">
@@ -986,6 +991,77 @@ function buildJornadaRow(vehicle: Vehiculo, now: Date) {
     statusLabel: operationalStatus,
     vehicle,
   };
+}
+
+function RelevoCharts({ vehicles, date, now }: { vehicles: Vehiculo[]; date: string; now: Date }) {
+  const [from, setFrom] = useState(date);
+  const [to, setTo] = useState(date);
+  const [resultFilter, setResultFilter] = useState("");
+  const invalidRange = !from || !to || from > to;
+  const rows = useMemo(() => invalidRange ? [] : vehicles
+    .filter((vehicle) => {
+      const day = toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+      return day >= from && day <= to;
+    })
+    .map((vehicle) => buildJornadaRow(vehicle, now))
+    .sort((a, b) => getStableRowOrder(a.vehicle).localeCompare(getStableRowOrder(b.vehicle), "es-CO", { numeric: true })), [vehicles, from, to, invalidRange, now]);
+  const categories = [
+    { result: "Efectivo", label: "Relevadas exitosamente", color: "bg-emerald-500", text: "text-emerald-700", stroke: "#10b981", surface: "bg-emerald-50 border-emerald-200" },
+    { result: "No efectivo", label: "Relevos no efectivos", color: "bg-red-500", text: "text-red-700", stroke: "#f43f5e", surface: "bg-rose-50 border-rose-200" },
+    { result: "Pendiente", label: "Sin relevo evaluable", color: "bg-slate-400", text: "text-slate-600", stroke: "#94a3b8", surface: "bg-slate-50 border-slate-200" },
+  ].map((category) => {
+    const count = rows.filter((row) => row.clasificacion === category.result).length;
+    return { ...category, count, percent: rows.length ? count / rows.length * 100 : 0 };
+  });
+  const visibleRows = rows.filter((row) => !resultFilter || row.clasificacion === resultFilter);
+  const effective = categories[0];
+
+  return <section id="relevo-charts" className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/40">
+    <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5">
+      <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-emerald-700">Control de relevos</p><h2 className="mt-1 flex items-center gap-2 text-xl font-black text-[#10223d]"><BarChart3 size={22} />Resultados del período</h2><p className="mt-1 text-xs text-slate-500">Consulta las rutas por fecha de despacho.</p></div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs font-semibold text-slate-600">Desde<input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} className="mt-1 block h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-[#10223d]" /></label>
+        <label className="text-xs font-semibold text-slate-600">Hasta<input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} className="mt-1 block h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-[#10223d]" /></label>
+        <button type="button" className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50" onClick={() => { setFrom(date); setTo(date); setResultFilter(""); }}>Día seleccionado</button>
+      </div>
+    </header>
+    {invalidRange ? <p role="alert" className="m-5 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Selecciona ambas fechas; la fecha inicial debe ser anterior o igual a la final.</p> : null}
+    <div className="grid gap-6 p-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="flex flex-col items-center justify-center rounded-xl bg-slate-50 p-4">
+        <div role="img" aria-label={`${effective.percent.toFixed(1)}% de rutas relevadas exitosamente; ${rows.length} rutas en el período`} className="relative h-52 w-52">
+          <svg aria-hidden="true" viewBox="0 0 120 120" className="h-full w-full -rotate-90"><circle cx="60" cy="60" r="50" fill="white" stroke="#e2e8f0" strokeWidth="12" />{categories.map((category, index) => <circle key={category.result} cx="60" cy="60" r="50" fill="none" stroke={category.stroke} strokeWidth="12" pathLength="100" strokeDasharray={`${category.percent} ${100 - category.percent}`} strokeDashoffset={-categories.slice(0, index).reduce((sum, item) => sum + item.percent, 0)} className="transition-all duration-500" />)}</svg>
+          <div aria-hidden="true" className="absolute inset-0 flex flex-col items-center justify-center"><strong className="text-4xl font-black tabular-nums text-[#10223d]">{rows.length ? `${effective.percent.toFixed(1)}%` : "—"}</strong><span className="mt-1 text-xs font-semibold text-emerald-700">relevadas con éxito</span></div>
+        </div>
+        <p className="mt-3 text-sm font-semibold text-slate-600">{rows.length} rutas en el período</p>
+      </div>
+      <div className="grid content-center gap-3">
+        {categories.map((category) => <button type="button" aria-pressed={resultFilter === category.result} onClick={() => setResultFilter((current) => current === category.result ? "" : category.result)} key={category.result} className={`rounded-xl border p-4 text-left transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-blue-500 ${category.surface} ${resultFilter === category.result ? "ring-2 ring-slate-400" : ""}`}>
+          <div className="flex items-center justify-between gap-3"><h3 className={`flex items-center gap-2 text-sm font-bold ${category.text}`}><span className={`h-2.5 w-2.5 rounded-full ${category.color}`} />{category.label}</h3><strong className={`text-2xl font-black tabular-nums ${category.text}`}>{category.percent.toFixed(1)}%</strong></div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white"><div className={`h-full rounded-full transition-all duration-500 ${category.color}`} style={{ width: `${category.percent}%` }} /></div>
+          <p className="mt-2 text-xs text-slate-500">{category.count} de {rows.length} rutas · Ver detalle</p>
+        </button>)}
+      </div>
+    </div>
+    <p className="px-5 pb-4 text-xs leading-relaxed text-slate-500">Porcentajes sobre todas las rutas del rango, incluyendo ambos días. Relevo efectivo: inicio dentro de las primeras 10 horas desde la salida. Los registros sin salida o inicio de relevo válidos se cuentan como sin relevo evaluable.</p>
+    <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3"><h3 className="text-sm font-bold text-[#10223d]">Detalle de rutas · {visibleRows.length}</h3><button type="button" className="text-xs font-semibold text-blue-700 hover:underline" onClick={() => setResultFilter("")}>Mostrar todos los resultados</button></div>
+    <div className="max-h-96 overflow-auto">
+      <table className="w-full min-w-[700px] text-left text-xs">
+        <thead className="sticky top-0 bg-slate-100 text-slate-600"><tr>{["Fecha", "DT", "Placa", "Salida", "Meta relevo", "Inicio relevo", "Relevador", "Resultado"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100">{visibleRows.map((row) => <tr className="hover:bg-slate-50" key={getVehicleUiKey(row.vehicle)}>
+          <td className="whitespace-nowrap px-4 py-3">{toDateKey(row.vehicle.fechaDespacho || row.vehicle.date || row.vehicle.createdAt)}</td>
+          <td className="px-4 py-3 font-semibold">{row.vehicle.transporte || "—"}</td>
+          <td className="px-4 py-3">{row.vehicle.vehiculo || "—"}</td>
+          <td className="px-4 py-3">{timeInputValue(row.vehicle.horaSalida) || "—"}</td>
+          <td className="px-4 py-3">{row.metaRelevo}</td>
+          <td className="px-4 py-3">{timeInputValue(row.vehicle.horaInicioRelevo) || "—"}</td>
+          <td className="px-4 py-3">{cleanPersonValue(row.vehicle.relevador) || "Sin relevador"}</td>
+          <td className={`px-4 py-3 font-semibold ${categories.find((category) => category.result === row.clasificacion)?.text}`}>
+            {row.clasificacion === "Pendiente" ? "Sin relevo evaluable" : row.clasificacion}
+          </td>
+        </tr>)}{!visibleRows.length ? <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">{invalidRange ? "Corrige el rango de fechas para consultar los resultados." : "No hay rutas para el período y resultado seleccionados."}</td></tr> : null}</tbody>
+      </table>
+    </div>
+  </section>;
 }
 
 function calculateMetaRelevo(horaSalida: string | undefined) {
