@@ -265,7 +265,7 @@ function rowMatchesCodigo(row: ClienteRow, codigo: string, codeColumnsOnly: bool
 function normalizeCliente(row: ClienteRow, codigo: string) {
   return {
     codigo: valueByKnownKeys(row, CODE_COLUMNS) || codigo,
-    nombre: valueByHints(row, NAME_HINTS, [codigo]) || valueByFirstText(row, [codigo]),
+    nombre: valueByNormalizedKeys(row, ["nombre_cliente", "nombrecliente", "razon_social", "nombre", "establecimiento"]) || valueByHints(row, NAME_HINTS, [codigo]) || valueByFirstText(row, [codigo]),
     com: valueByKnownKeys(row, COM_KEYS) || valueByHints(row, COM_HINTS),
     jefeComercial: valueByKnownKeys(row, JEFE_KEYS) || valueByHints(row, JEFE_HINTS),
     preventista: valueByKnownKeys(row, PREVENTISTA_KEYS) || valueByHints(row, PREVENTISTA_HINTS),
@@ -273,7 +273,17 @@ function normalizeCliente(row: ClienteRow, codigo: string) {
     telefono: valueByKnownKeys(row, PHONE_KEYS) || valueByPhoneHints(row, PHONE_HINTS),
     telefonoJefeComercial: valueByKnownKeys(row, JEFE_PHONE_KEYS) || valueByPhoneHints(row, JEFE_PHONE_HINTS),
     telefonoPreventista: valueByKnownKeys(row, PREVENTISTA_PHONE_KEYS) || valueByPhoneHints(row, PREVENTISTA_PHONE_HINTS),
+    cedula: valueByNormalizedKeys(row, ["cedula_cliente", "cedula", "documento_cliente", "numero_documento", "identificacion", "nit"]),
+    cedulaResponsable: valueByNormalizedKeys(row, ["cedulaResponsable", "cedula_rr", "cedula_responsable", "documento_rr", "cc_rr"]),
   };
+}
+
+function valueByNormalizedKeys(row: ClienteRow, keys: string[]) {
+  for (const key of keys) {
+    const match = Object.entries(row).find(([column, value]) => normalizeText(column) === normalizeText(key) && isPresent(value));
+    if (match) return String(match[1]).trim();
+  }
+  return "";
 }
 
 function valueByKnownKeys(row: ClienteRow, keys: string[]) {

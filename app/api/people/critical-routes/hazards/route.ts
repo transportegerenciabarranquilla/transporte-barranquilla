@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
+import { readCoordinateRecord } from "../../../../lib/coordinateRecords";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
-
-const TYPES = new Set(["cables_bajos", "via_danada", "inundacion", "cierre", "peligro"]);
 
 async function authorized() {
   const session = await getAuthenticatedSession();
@@ -16,7 +15,7 @@ export async function GET() {
   const params = new URLSearchParams({ select: "id,ruta,tipo,descripcion,latitud,longitud,activo", order: "id.desc" });
   const response = await fetch(supabaseRest("ruta_criticas_riesgos", `?${params}`), { headers: auth.headers, cache: "no-store" });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-  return NextResponse.json({ hazards: await response.json() });
+  return NextResponse.json({ hazards: (await response.json() as Record<string, unknown>[]).map(readCoordinateRecord) });
 }
 
 export async function POST(request: Request) {
@@ -24,11 +23,11 @@ export async function POST(request: Request) {
   if (!auth) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const body = await request.json().catch(() => ({}));
   const route = String(body.route ?? "").trim();
-  const type = String(body.type ?? "peligro");
+  const type = String(body.type ?? "").trim();
   const description = String(body.description ?? "").trim();
   const latitude = Number(body.latitude);
   const longitude = Number(body.longitude);
-  if (!route || !description || !TYPES.has(type) || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+  if (!route || !description || !type || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
     return NextResponse.json({ error: "Completa correctamente todos los campos." }, { status: 400 });
   }
   const response = await fetch(supabaseRest("ruta_criticas_riesgos"), {

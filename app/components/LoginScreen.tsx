@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, ShieldCheck, X } from "lucide-react";
 import { Icon } from "./Icon";
 
 type LoginForm = {
@@ -12,10 +12,26 @@ type LoginForm = {
 
 type LoginErrors = Partial<Record<"email" | "password", string>>;
 
+type NewCoordinateForm = {
+  customerCode: string;
+  route: string;
+  type: string;
+  latitude: string;
+  longitude: string;
+};
+
 const initialForm: LoginForm = {
   email: "",
   password: "",
   remember: true,
+};
+
+const initialCoordinateForm: NewCoordinateForm = {
+  customerCode: "",
+  route: "",
+  type: "",
+  latitude: "",
+  longitude: "",
 };
 
 function validate(form: LoginForm) {
@@ -38,6 +54,61 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [isCoordinateModalOpen, setIsCoordinateModalOpen] = useState(false);
+  const [coordinateForm, setCoordinateForm] = useState<NewCoordinateForm>(initialCoordinateForm);
+  const [coordinateSaving, setCoordinateSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [coordinateMessage, setCoordinateMessage] = useState("");
+  const [coordinateCustomer, setCoordinateCustomer] = useState<{ codigo: string; nombre: string; cedula: string; telefono: string } | null>(null);
+  const [customerLoading, setCustomerLoading] = useState(false);
+  const [customerError, setCustomerError] = useState("");
+  const [rrValidation, setRrValidation] = useState<{ cc: string; valid: boolean; name: string; message: string } | null>(null);
+
+  useEffect(() => {
+    const cc = coordinateForm.type.trim();
+    if (!isCoordinateModalOpen || !cc) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}`, { cache: "no-store", signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok) throw new Error("No se pudo validar el RR. Vuelve a ingresar la cédula.");
+        if (controller.signal.aborted) return;
+        const valid = body.isRR === true;
+        setRrValidation({ cc, valid, name: body.persona?.NOMBRE || "", message: valid ? "RR validado" : "La cédula no pertenece a un RR registrado. No puedes guardar coordenadas." });
+      } catch (error) {
+        if (!controller.signal.aborted) setRrValidation({ cc, valid: false, name: "", message: error instanceof Error ? error.message : "No se pudo validar el RR." });
+      }
+    }, 400);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [coordinateForm.type, isCoordinateModalOpen]);
+  const rrIsValid = Boolean(rrValidation?.valid && rrValidation.cc === coordinateForm.type.trim());
+
+  useEffect(() => {
+    const codigo = coordinateForm.customerCode.trim();
+    if (!isCoordinateModalOpen || !codigo) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setCustomerLoading(true);
+      setCustomerError("");
+      try {
+        const response = await fetch(`/api/clientes?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store", signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "No se pudo consultar el cliente.");
+        if (!body.cliente) throw new Error("No encontramos un cliente con ese código.");
+        if (controller.signal.aborted) return;
+        const cliente = body.cliente;
+        setCoordinateCustomer({ codigo, nombre: cliente.nombre || "", cedula: cliente.cedula || "", telefono: cliente.telefono || "" });
+        setRrValidation(null);
+        setCoordinateForm((current) => current.customerCode === codigo ? { ...current, route: cliente.nombre || codigo, type: String(cliente.cedulaResponsable || "").replace(/\D/g, "") } : current);
+      } catch (error) {
+        if (!controller.signal.aborted) setCustomerError(error instanceof Error ? error.message : "No se pudo consultar el cliente.");
+      } finally {
+        if (!controller.signal.aborted) setCustomerLoading(false);
+      }
+    }, 400);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [coordinateForm.customerCode, isCoordinateModalOpen]);
 
   const canSubmit = useMemo(() => form.email.trim() && form.password.trim(), [form]);
 
@@ -61,6 +132,89 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
       } finally {
         setSubmitting(false);
       }
+    }
+  }
+
+  async function handleCoordinateGeoLocation() {
+    if (locating || coordinateSaving) return;
+    setCoordinateMessage("");
+    if (!navigator.geolocation) {
+      setCoordinateMessage("Este navegador no permite obtener la ubicación.");
+      return;
+    }
+
+    setLocating(true);
+    setCoordinateForm((current) => ({ ...current, latitude: "", longitude: "" }));
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setCoordinateForm((current) => ({
+          ...current,
+          latitude: String(coords.latitude),
+          longitude: String(coords.longitude),
+        }));
+        setLocating(false);
+        setCoordinateMessage("Ubicación capturada. Pulsa Guardar coordenada para registrarla.");
+      },
+      () => {
+        setLocating(false);
+        setCoordinateMessage("No se pudo capturar la ubicación. Permite el acceso a tu ubicación y vuelve a intentarlo.");
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  }
+
+  async function handleCoordinateSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (coordinateSaving || locating) return;
+    setCoordinateMessage("");
+    if (!rrIsValid) {
+      setCoordinateMessage("Debes ingresar la cédula de un RR registrado y esperar su validación.");
+      return;
+    }
+
+    const route = coordinateForm.route.trim();
+    const type = coordinateForm.type.trim();
+    const latitude = Number(coordinateForm.latitude);
+    const longitude = Number(coordinateForm.longitude);
+
+    if (customerLoading || !coordinateCustomer || coordinateCustomer.codigo !== coordinateForm.customerCode || !route || !type || !coordinateForm.latitude.trim() || !coordinateForm.longitude.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      setCoordinateMessage("Consulta el código de cliente, valida la cédula RR y pulsa Usar mi ubicación.");
+      return;
+    }
+
+    setCoordinateSaving(true);
+    const payload = {
+      customerCode: coordinateForm.customerCode,
+      route,
+      type,
+      latitude,
+      longitude,
+    };
+
+    try {
+      const response = await fetch("/api/public/critical-routes?scope=coordinates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok || !body.hazard?.id) {
+        throw new Error(body.error || "No se pudo guardar la nueva coordenada.");
+      }
+
+      setCoordinateMessage("Coordenada guardada correctamente en el sistema.");
+      setCoordinateForm(initialCoordinateForm);
+      setCoordinateCustomer(null);
+      setRrValidation(null);
+      setTimeout(() => {
+        setIsCoordinateModalOpen(false);
+        setCoordinateMessage("");
+      }, 1200);
+    } catch (error) {
+      setCoordinateMessage(error instanceof Error ? error.message : "No se pudo guardar la coordenada. Conservamos los datos para que puedas reintentar.");
+    } finally {
+      setCoordinateSaving(false);
     }
   }
 
@@ -131,6 +285,18 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                     Registrar modulacion
                     <ArrowRight size={14} />
                   </a>
+                  <button
+                    className="col-span-2 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-2 text-center text-xs font-bold text-violet-900 transition hover:border-violet-400 hover:bg-white"
+                    onClick={() => {
+                      setCoordinateForm(initialCoordinateForm);
+                      setCoordinateMessage("");
+                      setIsCoordinateModalOpen(true);
+                    }}
+                    type="button"
+                  >
+                    Agregar nuevas coordenadas
+                    <Plus size={14} />
+                  </button>
                   <a className="col-span-2 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-center text-xs font-bold text-amber-900 transition hover:border-[#f5bd19] hover:bg-white" href="/rutas-criticas">
                     Consultar rutas criticas
                     <ArrowRight size={14} />
@@ -211,6 +377,109 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
           </div>
         </section>
       </section>
+
+      {isCoordinateModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-violet-100 text-violet-700">
+                  <MapPinned size={18} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-700">Coordenadas</p>
+                  <h3 className="text-lg font-black text-[#10223d]">Agregar nuevas coordenadas</h3>
+                </div>
+              </div>
+              <button
+                aria-label="Cerrar"
+                className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50"
+                onClick={() => setIsCoordinateModalOpen(false)}
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={handleCoordinateSubmit}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">Código de cliente</span>
+                  <input
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-violet-400"
+                    onChange={(event) => {
+                      const customerCode = event.target.value.replace(/\D/g, "");
+                      setCoordinateForm((current) => ({ ...current, customerCode, route: "", type: "", latitude: "", longitude: "" }));
+                      setCoordinateMessage("");
+                      setCoordinateCustomer(null);
+                      setRrValidation(null);
+                      setCustomerError("");
+                      setCustomerLoading(false);
+                    }}
+                    inputMode="numeric"
+                    disabled={coordinateSaving || locating}
+                    placeholder="Ingresa el código del cliente"
+                    type="text"
+                    value={coordinateForm.customerCode}
+                  />
+                </label>
+
+                <div aria-live="polite" className="sm:col-span-2">
+                  {customerLoading ? <p className="text-sm text-violet-700">Consultando cliente...</p> : null}
+                  {customerError ? <p role="alert" className="text-sm text-red-700">{customerError}</p> : null}
+                  {coordinateCustomer && coordinateCustomer.codigo === coordinateForm.customerCode ? <dl className="grid gap-2 rounded-xl border border-violet-100 bg-violet-50 p-3 text-sm sm:grid-cols-2">
+                    <div className="sm:col-span-2"><dt className="text-xs text-slate-500">Nombre del cliente</dt><dd className="font-semibold text-[#10223d]">{coordinateCustomer.nombre || "Sin nombre registrado"}</dd></div>
+                    <div><dt className="text-xs text-slate-500">Cédula / NIT del cliente</dt><dd>{coordinateCustomer.cedula || "No registrada"}</dd></div>
+                    <div><dt className="text-xs text-slate-500">Teléfono</dt><dd>{coordinateCustomer.telefono || "No registrado"}</dd></div>
+                  </dl> : null}
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">Cédula RR</span>
+                  <input
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-violet-400"
+                    onChange={(event) => { setRrValidation(null); setCoordinateForm((current) => ({ ...current, type: event.target.value.replace(/\D/g, "") })); }}
+                    inputMode="numeric"
+                    disabled={coordinateSaving}
+                    placeholder="Ej. 12345678"
+                    type="text"
+                    value={coordinateForm.type}
+                  />
+                  <p aria-live="polite" className={`mt-1 text-xs ${rrIsValid ? "text-emerald-700" : "text-red-700"}`}>{!coordinateForm.type ? "Ingresa la cédula del RR para validar su cargo." : rrValidation?.cc === coordinateForm.type ? `${rrValidation.message}${rrValidation.name ? ` · ${rrValidation.name}` : ""}` : "Validando cargo del RR..."}</p>
+                </label>
+
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-800 transition hover:bg-violet-100"
+                  onClick={handleCoordinateGeoLocation}
+                  disabled={locating || coordinateSaving}
+                  type="button"
+                >
+                  <MapPinned size={16} />
+                  {locating ? "Obteniendo ubicación..." : coordinateForm.latitude && coordinateForm.longitude ? "Actualizar mi ubicación" : "Usar mi ubicación"}
+                </button>
+
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#10223d] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0d1b2d] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={coordinateSaving || locating || !coordinateForm.latitude || !coordinateForm.longitude || customerLoading || !rrIsValid || !coordinateCustomer || coordinateCustomer.codigo !== coordinateForm.customerCode}
+                  type="submit"
+                >
+                  <Plus size={16} />
+                  {coordinateSaving ? "Guardando..." : "Guardar coordenada"}
+                </button>
+              </div>
+
+              {coordinateMessage ? (
+                <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  {coordinateMessage}
+                </p>
+              ) : null}
+            </form>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

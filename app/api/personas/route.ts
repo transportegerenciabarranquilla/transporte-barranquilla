@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cachedJsonFetch } from "../../lib/serverCache";
+import { isRrRole } from "../../lib/rrRole";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
 
 const PEOPLE_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
     if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
 
     const rows = await readPersonas(params);
-    return NextResponse.json({ persona: rows[0] ?? null });
+    return NextResponse.json({ persona: rows[0] ?? null, isRR: isRrRole(rows[0]?.CARGO) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error buscando la persona." },

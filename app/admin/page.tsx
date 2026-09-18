@@ -465,6 +465,14 @@ export default function AdminPage() {
                   <WalletCards size={16} />
                   Acuerdo Cashell
                 </button>
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-violet-300/30 bg-violet-400/15 px-4 text-sm font-semibold text-violet-100 transition hover:bg-violet-400/25"
+                  onClick={() => router.push("/admin/coordenadas")}
+                  type="button"
+                >
+                  <MapPinCheck size={16} />
+                  Ubicaciones
+                </button>
               </div>
             </div>
 
