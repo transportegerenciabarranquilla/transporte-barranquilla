@@ -8,6 +8,7 @@ import { getAuthenticatedSession } from "../../lib/authServer";
 import { isSecurityOwnerEmail, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { dedupeUpsertRows } from "../../lib/seguimientoUpsert";
 
 const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
@@ -107,7 +108,7 @@ export async function PUT(request: Request) {
         updated_at: new Date().toISOString(),
       };
     });
-    rows = await preservePersistedRouteProgress(rows, session.contractor, session.accessToken);
+    rows = dedupeUpsertRows(await preservePersistedRouteProgress(rows, session.contractor, session.accessToken));
     if (rows.length) {
       const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
         method: "POST",

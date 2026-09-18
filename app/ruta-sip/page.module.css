@@ -1,0 +1,98 @@
+.page {
+  width: 100%;
+}
+
+.content {
+  max-width: 2400px;
+  padding-bottom: 1rem;
+}
+
+.panels {
+  display: grid;
+  align-items: stretch;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.routeTable {
+  min-width: 620px;
+  table-layout: fixed;
+  font-size: 0.75rem;
+}
+
+.routeTable th,
+.routeTable td {
+  overflow-wrap: anywhere;
+  padding-inline: 0.375rem;
+  padding-block: 0.375rem;
+  line-height: 1.25;
+}
+
+.routeTable td span {
+  padding-inline: 0.375rem;
+  font-size: 0.6875rem;
+}
+
+.routeTable td:last-child > div {
+  max-width: 100%;
+}
+
+.dailyProgress {
+  display: flex;
+  flex-direction: column;
+}
+
+.dailyProgress > div {
+  flex: 1;
+  align-content: center;
+}
+
+.routeTable th:nth-child(1) {
+  width: 14%;
+}
+
+.routeTable th:nth-child(2) {
+  width: 12%;
+}
+
+.routeTable th:nth-child(5) {
+  width: 12%;
+}
+
+.routeTable th:nth-child(6) {
+  width: 20%;
+}
+
+@media (min-width: 1200px) {
+  .panels {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  }
+
+  .routeTable {
+    min-width: 0;
+  }
+}
+
+/* Keep the dashboard visible on shorter TV screens without hiding overflow. */
+@media (min-width: 1200px) and (max-height: 850px) {
+  .content > section:first-child > div {
+    padding-block: 0.5rem;
+  }
+
+  .content > section:first-child article {
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    align-items: center;
+    column-gap: 0.75rem;
+    padding: 0.625rem;
+  }
+
+  .content > section:first-child article > span {
+    grid-row: span 3;
+  }
+
+  .content > section:first-child article > p,
+  .content > section:first-child article > strong {
+    margin-top: 0;
+  }
+}
