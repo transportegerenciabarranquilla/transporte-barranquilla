@@ -27,7 +27,11 @@ test('pagina check-ins sin perder el filtro', async () => {
  for (const url of calls) assert.equal(url.searchParams.get('contractor'), 'eq.Logisticos');
 });
 test('cierres de Logisticos y Surti, check-in cero y sin check-in', () => {
- const { calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {} });
+ const { calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {
+  const checkinValue = checkin == null || checkin === '' ? null : Number(checkin);
+  if (checkinValue !== null) return Math.max(checkinValue, 0);
+  return Math.max((Number(rejected) || 0) - (Number(managed) || 0), 0);
+ } } });
  for (const [contractor, boxes, checkin, rejected, managed, expected] of [['Logisticos', 22286, 713, 744, 298, 3.2], ['Surti Cervezas', 17083, 253, 268, 95, 1.48]]) {
  const vehicles = [{ transporte: '123', transportista: contractor, cajas: boxes }];
  const modulations = [{ dt: '123', contratista: contractor, totalCajas: rejected, cajasGestionadas: managed }];
@@ -58,6 +62,42 @@ test('administracion conserva el DT mas reciente sin sumar duplicados', async ()
  assert.equal(result.records.length, 2);
  assert.deepEqual(result.records.map(row => row.cajas), [22286, 22286]);
 });
+test('modulaciones sin fecha siguen perteneciendo al dia si el DT existe en ese rango', () => {
+ const { matchesModulacionDateRange, calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {
+  const checkinValue = checkin == null || checkin === '' ? null : Number(checkin);
+  if (checkinValue !== null) return Math.max(checkinValue, 0);
+  return Math.max((Number(rejected) || 0) - (Number(managed) || 0), 0);
+ } } });
+ const range = { from: '2026-09-05', to: '2026-09-05' };
+ const vehicle = { transporte: '123', transportista: 'Logisticos', cajas: 100, fechaDespacho: '2026-09-05' };
+ const record = { dt: '123', contratista: 'Logisticos', totalCajas: '10', cajasGestionadas: '2', fechaDespacho: '', fechaDt: '', createdAt: '' };
+ assert.equal(matchesModulacionDateRange(record, range, [vehicle]), true);
+ assert.equal(matchesModulacionDateRange({ ...record, dt: '456' }, range, [vehicle]), false);
+ assert.equal(calculateRefusalTotals([vehicle], [record], []).pendientes, 8);
+});
+test('el check-in solo aplica cuando corresponde al mismo dia y contratista', () => {
+ const { calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {
+  const checkinValue = checkin == null || checkin === '' ? null : Number(checkin);
+  if (checkinValue !== null) return Math.max(checkinValue, 0);
+  return Math.max((Number(rejected) || 0) - (Number(managed) || 0), 0);
+ } } });
+ const vehicle = { transporte: '123', transportista: 'Logisticos', cajas: 100, fechaDespacho: '2026-09-05' };
+ const modulations = [{ dt: '123', contratista: 'Logisticos', totalCajas: '20', cajasGestionadas: '5', fechaDespacho: '2026-09-05' }];
+ const staleCheckin = { dt: '123', contratista: 'Logisticos', totalCajas: 2, createdAt: '2026-09-04T18:00:00.000Z' };
+ const correctCheckin = { dt: '123', contratista: 'Logisticos', totalCajas: 7, createdAt: '2026-09-05T18:00:00.000Z' };
+ assert.equal(calculateRefusalTotals([vehicle], modulations, [staleCheckin, correctCheckin]).pendientes, 7);
+});
+test('los vehiculos con fechaDt tambien cuentan dentro del rango de hoy', () => {
+ const { matchesModulacionDateRange } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {
+  const checkinValue = checkin == null || checkin === '' ? null : Number(checkin);
+  if (checkinValue !== null) return Math.max(checkinValue, 0);
+  return Math.max((Number(rejected) || 0) - (Number(managed) || 0), 0);
+ } } });
+ const range = { from: '2026-09-05', to: '2026-09-05' };
+ const vehicle = { transporte: '123', fechaDt: '2026-09-05', date: '', createdAt: '' };
+ const record = { dt: '123', fechaDespacho: '', fechaDt: '2026-09-05', createdAt: '' };
+ assert.equal(matchesModulacionDateRange(record, range, [vehicle]), true);
+});
 test('cierre completo aunque la base limite cada respuesta a menos filas', async () => {
  const contractors = ['Logisticos', 'Surti Cervezas'];
  const calls = [];
@@ -75,7 +115,7 @@ test('cierre completo aunque la base limite cada respuesta a menos filas', async
  const logisticos = contractor === 'Logisticos';
  if (url.pathname === '/seguimiento_vehiculos') {
  calls.push([contractor, offset]);
- // Emula un servidor cuyo límite real es inferior al solicitado.
+ // Emula un servidor cuyo lï¿½mite real es inferior al solicitado.
  const boxes = logisticos ? [15000, 7286] : [13000, 4083];
  return boxes.slice(offset, offset + 1).map((cajas, i) => ({ contractor, data: { transporte: String(offset + i + 1), fechaDespacho: '2026-09-05', cajas } }));
  }

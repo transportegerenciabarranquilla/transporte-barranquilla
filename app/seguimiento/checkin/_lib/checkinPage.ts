@@ -36,7 +36,7 @@ export function hasDeparture(vehicle: Vehiculo) {
 }
 
 export function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 export function areEquivalentCheckins(left: CheckinCajasRegistro[], right: CheckinCajasRegistro[]) {

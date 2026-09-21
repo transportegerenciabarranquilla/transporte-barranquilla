@@ -235,7 +235,7 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
 
   return records.map((vehicle) => {
     const dt = normalizeDt(vehicle.transporte);
-    const dispatchDate = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    const dispatchDate = dateValue(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
     const attendance = attendanceIndex.byDtAndDate.get(`${dt}:${dispatchDate}`) || attendanceIndex.latestByDt.get(dt);
     if (!attendance) return vehicle;
     const attendanceResponsible = attendance.nombreResponsable || (attendance.cedulaResponsable ? `CC ${attendance.cedulaResponsable}` : "");

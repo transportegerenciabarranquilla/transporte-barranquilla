@@ -26,7 +26,7 @@ export function mergeStoredVehiclesPreservingProgress(currentVehicles: Vehiculo[
 }
 
 export function getVehicleDateKey(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
 }
 
 export function isWithoutResponsible(vehicle: Vehiculo) {

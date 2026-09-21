@@ -126,6 +126,24 @@ export function getOperationalModulaciones(records: ModulacionRegistro[], target
   });
 }
 
+export function matchesModulacionDateRange(
+  record: Pick<ModulacionRegistro, "dt" | "fechaDespacho" | "fechaDt" | "createdAt">,
+  range: { from: string; to: string },
+  vehicles: Array<Pick<ModulacionTarget, "transporte" | "fechaDespacho" | "fechaDt" | "date" | "createdAt">> = [],
+) {
+  const targetDt = normalizeDt(record.dt);
+  if (!targetDt) return false;
+
+  const recordDate = getExplicitDispatchDateKey(record as ModulacionTarget);
+  if (recordDate) return isDateInRange(recordDate, range);
+
+  return vehicles.some((vehicle) => {
+    const vehicleDt = normalizeDt(vehicle.transporte ?? vehicle.dt);
+    const vehicleDate = getDispatchDateKey(vehicle);
+    return vehicleDt === targetDt && vehicleDate && isDateInRange(vehicleDate, range);
+  });
+}
+
 export function readModulacionRegistros() {
   if (typeof window === "undefined") return [];
 
@@ -186,6 +204,7 @@ type RefusalCheckin = {
   dt: string;
   totalCajas: number;
   contratista?: string;
+  createdAt?: string;
 };
 
 export function calculateRefusalTotals(
@@ -208,11 +227,7 @@ export function calculateRefusalTotals(
         && (!contractor || !recordContractor || recordContractor === contractor)
         && (!vehicleDate || !recordDate || recordDate === vehicleDate);
     });
-    const checkin = checkins.find((record) => {
-      const recordContractor = normalizeContractor(record.contratista);
-      return normalizeDt(record.dt) === dt
-        && (!contractor || !recordContractor || recordContractor === contractor);
-    });
+    const checkin = pickRelevantCheckin(checkins, dt, contractor, vehicleDate);
 
     return summarizeModulaciones(vehicleModulations, vehicle.cajas || 0, checkin?.totalCajas);
   });
@@ -233,6 +248,34 @@ export function calculateRefusalTotals(
 
 function normalizeContractor(value: string | undefined) {
   return (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
+function pickRelevantCheckin(checkins: RefusalCheckin[], dt: string, contractor: string, vehicleDate: string) {
+  const candidates = checkins.filter((record) => {
+    const recordContractor = normalizeContractor(record.contratista);
+    const recordDate = toDateKey(record.createdAt);
+    return normalizeDt(record.dt) === dt
+      && (!contractor || !recordContractor || recordContractor === contractor)
+      && (!vehicleDate || !recordDate || recordDate === vehicleDate);
+  });
+
+  if (!candidates.length) {
+    return checkins
+      .filter((record) => normalizeDt(record.dt) === dt && (!contractor || !normalizeContractor(record.contratista) || normalizeContractor(record.contratista) === contractor))
+      .sort((left, right) => getTimestamp(right.createdAt) - getTimestamp(left.createdAt))[0];
+  }
+
+  return candidates.sort((left, right) => getTimestamp(right.createdAt) - getTimestamp(left.createdAt))[0];
+}
+
+function getTimestamp(value: string | undefined) {
+  const parsed = new Date(value || "").getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isDateInRange(dateKey: string, range: { from: string; to: string }) {
+  if (!dateKey) return false;
+  return dateKey >= range.from && dateKey <= range.to;
 }
 
 function readNumber(value: unknown) {

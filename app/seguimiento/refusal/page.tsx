@@ -6,7 +6,15 @@ import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, ClipboardList, Packag
 import { AnalyticsDateRangeFilter, normalizeDateRange } from "../components/AnalyticsDateFilter";
 import { AnalyticsViewToggle } from "../components/AnalyticsViewToggle";
 import { CHECKIN_STORAGE_KEY, getCheckinByDt, readCheckinCajasRegistros, type CheckinCajasRegistro } from "../../lib/checkinStorage";
-import { calculateRefusalTotals, getLocalDateKey, MODULACION_STORAGE_KEY, normalizeDt, readModulacionRegistros, type ModulacionRegistro } from "../../lib/modulacionStorage";
+import {
+  calculateRefusalTotals,
+  getLocalDateKey,
+  matchesModulacionDateRange,
+  MODULACION_STORAGE_KEY,
+  normalizeDt,
+  readModulacionRegistros,
+  type ModulacionRegistro,
+} from "../../lib/modulacionStorage";
 import { calculatePendingRefusalBoxes } from "../../lib/refusalCalculation";
 import { SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
@@ -51,8 +59,8 @@ export default function SeguimientoRefusalPage() {
   const rangeVehicles = useMemo(() => activeVehiculos.filter((vehicle) => isVehicleInRange(vehicle, dateRange)), [activeVehiculos, dateRange]);
   const seguimientoDts = useMemo(() => new Set(activeVehiculos.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean)), [activeVehiculos]);
   const modulaciones = useMemo(
-    () => allModulaciones.filter((registro) => isDateInRange(getModulacionDateKey(registro), dateRange) && seguimientoDts.has(normalizeDt(registro.dt))),
-    [allModulaciones, dateRange, seguimientoDts],
+    () => allModulaciones.filter((registro) => matchesModulacionDateRange(registro, dateRange, activeVehiculos) && seguimientoDts.has(normalizeDt(registro.dt))),
+    [activeVehiculos, allModulaciones, dateRange, seguimientoDts],
   );
 
   const refusalData = useMemo(() => {
@@ -77,7 +85,11 @@ export default function SeguimientoRefusalPage() {
     const rows = modulaciones
       .map((modulacion) => {
         const vehicle = findVehicleForModulacion(modulacion, rangeVehicles, activeVehiculos);
-        const checkin = getCheckinByDt(checkins, modulacion.dt);
+        const vehicleDate = vehicle ? getVehicleDateKey(vehicle) : getModulacionDateKey(modulacion);
+        const checkin = getCheckinByDt(checkins, modulacion.dt, {
+          contractor: vehicle?.transportista || modulacion.contratista,
+          dateKey: vehicleDate,
+        });
         const tieneCheckin = typeof checkin?.totalCajas === "number";
 
         return {
@@ -503,7 +515,6 @@ function buildRefusalHistorySummaries(
   mode: HistoryMode,
 ) {
   const seguimientoDts = new Set(vehicles.map((vehicle) => normalizeDt(vehicle.transporte)).filter(Boolean));
-  const eligibleModulaciones = allModulaciones.filter((registro) => seguimientoDts.has(normalizeDt(registro.dt)) && getModulacionDateKey(registro));
   const groups = new Map<string, ReturnType<typeof getHistoryGroup> & { dates: Set<string> }>();
 
   vehicles.forEach((vehicle) => {
@@ -515,7 +526,8 @@ function buildRefusalHistorySummaries(
     groups.set(group.key, current);
   });
 
-  eligibleModulaciones.forEach((registro) => {
+  allModulaciones.forEach((registro) => {
+    if (!seguimientoDts.has(normalizeDt(registro.dt))) return;
     const dateKey = getModulacionDateKey(registro);
     if (!dateKey) return;
     const group = getHistoryGroup(dateKey, mode);
@@ -531,9 +543,16 @@ function buildRefusalHistorySummaries(
         const dateKey = getVehicleDateKey(vehicle);
         return dateKey >= group.from && dateKey <= group.to;
       });
-      const groupModulaciones = eligibleModulaciones.filter((registro) => {
-        const dateKey = getModulacionDateKey(registro);
-        return dateKey >= group.from && dateKey <= group.to;
+      const groupModulaciones = allModulaciones.filter((registro) => {
+        if (!seguimientoDts.has(normalizeDt(registro.dt))) return false;
+        const recordDate = getModulacionDateKey(registro);
+        if (recordDate) {
+          return recordDate >= group.from && recordDate <= group.to;
+        }
+
+        return groupVehicles.some(
+          (vehicle) => normalizeDt(vehicle.transporte) === normalizeDt(registro.dt) && getVehicleDateKey(vehicle) >= group.from && getVehicleDateKey(vehicle) <= group.to,
+        );
       });
 
       return summarizeRefusalHistoryGroup(group, groupVehicles, groupModulaciones, checkins);
@@ -790,7 +809,7 @@ function getModulacionDateKey(registro: ModulacionRegistro) {
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
 }
 
 function isDateInRange(dateKey: string, range: { from: string; to: string }) {

@@ -419,7 +419,7 @@ function getModulacionDateKey(record: ModulacionRegistro) {
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {
-  return toDateKeyValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+  return toDateKeyValue(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
 }
 
 function normalizeDateRange(from: string, to: string) {

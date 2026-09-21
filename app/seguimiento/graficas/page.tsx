@@ -594,7 +594,7 @@ function buildHistorySummaries(vehicles: Vehiculo[], mode: HistoryMode) {
   const groups = new Map<string, { label: string; rangeLabel: string; vehicles: Vehiculo[] }>();
 
   vehicles.forEach((vehicle) => {
-    const dateKey = parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    const dateKey = parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
     if (!dateKey) return;
 
     const group = getHistoryGroup(dateKey, mode);
@@ -712,7 +712,7 @@ function getStatusTone(status: string): StatusTone {
 }
 
 function isVehicleInRange(vehicle: Vehiculo, range: { from: string; to: string }) {
-  const dateKey = parseDate(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+  const dateKey = parseDate(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
   return Boolean(dateKey) && dateKey >= range.from && dateKey <= range.to;
 }
 

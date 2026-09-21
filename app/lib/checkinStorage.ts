@@ -41,11 +41,24 @@ export function removeCheckinByDt(dt: string | number | undefined) {
   void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
 }
 
-export function getCheckinByDt(records: CheckinCajasRegistro[], dt: string | number | undefined) {
+export function getCheckinByDt(
+  records: CheckinCajasRegistro[],
+  dt: string | number | undefined,
+  options: { contractor?: string; dateKey?: string } = {},
+) {
   const targetDt = normalizeDt(dt);
   if (!targetDt) return undefined;
 
-  return records.find((record) => normalizeDt(record.dt) === targetDt);
+  const matches = records.filter((record) => {
+    const matchDt = normalizeDt(record.dt) === targetDt;
+    const matchContractor = !options.contractor || normalizeContractor(options.contractor) === normalizeContractor((record as CheckinCajasRegistro & { contratista?: string }).contratista ?? "");
+    const matchDate = !options.dateKey || !record.createdAt || normalizeDateKey(record.createdAt) === normalizeDateKey(options.dateKey);
+    return matchDt && matchContractor && matchDate;
+  });
+
+  if (!matches.length) return undefined;
+
+  return matches.sort((left, right) => getTimestamp(right.updatedAt || right.createdAt) - getTimestamp(left.updatedAt || left.createdAt))[0];
 }
 
 export function upsertCheckinCajas(records: CheckinCajasRegistro[], dt: string | number | undefined, totalCajas: number) {
@@ -76,6 +89,27 @@ export function upsertCheckinCajas(records: CheckinCajasRegistro[], dt: string |
         }
       : record,
   );
+}
+
+function normalizeContractor(value: string | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function getTimestamp(value: string | undefined) {
+  const parsed = new Date(value || "").getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function createCheckinId() {

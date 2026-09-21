@@ -82,7 +82,7 @@ export default function ReportePdfPage() {
   const refusal = useMemo(() => {
     const totalCajasSeguimiento = normalizeCajasTotal(todayVehicles.reduce((acc, vehicle) => acc + (vehicle.cajas || 0), 0));
     const totals = calculateRefusalTotals(todayVehicles, visibleModulaciones, checkins, {
-      getVehicleDate: (vehicle) => toDateKey((vehicle as Vehiculo).fechaDespacho || (vehicle as Vehiculo).date || (vehicle as Vehiculo).createdAt),
+      getVehicleDate: (vehicle) => toDateKey((vehicle as Vehiculo).fechaDespacho || (vehicle as Vehiculo).fechaDt || (vehicle as Vehiculo).date || (vehicle as Vehiculo).createdAt),
       getModulationDate: (record) => toDateKey(record.fechaDespacho || record.fechaDt || record.createdAt),
     });
 
@@ -585,7 +585,7 @@ function isModulacionForDate(registro: ModulacionRegistro, dateKey: string) {
 }
 
 function isVehicleForDate(vehicle: Vehiculo, dateKey: string) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt) === dateKey;
+  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === dateKey;
 }
 
 function getVisitProgress(visitados: number, clientes: number) {
