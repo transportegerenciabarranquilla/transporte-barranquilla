@@ -85,11 +85,7 @@ export default function SeguimientoRefusalPage() {
     const rows = modulaciones
       .map((modulacion) => {
         const vehicle = findVehicleForModulacion(modulacion, rangeVehicles, activeVehiculos);
-        const vehicleDate = vehicle ? getVehicleDateKey(vehicle) : getModulacionDateKey(modulacion);
-        const checkin = getCheckinByDt(checkins, modulacion.dt, {
-          contractor: vehicle?.transportista || modulacion.contratista,
-          dateKey: vehicleDate,
-        });
+        const checkin = getCheckinByDt(checkins, modulacion.dt);
         const tieneCheckin = typeof checkin?.totalCajas === "number";
 
         return {
@@ -809,7 +805,7 @@ function getModulacionDateKey(registro: ModulacionRegistro) {
 }
 
 function getVehicleDateKey(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt);
+  return toDateKey(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
 }
 
 function isDateInRange(dateKey: string, range: { from: string; to: string }) {

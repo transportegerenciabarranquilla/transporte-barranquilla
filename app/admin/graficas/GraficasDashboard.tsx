@@ -176,7 +176,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
   const refusalRecords = useMemo(
     () => visibleRecords.filter((record) => {
       const name = normalizeContractorName(record.transportista);
-      return name === "logisticos" || name === "surticervezas";
+      return name === "logisticos" || name === "surticervezas" || name === "hllogisticos";
     }),
     [visibleRecords],
   );

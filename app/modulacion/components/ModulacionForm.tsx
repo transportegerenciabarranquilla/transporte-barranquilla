@@ -7,7 +7,7 @@ import { normalizeDt } from "../../lib/modulacionStorage";
 import type { Vehiculo } from "../../seguimiento/types";
 import { NumericField } from "./NumericField";
 
-const contractors = ["Punto Corona", "Punto Corona Arenosa", "Logisticos", "Surti Cervezas"];
+const contractors = ["Punto Corona", "Punto Corona Arenosa", "Logisticos", "Surti Cervezas", "HL Logisticos"];
 
 export function ModulacionForm({
   clienteError,

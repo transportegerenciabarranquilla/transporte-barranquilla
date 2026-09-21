@@ -88,6 +88,15 @@ const contractorChartsModule: PortalModule = {
   accent: "border-l-[#06b6d4]",
 };
 
+const refusalModule: PortalModule = {
+  id: 21,
+  title: "Refusal",
+  href: "/seguimiento/refusal",
+  detail: "Cajas rechazadas, gestionadas e histórico",
+  tone: "from-[#0891b2] to-[#0f766e]",
+  accent: "border-l-[#0891b2]",
+};
+
 const presaleModule: PortalModule = {
   id: 13,
   title: "Preventa",
@@ -205,7 +214,7 @@ export function getVisiblePortalModules({
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = isLogisticosContractor(contractor);
-  return contractor ? [...contractorModules, contractorChartsModule, ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
+  return contractor ? [...contractorModules, contractorChartsModule, ...(normalizeContractorName(contractor) === "hllogisticos" ? [refusalModule] : []), ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {

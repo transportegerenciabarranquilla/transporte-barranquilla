@@ -11,7 +11,7 @@ test("administrador Arenosa tiene las dos contratistas, sin acceso global ni de 
   assert.equal(isAdminEmail(site.email), true);
   assert.equal(isSecurityOwnerEmail(site.email), false);
   assert.deepEqual(allowedContractors(site), ["Logisticos Arenosa", "Punto Corona Arenosa"]);
-  for (const name of ["Logisticos", "Punto Corona", "Surti Cervezas", "", "Admin"]) assert.equal(canAccessContractor(site, name), false);
+  for (const name of ["Logisticos", "Punto Corona", "Surti Cervezas", "HL Logisticos", "", "Admin"]) assert.equal(canAccessContractor(site, name), false);
   assert.equal(canAccessContractor(site, "Logísticos Arenosa"), true);
   assert.equal(canAccessContractor(site, "Punto Corona Arenosa"), true);
 });
@@ -26,7 +26,7 @@ test("un parámetro de URL no amplía los permisos de la sesión", () => {
 });
 
 test("administrador global mantiene su alcance y contratistas no ganan privilegios", () => {
-  assert.equal(allowedContractors({ email: "admin@bavaria-seguimiento.com", contractor: "Admin", isAdmin: true }).length, 5);
+  assert.equal(allowedContractors({ email: "admin@bavaria-seguimiento.com", contractor: "Admin", isAdmin: true }).length, 6);
   assert.deepEqual(allowedContractors({ email: "corona@transporte.com", contractor: "Punto Corona Arenosa", isAdmin: false }), ["Punto Corona Arenosa"]);
 });
 

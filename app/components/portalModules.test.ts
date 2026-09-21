@@ -2,6 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getVisiblePortalModules } from "./portalModules.ts";
 import { canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor } from "../lib/contractors.ts";
+import { canAccessContractor } from "../lib/adminScope.ts";
+
+test("HL Logisticos recibe los módulos de Surti y Refusal con identidad independiente", () => {
+  const contractor = contractorForEmail(" HLLogistica@gmail.com ");
+  assert.equal(contractor, "HL Logisticos");
+  const modules = getVisiblePortalModules({ contractor: contractor! });
+  const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
+  assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal"), surti);
+  assert.equal(modules.filter(({ href }) => href === "/seguimiento/refusal").length, 1);
+  assert.equal(isComplaintsContractor(contractor), true);
+  assert.equal(canManageComplaint(contractor, "Surti Cervezas"), false);
+  assert.equal(canManageComplaint(contractor, contractor), true);
+  const session = { email: "hllogistica@gmail.com", contractor: contractor!, isAdmin: false };
+  assert.equal(canAccessContractor(session, contractor), true);
+  assert.equal(canAccessContractor(session, "Surti Cervezas"), false);
+  assert.equal(canAccessContractor(session, "Logisticos"), false);
+});
 
 test("Logisticos Arenosa recibe los mismos módulos que Galapa y su seguimiento propio", () => {
   const contractor = contractorForEmail(" LogisticosAre@gmail.com ");

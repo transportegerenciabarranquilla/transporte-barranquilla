@@ -10,6 +10,7 @@ export type ContractorBrand = {
 };
 
 const BRANDS: Record<string, ContractorBrand> = {
+  "HL Logisticos": { name: "HL Logísticos", logo: "", accent: "#0891b2", soft: "#ecfeff" },
   Logisticos: { name: "Logisticos", logo: "/contractors/logisticos.png", accent: "#f5bd19", soft: "#fff8e6" },
   "Punto Corona": { name: "Punto Corona", logo: "/contractors/punto-corona.png", accent: "#22c55e", soft: "#ecfdf3" },
   "Surti Cervezas": { name: "Surti Cervezas", logo: "/contractors/surti-cervezas.png", accent: "#f59e0b", soft: "#fff7ed" },
