@@ -204,8 +204,9 @@ export function buildGraphTotals(
   refusalCauseByPreventista: RefusalCausePreventistaSummary[],
   lateComments: LateComment[],
   finalRefusalBoxes?: number,
+  refusalRecords: Vehiculo[] = visibleRecords,
 ) {
-  const cajasSeguimiento = normalizeCajasTotal(visibleRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
+  const cajasSeguimiento = normalizeCajasTotal(refusalRecords.reduce((total, record) => total + readNumber(record.cajas), 0));
   const reportadas = visibleRefusalRows.reduce((total, row) => total + readNumber(row.reportadas), 0);
   const gestionadas = visibleRefusalRows.reduce((total, row) => total + readNumber(row.gestionadas), 0);
   // The daily history uses check-in as the final value for a DT when it exists.

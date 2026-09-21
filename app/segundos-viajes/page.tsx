@@ -144,6 +144,7 @@ export default function SegundosViajesPage() {
       if (!response.ok) throw new Error(body.error || "No se pudo guardar el estado.");
       setRecords((current) => current.map((item) => item.recordId === record.recordId ? { ...item, status } : item));
     } catch (caught) {
+
       setError(caught instanceof Error ? caught.message : "No se pudo guardar el estado.");
     } finally {
       setSavingStatus(null);

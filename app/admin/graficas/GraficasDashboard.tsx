@@ -173,9 +173,16 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
     [activeDateRange, contractor, dtSearch, modulationRecords],
   );
   const rrRefusalTop = useMemo(() => buildRrRefusalTop(visibleModulationRefusals), [visibleModulationRefusals]);
+  const refusalRecords = useMemo(
+    () => visibleRecords.filter((record) => {
+      const name = normalizeContractorName(record.transportista);
+      return name === "logisticos" || name === "surticervezas";
+    }),
+    [visibleRecords],
+  );
   const refusalHistory = useMemo(
-    () => buildContractorRefusalHistory(records, modulationRecords, checkinRecords, activeDateRange, contractor, dtSearch),
-    [activeDateRange, checkinRecords, contractor, dtSearch, modulationRecords, records],
+    () => buildContractorRefusalHistory(refusalRecords, modulationRecords, checkinRecords, activeDateRange, contractor, dtSearch),
+    [activeDateRange, checkinRecords, contractor, dtSearch, modulationRecords, refusalRecords],
   );
   const contractorRefusalInsights = useMemo(
     () => buildContractorRefusalInsights(visibleModulationRefusals, checkinRecords, activeDateRange, contractor),
@@ -190,8 +197,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
   );
 
   const totals = useMemo(
-    () => buildGraphTotals(visibleRecords, filteredRefusalRows, refusalCauseByPreventista, lateComments, finalRefusalBoxes),
-    [filteredRefusalRows, finalRefusalBoxes, lateComments, refusalCauseByPreventista, visibleRecords],
+    () => buildGraphTotals(visibleRecords, filteredRefusalRows, refusalCauseByPreventista, lateComments, finalRefusalBoxes, refusalRecords),
+    [filteredRefusalRows, finalRefusalBoxes, lateComments, refusalCauseByPreventista, refusalRecords, visibleRecords],
   );
 
   const operationalOverview = useMemo(

@@ -44,7 +44,7 @@ export default function AdminModoTvPage() {
   const summaries = useMemo(
     () => GALAPA.map((contractor) => summaryFor(contractor, records.filter((record) => record.transportista === contractor))),
     [records],
-  );
+  ); 
   const total = summaries.reduce(
     (acc, item) => ({ rutas: acc.rutas + item.rutas, cajas: acc.cajas + item.cajas, clientes: acc.clientes + item.clientes, visitados: acc.visitados + item.visitados }),
     { rutas: 0, cajas: 0, clientes: 0, visitados: 0 },
@@ -64,13 +64,13 @@ export default function AdminModoTvPage() {
       <section className="relative flex h-screen w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_72%_7%,rgba(20,84,153,.22),transparent_26%),linear-gradient(145deg,#081a31,#061326_62%,#071a2f)]">
         <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(62,112,163,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(62,112,163,.13) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
 
-        <header className="relative z-10 flex min-h-20 items-center justify-between border-b border-[#193451] bg-[#07172b]/92 px-5 py-3 lg:px-7 2xl:min-h-24 2xl:px-9">
+        <header className="relative z-10 flex min-h-20 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#193451] bg-[#07172b]/92 px-5 py-3 lg:px-7 2xl:min-h-24 2xl:px-9">
           <div>
             <p className="text-[9px] font-black uppercase tracking-[.3em] text-emerald-600 lg:text-[10px] 2xl:text-xs">Analítica diaria</p>
             <h1 className="text-2xl font-black tracking-tight lg:text-3xl 2xl:text-4xl">Seguimiento Galapa</h1>
           </div>
 
-          <div className="flex items-center gap-3 lg:gap-5">
+          <div className="flex max-w-full flex-wrap items-center gap-2 2xl:gap-3">
             <span className="hidden items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-2 md:inline-flex">
               <i className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" />
               <strong className="text-[9px] font-black uppercase text-emerald-700 2xl:text-[10px]">En vivo</strong>
@@ -144,7 +144,19 @@ function TvLightTheme() {
   return <style jsx global>{`
     [data-tv-light] > section { background: #f4f8fb !important; color: #10213b !important; }
     [data-tv-light] section > header { background: rgba(255,255,255,.97) !important; color: #10213b !important; border-color: #dbe5ef !important; }
-    [data-tv-light] > section > header button { background: #f8fafc !important; color: #087d9c !important; border-color: #dbe5ef !important; }
+    [data-tv-light] > section > header button {
+      flex-shrink: 0;
+      justify-content: center;
+      white-space: nowrap;
+      font-size: clamp(12px, .8vw, 13px);
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: normal;
+      background: #f8fafc !important;
+      color: #087d9c !important;
+      border-color: #dbe5ef !important;
+    }
+    [data-tv-light] > section > header button svg { flex-shrink: 0; }
     [data-tv-light] > section > header button.tv-refusal-button { background: #dc2626 !important; color: #fff !important; border-color: #dc2626 !important; }
     [data-tv-light] > section > header button.tv-range-button { background: #059669 !important; color: #fff !important; border-color: #059669 !important; }
     [data-tv-light] > section > header button.tv-sip-button { background: #2563eb !important; color: #fff !important; border-color: #2563eb !important; }
