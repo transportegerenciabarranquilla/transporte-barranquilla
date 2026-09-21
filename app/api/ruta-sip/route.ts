@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const session = await getAuthenticatedSession();
     if (!session || (!session.isAdmin && normalizeContractorName(session.contractor) !== "logisticos")) {
-      return NextResponse.json({ error: "Ruta SIP está disponible para Logísticos Galapa." }, { status: 403 });
+      return NextResponse.json({ error: "Ruta SIF está disponible para Logísticos Galapa." }, { status: 403 });
     }
 
     const params = new URLSearchParams({ select: "record_id,contractor,data", order: "updated_at.desc" });
