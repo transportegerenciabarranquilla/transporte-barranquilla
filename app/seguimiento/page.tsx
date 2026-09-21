@@ -19,7 +19,7 @@ import {
 import type { Vehiculo } from "./types";
 import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargueValue, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
-import { CHECKIN_STORAGE_KEY, removeCheckinByDt } from "../lib/checkinStorage";
+import { CHECKIN_STORAGE_KEY, moveCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
 import { saveSeguimientoLiquidado, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
@@ -263,7 +263,8 @@ export default function SeguimientoPage() {
       current && (vehiculoSeleccionadoKey || getVehicleUiKey(current)) === recordKey ? applyVehicleChanges(current, changes, shouldResetAttendance) : current,
     );
 
-    if (previousVehicle) removeStaleRouteData(previousVehicle, shouldResetAttendance);
+    const updatedVehicle = previousVehicle ? applyVehicleChanges(previousVehicle, changes, shouldResetAttendance) : undefined;
+    if (previousVehicle && updatedVehicle) removeStaleRouteData(previousVehicle, updatedVehicle, shouldResetAttendance);
 
     const prepared = prepareSeguimientoVehicles(
       currentVehicles.map((item) => (getVehicleUiKey(item) === recordKey ? applyVehicleChanges(item, changes, shouldResetAttendance) : item)),
@@ -457,11 +458,11 @@ export default function SeguimientoPage() {
     return updated;
   }
 
-  function removeStaleRouteData(item: Vehiculo, shouldResetAttendance: boolean) {
+  function removeStaleRouteData(previousVehicle: Vehiculo, updatedVehicle: Vehiculo, shouldResetAttendance: boolean) {
     if (!shouldResetAttendance) return;
 
-    removeAsistenciaByDt(item.transporte);
-    removeCheckinByDt(item.transporte);
+    removeAsistenciaByDt(previousVehicle.transporte);
+    moveCheckinByDt(previousVehicle.transporte, previousVehicle.fechaDespacho, updatedVehicle.fechaDespacho);
   }
 
   function isRecentModulacion(value: string) {

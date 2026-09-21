@@ -49,6 +49,7 @@ export type ModulacionResumen = {
 type ModulacionTarget = {
   dt?: string | number;
   transporte?: string | number;
+  dispatchDateUpdatedAt?: string;
   fechaDespacho?: string;
   fechaDt?: string;
   date?: string;
@@ -112,6 +113,12 @@ export function getOperationalModulaciones(records: ModulacionRegistro[], target
       })
       .filter(Boolean),
   );
+  const movedDispatchDts = new Set(
+    targets
+      .filter((target) => Boolean(target.dispatchDateUpdatedAt))
+      .map((target) => normalizeDt(target.transporte ?? target.dt))
+      .filter(Boolean),
+  );
 
   return records.filter((record) => {
     const recordDt = normalizeDt(record.dt);
@@ -119,6 +126,7 @@ export function getOperationalModulaciones(records: ModulacionRegistro[], target
     const createdAtDate = toDateKey(record.createdAt);
 
     if (!recordDt) return false;
+    if (movedDispatchDts.has(recordDt)) return true;
     if (recordDispatchDate) return activeDispatches.has(`${recordDt}:${recordDispatchDate}`);
     if (createdAtDate) return activeDispatches.has(`${recordDt}:${createdAtDate}`);
 
@@ -129,10 +137,17 @@ export function getOperationalModulaciones(records: ModulacionRegistro[], target
 export function matchesModulacionDateRange(
   record: Pick<ModulacionRegistro, "dt" | "fechaDespacho" | "fechaDt" | "createdAt">,
   range: { from: string; to: string },
-  vehicles: Array<Pick<ModulacionTarget, "transporte" | "fechaDespacho" | "fechaDt" | "date" | "createdAt">> = [],
+  vehicles: Array<Pick<ModulacionTarget, "dt" | "transporte" | "dispatchDateUpdatedAt" | "fechaDespacho" | "fechaDt" | "date" | "createdAt">> = [],
 ) {
   const targetDt = normalizeDt(record.dt);
   if (!targetDt) return false;
+
+  const movedVehicleDates = vehicles.flatMap((vehicle) => {
+    const vehicleDt = normalizeDt(vehicle.transporte ?? vehicle.dt);
+    const vehicleDate = getDispatchDateKey(vehicle);
+    return vehicle.dispatchDateUpdatedAt && vehicleDt === targetDt && vehicleDate ? [vehicleDate] : [];
+  });
+  if (movedVehicleDates.length) return movedVehicleDates.some((vehicleDate) => isDateInRange(vehicleDate, range));
 
   const recordDate = getExplicitDispatchDateKey(record as ModulacionTarget);
   if (recordDate) return isDateInRange(recordDate, range);
@@ -195,6 +210,7 @@ export function summarizeModulaciones(records: ModulacionRegistro[], totalCajasS
 }
 
 type RefusalVehicle = {
+  dispatchDateUpdatedAt?: string;
   transporte?: string | number;
   cajas?: number;
   transportista?: string;
@@ -220,12 +236,13 @@ export function calculateRefusalTotals(
     const dt = normalizeDt(vehicle.transporte);
     const contractor = normalizeContractor(vehicle.transportista);
     const vehicleDate = options.getVehicleDate?.(vehicle) || "";
+    const movedDispatch = Boolean(vehicle.dispatchDateUpdatedAt);
     const vehicleModulations = modulations.filter((record) => {
       const recordContractor = normalizeContractor(record.contratista);
       const recordDate = options.getModulationDate?.(record) || "";
       return normalizeDt(record.dt) === dt
         && (!contractor || !recordContractor || recordContractor === contractor)
-        && (!vehicleDate || !recordDate || recordDate === vehicleDate);
+        && (!vehicleDate || !recordDate || recordDate === vehicleDate || movedDispatch);
     });
     const checkin = pickRelevantCheckin(checkins, dt, contractor, vehicleDate);
 

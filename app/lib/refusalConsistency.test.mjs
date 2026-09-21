@@ -87,6 +87,39 @@ test('el check-in solo aplica cuando corresponde al mismo dia y contratista', ()
  const correctCheckin = { dt: '123', contratista: 'Logisticos', totalCajas: 7, createdAt: '2026-09-05T18:00:00.000Z' };
  assert.equal(calculateRefusalTotals([vehicle], modulations, [staleCheckin, correctCheckin]).pendientes, 7);
 });
+test('la pernocta lleva al nuevo dia las modulaciones con fecha anterior del mismo DT', () => {
+ const { matchesModulacionDateRange, calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed) => Math.max((Number(rejected) || 0) - (Number(managed) || 0), 0) } });
+ const range = { from: '2026-09-21', to: '2026-09-21' };
+ const vehicle = { transporte: '8008964034', transportista: 'Logisticos', cajas: 561, fechaDespacho: '2026-09-21', dispatchDateUpdatedAt: '2026-09-21T12:00:00.000Z' };
+ const record = { dt: '8008964034', contratista: 'Logisticos', totalCajas: '171', cajasGestionadas: '0', fechaDespacho: '2026-09-20', fechaDt: '', createdAt: '2026-09-20T12:00:00.000Z' };
+ assert.equal(matchesModulacionDateRange(record, range, [vehicle]), true);
+ assert.equal(matchesModulacionDateRange(record, { from: '2026-09-20', to: '2026-09-20' }, [vehicle]), false);
+ const totals = calculateRefusalTotals([vehicle], [record], [], { getVehicleDate: row => row.fechaDespacho, getModulationDate: row => row.fechaDespacho });
+ assert.equal(totals.rechazadas, 171);
+});
+test('la pernocta no conserva una copia del DT en la fecha anterior', () => {
+ const { removeDuplicateDtRecords } = compile('../seguimiento/services/vehicleRecords.ts', {
+  '../../lib/asistenciaStorage': { readAsistenciaRegistros: () => [] },
+  '../../lib/checkinStorage': { getCheckinByDt: () => undefined, readCheckinCajasRegistros: () => [] },
+  '../../lib/modulacionStorage': { getLocalDateKey: value => (value instanceof Date ? value.toISOString().slice(0, 10) : '2026-09-21'), getModulacionesByDt: () => [], readModulacionRegistros: () => [], summarizeModulaciones: () => ({}) },
+  '../../lib/seguimientoStorage': {},
+  '../utils': { getVehicleRecordKey: record => `${record.transporte}-${record.fechaDespacho}`, hasTimeValue: () => false, normalizeCajasValue: Number, normalizeHlValue: Number },
+ });
+ const records = [
+  { recordId: 'original', transporte: '8008964034', vehiculo: 'COLJT750', fechaDespacho: '2026-09-20', date: '2026-09-20', cajas: 561 },
+  { recordId: 'moved', transporte: '8008964034', vehiculo: 'COLJT750', fechaDespacho: '2026-09-21', date: '2026-09-21', cajas: 561, dispatchDateUpdatedAt: '2026-09-21T12:00:00.000Z' },
+ ];
+ const visible = removeDuplicateDtRecords(records);
+ assert.deepEqual(visible.map(record => record.recordId), ['moved']);
+});
+test('la pernocta traslada las cajas check-in a la nueva fecha del despacho', () => {
+ const { moveCheckinCajasDate } = compile('./checkinStorage.ts', { './modulacionStorage': { normalizeDt: value => String(value ?? '').replace(/^DT-?/i, '').replace(/\D/g, '') }, './remoteStore': {} });
+ const records = [{ id: 'checkin-1', dt: 'DT-123', totalCajas: 42, createdAt: '2026-09-19T18:30:00.000Z', updatedAt: '2026-09-19T18:30:00.000Z' }];
+ const moved = moveCheckinCajasDate(records, '123', '2026-09-20', '2026-09-21');
+ assert.equal(moved[0].totalCajas, 42);
+ assert.equal(moved[0].createdAt, '2026-09-21T18:30:00.000Z');
+ assert.notEqual(moved[0].updatedAt, records[0].updatedAt);
+});
 test('los vehiculos con fechaDt tambien cuentan dentro del rango de hoy', () => {
  const { matchesModulacionDateRange } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {
   const checkinValue = checkin == null || checkin === '' ? null : Number(checkin);

@@ -517,10 +517,28 @@ function getWriteHeaders(accessToken: string, extra: Record<string, string> = {}
 }
 
 function removeDuplicateDtRecords(records: Vehiculo[]) {
+  const movedRouteDates = new Map<string, Set<string>>();
+  records.forEach((record) => {
+    if (!record.dispatchDateUpdatedAt) return;
+    const routeKey = getMovedRouteKey(record);
+    const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
+    if (!routeKey || !dateKey) return;
+
+    const dates = movedRouteDates.get(routeKey) || new Set<string>();
+    dates.add(dateKey);
+    movedRouteDates.set(routeKey, dates);
+  });
+
   const recordsByRoute = new Map<string, Vehiculo>();
   const recordsWithoutRoute: Vehiculo[] = [];
 
-  records.forEach((record) => {
+  records.filter((record) => {
+    if (record.dispatchDateUpdatedAt) return true;
+    const movedDates = movedRouteDates.get(getMovedRouteKey(record));
+    if (!movedDates?.size) return true;
+    const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
+    return !dateKey || movedDates.has(dateKey);
+  }).forEach((record) => {
     const dt = normalizeDt(record.transporte);
     const fallbackKey = getVehicleRecordKey(record);
     if (!dt && (!fallbackKey || fallbackKey.endsWith("-sin-fecha"))) {
@@ -548,6 +566,12 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
 }
 
+function getMovedRouteKey(record: Pick<Vehiculo, "transporte" | "vehiculo">) {
+  const dt = normalizeDt(record.transporte);
+  const plate = normalizePlate(record.vehiculo);
+  return dt || plate;
+}
+
 function deletionRouteKey(record: Partial<Pick<Vehiculo, "transporte" | "vehiculo" | "fechaDespacho" | "date" | "createdAt">> | undefined) {
   if (!record) return "";
   const dt = normalizeDt(record.transporte);
@@ -561,10 +585,9 @@ function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: num
   const contractorKey = normalizeContractorName(contractor);
   const existingId = String(record.recordId || "").trim();
 
-  // La identidad de una ruta no debe cambiar cuando se edita una fecha.
-  // Los ids creados por esta API ya estan aislados por contratista, por lo
-  // que conservarlos actualiza la misma fila en vez de crear una copia.
-  if (existingId.startsWith(`seguimiento:${contractorKey}:`)) return existingId;
+  // La identidad de una ruta no debe cambiar cuando se edita una fecha. Un
+  // record_id existente siempre identifica la fila de Supabase a actualizar.
+  if (existingId) return existingId;
 
   if (routeKey && !routeKey.endsWith("-sin-fecha")) return `seguimiento:${contractorKey}:${routeKey}`;
   return existingId || `seguimiento:${contractorKey}:${routeKey || "sin-ruta"}:${index}`;

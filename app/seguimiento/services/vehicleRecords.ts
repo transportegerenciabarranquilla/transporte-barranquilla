@@ -28,10 +28,28 @@ export function prepareSeguimientoVehicles(records: Vehiculo[]) {
 }
 
 export function removeDuplicateDtRecords(records: Vehiculo[]) {
+  const movedRouteDates = new Map<string, Set<string>>();
+  records.forEach((vehicle) => {
+    if (!vehicle.dispatchDateUpdatedAt) return;
+    const routeKey = getMovedRouteKey(vehicle);
+    const dateKey = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    if (!routeKey || !dateKey) return;
+
+    const dates = movedRouteDates.get(routeKey) || new Set<string>();
+    dates.add(dateKey);
+    movedRouteDates.set(routeKey, dates);
+  });
+
   const recordsByRoute = new Map<string, Vehiculo>();
   const recordsWithoutRoute: Vehiculo[] = [];
 
-  records.forEach((vehicle) => {
+  records.filter((vehicle) => {
+    if (vehicle.dispatchDateUpdatedAt) return true;
+    const movedDates = movedRouteDates.get(getMovedRouteKey(vehicle));
+    if (!movedDates?.size) return true;
+    const dateKey = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
+    return !dateKey || movedDates.has(dateKey);
+  }).forEach((vehicle) => {
     const routeKey = getVehicleRecordKey(vehicle);
     if (!routeKey || routeKey.endsWith("-sin-fecha")) {
       recordsWithoutRoute.push(vehicle);
@@ -44,6 +62,12 @@ export function removeDuplicateDtRecords(records: Vehiculo[]) {
   });
 
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
+}
+
+function getMovedRouteKey(vehicle: Pick<Vehiculo, "transporte" | "vehiculo">) {
+  const dt = normalizeDt(vehicle.transporte);
+  const plate = normalizePlate(vehicle.vehiculo);
+  return dt || plate;
 }
 
 export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {

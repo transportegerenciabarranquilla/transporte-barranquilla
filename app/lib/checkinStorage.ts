@@ -41,6 +41,43 @@ export function removeCheckinByDt(dt: string | number | undefined) {
   void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
 }
 
+export function moveCheckinCajasDate(
+  records: CheckinCajasRegistro[],
+  dt: string | number | undefined,
+  fromDate: string | undefined,
+  toDate: string | undefined,
+) {
+  const targetDt = normalizeDt(dt);
+  const sourceDate = normalizeDateKey(fromDate);
+  const destinationDate = normalizeDateKey(toDate);
+  if (!targetDt || !sourceDate || !destinationDate || sourceDate === destinationDate) return records;
+
+  const movedAt = new Date().toISOString();
+  return records.map((record) => {
+    if (normalizeDt(record.dt) !== targetDt) return record;
+
+    return {
+      ...record,
+      createdAt: replaceDateKey(record.createdAt, destinationDate),
+      updatedAt: movedAt,
+    };
+  });
+}
+
+export function moveCheckinByDt(
+  dt: string | number | undefined,
+  fromDate: string | undefined,
+  toDate: string | undefined,
+) {
+  if (typeof window === "undefined") return;
+
+  const records = readCheckinCajasRegistros();
+  const nextRecords = moveCheckinCajasDate(records, dt, fromDate, toDate);
+  if (nextRecords === records) return;
+
+  void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
+}
+
 export function getCheckinByDt(
   records: CheckinCajasRegistro[],
   dt: string | number | undefined,
@@ -105,6 +142,15 @@ function normalizeDateKey(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function replaceDateKey(value: string, dateKey: string) {
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return `${dateKey}${value.slice(10)}`;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return `${dateKey}T00:00:00.000Z`;
+
+  return `${dateKey}T${parsed.toISOString().slice(11)}`;
 }
 
 function getTimestamp(value: string | undefined) {
