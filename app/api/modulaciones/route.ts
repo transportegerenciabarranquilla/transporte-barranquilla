@@ -25,7 +25,12 @@ export async function GET() {
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: LIST_SELECT, order: "updated_at.desc" }
-        : { select: LIST_SELECT, contractor: modulationContractorFilter(session.contractor), order: "updated_at.desc" },
+        // No filtramos por el texto de contractor en PostgREST. Las filas de
+        // HL existen con las variantes "HL Logistica" y "HL Logisticos";
+        // ese filtro exacto devolvia cero aunque Supabase acabara de aceptar
+        // el insert. RLS limita primero las filas que el usuario puede leer y
+        // abajo aplicamos el alcance canonico de la contratista.
+        : { select: LIST_SELECT, order: "updated_at.desc" },
     );
     const rows: ModulacionListRow[] = [];
     scopeQuery(params, session);
@@ -46,7 +51,9 @@ export async function GET() {
       if (page.length < LIST_PAGE_SIZE) break;
     }
     return NextResponse.json({
-      records: rows.map((row) => fromListRow(row)),
+      records: rows
+        .map((row) => fromListRow(row))
+        .filter((record) => session.isAdmin || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor)),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando modulaciones." }, { status: 500 });

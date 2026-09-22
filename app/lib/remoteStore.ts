@@ -17,6 +17,8 @@ const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
   "/api/punto-corona-routes": "bavaria.punto-corona.routes",
   "/api/seguimiento": "bavaria.seguimiento.vehiculos",
 };
+const MODULACIONES_ENDPOINT = "/api/modulaciones";
+const MODULACIONES_PENDING_KEY = "bavaria.modulacion.confirmadas";
 
 function shouldRedirectOnUnauthorized() {
   if (typeof window === "undefined") return false;
@@ -63,6 +65,7 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
         && incomingRecords.length < cachedRecords.length;
       if (preserveOptimisticRecords) return;
       cache.set(endpoint, incomingRecords);
+      if (endpoint === MODULACIONES_ENDPOINT) removeConfirmedModulaciones(incomingRecords);
       fetchedAt.set(endpoint, Date.now());
       notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     })
@@ -80,7 +83,12 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
     void refreshRemoteRecords(endpoint);
   }
 
-  return (cached ?? []) as T[];
+  if (endpoint !== MODULACIONES_ENDPOINT) return (cached ?? []) as T[];
+
+  // El formulario publico y el modulador pueden abrirse en momentos
+  // distintos. Si RLS aun no devuelve el registro confirmado, conservamos
+  // su copia local y la fusionamos con la lectura remota por id.
+  return mergeCachedRecords(readPersistedModulaciones() as T[], (cached ?? []) as T[], (record) => recordId(record)) as T[];
 }
 
 export function waitForRemoteSaves(endpoint: string) {
@@ -125,6 +133,7 @@ export function saveRemoteRecords<T>(
         : records;
       if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
         cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
+        if (endpoint === MODULACIONES_ENDPOINT) persistConfirmedModulaciones(savedRecords);
         fetchedAt.set(endpoint, Date.now());
         preserveAfterWriteUntil.set(endpoint, Date.now() + 60_000);
         notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
@@ -182,6 +191,7 @@ export async function deleteRemoteRecords<T>(
       if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
       throw new Error(body.error || "No se pudieron eliminar los datos en Supabase.");
     }
+    if (endpoint === MODULACIONES_ENDPOINT) removePersistedModulaciones(ids);
 
     fetchedAt.set(endpoint, Date.now());
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
@@ -200,4 +210,49 @@ function mergeCachedRecords<T>(previousRecords: T[] | undefined, records: T[], g
   });
 
   return Array.from(merged.values());
+}
+
+function readPersistedModulaciones() {
+  if (typeof window === "undefined") return [] as unknown[];
+  try {
+    const records = JSON.parse(window.localStorage.getItem(MODULACIONES_PENDING_KEY) || "[]");
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePersistedModulaciones(records: unknown[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MODULACIONES_PENDING_KEY, JSON.stringify(records));
+  } catch {
+    // La aplicacion sigue funcionando aunque el navegador bloquee almacenamiento local.
+  }
+}
+
+function persistConfirmedModulaciones(records: unknown[]) {
+  const byId = new Map(readPersistedModulaciones().map((record) => [recordId(record), record]));
+  records.forEach((record) => {
+    const id = recordId(record);
+    if (id) byId.set(id, record);
+  });
+  writePersistedModulaciones(Array.from(byId.values()));
+}
+
+function removeConfirmedModulaciones(records: unknown[]) {
+  const confirmedIds = new Set(records.map(recordId).filter(Boolean));
+  if (!confirmedIds.size) return;
+  writePersistedModulaciones(readPersistedModulaciones().filter((record) => !confirmedIds.has(recordId(record))));
+}
+
+function removePersistedModulaciones(ids: string[]) {
+  const removed = new Set(ids);
+  writePersistedModulaciones(readPersistedModulaciones().filter((record) => !removed.has(recordId(record))));
+}
+
+function recordId(record: unknown) {
+  return typeof record === "object" && record !== null && "id" in record
+    ? String((record as { id?: unknown }).id || "")
+    : "";
 }
