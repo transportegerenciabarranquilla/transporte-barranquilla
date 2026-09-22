@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getVisiblePortalModules } from "./portalModules.ts";
-import { canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor } from "../lib/contractors.ts";
+import { canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
 import { canAccessContractor } from "../lib/adminScope.ts";
 
 test("HL Logisticos recibe los módulos de Surti y Refusal con identidad independiente", () => {
   const contractor = contractorForEmail(" HLLogistica@gmail.com ");
   assert.equal(contractor, "HL Logisticos");
+  assert.equal(normalizeContractorName("HL Logistica"), normalizeContractorName(contractor));
   const modules = getVisiblePortalModules({ contractor: contractor! });
   const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
   assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal"), surti);

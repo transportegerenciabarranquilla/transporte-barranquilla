@@ -49,7 +49,10 @@ export function contractorForEmail(email: string | null | undefined) {
 }
 
 export function normalizeContractorName(value: string | null | undefined) {
-  return (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const normalized = (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  // La tabla maestra histórica usa "HL Logistica", mientras la cuenta y las
+  // tablas operativas usan "HL Logisticos". Ambas identifican la misma sede.
+  return normalized === "hllogistica" ? "hllogisticos" : normalized;
 }
 
 export function contractorLabel(value: string | null | undefined) {
@@ -57,7 +60,7 @@ export function contractorLabel(value: string | null | undefined) {
   if (normalized === "logisticos") return "Logisticos";
   if (normalized === "puntocorona" || normalized === "corona") return "Punto Corona";
   if (normalized === "surticervezas") return "Surti Cervezas";
-  if (normalized === "hllogisticos" || normalized === "hllogistica") return "HL Logisticos";
+  if (normalized === "hllogisticos") return "HL Logisticos";
   if (normalized === "logisticosarenosa") return "Logisticos Arenosa";
   if (normalized === "puntocoronaarenosa" || normalized === "coronaarenosa") return "Punto Corona Arenosa";
   return String(value || "").trim();
