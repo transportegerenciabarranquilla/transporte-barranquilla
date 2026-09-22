@@ -670,15 +670,9 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   const byContractorDtAndDate = new Map<string, AsistenciaRegistro>();
   const latestByContractorDt = new Map<string, AsistenciaRegistro>();
   const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-  if (contractor) {
-    // HL tiene filas históricas con ambos nombres. El filtro exacto anterior
-    // descartaba "HL Logistica" antes de poder normalizarlo.
-    if (normalizeContractorName(contractor) === "hllogisticos") {
-      params.set("contractor", "in.(\"HL Logisticos\",\"HL Logistica\")");
-    } else {
-      params.set("contractor", `eq.${contractor}`);
-    }
-  }
+  // No filtrar aquí por texto literal: hay filas históricas de HL con
+  // "HL Logistica" y otras con "HL Logisticos". El filtro seguro se aplica
+  // abajo con normalizeContractorName, después de leer las filas permitidas.
 
   const rows = await readPagedRowsCached<{ contractor?: string; data: AsistenciaRegistro }>(
     "asistencias_ruta",
