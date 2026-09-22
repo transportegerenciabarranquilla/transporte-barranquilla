@@ -167,8 +167,8 @@ export async function DELETE(request: Request) {
 
 function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: boolean) {
   const prefer = isPublicSubmission ? { Prefer: "return=minimal" } : { Prefer: "resolution=merge-duplicates,return=minimal" };
-  if (!isPublicSubmission && accessToken) return supabaseUserHeaders(accessToken, prefer);
-  return supabaseAdminHeaders(prefer) || supabaseHeaders(prefer);
+  if (isPublicSubmission) return supabaseAdminHeaders(prefer) || supabaseHeaders(prefer);
+  return supabaseAdminHeaders(prefer) || (accessToken ? supabaseUserHeaders(accessToken, prefer) : supabaseHeaders(prefer));
 }
 
 function modulationContractorFilter(contractor: string) {
