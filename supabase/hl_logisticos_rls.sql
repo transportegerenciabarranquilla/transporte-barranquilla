@@ -18,7 +18,7 @@ for select
 to authenticated
 using (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 
 drop policy if exists hl_logisticos_seguimiento_insert on public.seguimiento_vehiculos;
@@ -28,7 +28,7 @@ for insert
 to authenticated
 with check (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 
 drop policy if exists hl_logisticos_seguimiento_update on public.seguimiento_vehiculos;
@@ -38,11 +38,11 @@ for update
 to authenticated
 using (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 )
 with check (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 
 drop policy if exists hl_logisticos_asistencia_all on public.asistencias_ruta;
@@ -52,11 +52,11 @@ for all
 to authenticated
 using (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 )
 with check (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 
 drop policy if exists hl_logisticos_modulaciones_all on public.modulaciones_ruta;
@@ -66,11 +66,11 @@ for all
 to authenticated
 using (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 )
 with check (
   lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
-  and contractor in ('HL Logisticos', 'HL Logistica')
+  and lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 
 notify pgrst, 'reload schema';
