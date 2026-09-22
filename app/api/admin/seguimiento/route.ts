@@ -185,28 +185,39 @@ async function fetchAdminRowsByContractor<T>(
   const groups = await Promise.all(
     contractors.map(async (contractor) => {
       const records: T[] = [];
-      // Supabase puede devolver menos filas que el límite solicitado.
-      // Avanzar por las recibidas y terminar solo al agotar los datos.
-      const pageSize = Math.min(limit, 1000);
-      for (let offset = 0; ;) {
-        const params = new URLSearchParams({
-          select,
-          contractor: `eq.${contractor}`,
-          order,
-          limit: String(pageSize),
-          offset: String(offset),
-        });
-        const url = supabaseRest(table, `?${params.toString()}`);
-        const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
-        records.push(...page);
-        if (!page.length) break;
-        offset += page.length;
+      for (const queryContractor of contractorQueryValues(contractor)) {
+        // Supabase puede devolver menos filas que el límite solicitado.
+        // Avanzar por las recibidas y terminar solo al agotar los datos.
+        const pageSize = Math.min(limit, 1000);
+        for (let offset = 0; ;) {
+          const params = new URLSearchParams({
+            select,
+            contractor: `eq.${queryContractor}`,
+            order,
+            limit: String(pageSize),
+            offset: String(offset),
+          });
+          const url = supabaseRest(table, `?${params.toString()}`);
+          const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${queryContractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
+          records.push(...page);
+          if (!page.length) break;
+          offset += page.length;
+        }
       }
       return records;
     }),
   );
 
   return groups.flat();
+}
+
+function contractorQueryValues(contractor: string) {
+  // El módulo de HL tuvo cargas guardadas como "HL Logistica" y otras como
+  // "HL Logisticos". Se consultan ambas, pero el resto del flujo las etiqueta
+  // como la misma contratista oficial: HL Logisticos.
+  return normalizeContractorName(contractor) === "hllogisticos"
+    ? ["HL Logisticos", "HL Logistica", "HL Logísticos"]
+    : [contractor];
 }
 
 function indexModulacionesByRoute(records: ModulacionRegistro[]) {
