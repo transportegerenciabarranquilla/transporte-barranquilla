@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTvData } from "../TvDataCache";
 import { ExitTvButton } from "../ExitTvButton";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
+import { contractorLabel, normalizeContractorName } from "../../../lib/contractors";
 
 type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
 type RangeStats = { visits: number; inRange: number; outOfRange: number; percent: number };
@@ -36,7 +37,10 @@ export default function RangoTvPage() {
   }, []);
 
   const today = bogotaToday();
-  const reports = useMemo(() => preferredReports(data.reports.filter((report) => report.operationalDate === today)), [data.reports, today]);
+  const reports = useMemo(
+    () => preferredReports(data.reports.filter((report) => report.operationalDate === today).map(normalizeTvReport)),
+    [data.reports, today],
+  );
   const contractors = useMemo(
     () => Array.from(new Set(reports.map((report) => report.contractor))).sort((a, b) => {
       const difference = statsFor(reports.find((report) => report.contractor === a)!).percent - statsFor(reports.find((report) => report.contractor === b)!).percent;
@@ -84,7 +88,7 @@ export default function RangoTvPage() {
           <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[.9fr_1.1fr] 2xl:gap-5">
             <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_28px_rgba(15,39,68,.09)]">
               <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-5"><h2 className="flex items-center gap-2 text-lg font-extrabold"><MapPinCheck className="text-emerald-600" size={21} />Resumen por contratista</h2><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{contractors.length}</span></header>
-              <div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 p-3 2xl:gap-4 2xl:p-4">{contractors.length ? contractors.map((contractor) => <RangeBubble key={contractor} label={contractor} stats={statsFor(reports.find((report) => report.contractor === contractor)!)} uploadedAt={getLastUpload(data.reports.filter((report) => report.operationalDate === today && report.contractor === contractor))} />) : <p className="col-span-3 text-center text-sm text-slate-500">No hay reportes de rango para hoy.</p>}{reports.length > 1 ? <RangeBubble label="General" stats={general} uploadedAt={lastUpload} /> : null}</div>
+              <div className="grid min-h-0 flex-1 grid-cols-4 items-center gap-2 p-3 2xl:gap-4 2xl:p-4">{contractors.length ? contractors.map((contractor) => <RangeBubble key={contractor} label={contractor} stats={statsFor(reports.find((report) => report.contractor === contractor)!)} uploadedAt={getLastUpload(data.reports.filter((report) => report.operationalDate === today && report.contractor === contractor))} />) : <p className="col-span-4 text-center text-sm text-slate-500">No hay reportes de rango para hoy.</p>}{reports.length > 1 ? <RangeBubble label="General" stats={general} uploadedAt={lastUpload} /> : null}</div>
             </section>
             <RangeTable reports={reports} />
           </section>
@@ -117,7 +121,9 @@ function RangeTable({ reports }: { reports: TvReport[] }) {
 function emptyStats(): RangeStats { return { visits: 0, inRange: 0, outOfRange: 0, percent: 0 }; }
 function statsFor(report: TvReport): RangeStats { const visits = Number(report.summary.startedRows || 0); const inRange = Number(report.summary.inRange || 0); const outOfRange = Number(report.summary.outOfRange || 0); return { visits, inRange, outOfRange, percent: visits ? (inRange / visits) * 100 : 0 }; }
 function addStats(left: RangeStats, right: RangeStats): RangeStats { const visits = left.visits + right.visits; return { visits, inRange: left.inRange + right.inRange, outOfRange: left.outOfRange + right.outOfRange, percent: visits ? ((left.inRange + right.inRange) / visits) * 100 : 0 }; }
-function preferredReports(reports: TvReport[]) { const byContractor = new Map<string, TvReport>(); reports.forEach((report) => { const current = byContractor.get(report.contractor); if (!current || (report.kind === "closure" && current.kind !== "closure") || report.updatedAt > current.updatedAt) byContractor.set(report.contractor, report); }); return Array.from(byContractor.values()); }
+function normalizeTvReport(report: TvReport): TvReport { return { ...report, contractor: contractorLabel(report.contractor) || report.contractor }; }
+function preferredReports(reports: TvReport[]) { const byContractor = new Map<string, TvReport>(); reports.forEach((report) => { const key = normalizeContractorName(report.contractor); const current = byContractor.get(key); if (!current || isPreferredReport(report, current)) byContractor.set(key, report); }); return Array.from(byContractor.values()); }
+function isPreferredReport(candidate: TvReport, current: TvReport) { if (candidate.kind === "closure" && current.kind !== "closure") return true; if (candidate.kind !== "closure" && current.kind === "closure") return false; return candidate.updatedAt > current.updatedAt; }
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
 function formatBogotaTime(value: string) { return value ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
 function formatLongDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }

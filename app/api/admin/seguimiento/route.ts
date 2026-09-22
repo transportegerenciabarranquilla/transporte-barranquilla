@@ -4,7 +4,7 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
 import { cachedJsonFetch } from "../../../lib/serverCache";
-import { supabaseAdminHeaders, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
@@ -39,7 +39,7 @@ type AdminRefusalComRow = {
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 const PUNTO_CORONA_REPORT_SELECT = "contractor,operational_date,kind,data,updated_at";
-const ADMIN_CACHE_VERSION = "v6-sales-boss-source";
+const ADMIN_CACHE_VERSION = "v8-legacy-contractor-source";
 const LIST_CACHE_TTL_MS = 30_000;
 
 export async function GET() {
@@ -49,10 +49,12 @@ export async function GET() {
 
     const adminHeaders = supabaseAdminHeaders();
     const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
-    const publicHeaders = adminHeaders || supabaseHeaders();
     const requestedContractors = allowedContractors(session);
     const [rows, modulacionesRows, checkinRows, puntoCoronaRows] = await Promise.all([
-      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, publicHeaders, "seguimiento", requestedContractors),
+      // Usar la misma sesión autenticada del módulo de Seguimiento. Las
+      // políticas de lectura públicas no incluyen necesariamente las rutas
+      // de una contratista nueva, como HL Logísticos.
+      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "seguimiento", requestedContractors),
       fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones", requestedContractors),
       fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "checkins", requestedContractors).catch(() => []),
       fetchAdminRowsByContractor<PuntoCoronaReportRow>(
@@ -197,6 +199,15 @@ async function fetchAdminRowsByContractor<T>(
             limit: String(pageSize),
             offset: String(offset),
           });
+          if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta") {
+            // Algunas rutas y modulaciones históricas (incluidas las de HL)
+            // solo tienen el contratista dentro de data. Recuperarlas sin
+            // incluir filas asignadas explícitamente a otra contratista.
+            const value = JSON.stringify(queryContractor);
+            const dataField = table === "seguimiento_vehiculos" ? "transportista" : "contratista";
+            params.delete("contractor");
+            params.set("or", `(contractor.eq.${value},and(contractor.is.null,data->>${dataField}.eq.${value}))`);
+          }
           const url = supabaseRest(table, `?${params.toString()}`);
           const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${queryContractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
           records.push(...page);

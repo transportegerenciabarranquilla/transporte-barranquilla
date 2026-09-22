@@ -9,7 +9,7 @@ import type { Vehiculo } from "../../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../../seguimiento/utils";
 
 type RefusalStats = { cajas: number; reportadas: number; gestionadas: number; final: number; checkins: number; percent: number; max: number };
-const GALAPA = ["Logisticos", "Surti Cervezas"];
+const GALAPA = ["Logisticos", "Surti Cervezas", "HL Logisticos"];
 
 export default function RefusalTvPage() {
   const router = useRouter();
@@ -168,7 +168,7 @@ function ContractorRiskPanel({ general, items }: { general: RefusalStats; items:
         <div className="flex items-center gap-2"><span className="rounded-full border border-[#294765] bg-[#0a203b] px-3 py-1.5 text-[10px] font-bold text-cyan-100/70 2xl:text-xs">META &lt; 1%</span><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider 2xl:text-xs ${controlled ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-red-400/40 bg-red-500/15 text-red-300"}`}><i className={`h-2.5 w-2.5 rounded-full ${controlled ? "bg-emerald-400" : "animate-pulse bg-red-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span></div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-3 items-center gap-2 px-3 py-3 2xl:gap-4 2xl:px-5">
+        <div className="grid min-h-0 flex-1 grid-cols-4 items-center gap-2 px-3 py-3 2xl:gap-4 2xl:px-5">
         {circles.map((item, index) => <RefusalBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : "#d4a017"} key={item.contractor} label={item.contractor} stats={item.stats} />)}
       </div>
       <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center 2xl:h-20">
@@ -210,7 +210,7 @@ function OffendersTable({ records }: { records: Vehiculo[] }) {
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#1c3f61] px-5 2xl:h-[72px]">
-        <div className="flex min-w-0 items-center gap-3"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20 2xl:h-14 2xl:w-14"><ClipboardList size={25} /></span><div className="min-w-0"><h2 className="truncate text-xl font-extrabold 2xl:text-2xl">Top 10 ofensores · Logisticos y Surti</h2><p className="truncate text-sm font-medium text-slate-500 2xl:text-base">Mayor refusal por ruta y responsable</p></div></div>
+        <div className="flex min-w-0 items-center gap-3"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20 2xl:h-14 2xl:w-14"><ClipboardList size={25} /></span><div className="min-w-0"><h2 className="truncate text-xl font-extrabold 2xl:text-2xl">Top 10 ofensores · Galapa</h2><p className="truncate text-sm font-medium text-slate-500 2xl:text-base">Mayor refusal por ruta y responsable</p></div></div>
         <span className="rounded-lg border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-black text-cyan-700 2xl:text-base">{rows.length}</span>
       </header>
       <div className="min-h-0 flex-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
