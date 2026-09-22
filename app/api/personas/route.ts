@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cachedJsonFetch } from "../../lib/serverCache";
+import { contractorLabel, normalizeContractorName } from "../../lib/contractors";
 import { isRrRole } from "../../lib/rrRole";
 import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/supabaseServer";
 
@@ -36,10 +37,18 @@ export async function GET(request: Request) {
       CC: `eq.${cc}`,
       limit: "1",
     });
-    if (contractor) params.set("CONTRATISTA", `eq.${contractor}`);
-
+    // Una misma contratista puede venir de la tabla maestra con variantes
+    // históricas (por ejemplo, "HL Logistica" y "HL Logisticos"). Buscar por
+    // cédula y comparar el nombre canónico evita rechazar a la persona.
+    params.set("limit", "20");
     const rows = await readPersonas(params);
-    return NextResponse.json({ persona: rows[0] ?? null, isRR: isRrRole(rows[0]?.CARGO) });
+    const persona = contractor
+      ? rows.find((row) => sameContractor(row.CONTRATISTA, contractor))
+      : rows[0];
+    const normalizedPersona = persona
+      ? { ...persona, CONTRATISTA: contractorLabel(persona.CONTRATISTA) || persona.CONTRATISTA }
+      : null;
+    return NextResponse.json({ persona: normalizedPersona, isRR: isRrRole(normalizedPersona?.CARGO) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error buscando la persona." },
@@ -115,6 +124,10 @@ function normalizeText(value: unknown) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+function sameContractor(left: unknown, right: unknown) {
+  return normalizeContractorName(contractorLabel(String(left ?? ""))) === normalizeContractorName(contractorLabel(String(right ?? "")));
 }
 
 function sanitizeSearchValue(value: string) {

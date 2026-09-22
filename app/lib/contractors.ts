@@ -57,7 +57,7 @@ export function contractorLabel(value: string | null | undefined) {
   if (normalized === "logisticos") return "Logisticos";
   if (normalized === "puntocorona" || normalized === "corona") return "Punto Corona";
   if (normalized === "surticervezas") return "Surti Cervezas";
-  if (normalized === "hllogisticos") return "HL Logisticos";
+  if (normalized === "hllogisticos" || normalized === "hllogistica") return "HL Logisticos";
   if (normalized === "logisticosarenosa") return "Logisticos Arenosa";
   if (normalized === "puntocoronaarenosa" || normalized === "coronaarenosa") return "Punto Corona Arenosa";
   return String(value || "").trim();

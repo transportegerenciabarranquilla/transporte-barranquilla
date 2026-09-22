@@ -106,7 +106,12 @@ export function saveRemoteRecords<T>(
         );
       }
 
-      const savedRecords = Array.isArray(body.records) ? body.records : records;
+      // Una escritura con registros no puede vaciar la tabla local solo porque
+      // una lectura posterior quedó temporalmente oculta por RLS o caché. Se
+      // conserva la versión optimista hasta el próximo refresco válido.
+      const savedRecords = Array.isArray(body.records) && (body.records.length > 0 || records.length === 0)
+        ? body.records
+        : records;
       if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
         cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
         fetchedAt.set(endpoint, Date.now());

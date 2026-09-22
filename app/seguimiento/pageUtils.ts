@@ -87,6 +87,13 @@ function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle:
 
   return {
     ...storedVehicle,
+    // Una respuesta de caché o una fila antigua puede llegar sin fecha. La
+    // fecha identifica el día visible de la ruta y no debe desaparecer al
+    // editar clientes o visitados.
+    fechaDespacho: storedVehicle.fechaDespacho || currentVehicle.fechaDespacho,
+    fechaDt: storedVehicle.fechaDt || currentVehicle.fechaDt,
+    date: storedVehicle.date || currentVehicle.date,
+    createdAt: storedVehicle.createdAt || currentVehicle.createdAt,
     clientes,
     visitados,
     ...(keepCurrentVisitados ? { visitadosUpdatedAt: currentVehicle.visitadosUpdatedAt } : {}),

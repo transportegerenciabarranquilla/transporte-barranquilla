@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CONTRACTORS } from "../lib/contractors";
+import { CONTRACTORS, contractorLabel, normalizeContractorName } from "../lib/contractors";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
 import {
   createAttendanceKey,
@@ -118,7 +118,7 @@ export default function AsistenciaPage() {
       if (!form[field]) return;
 
       if (!persona) nextErrors[field] = "Cedula no encontrada en Transporte Barranquilla.";
-      if (persona && persona.CONTRATISTA.trim().toLowerCase() !== form.contratista.trim().toLowerCase()) {
+      if (persona && normalizeContractorName(contractorLabel(persona.CONTRATISTA)) !== normalizeContractorName(contractorLabel(form.contratista))) {
         nextErrors[field] = `La persona pertenece a ${persona.CONTRATISTA}.`;
       }
     });
