@@ -16,7 +16,7 @@ const LIST_CACHE_TTL_MS = 30_000;
 // Asistencia se registra durante la operación y debe reflejarse enseguida en
 // Seguimiento. En instancias serverless, invalidar otra instancia no borra su
 // caché local, por lo que un minuto podía dejar rutas "Sin responsable".
-const RELATED_CACHE_TTL_MS = 5_000;
+const RELATED_CACHE_TTL_MS = 0;
 const PAGE_SIZE = 1_000;
 type AuthenticatedSession = NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>;
 const PUBLIC_CONTRACTORS: Record<string, string> = {
@@ -670,7 +670,15 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   const byContractorDtAndDate = new Map<string, AsistenciaRegistro>();
   const latestByContractorDt = new Map<string, AsistenciaRegistro>();
   const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-  if (contractor) params.set("contractor", `eq.${contractor}`);
+  if (contractor) {
+    // HL tiene filas históricas con ambos nombres. El filtro exacto anterior
+    // descartaba "HL Logistica" antes de poder normalizarlo.
+    if (normalizeContractorName(contractor) === "hllogisticos") {
+      params.set("contractor", "in.(\"HL Logisticos\",\"HL Logistica\")");
+    } else {
+      params.set("contractor", `eq.${contractor}`);
+    }
+  }
 
   const rows = await readPagedRowsCached<{ contractor?: string; data: AsistenciaRegistro }>(
     "asistencias_ruta",

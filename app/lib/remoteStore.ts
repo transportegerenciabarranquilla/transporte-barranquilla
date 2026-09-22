@@ -30,7 +30,7 @@ export function clearRemoteCache() {
   notifyStorageChange();
 }
 
-export function refreshRemoteRecords(endpoint: string, options: { force?: boolean } = {}) {
+export function refreshRemoteRecords(endpoint: string, options: { force?: boolean; requestUrl?: string } = {}) {
   const lastFetch = fetchedAt.get(endpoint) || 0;
   if (!options.force && cache.has(endpoint) && Date.now() - lastFetch < REMOTE_CACHE_TTL_MS) {
     return Promise.resolve();
@@ -38,7 +38,7 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
   if (loading.has(endpoint)) return loading.get(endpoint);
 
   const mutationVersion = mutationVersions.get(endpoint) || 0;
-  const request = fetch(endpoint, { cache: "no-store" })
+  const request = fetch(options.requestUrl || endpoint, { cache: "no-store" })
     .then(async (response) => {
       const body = await response.json().catch(() => ({}));
 

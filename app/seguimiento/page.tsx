@@ -193,13 +193,13 @@ export default function SeguimientoPage() {
 
   useEffect(() => {
     void refreshRemoteRecords("/api/seguimiento", { force: true });
-    void refreshRemoteRecords("/api/asistencias");
+    void refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" });
     void refreshRemoteRecords("/api/modulaciones");
     void refreshRemoteRecords("/api/checkins");
     void loadComplaints();
     const interval = window.setInterval(() => {
       void refreshRemoteRecords("/api/seguimiento", { force: true });
-      void refreshRemoteRecords("/api/asistencias");
+      void refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" });
       void refreshRemoteRecords("/api/modulaciones");
       void refreshRemoteRecords("/api/checkins");
       void loadComplaints();
