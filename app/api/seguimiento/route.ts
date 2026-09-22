@@ -13,7 +13,10 @@ import { dedupeUpsertRows } from "../../lib/seguimientoUpsert";
 const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
 const LIST_CACHE_TTL_MS = 30_000;
-const RELATED_CACHE_TTL_MS = 60_000;
+// Asistencia se registra durante la operación y debe reflejarse enseguida en
+// Seguimiento. En instancias serverless, invalidar otra instancia no borra su
+// caché local, por lo que un minuto podía dejar rutas "Sin responsable".
+const RELATED_CACHE_TTL_MS = 5_000;
 const PAGE_SIZE = 1_000;
 type AuthenticatedSession = NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>;
 const PUBLIC_CONTRACTORS: Record<string, string> = {
