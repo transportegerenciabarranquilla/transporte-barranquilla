@@ -113,7 +113,10 @@ export async function PUT(request: Request) {
     if (rows.length) {
       const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
         method: "POST",
-        headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+        // La API ya fija contractor desde la sesión autenticada. La escritura
+        // debe usar la credencial del servidor cuando está configurada para
+        // que una política RLS desactualizada no bloquee una contratista nueva.
+        headers: getWriteHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
         body: JSON.stringify(rows),
         cache: "no-store",
       });
@@ -127,7 +130,7 @@ export async function PUT(request: Request) {
     // mediante DELETE, después de una confirmacion expresa en la interfaz.
 
     const savedParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const savedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, savedParams, supabaseUserHeaders(session.accessToken));
+    const savedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, savedParams, supabaseReadHeaders(session.accessToken));
     await writeAuditLog({
       action: "seguimiento_guardado",
       contractor: session.contractor,
@@ -178,7 +181,7 @@ export async function PATCH(request: Request) {
       limit: "1",
     });
     const currentResponse = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
-      headers: supabaseUserHeaders(session.accessToken),
+      headers: supabaseReadHeaders(session.accessToken),
       cache: "no-store",
     });
     if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
@@ -200,7 +203,7 @@ export async function PATCH(request: Request) {
     });
     const updateResponse = await fetch(supabaseRest(TABLE, `?${updateParams.toString()}`), {
       method: "PATCH",
-      headers: supabaseUserHeaders(session.accessToken, { Prefer: "return=minimal" }),
+      headers: getWriteHeaders(session.accessToken, { Prefer: "return=minimal" }),
       body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
       cache: "no-store",
     });

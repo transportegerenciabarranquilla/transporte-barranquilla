@@ -67,7 +67,7 @@ export async function PUT(request: Request) {
     }));
     const response = await fetch(supabaseRest(TABLE, "?on_conflict=attendance_key"), {
       method: "POST",
-      headers: getWriteHeaders(session?.accessToken, isPublicSubmission),
+      headers: getWriteHeaders(session?.accessToken),
       body: JSON.stringify(rows),
       cache: "no-store",
     });
@@ -114,13 +114,12 @@ export async function PUT(request: Request) {
   }
 }
 
-function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: boolean) {
-  if (!isPublicSubmission && accessToken) {
-    return supabaseUserHeaders(accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
-  }
-
+function getWriteHeaders(accessToken: string | undefined) {
   return (
     supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ||
+    (accessToken
+      ? supabaseUserHeaders(accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" })
+      : null) ||
     supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" })
   );
 }
