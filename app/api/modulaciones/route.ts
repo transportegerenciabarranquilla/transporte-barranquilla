@@ -22,7 +22,7 @@ export async function GET() {
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: LIST_SELECT, order: "updated_at.desc" }
-        : { select: LIST_SELECT, contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
+        : { select: LIST_SELECT, contractor: modulationContractorFilter(session.contractor), order: "updated_at.desc" },
     );
     const rows: ModulacionListRow[] = [];
     scopeQuery(params, session);
@@ -136,7 +136,7 @@ export async function DELETE(request: Request) {
     if (!cleanIds.length) return NextResponse.json({ error: "Debes enviar al menos una modulacion para eliminar." }, { status: 400 });
 
     const idFilter = cleanIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
-    const params = new URLSearchParams({ contractor: `eq.${session.contractor}` });
+    const params = new URLSearchParams({ contractor: modulationContractorFilter(session.contractor) });
     params.set("modulation_id", `in.(${idFilter})`);
 
     const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
@@ -171,11 +171,17 @@ function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: bo
   return supabaseAdminHeaders(prefer) || supabaseHeaders(prefer);
 }
 
+function modulationContractorFilter(contractor: string) {
+  return normalizeContractorName(contractor) === "hllogisticos"
+    ? "in.(\"HL Logisticos\",\"HL Logistica\")"
+    : `eq.${contractor}`;
+}
+
 async function readExistingModulaciones(accessToken: string, contractor: string, ids: string[]) {
   if (!ids.length) return new Map<string, ModulacionRegistro>();
 
   const idFilter = ids.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
-  const params = new URLSearchParams({ select: "modulation_id,data", contractor: `eq.${contractor}` });
+  const params = new URLSearchParams({ select: "modulation_id,data", contractor: modulationContractorFilter(contractor) });
   params.set("modulation_id", `in.(${idFilter})`);
   const response = await fetch(supabaseRest(TABLE, `?${params.toString()}`), {
     headers: supabaseUserHeaders(accessToken),
