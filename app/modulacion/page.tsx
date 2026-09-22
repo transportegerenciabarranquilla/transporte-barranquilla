@@ -74,8 +74,13 @@ export default function ModulacionPage() {
   }, []);
 
   const contractorOptions = useMemo(() => {
-    return Array.from(new Set(registros.map((registro) => registro.contratista?.trim()).filter(Boolean) as string[])).sort();
-  }, [registros]);
+    const options = registros.map((registro) => registro.contratista?.trim()).filter(Boolean) as string[];
+    // La contratista de la sesion debe permanecer seleccionable aunque la
+    // consulta remota aun no haya devuelto filas. Antes se eliminaba y el
+    // selector pasaba a mostrar "Sin contratistas".
+    if (!isAdminSession && selectedContractor.trim()) options.push(selectedContractor.trim());
+    return Array.from(new Set(options)).sort();
+  }, [isAdminSession, registros, selectedContractor]);
 
   useEffect(() => {
     if (!contractorOptions.length) {

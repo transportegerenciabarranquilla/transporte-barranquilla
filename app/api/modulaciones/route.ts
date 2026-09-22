@@ -9,7 +9,10 @@ import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeade
 
 const TABLE = "modulaciones_ruta";
 const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
-const LIST_CACHE_TTL_MS = 45_000;
+// Una modulacion se consulta inmediatamente despues de guardarla. Mantener
+// esta respuesta en cache hacia que el formulario mostrara el registro y la
+// siguiente lectura volviera a una lista vacia durante 45 segundos.
+const LIST_CACHE_TTL_MS = 0;
 const LIST_PAGE_SIZE = 1_000;
 const LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,gestionCompletadaAt:data->>gestionCompletadaAt,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,origenReubicacion:data->>origenReubicacion,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
@@ -173,7 +176,7 @@ function getWriteHeaders(accessToken: string | undefined, isPublicSubmission: bo
 
 function modulationContractorFilter(contractor: string) {
   return normalizeContractorName(contractor) === "hllogisticos"
-    ? "in.(\"HL Logisticos\",\"HL Logistica\")"
+    ? "in.(\"HL Logisticos\",\"HL Logistica\",\"HL Logísticos\")"
     : `eq.${contractor}`;
 }
 

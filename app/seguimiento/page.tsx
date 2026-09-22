@@ -11,6 +11,7 @@ import { SeguimientoHero } from "./components/SeguimientoHero";
 import { VehicleDrawer } from "./components/VehicleDrawer";
 import { VehiclesTable } from "./components/VehiclesTable";
 import {
+  enrichVehiclesWithModulacion,
   loadSeguimientoVehiculos,
   mergeVehiclesByDt,
   parseSeguimientoFile,
@@ -109,6 +110,17 @@ export default function SeguimientoPage() {
       return merged;
     });
   }, [storedVehiculos]);
+
+  // Las modulaciones llegan por una consulta distinta a la de Seguimiento.
+  // Al cambiar, recalcular las rutas ya visibles para reflejar de inmediato
+  // cajas rechazadas, gestionadas y refusal del DT correspondiente.
+  useEffect(() => {
+    setVehiculos((current) => {
+      const enriched = enrichVehiclesWithModulacion(current, modulaciones);
+      vehiclesRef.current = enriched;
+      return enriched;
+    });
+  }, [modulaciones]);
 
   useEffect(() => {
     vehiclesRef.current = vehiculos;

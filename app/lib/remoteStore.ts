@@ -7,6 +7,7 @@ const loading = new Map<string, Promise<void>>();
 const fetchedAt = new Map<string, number>();
 const saveQueues = new Map<string, Promise<void>>();
 const mutationVersions = new Map<string, number>();
+const preserveAfterWriteUntil = new Map<string, number>();
 const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
@@ -51,7 +52,17 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
       // Si hubo una edición mientras esta lectura estaba en curso, su
       // respuesta ya es obsoleta y no debe reemplazar la caché optimista.
       if ((mutationVersions.get(endpoint) || 0) !== mutationVersion) return;
-      cache.set(endpoint, Array.isArray(data) ? data : data ? [data] : []);
+      const incomingRecords = Array.isArray(data) ? data : data ? [data] : [];
+      const cachedRecords = cache.get(endpoint) ?? [];
+      // Supabase puede responder una lista anterior justo despues del PUT
+      // (por replica, cache o una politica RLS que aun se esta propagando).
+      // No dejamos que esa respuesta reduzca la lista optimista recien
+      // guardada; el siguiente refresco normal la confirmara.
+      const preserveOptimisticRecords =
+        (preserveAfterWriteUntil.get(endpoint) ?? 0) > Date.now()
+        && incomingRecords.length < cachedRecords.length;
+      if (preserveOptimisticRecords) return;
+      cache.set(endpoint, incomingRecords);
       fetchedAt.set(endpoint, Date.now());
       notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     })
@@ -115,6 +126,7 @@ export function saveRemoteRecords<T>(
       if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
         cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
         fetchedAt.set(endpoint, Date.now());
+        preserveAfterWriteUntil.set(endpoint, Date.now() + 60_000);
         notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
       }
       return savedRecords as T[];
