@@ -18,7 +18,10 @@ export function readCheckinCajasRegistros() {
 }
 
 export function saveCheckinCajasRegistros(records: CheckinCajasRegistro[]) {
-  return saveRemoteRecords("/api/checkins", records);
+  return saveRemoteRecords("/api/checkins", records, {
+    extraBody: { deleteMissing: false },
+    mergeByKey: (item) => normalizeDt(item.dt),
+  });
 }
 
 export function saveCheckinCajasRegistro(record: CheckinCajasRegistro) {
@@ -37,8 +40,8 @@ export function removeCheckinByDt(dt: string | number | undefined) {
   if (!targetDt || typeof window === "undefined") return;
 
   const records = readCheckinCajasRegistros();
-  const nextRecords = records.filter((record) => normalizeDt(record.dt) !== targetDt);
-  void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
+  const ids = records.filter((record) => normalizeDt(record.dt) === targetDt).map((record) => record.id);
+  if (ids.length) void deleteRemoteRecords<CheckinCajasRegistro>("/api/checkins", ids).catch(() => undefined);
 }
 
 export function moveCheckinCajasDate(
@@ -75,7 +78,8 @@ export function moveCheckinByDt(
   const nextRecords = moveCheckinCajasDate(records, dt, fromDate, toDate);
   if (nextRecords === records) return;
 
-  void saveCheckinCajasRegistros(nextRecords).catch(() => undefined);
+  const changedRecords = nextRecords.filter((record, index) => record !== records[index]);
+  if (changedRecords.length) void saveCheckinCajasRegistros(changedRecords).catch(() => undefined);
 }
 
 export function getCheckinByDt(

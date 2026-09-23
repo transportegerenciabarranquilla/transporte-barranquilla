@@ -198,7 +198,7 @@ async function fetchAdminRowsByContractor<T>(
   // TV muestra los reportes de Punto Corona del día; el historial completo
   // sigue disponible en el panel administrativo y en las exportaciones.
   if (operationalDate) params.set("operational_date", `eq.${operationalDate}`);
-  if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta") {
+  if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta" || table === "checkins_cajas") {
     const dataField = table === "seguimiento_vehiculos" ? "transportista" : "contratista";
     params.delete("contractor");
     params.set("or", `(contractor.in.(${values}),and(contractor.is.null,data->>${dataField}.in.(${values})))`);

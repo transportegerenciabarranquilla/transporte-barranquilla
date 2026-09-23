@@ -11,7 +11,8 @@ function compile(path, mocks) {
 test('pagina check-ins sin perder el filtro', async () => {
  const calls = [];
  const route = compile('../api/checkins/route.ts', {
- '../../lib/adminScope': { scopeQuery: () => {} },
+ '../../lib/adminScope': { allowedContractors: session => [session.contractor] },
+ '../../lib/checkinScope': compile('./checkinScope.ts', { './contractors': compile('./contractors.ts', {}) }),
  '../../lib/contractors': compile('./contractors.ts', {}),
  'next/server': { NextResponse: { json: (body) => body } },
  '../../lib/auditLog': {},
@@ -25,7 +26,7 @@ test('pagina check-ins sin perder el filtro', async () => {
  const result = await route.GET();
  assert.equal(result.records.length, 1001);
  assert.deepEqual(calls.map(url => url.searchParams.get('offset')), ['0', '1000']);
- for (const url of calls) assert.equal(url.searchParams.get('contractor'), 'eq.Logisticos');
+ for (const url of calls) assert.equal(url.searchParams.get('or'), '(contractor.in.("Logisticos"),and(contractor.is.null,data->>contratista.in.("Logisticos")))');
 });
 test('cierres de Logisticos y Surti, check-in cero y sin check-in', () => {
  const { calculateRefusalTotals } = compile('./modulacionStorage.ts', { './remoteStore': {}, './refusalCalculation': { calculatePendingRefusalBoxes: (rejected, managed, checkin) => {

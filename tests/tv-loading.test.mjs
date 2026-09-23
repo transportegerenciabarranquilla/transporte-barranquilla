@@ -93,6 +93,10 @@ test("seguimiento agrupa tablas y conserva el alcance de Arenosa y las filas his
   assert.match(seguimiento, /contractor\.is\.null,data->>transportista\.in/);
   assert.match(seguimiento, /Logisticos Arenosa/);
   assert.doesNotMatch(seguimiento, /"Logisticos"|HL Logisticos/);
+  const checkins = urls.find((url) => url.pathname.endsWith("checkins_cajas")).searchParams.get("or");
+  assert.match(checkins, /contractor\.is\.null,data->>contratista\.in/);
+  assert.match(checkins, /Logisticos Arenosa/);
+  assert.doesNotMatch(checkins, /"Logisticos"|HL Logisticos/);
   assert.match(urls.find((url) => url.pathname.endsWith("punto_corona_route_reports")).searchParams.get("operational_date"), /^eq\.\d{4}-\d{2}-\d{2}$/);
 });
 

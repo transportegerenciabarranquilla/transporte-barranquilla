@@ -1,4 +1,5 @@
-import { scopeQuery } from "../../lib/adminScope";
+import { allowedContractors } from "../../lib/adminScope";
+import { scopeCheckinQuery } from "../../lib/checkinScope";
 import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -15,12 +16,9 @@ export async function GET() {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
-    const params = new URLSearchParams(
-      session.isAdmin
-        ? { select: "contractor,data", order: "updated_at.desc" }
-        : { select: "contractor,data", contractor: checkinContractorFilter(session.contractor), order: "updated_at.desc" },
-    );
-    scopeQuery(params, session);
+    const params = scopeCheckinQuery(new URLSearchParams({
+      select: "contractor,data", order: "updated_at.desc,checkin_id.asc",
+    }), session.isAdmin ? allowedContractors(session) : [session.contractor]);
     const rows: { contractor?: string; data: CheckinWithContractor }[] = [];
     const pageSize = 1000;
     const headers = supabaseReadHeaders(session.accessToken);
@@ -50,7 +48,7 @@ export async function PUT(request: Request) {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
     if (!isOperationalContractor(session.contractor)) return NextResponse.json({ error: "Solo las contratistas pueden guardar checkins." }, { status: 403 });
-    const { records, deleteMissing = true } = (await request.json()) as {
+    const { records, deleteMissing = false } = (await request.json()) as {
       records: CheckinCajasRegistro[];
       deleteMissing?: boolean;
     };
@@ -64,15 +62,13 @@ export async function PUT(request: Request) {
     if (records.length) {
       const ids = records.map((record) => `"${record.id.replaceAll('"', '\\"')}"`).join(",");
       const params = new URLSearchParams({
-        select: "checkin_id,contractor",
+        select: "checkin_id,contractor,data",
         checkin_id: `in.(${ids})`,
-        contractor: `not.${checkinContractorFilter(session.contractor)}`,
-        limit: "1",
       });
       const existingResponse = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
       if (!existingResponse.ok) return NextResponse.json({ error: await supabaseError(existingResponse) }, { status: existingResponse.status });
-      const existing = await existingResponse.json() as { contractor: string }[];
-      if (existing.some((row) => normalizeContractorName(row.contractor) !== normalizeContractorName(session.contractor))) {
+      const existing = await existingResponse.json() as { contractor: string | null; data?: CheckinWithContractor }[];
+      if (existing.some((row) => normalizeContractorName(row.contractor ?? row.data?.contratista) !== normalizeContractorName(session.contractor))) {
         return NextResponse.json({ error: "No puedes modificar checkins de otra contratista." }, { status: 403 });
       }
     }
@@ -92,11 +88,33 @@ export async function PUT(request: Request) {
       if (!upsertResponse.ok) return NextResponse.json({ error: await supabaseError(upsertResponse) }, { status: upsertResponse.status });
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:admin-seguimiento:");
+
+      // Confirmar con los mismos permisos de lectura usados al recargar.
+      // Un HTTP exitoso por sí solo no confirma que el check-in sea recuperable.
+      for (let offset = 0; offset < rows.length; offset += 100) {
+        const batch = rows.slice(offset, offset + 100);
+        const ids = batch.map((row) => `"${row.checkin_id.replaceAll('"', '\\"')}"`).join(",");
+        const params = scopeCheckinQuery(new URLSearchParams({
+          select: "checkin_id,data",
+          checkin_id: `in.(${ids})`,
+        }), [session.contractor]);
+        const confirmation = await fetch(supabaseRest(TABLE, `?${params}`), {
+          headers: supabaseReadHeaders(session.accessToken),
+          cache: "no-store",
+        });
+        if (!confirmation.ok) return NextResponse.json({ error: await supabaseError(confirmation) }, { status: confirmation.status });
+        const saved = await confirmation.json() as { checkin_id: string; data: CheckinCajasRegistro }[];
+        if (!Array.isArray(saved) || batch.some((row) => !saved.some((item) =>
+          item.checkin_id === row.checkin_id && item.data?.dt === row.data.dt && item.data?.totalCajas === row.data.totalCajas
+        ))) {
+          return NextResponse.json({ error: "No se pudo confirmar el checkin al consultar Supabase. Recarga y verifica el registro antes de intentar nuevamente." }, { status: 502 });
+        }
+      }
     }
 
     if (deleteMissing) {
       const keepIds = new Set(rows.map((row) => row.checkin_id));
-      const currentParams = new URLSearchParams({ select: "checkin_id", contractor: checkinContractorFilter(session.contractor) });
+      const currentParams = scopeCheckinQuery(new URLSearchParams({ select: "checkin_id" }), [session.contractor]);
       const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
         headers,
         cache: "no-store",
@@ -106,8 +124,9 @@ export async function PUT(request: Request) {
         const removed = current.map((row) => row.checkin_id).filter((id) => !keepIds.has(id));
         if (removed.length) {
           const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+          const deleteParams = scopeCheckinQuery(new URLSearchParams({ checkin_id: `in.(${filter})` }), [session.contractor]);
           await fetch(
-            supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=${encodeURIComponent(checkinContractorFilter(session.contractor))}`),
+            supabaseRest(TABLE, `?${deleteParams}`),
             {
               method: "DELETE",
               headers,
@@ -151,8 +170,9 @@ export async function DELETE(request: Request) {
     if (!cleanIds.length) return NextResponse.json({ deleted: 0 });
 
     const filter = cleanIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
+    const params = scopeCheckinQuery(new URLSearchParams({ checkin_id: `in.(${filter})` }), [session.contractor]);
     const response = await fetch(
-      supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=${encodeURIComponent(checkinContractorFilter(session.contractor))}`),
+      supabaseRest(TABLE, `?${params}`),
       {
         method: "DELETE",
         headers: checkinWriteHeaders(session.accessToken, session.contractor),
@@ -167,12 +187,6 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando check-in." }, { status: 500 });
   }
-}
-
-function checkinContractorFilter(contractor: string) {
-  return normalizeContractorName(contractor) === "hllogisticos"
-    ? 'in.("HL Logisticos","HL Logistica","HL Logísticos")'
-    : `eq.${contractor}`;
 }
 
 function checkinWriteHeaders(accessToken: string, contractor: string) {
