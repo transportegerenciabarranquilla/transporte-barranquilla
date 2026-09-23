@@ -14,6 +14,7 @@ import type { FormErrors, FormState } from "../modulacion/types";
 import { validateModulacion } from "../modulacion/utils";
 import { ModulacionForm } from "../modulacion/components/ModulacionForm";
 import { ModulacionHeader } from "../modulacion/components/ModulacionHeader";
+import { mapAttendanceToVehicle } from "../modulacion/utils";
 
 export default function RegistroModulacionPage() {
   const router = useRouter();
@@ -87,6 +88,9 @@ export default function RegistroModulacionPage() {
             nombreResponsable: responsibleName || vehicle.nombreResponsable,
             responsable: responsibleName || (responsibleId ? `RR ${responsibleId}` : vehicle.responsable),
           }));
+          if (!visibleVehicles.length && matchedAttendance) {
+            visibleVehicles.push(mapAttendanceToVehicle(matchedAttendance));
+          }
 
           setVehiculosSeguimiento(visibleVehicles);
           if (asistenciaError) setVehiclesError(asistenciaError);
@@ -314,6 +318,7 @@ export default function RegistroModulacionPage() {
           loadingModulador={loadingModulador}
           loadingVehicles={loadingVehicles}
           moduladorError={moduladorError}
+          rrNombre={form.personaNombre}
           onChange={updateField}
           onSubmit={handleSubmit}
           saveError={saveError}

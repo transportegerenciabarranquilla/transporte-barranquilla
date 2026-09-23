@@ -9,6 +9,7 @@ import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeade
 
 const TABLE = "modulaciones_ruta";
 const SEGUIMIENTO_TABLE = "seguimiento_vehiculos";
+const ASISTENCIA_TABLE = "asistencias_ruta";
 // Una modulacion se consulta inmediatamente despues de guardarla. Mantener
 // esta respuesta en cache hacia que el formulario mostrara el registro y la
 // siguiente lectura volviera a una lista vacia durante 45 segundos.
@@ -279,7 +280,29 @@ async function validatePublicDt(contractor: string, record: ModulacionRegistro |
     if (normalizeDt(data?.transporte) !== dt) return false;
     return [data?.fechaDespacho, data?.fechaDt, data?.date, data?.createdAt].some((date) => toBogotaDateKey(date) === getTodayKey());
   });
-  return hasValidDt ? "" : "El DT no esta validado o no esta cargado para hoy.";
+  if (hasValidDt) return "";
+  return await validateAttendanceDt(contractor, dt) ? "" : "El DT no esta validado o no esta cargado para hoy.";
+}
+
+async function validateAttendanceDt(contractor: string, dt: string) {
+  const today = getTodayKey();
+  const attendanceKey = [contractor.toUpperCase().replace(/\s+/g, "-"), dt, today].join("-");
+  const params = new URLSearchParams({
+    select: "data",
+    contractor: `eq.${contractor}`,
+    attendance_key: `eq.${attendanceKey}`,
+    limit: "1",
+  });
+  const response = await fetch(supabaseRest(ASISTENCIA_TABLE, `?${params.toString()}`), {
+    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
+    cache: "no-store",
+  });
+  if (!response.ok) return false;
+  const rows = (await response.json().catch(() => [])) as { data?: { dt?: string | number; contratista?: string } }[];
+  return rows.some((row) =>
+    normalizeDt(row.data?.dt) === dt
+      && normalizeContractorName(row.data?.contratista || contractor) === normalizeContractorName(contractor),
+  );
 }
 
 function normalizeDt(value: string | number | undefined) {

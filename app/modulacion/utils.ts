@@ -83,7 +83,7 @@ function filterTodayVehicles(vehiculos: Vehiculo[]) {
   );
 }
 
-function mapAttendanceToVehicle(
+export function mapAttendanceToVehicle(
   registro: AsistenciaRegistro
 ): VehiculoFromAsistencia {
   const createdAt = new Date(registro.createdAt);
@@ -91,16 +91,17 @@ function mapAttendanceToVehicle(
 
   return {
     mes: createdAt.toLocaleDateString("es-CO", { month: "long" }),
-    cd: "Punto Corona",
+    cd: registro.contratista,
     transportista: registro.contratista,
     llave: registro.llave,
     transporte: registro.dt,
-    centro: "Punto Corona",
+    centro: registro.contratista,
     codTransportista: "-",
     fechaDt: fecha,
     fechaDespacho: fecha,
-    vehiculo: `DT-${registro.dt}`,
-    responsable: `RR ${registro.cedulaResponsable}`,
+    vehiculo: "Validado por asistencia",
+    responsable: registro.nombreResponsable || `RR ${registro.cedulaResponsable}`,
+    nombreResponsable: registro.nombreResponsable,
 
     territorio: "Pendiente",
     viaje: "Pendiente",

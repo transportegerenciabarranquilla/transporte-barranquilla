@@ -17,6 +17,7 @@ export function ModulacionForm({
   loadingModulador,
   loadingVehicles,
   moduladorError,
+  rrNombre,
   onChange,
   onSubmit,
   saveError,
@@ -32,6 +33,7 @@ export function ModulacionForm({
   loadingModulador?: boolean;
   loadingVehicles?: boolean;
   moduladorError?: string;
+  rrNombre?: string;
   onChange: <Key extends keyof FormState>(key: Key, value: FormState[Key]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   saveError?: string;
@@ -102,7 +104,7 @@ export function ModulacionForm({
                 </option>
                 {vehiculosSeguimiento.map((vehiculo) => (
                   <option key={`${vehiculo.vehiculo}-${vehiculo.transporte}`} value={normalizeDt(vehiculo.transporte)}>
-                    {vehiculo.transporte} - {vehiculo.vehiculo} - {vehiculo.responsable}
+                    {formatValidatedDtOption(vehiculo, rrNombre)}
                   </option>
                 ))}
               </select>
@@ -219,6 +221,12 @@ export function ModulacionForm({
       ) : null}
     </div>
   );
+}
+
+function formatValidatedDtOption(vehicle: Vehiculo, rrNombre?: string) {
+  const plate = vehicle.vehiculo === "Validado por asistencia" ? "Placa pendiente" : vehicle.vehiculo || "Placa pendiente";
+  const responsible = rrNombre || vehicle.nombreResponsable || vehicle.responsable.replace(/^RR\s*/i, "");
+  return `DT ${normalizeDt(vehicle.transporte)} · ${plate} · RR ${responsible}`;
 }
 
 function InfoField({ label, value }: { label: string; value: string }) {
