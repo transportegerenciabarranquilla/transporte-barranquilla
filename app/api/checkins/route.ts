@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import type { CheckinCajasRegistro } from "../../lib/checkinStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
+import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
-import { supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
+import { supabaseAdminHeaders, supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
 const TABLE = "checkins_cajas";
-const LIST_CACHE_TTL_MS = 45_000;
+const LIST_CACHE_TTL_MS = 0;
 type CheckinWithContractor = CheckinCajasRegistro & { contratista?: string };
 
 export async function GET() {
@@ -17,7 +18,7 @@ export async function GET() {
     const params = new URLSearchParams(
       session.isAdmin
         ? { select: "contractor,data", order: "updated_at.desc" }
-        : { select: "data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" },
+        : { select: "contractor,data", contractor: checkinContractorFilter(session.contractor), order: "updated_at.desc" },
     );
     scopeQuery(params, session);
     const rows: { contractor?: string; data: CheckinWithContractor }[] = [];
@@ -48,11 +49,33 @@ export async function PUT(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
+    if (!isOperationalContractor(session.contractor)) return NextResponse.json({ error: "Solo las contratistas pueden guardar checkins." }, { status: 403 });
     const { records, deleteMissing = true } = (await request.json()) as {
       records: CheckinCajasRegistro[];
       deleteMissing?: boolean;
     };
     if (!Array.isArray(records)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
+    if (records.some((record) => !record || typeof record.id !== "string" || !record.id.trim() || typeof record.dt !== "string" || !/^\d+$/.test(record.dt) || !Number.isSafeInteger(record.totalCajas) || record.totalCajas < 0)) {
+      return NextResponse.json({ error: "Cada checkin debe tener un identificador, DT y cantidad entera de cajas válida." }, { status: 400 });
+    }
+    const headers = checkinWriteHeaders(session.accessToken, session.contractor);
+    // Los IDs son globales. Antes de escribir con permisos del servidor,
+    // impedir que un ID ajeno cambie de contratista mediante el upsert.
+    if (records.length) {
+      const ids = records.map((record) => `"${record.id.replaceAll('"', '\\"')}"`).join(",");
+      const params = new URLSearchParams({
+        select: "checkin_id,contractor",
+        checkin_id: `in.(${ids})`,
+        contractor: `not.${checkinContractorFilter(session.contractor)}`,
+        limit: "1",
+      });
+      const existingResponse = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
+      if (!existingResponse.ok) return NextResponse.json({ error: await supabaseError(existingResponse) }, { status: existingResponse.status });
+      const existing = await existingResponse.json() as { contractor: string }[];
+      if (existing.some((row) => normalizeContractorName(row.contractor) !== normalizeContractorName(session.contractor))) {
+        return NextResponse.json({ error: "No puedes modificar checkins de otra contratista." }, { status: 403 });
+      }
+    }
     const rows = records.map((record) => ({
       checkin_id: record.id,
       contractor: session.contractor,
@@ -62,7 +85,7 @@ export async function PUT(request: Request) {
     if (rows.length) {
       const upsertResponse = await fetch(supabaseRest(TABLE, "?on_conflict=checkin_id"), {
         method: "POST",
-        headers: supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify(rows),
         cache: "no-store",
       });
@@ -73,9 +96,9 @@ export async function PUT(request: Request) {
 
     if (deleteMissing) {
       const keepIds = new Set(rows.map((row) => row.checkin_id));
-      const currentParams = new URLSearchParams({ select: "checkin_id", contractor: `eq.${session.contractor}` });
+      const currentParams = new URLSearchParams({ select: "checkin_id", contractor: checkinContractorFilter(session.contractor) });
       const currentResponse = await fetch(supabaseRest(TABLE, `?${currentParams.toString()}`), {
-        headers: supabaseUserHeaders(session.accessToken),
+        headers,
         cache: "no-store",
       });
       if (currentResponse.ok) {
@@ -84,10 +107,10 @@ export async function PUT(request: Request) {
         if (removed.length) {
           const filter = removed.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
           await fetch(
-            supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
+            supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=${encodeURIComponent(checkinContractorFilter(session.contractor))}`),
             {
               method: "DELETE",
-              headers: supabaseUserHeaders(session.accessToken),
+              headers,
               cache: "no-store",
             },
           );
@@ -110,7 +133,7 @@ export async function PUT(request: Request) {
       session,
     });
 
-    return NextResponse.json({ records });
+    return NextResponse.json({ records: rows.map((row) => row.data) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando check-in." }, { status: 500 });
   }
@@ -121,6 +144,7 @@ export async function DELETE(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta los checkins globales." }, { status: 403 });
+    if (!isOperationalContractor(session.contractor)) return NextResponse.json({ error: "Solo las contratistas pueden eliminar checkins." }, { status: 403 });
 
     const { ids } = (await request.json()) as { ids?: string[] };
     const cleanIds = Array.isArray(ids) ? ids.map(String).filter(Boolean) : [];
@@ -128,10 +152,10 @@ export async function DELETE(request: Request) {
 
     const filter = cleanIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(",");
     const response = await fetch(
-      supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=eq.${encodeURIComponent(session.contractor)}`),
+      supabaseRest(TABLE, `?checkin_id=in.(${encodeURIComponent(filter)})&contractor=${encodeURIComponent(checkinContractorFilter(session.contractor))}`),
       {
         method: "DELETE",
-        headers: supabaseUserHeaders(session.accessToken),
+        headers: checkinWriteHeaders(session.accessToken, session.contractor),
         cache: "no-store",
       },
     );
@@ -143,4 +167,17 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error eliminando check-in." }, { status: 500 });
   }
+}
+
+function checkinContractorFilter(contractor: string) {
+  return normalizeContractorName(contractor) === "hllogisticos"
+    ? 'in.("HL Logisticos","HL Logistica","HL Logísticos")'
+    : `eq.${contractor}`;
+}
+
+function checkinWriteHeaders(accessToken: string, contractor: string) {
+  // HL aún puede tener las políticas históricas sin checkins_cajas.
+  // La sesión y el alcance se validan antes de usar estos permisos.
+  return (normalizeContractorName(contractor) === "hllogisticos" ? supabaseAdminHeaders() : null)
+    ?? supabaseUserHeaders(accessToken);
 }

@@ -12,6 +12,7 @@ test('pagina check-ins sin perder el filtro', async () => {
  const calls = [];
  const route = compile('../api/checkins/route.ts', {
  '../../lib/adminScope': { scopeQuery: () => {} },
+ '../../lib/contractors': compile('./contractors.ts', {}),
  'next/server': { NextResponse: { json: (body) => body } },
  '../../lib/auditLog': {},
  '../../lib/authServer': { getAuthenticatedSession: async () => ({ contractor: 'Logisticos', accessToken: 'test' }) },

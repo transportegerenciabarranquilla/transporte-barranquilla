@@ -84,9 +84,12 @@ function useCachedEndpoint<T>(url: string, empty: T, select: (body: T) => T) {
 
   useEffect(() => {
     void load();
-    const interval = window.setInterval(() => void load(), 30_000);
+    const refresh = () => { if (!document.hidden) void load(); };
+    const interval = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
       const controller = pending.current;
       pending.current = null;
       controller?.abort();
@@ -103,8 +106,8 @@ type TvCache = {
 const TvDataContext = createContext<TvCache | null>(null);
 
 export function TvDataCache({ children }: { children: ReactNode }) {
-  const seguimiento = useCachedEndpoint("/api/admin/seguimiento", EMPTY_SEGUIMIENTO, seguimientoData);
-  const rango = useCachedEndpoint("/api/admin/rango", EMPTY_RANGO, rangoData);
+  const seguimiento = useCachedEndpoint("/api/admin/seguimiento?tv=1", EMPTY_SEGUIMIENTO, seguimientoData);
+  const rango = useCachedEndpoint("/api/admin/rango?tv=1", EMPTY_RANGO, rangoData);
   return <TvDataContext.Provider value={{ seguimiento, rango }}>{children}</TvDataContext.Provider>;
 }
 

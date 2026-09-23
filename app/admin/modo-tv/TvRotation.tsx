@@ -16,11 +16,16 @@ export function TvRotationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const index = TV_ROUTES.indexOf(pathname);
     if (!active || index === -1) return;
+    const nextRoute = `${TV_ROUTES[(index + 1) % TV_ROUTES.length]}?transicion=1`;
+    const prefetchTimer = window.setTimeout(() => router.prefetch(nextRoute), 2_000);
 
     const timer = window.setTimeout(() => {
-      router.replace(`${TV_ROUTES[(index + 1) % TV_ROUTES.length]}?transicion=1`, { scroll: false });
+      router.replace(nextRoute, { scroll: false });
     }, ROTATION_MS);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(prefetchTimer);
+      window.clearTimeout(timer);
+    };
   }, [active, pathname, router]);
 
   return <>{children}{active ? <div className="fixed bottom-4 right-4 z-[100]"><ExitTvButton /></div> : null}</>;

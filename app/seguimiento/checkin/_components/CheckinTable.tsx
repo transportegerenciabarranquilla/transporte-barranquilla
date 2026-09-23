@@ -51,8 +51,8 @@ export function CheckinTable({
                 <td className="px-3 py-1.5 text-center"><span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{resumen.cajasGestionadas}</span></td>
                 <td className="px-3 py-1.5">
                   <form className="flex items-center justify-center gap-1.5" onSubmit={(event) => onSubmit(event, vehicle.transporte)}>
-                    <input aria-label={`Cajas checkin DT ${vehicle.transporte}`} className="h-7 w-16 rounded-md border border-slate-200 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]" inputMode="numeric" onChange={(event) => onInputChange(vehicle.transporte, event.target.value)} placeholder={String(resumen.cajasPendientesModulacion)} value={inputs[key] ?? ""} />
-                    <button aria-label={`Guardar checkin DT ${vehicle.transporte}`} className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white transition hover:bg-[#1b355b] disabled:cursor-wait disabled:opacity-60" disabled={savingDt === key} type="submit"><BadgeCheck size={16} /></button>
+                    <input aria-label={`Cajas checkin DT ${vehicle.transporte}`} className="h-7 w-16 rounded-md border border-slate-200 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]" inputMode="numeric" disabled={savingDt === key} onChange={(event) => onInputChange(vehicle.transporte, event.target.value)} value={inputs[key] ?? String(resumen.cajasPendientes)} />
+                    <button aria-label={`Guardar checkin DT ${vehicle.transporte}`} className="grid h-7 w-7 place-items-center rounded-md bg-[#10223d] text-white transition hover:bg-[#1b355b] disabled:cursor-wait disabled:opacity-60" disabled={Boolean(savingDt)} type="submit"><BadgeCheck size={16} /></button>
                   </form>
                   {savingDt === key ? <p className="mt-1 text-center text-[10px] font-semibold text-slate-500">Guardando…</p> : savedDt === key ? <p className="mt-1 text-center text-[10px] font-semibold text-emerald-700">Guardado</p> : null}
                 </td>

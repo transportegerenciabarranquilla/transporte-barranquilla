@@ -4,7 +4,6 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CHECKIN_STORAGE_KEY,
-  deleteCheckinCajasRegistro,
   getCheckinByDt,
   readCheckinCajasRegistros,
   saveCheckinCajasRegistro,
@@ -39,6 +38,7 @@ export default function CajasCheckinPage() {
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [savedDt, setSavedDt] = useState("");
   const [savingDt, setSavingDt] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [selectedDate, setSelectedDate] = useState(getLocalDateKey);
 
   useEffect(() => {
@@ -100,23 +100,26 @@ export default function CajasCheckinPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>, dt: string) {
     event.preventDefault();
     const key = normalizeDt(dt);
-    const inputValue = inputs[key]?.trim() ?? "";
+    if (savingDt) return;
+    const row = rows.find((item) => item.key === key);
+    if (!row) return;
+    const inputValue = (inputs[key] ?? String(row.resumen.cajasPendientes)).trim();
     const numericValue = Number(inputValue);
-    const existing = getCheckinByDt(checkins, dt);
 
     setSavingDt(key);
     setSavedDt("");
+    setSaveError("");
     try {
-      if (!inputValue || !Number.isFinite(numericValue) || numericValue < 0) {
-        if (existing) await deleteCheckinCajasRegistro(existing);
-        setInputs((current) => ({ ...current, [key]: "" }));
-      } else {
-        const nextRecord = getCheckinByDt(upsertCheckinCajas(checkins, dt, numericValue), dt);
-        if (!nextRecord) return;
-        await saveCheckinCajasRegistro(nextRecord);
-        setInputs((current) => ({ ...current, [key]: String(nextRecord.totalCajas) }));
+      if (!inputValue || !Number.isSafeInteger(numericValue) || numericValue < 0) {
+        throw new Error("Escribe una cantidad entera de cajas. Usa 0 si no regresaron cajas.");
       }
+      const nextRecord = getCheckinByDt(upsertCheckinCajas(checkins, dt, numericValue), dt);
+      if (!nextRecord) throw new Error("No se pudo identificar el DT para guardar.");
+      await saveCheckinCajasRegistro(nextRecord);
+      setInputs((current) => ({ ...current, [key]: String(nextRecord.totalCajas) }));
       setSavedDt(key);
+    } catch (error) {
+      setSaveError(`DT ${dt}: ${error instanceof Error ? error.message : "No se pudo guardar el checkin. Intenta nuevamente."}`);
     } finally {
       setSavingDt("");
     }
@@ -137,6 +140,7 @@ export default function CajasCheckinPage() {
       />
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <CheckinMetrics totals={totals} />
+        {saveError ? <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{saveError}</p> : null}
         <CheckinTable
           dateLabel={dateLabel}
           inputs={inputs}

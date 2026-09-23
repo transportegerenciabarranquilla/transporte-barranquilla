@@ -58,17 +58,6 @@ export default function RutaSipPage() {
   }, []);
 
   useEffect(() => {
-    if (!isTvMode || !refreshTvRoutes) return;
-    const refresh = () => { if (!document.hidden) void refreshTvRoutes(); };
-    const interval = window.setInterval(refresh, 10_000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [isTvMode, refreshTvRoutes]);
-
-  useEffect(() => {
     if (isTvMode && refreshTvRoutes) return;
 
     let active = true;

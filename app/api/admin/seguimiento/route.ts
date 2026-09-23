@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
-import { cachedJsonFetch } from "../../../lib/serverCache";
-import { supabaseAdminHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { readAdminTvRows } from "../../../lib/adminTvRows";
+import { supabaseAdminHeaders, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
@@ -39,13 +39,12 @@ type AdminRefusalComRow = {
 const MODULACION_LIST_SELECT =
   "contractor,id:data->>id,contratista:data->>contratista,dt:data->>dt,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,codigoCliente:data->>codigoCliente,nombreCliente:data->>nombreCliente,telefonoCliente:data->>telefonoCliente,com:data->>com,jefeComercial:data->>jefeComercial,telefonoJefeComercial:data->>telefonoJefeComercial,preventista:data->>preventista,preventistaNombre:data->>preventistaNombre,telefonoPreventista:data->>telefonoPreventista,totalCajas:data->>totalCajas,cajasGestionadas:data->>cajasGestionadas,persona:data->>persona,personaNombre:data->>personaNombre,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,imagenNombre:data->>imagenNombre,createdAt:data->>createdAt";
 const PUNTO_CORONA_REPORT_SELECT = "contractor,operational_date,kind,data,updated_at";
-const ADMIN_CACHE_VERSION = "v8-legacy-contractor-source";
-const LIST_CACHE_TTL_MS = 30_000;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    const tv = new URL(request.url).searchParams.get("tv") === "1";
 
     const adminHeaders = supabaseAdminHeaders();
     const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
@@ -54,17 +53,17 @@ export async function GET() {
       // Usar la misma sesión autenticada del módulo de Seguimiento. Las
       // políticas de lectura públicas no incluyen necesariamente las rutas
       // de una contratista nueva, como HL Logísticos.
-      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "seguimiento", requestedContractors),
-      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, "modulaciones", requestedContractors),
-      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, "checkins", requestedContractors).catch(() => []),
+      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors),
+      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, requestedContractors),
+      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors).catch(() => []),
       fetchAdminRowsByContractor<PuntoCoronaReportRow>(
         "punto_corona_route_reports",
         PUNTO_CORONA_REPORT_SELECT,
         "operational_date.desc,updated_at.desc",
         1200,
         sessionHeaders,
-        "punto-corona",
         requestedContractors.filter(isPuntoCoronaContractor),
+        tv ? bogotaDateKey() : undefined,
       ).catch(() => []),
     ]);
     const modulaciones = modulacionesRows.map((row) => {
@@ -181,45 +180,30 @@ async function fetchAdminRowsByContractor<T>(
   order: string,
   limit: number,
   headers: Record<string, string>,
-  cacheKey: string,
   contractors: readonly string[],
+  operationalDate?: string,
 ) {
-  const groups = await Promise.all(
-    contractors.map(async (contractor) => {
-      const records: T[] = [];
-      for (const queryContractor of contractorQueryValues(contractor)) {
-        // Supabase puede devolver menos filas que el límite solicitado.
-        // Avanzar por las recibidas y terminar solo al agotar los datos.
-        const pageSize = Math.min(limit, 1000);
-        for (let offset = 0; ;) {
-          const params = new URLSearchParams({
-            select,
-            contractor: `eq.${queryContractor}`,
-            order,
-            limit: String(pageSize),
-            offset: String(offset),
-          });
-          if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta") {
-            // Algunas rutas y modulaciones históricas (incluidas las de HL)
-            // solo tienen el contratista dentro de data. Recuperarlas sin
-            // incluir filas asignadas explícitamente a otra contratista.
-            const value = JSON.stringify(queryContractor);
-            const dataField = table === "seguimiento_vehiculos" ? "transportista" : "contratista";
-            params.delete("contractor");
-            params.set("or", `(contractor.eq.${value},and(contractor.is.null,data->>${dataField}.eq.${value}))`);
-          }
-          const url = supabaseRest(table, `?${params.toString()}`);
-          const page = await cachedJsonFetch<T[]>(`supabase:admin-seguimiento:${ADMIN_CACHE_VERSION}:${cacheKey}:${contractor}:${queryContractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
-          records.push(...page);
-          if (!page.length) break;
-          offset += page.length;
-        }
-      }
-      return records;
-    }),
-  );
-
-  return groups.flat();
+  if (!contractors.length) return [] as T[];
+  const values = Array.from(new Set(contractors.flatMap(contractorQueryValues)))
+    .map((value) => JSON.stringify(value)).join(",");
+  const stableId = table === "seguimiento_vehiculos" ? "record_id"
+    : table === "modulaciones_ruta" ? "modulation_id"
+      : table === "punto_corona_route_reports" ? "report_id" : "checkin_id";
+  const params = new URLSearchParams({
+    select,
+    contractor: `in.(${values})`,
+    order: stableId ? `${order},${stableId}.asc` : order,
+    limit: String(Math.min(limit, 1000)),
+  });
+  // TV muestra los reportes de Punto Corona del día; el historial completo
+  // sigue disponible en el panel administrativo y en las exportaciones.
+  if (operationalDate) params.set("operational_date", `eq.${operationalDate}`);
+  if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta") {
+    const dataField = table === "seguimiento_vehiculos" ? "transportista" : "contratista";
+    params.delete("contractor");
+    params.set("or", `(contractor.in.(${values}),and(contractor.is.null,data->>${dataField}.in.(${values})))`);
+  }
+  return readAdminTvRows<T>(table, params, headers);
 }
 
 function contractorQueryValues(contractor: string) {

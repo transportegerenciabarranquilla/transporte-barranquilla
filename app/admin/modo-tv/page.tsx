@@ -40,8 +40,8 @@ export default function AdminModoTvPage() {
   }, []);
 
   const today = operationalDate || bogotaToday();
-  const records = data.records.filter((record) => GALAPA.includes(record.transportista) && recordDate(record) === today);
-  const modules = data.modulationRacocimi2.filter((row) => GALAPA.includes(row.contractor) && row.date === today);
+  const records = useMemo(() => data.records.filter((record) => GALAPA.includes(record.transportista) && recordDate(record) === today), [data.records, today]);
+  const modules = useMemo(() => data.modulationRacocimi2.filter((row) => GALAPA.includes(row.contractor) && row.date === today), [data.modulationRacocimi2, today]);
   const summaries = useMemo(
     () => GALAPA.map((contractor) => summaryFor(contractor, records.filter((record) => record.transportista === contractor))),
     [records],
