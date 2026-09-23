@@ -259,11 +259,11 @@ async function validatePublicDt(contractor: string, record: ModulacionRegistro |
   if (!dt) return "Ingresa un DT valido.";
 
   const params = new URLSearchParams({
-    select: "data",
+   select: "data",
     contractor: `eq.${contractor}`,
-    "data->>transporte": `eq.${dt}`,
-    "data->>fechaDespacho": `eq.${getTodayKey()}`,
-    limit: "1",
+    "data->>transporte": `ilike.*${dt}*`,
+   order: "updated_at.desc",
+    limit: "50",
   });
   const response = await fetch(supabaseRest(SEGUIMIENTO_TABLE, `?${params.toString()}`), {
     headers: supabaseAdminHeaders() ?? supabaseHeaders(),
@@ -271,14 +271,22 @@ async function validatePublicDt(contractor: string, record: ModulacionRegistro |
   });
   if (!response.ok) return "No se pudo validar el DT antes de guardar.";
 
-  const rows = (await response.json().catch(() => [])) as { data?: { transporte?: string | number } }[];
-  const hasValidDt = rows.some((row) => normalizeDt(row.data?.transporte) === dt);
+  const rows = (await response.json().catch(() => [])) as {
+    data?: { transporte?: string | number; fechaDespacho?: string; fechaDt?: string; date?: string; createdAt?: string };
+  }[];
+  const hasValidDt = rows.some((row) => {
+    const data = row.data;
+    if (normalizeDt(data?.transporte) !== dt) return false;
+    return [data?.fechaDespacho, data?.fechaDt, data?.date, data?.createdAt].some((date) => toBogotaDateKey(date) === getTodayKey());
+  });
   return hasValidDt ? "" : "El DT no esta validado o no esta cargado para hoy.";
 }
 
 function normalizeDt(value: string | number | undefined) {
   return String(value ?? "")
+    .trim()
     .replace(/^DT-?/i, "")
+    .replace(/^(?:R\d+)?S(?=\d)/i, "")
     .replace(/\D/g, "");
 }
 
@@ -289,6 +297,21 @@ function getTodayKey() {
     timeZone: "America/Bogota",
     year: "numeric",
   }).formatToParts(new Date());
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
+}
+
+function toBogotaDateKey(value: string | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Bogota",
+    year: "numeric",
+  }).formatToParts(date);
   const byType = new Map(parts.map((part) => [part.type, part.value]));
   return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
 }

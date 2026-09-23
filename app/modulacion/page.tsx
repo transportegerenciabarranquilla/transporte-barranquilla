@@ -428,8 +428,8 @@ export default function ModulacionPage() {
             </button>
           </div>
 
-          <div className="overflow-hidden">
-            <table className="data-table w-full table-fixed [&_td]:px-2">
+          <div className="overflow-x-auto">
+            <table className="data-table w-full min-w-[900px] table-fixed [&_td]:px-2">
               <thead className="sticky top-0 z-10 text-[10px] uppercase tracking-[0.1em]">
                 <tr>
                   <th className="w-[11%] px-2 py-2 text-left">Fecha / hora</th>

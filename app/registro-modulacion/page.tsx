@@ -44,34 +44,41 @@ export default function RegistroModulacionPage() {
     }
 
     const controller = new AbortController();
+    let requestTimedOut = false;
     const timeout = window.setTimeout(() => {
       setLoadingVehicles(true);
       setVehiclesError("");
       const todayKey = getTodayKey();
+      const networkTimeout = window.setTimeout(() => {
+        requestTimedOut = true;
+        controller.abort();
+      }, 15_000);
 
       Promise.all([
-        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(todayKey)}`, {
+        // No filtrar por fecha en el servidor: algunas rutas guardan el día en
+        // fechaDt/date en vez de fechaDespacho. Se compara la fecha real abajo.
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}`, {
           cache: "no-store",
           signal: controller.signal,
         }),
         fetch(`/api/asistencias/buscar?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}&fecha=${encodeURIComponent(todayKey)}`, {
           cache: "no-store",
           signal: controller.signal,
-        }),
+        }).catch(() => null),
       ])
         .then(async ([seguimientoResponse, asistenciaResponse]) => {
           const seguimientoBody = await seguimientoResponse.json().catch(() => ({}));
-          const asistenciaBody = await asistenciaResponse.json().catch(() => ({}));
+          const asistenciaBody = asistenciaResponse ? await asistenciaResponse.json().catch(() => ({})) : {};
 
           if (!seguimientoResponse.ok) throw new Error(seguimientoBody.error || "No se pudo validar el DT.");
 
           const matchedVehicles = Array.isArray(seguimientoBody.records)
             ? seguimientoBody.records.filter((vehicle: Vehiculo) => isTodayVehicle(vehicle) && normalizeDt(vehicle.transporte) === dt)
             : [];
-          const matchedAttendance = asistenciaResponse.ok && Array.isArray(asistenciaBody.records)
+          const matchedAttendance = asistenciaResponse?.ok && Array.isArray(asistenciaBody.records)
             ? (asistenciaBody.records as AsistenciaRegistro[]).find((record) => normalizeDt(record.dt) === dt)
             : null;
-          const asistenciaError = !asistenciaResponse.ok ? asistenciaBody.error || "No se pudo leer la asistencia para autocompletar el RR." : "";
+          const asistenciaError = asistenciaResponse && !asistenciaResponse.ok ? asistenciaBody.error || "No se pudo leer la asistencia para autocompletar el RR." : "";
           const responsibleId = matchedAttendance?.cedulaResponsable || matchedVehicles[0]?.cedulaResponsable || "";
           const responsibleName = matchedAttendance?.nombreResponsable || matchedVehicles[0]?.nombreResponsable || "";
           const visibleVehicles = matchedVehicles.map((vehicle: Vehiculo) => ({
@@ -91,12 +98,13 @@ export default function RegistroModulacionPage() {
           }
         })
         .catch((error) => {
-          if (error instanceof DOMException && error.name === "AbortError") return;
+          if (error instanceof DOMException && error.name === "AbortError" && !requestTimedOut) return;
           setVehiculosSeguimiento([]);
-          setVehiclesError(error instanceof Error ? error.message : "No se pudo validar el DT.");
+          setVehiclesError(requestTimedOut ? "La consulta tardó demasiado. Revisa la conexión e intenta de nuevo." : error instanceof Error ? error.message : "No se pudo validar el DT.");
         })
         .finally(() => {
-          if (!controller.signal.aborted) setLoadingVehicles(false);
+          window.clearTimeout(networkTimeout);
+          if (!controller.signal.aborted || requestTimedOut) setLoadingVehicles(false);
         });
     }, 350);
 
@@ -320,7 +328,9 @@ export default function RegistroModulacionPage() {
 }
 
 function isTodayVehicle(vehicle: Vehiculo) {
-  return toDateKey(vehicle.fechaDespacho || vehicle.fechaDt || vehicle.date || vehicle.createdAt) === getTodayKey();
+  const today = getTodayKey();
+  return [vehicle.fechaDespacho, vehicle.fechaDt, vehicle.date, vehicle.createdAt]
+    .some((value) => Boolean(value) && toDateKey(value) === today);
 }
 
 function toDateKey(value: string | undefined) {

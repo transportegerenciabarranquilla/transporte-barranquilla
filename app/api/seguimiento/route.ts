@@ -52,7 +52,9 @@ export async function GET(request: Request) {
         : { select: "record_id,contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
     );
     if (session) scopeQuery(params, session);
-    if (requestedDt) params.set("data->>transporte", `eq.${requestedDt}`);
+    // El campo puede estar guardado como "DT-123" o con espacios/separadores.
+    // La coincidencia normalizada se confirma abajo para no aceptar parciales.
+    if (requestedDt) params.set("data->>transporte", `ilike.*${requestedDt}*`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
     const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
       TABLE,
@@ -64,6 +66,7 @@ export async function GET(request: Request) {
     const records = removeDuplicateDtRecords(
       rows
         .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
+        .filter((row) => !requestedDt || normalizeDt(String(row.data?.transporte ?? "")) === requestedDt)
         .filter((row) => {
           if (isGlobalAdminQuery) return true;
           const contractorKey = normalizeContractorName(contractor);
@@ -883,6 +886,8 @@ function normalizePlate(value: string | undefined) {
 
 function normalizeDt(value: string | undefined) {
   return String(value ?? "")
+    .trim()
     .replace(/^DT-?/i, "")
+    .replace(/^(?:R\d+)?S(?=\d)/i, "")
     .replace(/\D/g, "");
 }
