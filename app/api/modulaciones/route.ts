@@ -260,27 +260,36 @@ async function validatePublicDt(contractor: string, record: ModulacionRegistro |
   if (!dt) return "Ingresa un DT valido.";
 
   const params = new URLSearchParams({
-   select: "data",
-    contractor: `eq.${contractor}`,
-    "data->>transporte": `ilike.*${dt}*`,
-   order: "updated_at.desc",
-    limit: "50",
+    select: "contractor,data",
+    order: "updated_at.desc,record_id.asc",
+    limit: String(LIST_PAGE_SIZE),
   });
-  const response = await fetch(supabaseRest(SEGUIMIENTO_TABLE, `?${params.toString()}`), {
-    headers: supabaseAdminHeaders() ?? supabaseHeaders(),
-    cache: "no-store",
-  });
-  if (!response.ok) return "No se pudo validar el DT antes de guardar.";
-
-  const rows = (await response.json().catch(() => [])) as {
-    data?: { transporte?: string | number; fechaDespacho?: string; fechaDt?: string; date?: string; createdAt?: string };
-  }[];
-  const hasValidDt = rows.some((row) => {
-    const data = row.data;
-    if (normalizeDt(data?.transporte) !== dt) return false;
-    return [data?.fechaDespacho, data?.fechaDt, data?.date, data?.createdAt].some((date) => toBogotaDateKey(date) === getTodayKey());
-  });
-  if (hasValidDt) return "";
+  const today = getTodayKey();
+  const contractorKey = normalizeContractorName(contractor);
+  const headers = supabaseAdminHeaders() ?? supabaseHeaders();
+  // Igual que seguimiento: las cargas históricas pueden guardar el
+  // contratista solo en data.transportista y el DT con separadores.
+  // Comparamos ambos normalizados y paginamos para no omitir rutas.
+  for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
+    params.set("offset", String(offset));
+    const response = await fetch(supabaseRest(SEGUIMIENTO_TABLE, `?${params.toString()}`), {
+      headers,
+      cache: "no-store",
+    });
+    if (!response.ok) return "No se pudo validar el DT antes de guardar.";
+    const rows = (await response.json()) as {
+      contractor?: string;
+      data?: { transportista?: string; transporte?: string | number; fechaDespacho?: string; fechaDt?: string; date?: string; createdAt?: string };
+    }[];
+    const hasValidDt = rows.some((row) => {
+      const data = row.data;
+      if (normalizeDt(data?.transporte) !== dt) return false;
+      if (![row.contractor, data?.transportista].some((value) => normalizeContractorName(value) === contractorKey)) return false;
+      return [data?.fechaDespacho, data?.fechaDt, data?.date, data?.createdAt].some((date) => toBogotaDateKey(date) === today);
+    });
+    if (hasValidDt) return "";
+    if (rows.length < LIST_PAGE_SIZE) break;
+  }
   return await validateAttendanceDt(contractor, dt) ? "" : "El DT no esta validado o no esta cargado para hoy.";
 }
 
@@ -327,6 +336,8 @@ function getTodayKey() {
 function toBogotaDateKey(value: string | undefined) {
   if (!value) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const localDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (localDate) return `${localDate[3]}-${localDate[2].padStart(2, "0")}-${localDate[1].padStart(2, "0")}`;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-US", {

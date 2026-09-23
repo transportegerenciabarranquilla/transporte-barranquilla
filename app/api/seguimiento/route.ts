@@ -40,11 +40,23 @@ export async function GET(request: Request) {
 
     if (!session && !publicContractor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
 
-    const contractor = session?.isAdmin && publicContractor ? publicContractor : session?.contractor || publicContractor;
+    // Admin y People consultan el contratista seleccionado en el formulario.
+    // Antes People caía en session.contractor ("People") y nunca encontraba
+    // las rutas del contratista elegido, por lo que el formulario mostraba el
+    // registro de asistencia como "Placa pendiente".
+    const contractor = (session?.isAdmin || session?.isPeople) && publicContractor
+      ? publicContractor
+      : session?.contractor || publicContractor;
     // People necesita consultar todos los contratistas para cruzar el DT de
     // asistencia con el VH de salida en la auditoría ZKI.
     const isGlobalAdminQuery = Boolean((session?.isAdmin || session?.isPeople) && !publicContractor);
-    const readHeaders = session ? supabaseReadHeaders(session.accessToken) : supabaseHeaders();
+    // El enlace público también necesita leer las rutas que RLS oculta
+    // al rol anónimo. El contratista permitido se valida arriba y filterRows
+    // limita los registros devueltos al contratista solicitado.
+    const readHeaders = session
+      ? supabaseReadHeaders(session.accessToken)
+      : supabaseAdminHeaders() ?? supabaseHeaders();
+    const readScope = session ? `user:${session.userId}` : "public";
     const canScanAllRows = Boolean(supabaseAdminHeaders());
     const params = new URLSearchParams(
       isGlobalAdminQuery || canScanAllRows
@@ -56,15 +68,14 @@ export async function GET(request: Request) {
     // La coincidencia normalizada se confirma abajo para no aceptar parciales.
     if (requestedDt) params.set("data->>transporte", `ilike.*${requestedDt}*`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    const rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
+    let rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
       TABLE,
       params,
-      `supabase:${TABLE}:list:${session?.isAdmin ? "admin" : contractor}`,
+      `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:dt:${requestedDt || "all"}`,
       LIST_CACHE_TTL_MS,
       readHeaders,
     );
-    const records = removeDuplicateDtRecords(
-      rows
+    const filterRows = (sourceRows: typeof rows) => sourceRows
         .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
         .filter((row) => !requestedDt || normalizeDt(String(row.data?.transporte ?? "")) === requestedDt)
         .filter((row) => {
@@ -72,8 +83,25 @@ export async function GET(request: Request) {
           const contractorKey = normalizeContractorName(contractor);
           return [row.data.transportista, row.contractor].map(normalizeContractorName).includes(contractorKey);
         })
-        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.data.transportista || row.contractor || "" })),
-    );
+        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista || "" }));
+    let matchedRows = filterRows(rows);
+    // Algunas cargas guardan el DT en un formato que PostgREST no encuentra
+    // con el filtro JSON ilike. Reintenta por contratista y compara el DT
+    // normalizado aquí antes de declarar que la ruta no tiene placa.
+    if (!matchedRows.length && requestedDt) {
+      const broadParams = new URLSearchParams(params);
+      broadParams.delete("data->>transporte");
+      broadParams.delete("data->>fechaDespacho");
+      rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
+        TABLE,
+        broadParams,
+        `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:fallback`,
+        LIST_CACHE_TTL_MS,
+        readHeaders,
+      );
+      matchedRows = filterRows(rows);
+    }
+    const records = removeDuplicateDtRecords(matchedRows);
     const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
     return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin || session?.isPeople ? undefined : contractor) });
   } catch (error) {
@@ -570,6 +598,10 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
     // la primera (la mas reciente) y se impide mostrar el mismo DT dos dias.
     if (record.dispatchDateChanged && !current.dispatchDateChanged) {
       recordsByRoute.set(uniqueKey, mergeDuplicateVehicle(current, record));
+    } else if (!hasRealVehiclePlate(current.vehiculo) && hasRealVehiclePlate(record.vehiculo)) {
+      // Una edición reciente puede tener el dato de placa vacío o pendiente;
+      // conserva la placa de la otra fila del mismo DT y fecha.
+      recordsByRoute.set(uniqueKey, { ...current, vehiculo: record.vehiculo });
     }
   });
 
@@ -890,4 +922,9 @@ function normalizeDt(value: string | undefined) {
     .replace(/^DT-?/i, "")
     .replace(/^(?:R\d+)?S(?=\d)/i, "")
     .replace(/\D/g, "");
+}
+
+function hasRealVehiclePlate(value: string | undefined) {
+  const normalized = String(value || "").trim().toLocaleLowerCase("es-CO");
+  return Boolean(normalized && !["sin placa", "placa pendiente", "validado por asistencia", "pendiente", "-"].includes(normalized));
 }

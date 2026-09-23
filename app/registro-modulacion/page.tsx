@@ -15,6 +15,7 @@ import { validateModulacion } from "../modulacion/utils";
 import { ModulacionForm } from "../modulacion/components/ModulacionForm";
 import { ModulacionHeader } from "../modulacion/components/ModulacionHeader";
 import { mapAttendanceToVehicle } from "../modulacion/utils";
+import { normalizeContractorName } from "../lib/contractors";
 
 export default function RegistroModulacionPage() {
   const router = useRouter();
@@ -58,7 +59,10 @@ export default function RegistroModulacionPage() {
       Promise.all([
         // No filtrar por fecha en el servidor: algunas rutas guardan el día en
         // fechaDt/date en vez de fechaDespacho. Se compara la fecha real abajo.
-        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}`, {
+        // Usar el mismo conjunto de rutas que muestra el detalle de
+        // Modulaciones. La búsqueda filtrada por contratista/DT podía omitir
+        // una ruta que sí está disponible en el seguimiento general.
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}`, {
           cache: "no-store",
           signal: controller.signal,
         }),
@@ -73,9 +77,23 @@ export default function RegistroModulacionPage() {
 
           if (!seguimientoResponse.ok) throw new Error(seguimientoBody.error || "No se pudo validar el DT.");
 
-          const matchedVehicles = Array.isArray(seguimientoBody.records)
-            ? seguimientoBody.records.filter((vehicle: Vehiculo) => isTodayVehicle(vehicle) && normalizeDt(vehicle.transporte) === dt)
+          const dtVehicles = Array.isArray(seguimientoBody.records)
+            ? seguimientoBody.records.filter((vehicle: Vehiculo) =>
+                normalizeDt(vehicle.transporte) === dt
+                && normalizeContractorName(vehicle.transportista) === normalizeContractorName(contratista))
             : [];
+          // El seguimiento ya está consultado por contratista y DT. Si el dato
+          // de fecha viene con otro campo/formato, no descartamos la placa que
+          // ya está asociada al DT; primero preferimos la ruta de hoy y luego
+          // cualquier coincidencia que sí tenga una placa real.
+          const todayVehicles = dtVehicles.filter((vehicle: Vehiculo) => isTodayVehicle(vehicle));
+          const todayVehiclesWithPlate = todayVehicles.filter((vehicle: Vehiculo) => hasRealPlate(vehicle));
+          const vehiclesWithPlate = dtVehicles.filter((vehicle: Vehiculo) => hasRealPlate(vehicle));
+          const matchedVehicles = todayVehiclesWithPlate.length
+            ? todayVehiclesWithPlate
+            : vehiclesWithPlate.length
+              ? vehiclesWithPlate
+              : todayVehicles;
           const matchedAttendance = asistenciaResponse?.ok && Array.isArray(asistenciaBody.records)
             ? (asistenciaBody.records as AsistenciaRegistro[]).find((record) => normalizeDt(record.dt) === dt)
             : null;
@@ -336,6 +354,11 @@ function isTodayVehicle(vehicle: Vehiculo) {
   const today = getTodayKey();
   return [vehicle.fechaDespacho, vehicle.fechaDt, vehicle.date, vehicle.createdAt]
     .some((value) => Boolean(value) && toDateKey(value) === today);
+}
+
+function hasRealPlate(vehicle: Vehiculo) {
+  const plate = vehicle.vehiculo?.trim().toLocaleLowerCase("es-CO");
+  return Boolean(plate && !["sin placa", "placa pendiente", "validado por asistencia"].includes(plate));
 }
 
 function toDateKey(value: string | undefined) {
