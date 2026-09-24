@@ -12,7 +12,7 @@ import type { Vehiculo } from "../seguimiento/types";
 
 type PlateCheck = { capacidad: number | null; placa: string; ok: boolean; error?: string };
 
-const SECOND_TRIP_STATUSES = ["Cargando", "Retornando", "Contando", "En ruta" , "En muelle" , "pendiente"] as const;
+const SECOND_TRIP_STATUSES = ["Cargando", "Retornando", "Contando", "En ruta" , "En muelle" , "pendiente","Solicitud de armado"] as const;
 
 export default function SegundosViajesPage() {
   const router = useRouter();
