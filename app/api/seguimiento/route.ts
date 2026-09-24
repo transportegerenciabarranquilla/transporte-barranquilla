@@ -190,6 +190,7 @@ export async function PATCH(request: Request) {
     const recordId = String(body.recordId || "").trim();
     const changes = body.changes;
     const hasSupportedChange = changes && (
+      changes.transporte !== undefined ||
       changes.status !== undefined ||
       changes.liquidado !== undefined ||
       changes.vehiculo !== undefined ||
@@ -199,6 +200,14 @@ export async function PATCH(request: Request) {
     );
     if (!recordId || !changes || !hasSupportedChange) {
       return NextResponse.json({ error: "Falta el registro o el cambio a guardar." }, { status: 400 });
+    }
+    for (const field of ["transporte", "vehiculo", "vehiculoAnterior"] as const) {
+      const value = changes[field];
+      if (value === undefined) continue;
+      if (typeof value !== "string" || value.length > 80 || (field !== "vehiculoAnterior" && !value.trim())) {
+        return NextResponse.json({ error: "El DT y las placas deben contener valores válidos." }, { status: 400 });
+      }
+      changes[field] = field === "transporte" ? value.trim() : value.trim().toUpperCase();
     }
 
     const params = new URLSearchParams({
@@ -221,6 +230,27 @@ export async function PATCH(request: Request) {
     const owner = stored.contractor ?? current.transportista;
     if (!owner || normalizeContractorName(owner) !== normalizeContractorName(session.contractor)) {
       return NextResponse.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
+    }
+
+    if (changes.transporte !== undefined && normalizeDt(changes.transporte) !== normalizeDt(current.transporte)) {
+      if (!normalizeDt(changes.transporte)) {
+        return NextResponse.json({ error: "Ingresa un DT válido." }, { status: 400 });
+      }
+      const owners = [...new Set([owner, session.contractor])];
+      const ownerFilters = owners.flatMap((value) => [
+        `contractor.eq.${JSON.stringify(value)}`,
+        `and(contractor.is.null,data->>transportista.eq.${JSON.stringify(value)})`,
+      ]);
+      const candidates = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, new URLSearchParams({
+        select: "record_id,data",
+        or: `(${ownerFilters.join(",")})`,
+      }), supabaseReadHeaders(session.accessToken));
+      const date = routeDateValue(current.fechaDespacho || current.date || current.createdAt);
+      if (candidates.some((row) => row.record_id !== recordId && row.data &&
+        normalizeDt(row.data.transporte) === normalizeDt(changes.transporte) &&
+        routeDateValue(row.data.fechaDespacho || row.data.date || row.data.createdAt) === date)) {
+        return NextResponse.json({ error: "Ya existe ese DT para esta fecha. Usa otro DT para evitar que se oculte uno de los viajes." }, { status: 409 });
+      }
     }
 
     const data = {

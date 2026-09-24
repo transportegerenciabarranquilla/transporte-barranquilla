@@ -25,6 +25,83 @@ const supabase = {
 };
 const responseMock = { NextResponse: { json: (body, init) => Response.json(body, init) } };
 
+test('HL: los dos DT intercambiados siguen visibles y conservan sus IDs al volver a guardar', async () => {
+  const rows = [
+    { record_id: 'vehiculo-8008973771-2026-09-24', contractor: null, data: { transporte: '8008973733', vehiculo: 'COLCM500', transportista: 'HL Logisticos', fechaDespacho: '2026-09-24', viaje: '11' } },
+    { record_id: 'vehiculo-8008973733-2026-09-24', contractor: null, data: { transporte: '8008973771', vehiculo: 'COUYY192', transportista: 'HL Logisticos', fechaDespacho: '2026-09-24', viaje: '11' } },
+  ];
+  let written;
+  const route = compile('../app/api/seguimiento/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => ({ contractor: 'HL Logisticos', accessToken: 'test', userId: 'hl', isAdmin: false }) },
+    '../../lib/supabaseServer': { ...supabase, supabaseReadHeaders: () => ({}) },
+    '../../lib/scopedWrite': { scopedWrite: async (table, column, records) => { written = records; return null; } },
+    '../../lib/auditLog': { writeAuditLog: async () => {} },
+    '../../lib/serverCache': { clearServerCache: () => {}, cachedJsonFetch: async (key, ttl, url) => new URL(url).pathname === '/seguimiento_vehiculos' ? rows : [] },
+  });
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(init.method, undefined, 'Guardar nunca debe borrar filas');
+    return Response.json(rows);
+  };
+  try {
+    const response = await route.GET(new Request('https://example.test/api/seguimiento'));
+    assert.equal(response.status, 200);
+    const { records } = await response.json();
+    assert.equal(records.length, 2);
+    assert.deepEqual(records.map(r => [r.recordId, r.transporte, r.vehiculo]), rows.map(r => [r.record_id, r.data.transporte, r.data.vehiculo]));
+    const saved = await route.PUT(new Request('https://example.test/api/seguimiento', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records }) }));
+    assert.equal(saved.status, 200);
+    assert.equal((await saved.json()).records.length, 2);
+    assert.deepEqual(written.map(r => [r.record_id, r.data.transporte, r.data.vehiculo]), rows.map(r => [r.record_id, r.data.transporte, r.data.vehiculo]));
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('segundos viajes: editar DT y placas conserva la fila; duplicados y registros ajenos no se escriben', async () => {
+  const route = compile('../app/api/seguimiento/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => ({ contractor: 'HL Logisticos', accessToken: 'test', isAdmin: false }) },
+    '../../lib/supabaseServer': { ...supabase, supabaseReadHeaders: () => ({}) },
+    './supabaseServer': supabase,
+    '../../lib/auditLog': {},
+    '../../lib/serverCache': { clearServerCache: () => {} },
+  });
+  const oldFetch = globalThis.fetch;
+  try {
+    for (const scenario of ['save', 'duplicate', 'foreign', 'blank']) {
+      let writes = 0;
+      globalThis.fetch = async (url, init) => {
+        const params = new URL(url).searchParams;
+        if (init.method === 'PATCH') {
+          writes++;
+          assert.equal(params.get('record_id'), 'eq.stable-id');
+          assert.equal(params.get('contractor'), 'is.null');
+          assert.equal(params.get('data->>transportista'), 'eq.HL Logisticos');
+          const data = JSON.parse(init.body).data;
+          assert.equal(data.recordId, 'stable-id');
+          assert.equal(data.transporte, '222');
+          assert.equal(data.vehiculo, 'NEW123');
+          assert.equal(data.vehiculoAnterior, 'OLD123');
+          assert.equal(data.viaje, '11');
+          assert.equal(data.fechaDespacho, '2026-09-24');
+          return Response.json([{ record_id: 'stable-id' }]);
+        }
+        assert.equal(init.method, undefined, 'No se permite borrar o insertar al editar');
+        if (params.get('record_id')) return Response.json([{ contractor: null, data: { transporte: '111', transportista: scenario === 'foreign' ? 'Surti Cervezas' : 'HL Logisticos', vehiculo: 'OLD123', viaje: '11', fechaDespacho: '2026-09-24' } }]);
+        assert.ok(params.get('or').includes('contractor.is.null'));
+        return Response.json(scenario === 'duplicate' ? [{ record_id: 'another-id', data: { transporte: '222', fechaDespacho: '2026-09-24' } }] : []);
+      };
+      const response = await route.PATCH(new Request('https://example.test/api/seguimiento', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId: 'stable-id', changes: { transporte: scenario === 'blank' ? ' ' : ' 222 ', vehiculo: 'new123', vehiculoAnterior: 'old123' } }),
+      }));
+      assert.equal(response.status, { save: 200, duplicate: 409, foreign: 403, blank: 400 }[scenario]);
+      assert.equal(writes, scenario === 'save' ? 1 : 0);
+      if (scenario === 'save') assert.equal((await response.json()).record.recordId, 'stable-id');
+    }
+  } finally { globalThis.fetch = oldFetch; }
+});
+
 test('origen: rechaza ataques de otros sitios y subdominios, admite el formulario propio', () => {
   const { isTrustedMutation } = compile('../app/lib/requestOrigin.ts');
   for (const origin of ['https://evil.test', 'https://sub.example.test', 'null']) {

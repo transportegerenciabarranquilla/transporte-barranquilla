@@ -1,5 +1,5 @@
-"use client";
 
+"use client";
 import { useState, type ChangeEvent } from "react";
 import { parseBarcodePeople, type BarcodePerson } from "../lib/barcodePeople";
 

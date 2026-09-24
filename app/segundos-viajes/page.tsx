@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, ClipboardList, LoaderCircle, RefreshCw, Truck, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -31,21 +31,30 @@ export default function SegundosViajesPage() {
     : contractorLogo ? `Segundos viajes de ${contractorLogo.alt}` : "Segundos viajes";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [selected, setSelected] = useState<Vehiculo | null>(null);
   const [plate, setPlate] = useState("");
+  const [dt, setDt] = useState("");
+  const [previousPlate, setPreviousPlate] = useState("");
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
   const [check, setCheck] = useState<PlateCheck | null>(null);
+  const mutationVersion = useRef(0);
+  const pendingWrites = useRef(0);
 
   const load = useCallback(async () => {
+    if (pendingWrites.current) return;
+    const version = mutationVersion.current;
     try {
       const response = await fetch("/api/seguimiento", { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
+      if (version !== mutationVersion.current) return;
       if (!response.ok) throw new Error(body.error || "No se pudo cargar los segundos viajes.");
       setRecords(Array.isArray(body.records) ? body.records : []);
       setError("");
     } catch (caught) {
+      if (version !== mutationVersion.current) return;
       setError(caught instanceof Error ? caught.message : "No se pudo cargar los segundos viajes.");
     } finally {
       setLoading(false);
@@ -79,26 +88,12 @@ export default function SegundosViajesPage() {
     [records, today],
   );
 
-  useEffect(() => {
-    const panels = Array.from(document.querySelectorAll("section"));
-    const statusPanel = panels.find((panel) => panel.querySelector("h2")?.textContent?.trim() === "Estado de los segundos viajes");
-    if (!statusPanel) return;
-
-    const actionButtons = Array.from(document.querySelectorAll("button")).filter((button) => button.textContent?.includes("Cambio de placa"));
-    const statusSelects = Array.from(statusPanel.querySelectorAll("select"));
-    actionButtons.forEach((button, index) => {
-      const select = statusSelects[index];
-      const cell = button.parentElement;
-      if (!select || !cell || cell.contains(select)) return;
-      cell.classList.add("flex", "items-center", "justify-end", "gap-2");
-      cell.appendChild(select);
-    });
-    if (statusSelects.length && statusSelects.every((select) => select.parentElement !== statusPanel)) statusPanel.classList.add("hidden");
-  }, [trips]);
-
   function openPlateChange(record: Vehiculo) {
+    setSuccess("");
     setSelected(record);
-    setPlate("");
+    setDt(record.transporte || "");
+    setPreviousPlate(record.vehiculoAnterior || record.vehiculo || "");
+    setPlate(record.vehiculoAnterior ? record.vehiculo : "");
     setCheck(null);
     setError("");
   }
@@ -110,7 +105,7 @@ export default function SegundosViajesPage() {
   }
 
   async function validatePlate() {
-    const normalized = plate.trim().toUpperCase();
+    const normalized = (plate.trim() || previousPlate.trim()).toUpperCase();
     if (!selected || !normalized) {
       setCheck({ capacidad: null, placa: normalized, ok: false, error: "Ingresa una placa." });
       return;
@@ -137,8 +132,23 @@ export default function SegundosViajesPage() {
   }
 
   async function savePlateChange() {
-    if (!selected || !check?.ok || saving) return;
+    if (!selected || saving || checking) return;
+    const normalizedDt = dt.trim();
+    const previous = previousPlate.trim().toUpperCase();
+    const next = plate.trim().toUpperCase();
+    const effectivePlate = next || previous;
+    const needsValidation = effectivePlate !== selected.vehiculo || Boolean(next && !selected.vehiculoAnterior);
+    if (!normalizedDt || !previous) {
+      setError("Ingresa el DT y la placa anterior.");
+      return;
+    }
+    if (needsValidation && (!check?.ok || check.placa !== effectivePlate)) {
+      setError("Valida la capacidad de la placa antes de guardar.");
+      return;
+    }
     setSaving(true);
+    mutationVersion.current += 1;
+    pendingWrites.current += 1;
     setError("");
     try {
       const response = await fetch("/api/seguimiento", {
@@ -146,17 +156,25 @@ export default function SegundosViajesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recordId: selected.recordId,
-          changes: { vehiculo: check.placa, vehiculoAnterior: selected.vehiculoAnterior || selected.vehiculo, capacidad: check.capacidad, validadorPeso: "validado"}
+          changes: {
+            transporte: normalizedDt,
+            vehiculo: effectivePlate,
+            vehiculoAnterior: next ? previous : "",
+            ...(needsValidation ? { capacidad: check!.capacidad, validadorPeso: "validado" } : {}),
+          }
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo guardar el cambio de placa.");
-      setRecords((current) => current.map((record) => record.recordId === selected.recordId ? { ...record, vehiculo: check.placa, vehiculoAnterior: record.vehiculoAnterior || record.vehiculo, capacidad: check.capacidad || record.capacidad, validadorPeso: "eso aceptado por cambio de placa" } : record));
+      if (!response.ok) throw new Error(body.error || "No se pudieron guardar el DT y las placas.");
+      if (!body.record || body.record.recordId !== selected.recordId) throw new Error("No se confirmó el registro guardado. Intenta nuevamente.");
+      setRecords((current) => current.map((record) => record.recordId === selected.recordId ? body.record : record));
+      setSuccess(`DT ${body.record.transporte}: cambios de DT y placas guardados correctamente.`);
       setSelected(null);
       setCheck(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo guardar el cambio de placa.");
+      setError(caught instanceof Error ? caught.message : "No se pudieron guardar el DT y las placas.");
     } finally {
+      pendingWrites.current -= 1;
       setSaving(false);
     }
   }
@@ -165,6 +183,8 @@ export default function SegundosViajesPage() {
     if (!record.recordId || !SECOND_TRIP_STATUSES.includes(status as (typeof SECOND_TRIP_STATUSES)[number])) return;
 
     setSavingStatus(record.recordId);
+    mutationVersion.current += 1;
+    pendingWrites.current += 1;
     setError("");
     try {
       const response = await fetch("/api/seguimiento", {
@@ -179,6 +199,7 @@ export default function SegundosViajesPage() {
 
       setError(caught instanceof Error ? caught.message : "No se pudo guardar el estado.");
     } finally {
+      pendingWrites.current -= 1;
       setSavingStatus(null);
     }
   }
@@ -196,6 +217,7 @@ export default function SegundosViajesPage() {
         </header>
 
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+        {success ? <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{success}</div> : null}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
             <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -222,13 +244,31 @@ export default function SegundosViajesPage() {
           </div>
           <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#10223d] text-[10px] font-black uppercase tracking-[.12em] text-white"><tr><th className="px-5 py-3">DT</th><th className="px-5 py-3">Placa anterior</th><th className="px-5 py-3">Placa nueva</th><th className="px-5 py-3 text-right">Clientes</th><th className="px-5 py-3 text-right">Acción</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={5}>Cargando segundos viajes...</td></tr> : trips.length ? trips.map((record) => {
             const weightAccepted = isWeightAccepted(record);
-            return <tr className={weightAccepted ? "bg-emerald-50/90 hover:bg-emerald-100/80" : "hover:bg-orange-50/40"} key={record.recordId || `${record.transporte}-${record.fechaDespacho}`}><td className="px-5 py-4 font-black text-[#10223d]"><div className="flex flex-wrap items-center gap-2"><span>DT {record.transporte || "Sin DT"}</span>{weightAccepted ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700"><CheckCircle2 size={12} /></span> : null}</div></td><td className="px-5 py-4 font-bold text-slate-600">{record.vehiculoAnterior || record.vehiculo || "Sin placa"}</td><td className={`px-5 py-4 font-black ${weightAccepted ? "text-emerald-700" : "text-cyan-700"}`}>{record.vehiculoAnterior ? record.vehiculo || "Sin placa" : "Pendiente"}</td><td className="px-5 py-4 text-right font-black text-[#10223d]">{Number(record.clientes || 0).toLocaleString("es-CO")}</td><td className="px-5 py-4 text-right"><button className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black text-white shadow-sm ${weightAccepted ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-600 hover:bg-orange-700"}`} onClick={() => openPlateChange(record)} type="button"><Truck size={15} />Cambio de placa</button></td></tr>;
+            return <tr className={weightAccepted ? "bg-emerald-50/90 hover:bg-emerald-100/80" : "hover:bg-orange-50/40"} key={record.recordId || `${record.transporte}-${record.fechaDespacho}`}><td className="px-5 py-4 font-black text-[#10223d]"><div className="flex flex-wrap items-center gap-2"><span>DT {record.transporte || "Sin DT"}</span>{weightAccepted ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700"><CheckCircle2 size={12} /></span> : null}</div></td><td className="px-5 py-4 font-bold text-slate-600">{record.vehiculoAnterior || record.vehiculo || "Sin placa"}</td><td className={`px-5 py-4 font-black ${weightAccepted ? "text-emerald-700" : "text-cyan-700"}`}>{record.vehiculoAnterior ? record.vehiculo || "Sin placa" : "Pendiente"}</td><td className="px-5 py-4 text-right font-black text-[#10223d]">{Number(record.clientes || 0).toLocaleString("es-CO")}</td><td className="px-5 py-4 text-right"><button className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black text-white shadow-sm ${weightAccepted ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-600 hover:bg-orange-700"}`} onClick={() => openPlateChange(record)} type="button"><Truck size={15} />Editar DT y placas</button><select aria-label={`Estado del DT ${record.transporte}`} className={`ml-2 h-8 rounded-lg border px-2 text-xs font-black ${statusSelectClass(record.status)}`} disabled={savingStatus === record.recordId} onChange={(event) => void updateStatus(record, event.target.value)} value={SECOND_TRIP_STATUSES.includes(record.status as (typeof SECOND_TRIP_STATUSES)[number]) ? record.status : "Cargando"}>{SECOND_TRIP_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></td></tr>;
           }) : <tr><td className="px-5 py-14 text-center text-sm text-slate-500" colSpan={5}>No hay segundos viajes registrados para hoy.</td></tr>}</tbody></table></div>
         </section>
       </section>
 
-      {selected ? <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) closePlateChange(); }} role="dialog"><section className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-orange-600">Cambio de placa</p><h2 className="mt-1 text-xl font-black text-[#10223d]">DT {selected.transporte}</h2><p className="mt-1 text-sm text-slate-500">Peso del DT: <strong className="text-orange-700">{formatNumber(selected.peso)} kg</strong></p></div><button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={closePlateChange} type="button"><X size={18} /></button></div><label className="mt-5 block text-xs font-black uppercase tracking-[.12em] text-slate-500">Nueva placa<input autoFocus className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-lg font-black uppercase text-[#10223d] outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15" onChange={(event) => { setPlate(event.target.value.toUpperCase()); setCheck(null); }} onKeyDown={(event) => { if (event.key === "Enter") void validatePlate(); }} placeholder="Ej: ABC123" value={plate} /></label><button className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 text-sm font-black text-orange-700 hover:bg-orange-100 disabled:opacity-50" disabled={checking || saving} onClick={() => void validatePlate()} type="button">{checking ? <LoaderCircle className="animate-spin" size={17} /> : <CheckCircle2 size={17} />}Validar capacidad</button>{check ? <div className={`mt-4 rounded-xl border p-4 ${check.ok ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>{check.ok ? <p className="flex items-center gap-2 text-sm font-black text-emerald-700"><CheckCircle2 size={18} />Placa válida · capacidad {formatNumber(check.capacidad || 0)} kg</p> : <p className="flex items-start gap-2 text-sm font-bold text-red-700"><XCircle className="mt-0.5 shrink-0" size={18} />{check.error}</p>}</div> : null}<button className="mt-4 h-11 w-full rounded-xl bg-[#10223d] text-sm font-black text-white hover:bg-[#1d3a61] disabled:cursor-not-allowed disabled:opacity-40" disabled={!check?.ok || saving} onClick={() => void savePlateChange()} type="button">{saving ? "Guardando..." : "Guardar cambio de placa"}</button></section></div> : null}
-      <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 bg-slate-50 px-5 py-3"><h2 className="text-sm font-black text-[#10223d]">Estado de los segundos viajes</h2><p className="mt-0.5 text-xs text-slate-500">Selecciona el estado operativo de cada DT.</p></div><div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{trips.map((record) => <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2" key={`status-${record.recordId || record.transporte}`}><span className="text-xs font-black text-[#10223d]">DT {record.transporte || "Sin DT"}</span><select aria-label={`Estado del DT ${record.transporte || "sin número"}`} className={`h-8 rounded-lg border px-2 text-xs font-black outline-none focus:ring-2 focus:ring-orange-500/20 ${statusSelectClass(record.status)}`} disabled={savingStatus === record.recordId} onChange={(event) => void updateStatus(record, event.target.value)} value={SECOND_TRIP_STATUSES.includes(record.status as (typeof SECOND_TRIP_STATUSES)[number]) ? record.status : "Cargando"}>{SECOND_TRIP_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>)}</div></section>
+      {selected ? (
+        <div aria-modal="true" aria-labelledby="edit-trip-title" className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) closePlateChange(); }} role="dialog">
+          <section className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div><h2 id="edit-trip-title" className="text-xl font-black text-[#10223d]">Editar DT y placas</h2><p className="mt-1 text-sm text-slate-500">Peso del DT: {formatNumber(selected.peso)} kg</p></div>
+              <button aria-label="Cerrar" disabled={checking || saving} onClick={closePlateChange} type="button"><X size={18} /></button>
+            </div>
+            <fieldset disabled={checking || saving} className="mt-4 space-y-3 disabled:opacity-60">
+              <label className="block text-sm font-bold">DT<input autoFocus className="mt-1 w-full rounded-lg border border-slate-300 p-3" maxLength={80} value={dt} onChange={(event) => setDt(event.target.value)} /></label>
+              <label className="block text-sm font-bold">Placa anterior<input className="mt-1 w-full rounded-lg border border-slate-300 p-3 uppercase" maxLength={80} value={previousPlate} onChange={(event) => { setPreviousPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
+              <label className="block text-sm font-bold">Placa nueva (opcional)<input className="mt-1 w-full rounded-lg border border-slate-300 p-3 uppercase" maxLength={80} placeholder="Pendiente" value={plate} onChange={(event) => { setPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
+            </fieldset>
+            <p className="mt-3 text-xs text-slate-500">Puedes guardar solo el DT. Si cambias la placa que hará el viaje, valida su capacidad antes de guardar.</p>
+            <button className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700 disabled:opacity-50" disabled={checking || saving} onClick={() => void validatePlate()} type="button">{checking ? <LoaderCircle className="animate-spin" size={17} /> : <CheckCircle2 size={17} />}Validar capacidad</button>
+            {check ? <div className={`mt-3 rounded-xl p-3 text-sm ${check.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{check.ok ? <>Placa validada: capacidad {formatNumber(check.capacidad || 0)} kg</> : <p className="flex gap-2"><XCircle size={18} />{check.error}</p>}</div> : null}
+            {error ? <p role="alert" className="mt-3 text-sm font-bold text-red-700">{error}</p> : null}
+            <button className="mt-4 w-full rounded-xl bg-[#10223d] p-3 text-sm font-black text-white disabled:opacity-40" disabled={saving || checking || !dt.trim() || !previousPlate.trim()} onClick={() => void savePlateChange()} type="button">{saving ? "Guardando..." : "Guardar cambios"}</button>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }   
