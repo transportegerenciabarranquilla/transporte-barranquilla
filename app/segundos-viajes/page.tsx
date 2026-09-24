@@ -160,7 +160,7 @@ export default function SegundosViajesPage() {
             transporte: normalizedDt,
             vehiculo: effectivePlate,
             vehiculoAnterior: next ? previous : "",
-            ...(needsValidation ? { capacidad: check!.capacidad, validadorPeso: "validado" } : {}),
+            ...(check?.ok && check.placa === effectivePlate ? { capacidad: check.capacidad, validadorPeso: "validado" } : {}),
           }
         }),
       });
@@ -258,8 +258,8 @@ export default function SegundosViajesPage() {
             </div>
             <fieldset disabled={checking || saving} className="mt-4 space-y-3 disabled:opacity-60">
               <label className="block text-sm font-bold">DT<input autoFocus className="mt-1 w-full rounded-lg border border-slate-300 p-3" maxLength={80} value={dt} onChange={(event) => setDt(event.target.value)} /></label>
-              <label className="block text-sm font-bold">Placa anterior<input className="mt-1 w-full rounded-lg border border-slate-300 p-3 uppercase" maxLength={80} value={previousPlate} onChange={(event) => { setPreviousPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
-              <label className="block text-sm font-bold">Placa nueva (opcional)<input className="mt-1 w-full rounded-lg border border-slate-300 p-3 uppercase" maxLength={80} placeholder="Pendiente" value={plate} onChange={(event) => { setPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
+              <label className="block text-sm font-bold">Placa anterior<input className={`mt-1 w-full rounded-lg border p-3 uppercase ${!plate.trim() && check?.ok && check.placa === previousPlate.trim().toUpperCase() ? "border-emerald-500 bg-emerald-50 font-black text-emerald-700" : "border-slate-300"}`} maxLength={80} value={previousPlate} onChange={(event) => { setPreviousPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
+              <label className="block text-sm font-bold">Placa nueva (opcional)<input className={`mt-1 w-full rounded-lg border p-3 uppercase ${check?.ok && check.placa === plate.trim().toUpperCase() ? "border-emerald-500 bg-emerald-50 font-black text-emerald-700" : "border-slate-300"}`} maxLength={80} placeholder="Pendiente" value={plate} onChange={(event) => { setPlate(event.target.value.toUpperCase()); setCheck(null); }} /></label>
             </fieldset>
             <p className="mt-3 text-xs text-slate-500">Puedes guardar solo el DT. Si cambias la placa que hará el viaje, valida su capacidad antes de guardar.</p>
             <button className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700 disabled:opacity-50" disabled={checking || saving} onClick={() => void validatePlate()} type="button">{checking ? <LoaderCircle className="animate-spin" size={17} /> : <CheckCircle2 size={17} />}Validar capacidad</button>
