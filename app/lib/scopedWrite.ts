@@ -11,16 +11,17 @@ export async function scopedWrite(
   idColumn: string,
   rows: Array<Record<string, unknown> & { contractor: string }>,
   headers: Record<string, string>,
+  options: { legacyOwnerField?: "transportista" } = {},
 ) {
   if (rows.some((row) => typeof row[idColumn] !== "string" || !String(row[idColumn]).trim() || String(row[idColumn]).length > 500)) {
     return Response.json({ error: "Identificador de registro inválido." }, { status: 400 });
   }
   const unique = [...new Map(rows.map((row) => [row[idColumn], row])).values()];
-  const existing = new Map<string, string>();
+  const existing = new Map<string, { contractor: string | null; owner: string }>();
   for (let offset = 0; offset < unique.length; offset += 50) {
     const batch = unique.slice(offset, offset + 50);
     const params = new URLSearchParams({
-      select: `${idColumn},contractor`,
+      select: `${idColumn},contractor${options.legacyOwnerField ? ",data" : ""}`,
       [idColumn]: `in.(${batch.map((row) => JSON.stringify(row[idColumn])).join(",")})`,
       limit: "50",
     });
@@ -29,10 +30,16 @@ export async function scopedWrite(
     const found = await response.json() as Array<Record<string, unknown>>;
     for (const row of found) {
       const incoming = batch.find((item) => item[idColumn] === row[idColumn]);
-      if (!incoming || !row.contractor || normalizeContractorName(String(row.contractor)) !== normalizeContractorName(incoming.contractor)) {
+      // Solo usar el propietario histórico persistido cuando contractor es NULL.
+      // Nunca aceptar el transportista enviado por el cliente como prueba.
+      const legacyData = row.data as Record<string, unknown> | null | undefined;
+      const owner = row.contractor === null && options.legacyOwnerField
+        ? legacyData?.[options.legacyOwnerField]
+        : row.contractor;
+      if (!incoming || typeof owner !== "string" || !owner || normalizeContractorName(owner) !== normalizeContractorName(incoming.contractor)) {
         return Response.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
       }
-      existing.set(String(row[idColumn]), String(row.contractor));
+      existing.set(String(row[idColumn]), { contractor: row.contractor === null ? null : String(row.contractor), owner });
     }
   }
   const newRows = unique.filter((row) => !existing.has(String(row[idColumn])));
@@ -46,11 +53,15 @@ export async function scopedWrite(
   const updates = unique.filter((row) => existing.has(String(row[idColumn])));
   for (let offset = 0; offset < updates.length; offset += 10) {
     const results = await Promise.all(updates.slice(offset, offset + 10).map(async (row) => {
+      const stored = existing.get(String(row[idColumn]))!;
       const params = new URLSearchParams({
         [idColumn]: `eq.${row[idColumn]}`,
-        contractor: `eq.${existing.get(String(row[idColumn]))}`,
+        contractor: stored.contractor === null ? "is.null" : `eq.${stored.contractor}`,
         select: idColumn,
       });
+      if (stored.contractor === null && options.legacyOwnerField) {
+        params.set(`data->>${options.legacyOwnerField}`, `eq.${stored.owner}`);
+      }
       const response = await fetch(supabaseRest(table, `?${params}`), {
         method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify(row), cache: "no-store",

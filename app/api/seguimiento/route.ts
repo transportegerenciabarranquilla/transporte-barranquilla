@@ -146,7 +146,7 @@ export async function PUT(request: Request) {
     });
     rows = dedupeUpsertRows(await preservePersistedRouteProgress(rows, session.contractor, session.accessToken));
     if (rows.length) {
-      const writeError = await scopedWrite(TABLE, "record_id", rows, getWriteHeaders(session.accessToken));
+      const writeError = await scopedWrite(TABLE, "record_id", rows, getWriteHeaders(session.accessToken), { legacyOwnerField: "transportista" });
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");

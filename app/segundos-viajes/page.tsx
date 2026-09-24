@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, ClipboardList, LoaderCircle, RefreshCw, Truck, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
+import hlLogisticaLogo from "../imagenes/logo hl.jpeg";
+import surtiLogo from "../imagenes/logo surti.jpeg";
+import logisticosLogo from "../imagenes/logisticos logo.webp";
+import { normalizeContractorName } from "../lib/contractors";
 import type { Vehiculo } from "../seguimiento/types";
 
 type PlateCheck = { capacidad: number | null; placa: string; ok: boolean; error?: string };
@@ -12,6 +17,18 @@ const SECOND_TRIP_STATUSES = ["Cargando", "Retornando", "Contando", "En ruta" , 
 export default function SegundosViajesPage() {
   const router = useRouter();
   const [records, setRecords] = useState<Vehiculo[]>([]);
+  const [contractor, setContractor] = useState("");
+  const [logoUnavailable, setLogoUnavailable] = useState(false);
+  const contractorLogo = contractor === "hllogisticos"
+    ? { src: hlLogisticaLogo, alt: "HL Logísticos" }
+    : contractor === "surticervezas"
+      ? { src: surtiLogo, alt: "Surti Cervezas" }
+      : contractor === "logisticos"
+        ? { src: logisticosLogo, alt: "Logísticos" }
+        : null;
+  const pageTitle = contractor === "logisticos"
+    ? "Segundos viajes Logísticos"
+    : contractorLogo ? `Segundos viajes de ${contractorLogo.alt}` : "Segundos viajes";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Vehiculo | null>(null);
@@ -40,6 +57,21 @@ export default function SegundosViajesPage() {
     const interval = window.setInterval(() => void load(), 30_000);
     return () => window.clearInterval(interval);
   }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/session/session", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = await response.json();
+        if (!controller.signal.aborted) {
+          setContractor(normalizeContractorName(body.session?.contractor));
+          setLogoUnavailable(false);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const today = bogotaToday();
   const trips = useMemo(
@@ -158,14 +190,36 @@ export default function SegundosViajesPage() {
           <div className="flex items-center gap-3">
             <button aria-label="Volver al portal" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-[#10223d] shadow-sm hover:bg-slate-50" onClick={() => router.push("/")} type="button"><ArrowLeft size={19} /></button>
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-orange-100 text-orange-600"><Truck size={24} /></span>
-            <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Operación diaria</p><h1 className="text-2xl font-black tracking-tight lg:text-3xl">Segundos viajes</h1><p className="text-sm text-slate-500">DT de viaje 11 · {formatDate(today)}</p></div>
+            <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Operación diaria</p><h1 className="text-2xl font-black tracking-tight lg:text-3xl">{pageTitle}</h1><p className="text-sm text-slate-500">DT de viaje 11 · {formatDate(today)}</p></div>
           </div>
           <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-orange-600 shadow-sm hover:bg-orange-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={18} /></button>
         </header>
 
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-orange-50 to-white px-5 py-4"><div><h2 className="flex items-center gap-2 text-lg font-black"><ClipboardList className="text-orange-600" size={20} />DT pendientes de segundo viaje</h2><p className="mt-0.5 text-xs text-slate-500">Solo se muestran registros identificados como viaje 11.</p></div><span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-black text-orange-700">{trips.length}</span></div>
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+              {contractorLogo && !logoUnavailable ? (
+                <Image
+                  src={contractorLogo.src}
+                  alt={contractorLogo.alt}
+                  width={96}
+                  height={90}
+                  unoptimized
+                  onError={() => setLogoUnavailable(true)}
+                  className="h-16 w-[68px] shrink-0 rounded-lg bg-white object-contain p-1 sm:h-[90px] sm:w-24"
+                />
+              ) : null}
+              <div className="min-w-0">
+                <h2 className="flex items-center gap-2 text-lg font-black">
+                  {!contractorLogo || logoUnavailable ? <ClipboardList className="shrink-0 text-orange-600" size={20} /> : null}
+                  {contractorLogo ? pageTitle : "DT pendientes de segundo viaje"}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">Solo se muestran registros identificados como viaje 11.</p>
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full bg-orange-100 px-3 py-1 text-sm font-black text-orange-700">{trips.length}</span>
+          </div>
           <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#10223d] text-[10px] font-black uppercase tracking-[.12em] text-white"><tr><th className="px-5 py-3">DT</th><th className="px-5 py-3">Placa anterior</th><th className="px-5 py-3">Placa nueva</th><th className="px-5 py-3 text-right">Clientes</th><th className="px-5 py-3 text-right">Acción</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={5}>Cargando segundos viajes...</td></tr> : trips.length ? trips.map((record) => {
             const weightAccepted = isWeightAccepted(record);
             return <tr className={weightAccepted ? "bg-emerald-50/90 hover:bg-emerald-100/80" : "hover:bg-orange-50/40"} key={record.recordId || `${record.transporte}-${record.fechaDespacho}`}><td className="px-5 py-4 font-black text-[#10223d]"><div className="flex flex-wrap items-center gap-2"><span>DT {record.transporte || "Sin DT"}</span>{weightAccepted ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700"><CheckCircle2 size={12} /></span> : null}</div></td><td className="px-5 py-4 font-bold text-slate-600">{record.vehiculoAnterior || record.vehiculo || "Sin placa"}</td><td className={`px-5 py-4 font-black ${weightAccepted ? "text-emerald-700" : "text-cyan-700"}`}>{record.vehiculoAnterior ? record.vehiculo || "Sin placa" : "Pendiente"}</td><td className="px-5 py-4 text-right font-black text-[#10223d]">{Number(record.clientes || 0).toLocaleString("es-CO")}</td><td className="px-5 py-4 text-right"><button className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black text-white shadow-sm ${weightAccepted ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-600 hover:bg-orange-700"}`} onClick={() => openPlateChange(record)} type="button"><Truck size={15} />Cambio de placa</button></td></tr>;

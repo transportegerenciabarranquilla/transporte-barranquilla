@@ -64,6 +64,73 @@ test('escritura: un ID ajeno devuelve 403 antes de mutar', async () => {
   } finally { globalThis.fetch = oldFetch; }
 });
 
+test('seguimiento: guarda históricos HL con contractor NULL y completa el propietario', async () => {
+  const { scopedWrite } = compile('../app/lib/scopedWrite.ts', { './supabaseServer': supabase });
+  const oldFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(init);
+    const params = new URL(url).searchParams;
+    if (!init.method) {
+      assert.equal(params.get('select'), 'record_id,contractor,data');
+      return Response.json([{ record_id: 'hl-historico', contractor: null, data: { transportista: 'HL Logistica' } }]);
+    }
+    assert.equal(init.method, 'PATCH');
+    assert.equal(params.get('record_id'), 'eq.hl-historico');
+    assert.equal(params.get('contractor'), 'is.null');
+    assert.equal(params.get('data->>transportista'), 'eq.HL Logistica');
+    const saved = JSON.parse(init.body);
+    assert.equal(saved.contractor, 'HL Logisticos');
+    assert.equal(saved.data.status, 'En ruta');
+    return Response.json([{ record_id: 'hl-historico' }]);
+  };
+  try {
+    const result = await scopedWrite('seguimiento_vehiculos', 'record_id', [{ record_id: 'hl-historico', contractor: 'HL Logisticos', data: { transportista: 'HL Logisticos', status: 'En ruta' } }], {}, { legacyOwnerField: 'transportista' });
+    assert.equal(result, null);
+    assert.equal(calls.length, 2);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('seguimiento: rechaza históricos ajenos, sin dueño o con contractor distinto aunque el cliente diga HL', async () => {
+  const { scopedWrite } = compile('../app/lib/scopedWrite.ts', { './supabaseServer': supabase });
+  const oldFetch = globalThis.fetch;
+  try {
+    for (const stored of [
+      { contractor: null, data: { transportista: 'Surti Cervezas' } },
+      { contractor: null, data: {} },
+      { contractor: 'Surti Cervezas', data: { transportista: 'HL Logisticos' } },
+    ]) {
+      globalThis.fetch = async (url, init) => {
+        assert.equal(init.method, undefined, 'No debe escribir filas ajenas');
+        return Response.json([{ record_id: 'historico', ...stored }]);
+      };
+      const result = await scopedWrite('seguimiento_vehiculos', 'record_id', [{ record_id: 'historico', contractor: 'HL Logisticos', data: { transportista: 'HL Logisticos' } }], {}, { legacyOwnerField: 'transportista' });
+      assert.equal(result.status, 403);
+    }
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('escritura: otros módulos siguen rechazando propietarios NULL', async () => {
+  const { scopedWrite } = compile('../app/lib/scopedWrite.ts', { './supabaseServer': supabase });
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(init.method, undefined);
+    return Response.json([{ id: 'historico', contractor: null, data: { transportista: 'HL Logisticos' } }]);
+  };
+  try {
+    assert.equal((await scopedWrite('records', 'id', [{ id: 'historico', contractor: 'HL Logisticos' }], {})).status, 403);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('seguimiento: detecta si el dueño histórico cambió antes de escribir', async () => {
+  const { scopedWrite } = compile('../app/lib/scopedWrite.ts', { './supabaseServer': supabase });
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => Response.json(init.method ? [] : [{ record_id: 'historico', contractor: null, data: { transportista: 'HL Logisticos' } }]);
+  try {
+    assert.equal((await scopedWrite('seguimiento_vehiculos', 'record_id', [{ record_id: 'historico', contractor: 'HL Logisticos' }], {}, { legacyOwnerField: 'transportista' })).status, 409);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
 test('escritura: carrera de inserción no se convierte en upsert de una fila ajena', async () => {
   const { scopedWrite } = compile('../app/lib/scopedWrite.ts', { './supabaseServer': supabase });
   const oldFetch = globalThis.fetch;
