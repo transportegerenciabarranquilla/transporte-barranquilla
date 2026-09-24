@@ -58,6 +58,7 @@ export async function GET(request: Request) {
       ? supabaseReadHeaders(session.accessToken)
       : supabaseAdminHeaders() ?? supabaseHeaders();
     const readScope = session ? `user:${session.userId}` : "public";
+    const listTtl = session && !session.isAdmin && !session.isPeople ? 0 : LIST_CACHE_TTL_MS;
     const canScanAllRows = Boolean(supabaseAdminHeaders());
     const params = new URLSearchParams(
       isGlobalAdminQuery || canScanAllRows
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
       TABLE,
       params,
       `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:dt:${requestedDt || "all"}`,
-      LIST_CACHE_TTL_MS,
+      listTtl,
       readHeaders,
     );
     const filterRows = (sourceRows: typeof rows) => sourceRows
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
         TABLE,
         broadParams,
         `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:fallback`,
-        LIST_CACHE_TTL_MS,
+        listTtl,
         readHeaders,
       );
       matchedRows = filterRows(rows);
@@ -190,6 +191,7 @@ export async function PATCH(request: Request) {
     const recordId = String(body.recordId || "").trim();
     const changes = body.changes;
     const hasSupportedChange = changes && (
+      changes.visitados !== undefined ||
       changes.transporte !== undefined ||
       changes.status !== undefined ||
       changes.liquidado !== undefined ||
@@ -232,6 +234,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
     }
 
+    if (changes.visitados !== undefined) {
+      if (!Number.isInteger(changes.visitados) || changes.visitados < 0 || changes.visitados > current.clientes) {
+        return NextResponse.json({ error: `Los visitados deben ser un entero entre 0 y ${current.clientes}.` }, { status: 400 });
+      }
+      if ((current.status === "Finalizado" || hasStoredTime(current.horaLlegada)) && changes.visitados !== current.clientes) {
+        return NextResponse.json({ error: "La ruta está finalizada. Cámbiala a En ruta antes de corregir los visitados." }, { status: 409 });
+      }
+      // La corrección manual no depende del reloj del navegador.
+      const previousTime = Date.parse(current.visitadosUpdatedAt || "");
+      changes.visitadosUpdatedAt = new Date(Math.max(Date.now(), Number.isFinite(previousTime) ? previousTime + 1 : 0)).toISOString();
+    }
+
     if (changes.transporte !== undefined && normalizeDt(changes.transporte) !== normalizeDt(current.transporte)) {
       if (!normalizeDt(changes.transporte)) {
         return NextResponse.json({ error: "Ingresa un DT válido." }, { status: 400 });
@@ -264,7 +278,7 @@ export async function PATCH(request: Request) {
     const updateParams = new URLSearchParams({
       contractor: stored.contractor === null ? "is.null" : `eq.${stored.contractor}`,
       record_id: `eq.${recordId}`,
-      select: "record_id",
+      select: "record_id,data",
     });
     if (stored.contractor === null) updateParams.set("data->>transportista", `eq.${owner}`);
     const updateResponse = await fetch(supabaseRest(TABLE, `?${updateParams.toString()}`), {
@@ -274,7 +288,7 @@ export async function PATCH(request: Request) {
       cache: "no-store",
     });
     if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
-    const updatedRows = (await updateResponse.json()) as { record_id: string }[];
+    const updatedRows = (await updateResponse.json()) as { record_id: string; data?: Vehiculo }[];
     if (updatedRows.length !== 1 || updatedRows[0].record_id !== recordId) {
       return NextResponse.json({ error: "No se confirmó el guardado de la ruta. Recarga e intenta nuevamente." }, { status: 409 });
     }
@@ -282,7 +296,10 @@ export async function PATCH(request: Request) {
     clearServerCache(`supabase:${TABLE}:`);
     clearServerCache("supabase:people-summary:");
     clearServerCache("supabase:admin-seguimiento:");
-    return NextResponse.json({ record: data });
+    if (changes.visitados !== undefined && updatedRows[0].data?.visitados !== changes.visitados) {
+      return NextResponse.json({ error: "La base de datos no confirmó la cantidad de clientes visitados." }, { status: 409 });
+    }
+    return NextResponse.json({ record: { ...(updatedRows[0].data || data), recordId } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el estado." }, { status: 500 });
   }
@@ -820,6 +837,7 @@ async function readPagedRows<T>(table: string, baseParams: URLSearchParams, head
 }
 
 async function readPagedRowsCached<T>(table: string, baseParams: URLSearchParams, cachePrefix: string, ttlMs: number, headers: Record<string, string>) {
+  if (ttlMs <= 0) return readPagedRows<T>(table, baseParams, headers);
   const rows: T[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const params = new URLSearchParams(baseParams);

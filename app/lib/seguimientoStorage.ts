@@ -1,4 +1,5 @@
 import type { Vehiculo } from "../seguimiento/types";
+import { getVehicleUiKey } from "../seguimiento/utils";
 import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords, waitForRemoteSaves } from "./remoteStore";
 
 export const SEGUIMIENTO_STORAGE_KEY = "bavaria.seguimiento.vehiculos";
@@ -8,8 +9,11 @@ export function readSeguimientoVehiculos() {
   return readRemoteRecords<Vehiculo>("/api/seguimiento");
 }
 
-export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteMissing?: boolean } = {}) {
-  return saveRemoteRecords("/api/seguimiento", records, { extraBody: { deleteMissing: options.deleteMissing === true } });
+export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteMissing?: boolean; partial?: boolean } = {}) {
+  return saveRemoteRecords("/api/seguimiento", records, {
+    extraBody: { deleteMissing: options.deleteMissing === true },
+    ...(options.partial ? { mergeByKey: getVehicleUiKey } : {}),
+  });
 }
 
 export async function saveSeguimientoLiquidado(recordId: string, liquidado: boolean, liquidadoUpdatedAt: string) {
@@ -22,6 +26,18 @@ export async function saveSeguimientoLiquidado(recordId: string, liquidado: bool
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || "No se pudo guardar el estado de liquidación.");
   return body.record as Vehiculo;
+}
+
+export async function saveSeguimientoVisitados(record: Vehiculo) {
+  const [saved] = await saveRemoteRecords<Vehiculo>("/api/seguimiento", [record], {
+    method: "PATCH",
+    mergeByKey: getVehicleUiKey,
+    extraBody: { recordId: record.recordId, changes: { visitados: record.visitados } },
+  });
+  if (saved?.recordId !== record.recordId || saved.visitados !== record.visitados) {
+    throw new Error("No se confirmó la cantidad de clientes visitados. Intenta nuevamente.");
+  }
+  return saved;
 }
 
 export async function deleteSeguimientoVehiculo(vehicle: Pick<Vehiculo, "recordId" | "transporte" | "vehiculo" | "fechaDespacho">) {

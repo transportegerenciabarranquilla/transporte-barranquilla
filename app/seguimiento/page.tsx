@@ -8,6 +8,8 @@ import { ComplaintsNotificationAlert } from "./components/ComplaintsNotification
 import type { ComplaintRecord } from "../lib/complaints";
 import { SeguimientoFilters } from "./components/SeguimientoFilters";
 import { SeguimientoHero } from "./components/SeguimientoHero";
+import { CoronaHero } from "./components/CoronaHero";
+import coronaStyles from "./components/corona.module.css";
 import { VehicleDrawer } from "./components/VehicleDrawer";
 import { VehiclesTable } from "./components/VehiclesTable";
 import {
@@ -22,7 +24,7 @@ import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargu
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, moveCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
-import { saveSeguimientoLiquidado, saveSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { saveSeguimientoLiquidado, saveSeguimientoVehiculos, saveSeguimientoVisitados, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
@@ -47,6 +49,7 @@ const SEGUIMIENTO_SAVE_DEBOUNCE_MS = 200;
 export default function SeguimientoPage() {
   const router = useRouter();
   const brand = useContractorBrand();
+  const isCoronaImmersive = brand.name === "Punto Corona";
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
   const [vehiculoSeleccionadoKey, setVehiculoSeleccionadoKey] = useState<string | null>(null);
   const storedVehiculos = useStorageSnapshot<Vehiculo[]>(
@@ -247,22 +250,30 @@ export default function SeguimientoPage() {
   }, [latestModulacionId, showModulacionAlert]);
 
   function actualizarVisitados(recordKey: string, visitados: number) {
-    const visitadosUpdatedAt = new Date().toISOString();
-    const prepared = prepareSeguimientoVehicles(
-      vehiclesRef.current.map((item) =>
-        getVehicleUiKey(item) === recordKey
-          ? {
-              ...item,
-              visitados: Math.min(Math.max(visitados, 0), item.clientes),
-              visitadosUpdatedAt,
-            }
-          : item,
-      ),
-    );
-
-    vehiclesRef.current = prepared;
-    setVehiculos(prepared);
-    saveSeguimientoImmediately(prepared, "Clientes visitados guardados en Supabase.");
+    const previous = vehiclesRef.current.find((item) => getVehicleUiKey(item) === recordKey);
+    if (!previous?.recordId) { setImportMessage("No se encontró la ruta que se debe guardar."); return; }
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      // Encolar primero otras ediciones pendientes de la tabla.
+      void saveSeguimientoVehiculos(vehiclesRef.current).catch((error) => setImportMessage(String(error)));
+    }
+    const record = { ...previous, visitados };
+    const version = ++saveVersionRef.current;
+    pendingLocalSaveRef.current = true;
+    setImportMessage("Guardando clientes visitados...");
+    void saveSeguimientoVisitados(record).then((saved) => {
+      // Aplicar solo esta fila; no sustituir otras ediciones de la tabla.
+      const records = vehiclesRef.current.map((item) => item.recordId === saved.recordId
+        ? { ...item, visitados: saved.visitados, visitadosUpdatedAt: saved.visitadosUpdatedAt } : item);
+      vehiclesRef.current = records;
+      setVehiculos(records);
+      if (saveVersionRef.current === version) setImportMessage("Clientes visitados guardados y confirmados.");
+    }).catch((error) => {
+      if (saveVersionRef.current === version) setImportMessage(error instanceof Error ? error.message : "No se pudieron guardar los visitados.");
+    }).finally(() => {
+      if (saveVersionRef.current === version) pendingLocalSaveRef.current = false;
+    });
   }
 
   function actualizarVehiculo(recordKey: string, changes: Partial<Vehiculo>) {
@@ -322,19 +333,32 @@ export default function SeguimientoPage() {
       });
   }
 
-  function saveSeguimientoImmediately(records: Vehiculo[], successMessage: string) {
+  function saveSeguimientoImmediately(records: Vehiculo[], successMessage: string, recordKey?: string) {
+    // Si hay otra edición pendiente, incluirla antes de cancelar su temporizador.
+    // En una edición de visitas aislada solo se escribe el vehículo modificado.
+    const recordsToSave = recordKey && !saveTimerRef.current
+      ? records.filter((record) => getVehicleUiKey(record) === recordKey)
+      : records;
+    if (!recordsToSave.length) {
+      setImportMessage("No se pudo identificar la ruta que se debe guardar. Actualiza la página e intenta de nuevo.");
+      return;
+    }
     const saveVersion = ++saveVersionRef.current;
     pendingLocalSaveRef.current = true;
+    setImportMessage("Guardando cambios...");
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
 
-    void saveSeguimientoVehiculos(records)
+    void saveSeguimientoVehiculos(recordsToSave, { partial: Boolean(recordKey) })
       .then((savedRecords) => {
         if (saveVersionRef.current !== saveVersion) return;
-        vehiclesRef.current = savedRecords;
-        setVehiculos(savedRecords);
+        const merged = recordKey
+          ? Array.from(new Map([...vehiclesRef.current, ...savedRecords].map((record) => [getVehicleUiKey(record), record])).values())
+          : savedRecords;
+        vehiclesRef.current = merged;
+        setVehiculos(merged);
         setImportMessage(successMessage);
       })
       .catch((error) => {
@@ -610,7 +634,7 @@ export default function SeguimientoPage() {
   }
 
   return (
-    <main className="tech-grid min-h-screen bg-[#f4f7fb] text-slate-900">
+    <main className={`${isCoronaImmersive ? coronaStyles.page : "tech-grid"} min-h-screen bg-[#f4f7fb] text-slate-900`}>
       <header className="sticky top-0 z-40 border-b border-white/60 bg-white/82 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <button
@@ -632,12 +656,12 @@ export default function SeguimientoPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
-        <SeguimientoHero resumen={resumen} brand={brand} />
+        {isCoronaImmersive ? <CoronaHero resumen={resumen} /> : <SeguimientoHero resumen={resumen} brand={brand} />}
 
         <ModulacionNotificationAlert modulaciones={modulacionesHoy} visible={showModulacionAlert} />
         {!complaintsDismissed ? <ComplaintsNotificationAlert complaints={complaints} contractorName={brand.name} onClose={() => setComplaintsDismissed(true)} /> : null}
 
-        <div className="relative z-40 mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]">
+        <div className={`${isCoronaImmersive ? coronaStyles.toolbar : ""} relative z-40 mb-6 grid gap-4 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-3 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur lg:grid-cols-[1fr_auto]`}>
           <label className="flex min-h-24 cursor-pointer items-center gap-4 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 transition hover:border-amber-300 hover:bg-amber-50/45">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-[#10223d] text-white shadow-lg shadow-blue-500/15">
               <FileSpreadsheet size={22} />
@@ -722,6 +746,7 @@ export default function SeguimientoPage() {
         </div>
 
         <SeguimientoFilters
+          className={isCoronaImmersive ? coronaStyles.filters : undefined}
           fechaDesdeFilter={fechaDesdeFilter}
           fechaHastaFilter={fechaHastaFilter}
           onlyWithoutResponsible={onlyWithoutResponsible}
@@ -733,7 +758,9 @@ export default function SeguimientoPage() {
           onStatusChange={setStatusFilters}
         />
 
+        {importMessage ? <p role="status" className="mb-3 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700">{importMessage}</p> : null}
         <VehiclesTable
+          className={isCoronaImmersive ? coronaStyles.vehicleTable : undefined}
           vehicles={filteredVehicles}
           operationalDate=""
           now={now}
@@ -744,6 +771,7 @@ export default function SeguimientoPage() {
 
         {selectedVehicle ? (
           <VehicleDrawer
+            className={isCoronaImmersive ? coronaStyles.drawer : undefined}
             canEditResponsibleManual={canEditResponsibleManual}
             vehicle={selectedVehicle}
             now={now}

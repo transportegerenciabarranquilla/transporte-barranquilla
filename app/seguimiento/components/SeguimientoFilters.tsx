@@ -2,6 +2,7 @@ import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { ROUTE_STATUSES } from "../utils";
 
 export function SeguimientoFilters({
+  className = "",
   fechaDesdeFilter,
   fechaHastaFilter,
   search,
@@ -12,6 +13,7 @@ export function SeguimientoFilters({
   onSearchChange,
   onStatusChange,
 }: {
+  className?: string;
   fechaDesdeFilter: string;
   fechaHastaFilter: string;
   onlyWithoutResponsible: boolean;
@@ -30,7 +32,7 @@ export function SeguimientoFilters({
   const isCurrentMonth = fechaDesdeFilter === monthStart && fechaHastaFilter === today;
 
   return (
-    <div className="relative z-30 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur">
+    <div className={`${className} relative z-30 mb-5 overflow-visible rounded-lg border border-slate-200 bg-white/92 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.07)] backdrop-blur`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Filtros</p>

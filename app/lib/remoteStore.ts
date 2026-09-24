@@ -34,6 +34,8 @@ export function clearRemoteCache() {
 }
 
 export function refreshRemoteRecords(endpoint: string, options: { force?: boolean; requestUrl?: string } = {}) {
+  // No leer una versión anterior mientras hay escrituras en curso.
+  if (saveQueues.has(endpoint)) return saveQueues.get(endpoint);
   const lastFetch = fetchedAt.get(endpoint) || 0;
   if (!options.force && cache.has(endpoint) && Date.now() - lastFetch < REMOTE_CACHE_TTL_MS) {
     return Promise.resolve();
@@ -98,7 +100,7 @@ export function waitForRemoteSaves(endpoint: string) {
 export function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],
-  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string } = {},
+  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH" } = {},
 ) {
   const mutationVersion = (mutationVersions.get(endpoint) || 0) + 1;
   mutationVersions.set(endpoint, mutationVersion);
@@ -110,9 +112,9 @@ export function saveRemoteRecords<T>(
 
     try {
       const response = await fetch(endpoint, {
-        method: "PUT",
+        method: options.method || "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records, ...options.extraBody }),
+        body: JSON.stringify(options.method === "PATCH" ? options.extraBody : { records, ...options.extraBody }),
         cache: "no-store",
       });
 
@@ -128,7 +130,10 @@ export function saveRemoteRecords<T>(
       // Una escritura con registros no puede vaciar la tabla local solo porque
       // una lectura posterior quedó temporalmente oculta por RLS o caché. Se
       // conserva la versión optimista hasta el próximo refresco válido.
-      const savedRecords = Array.isArray(body.records) && (body.records.length > 0 || records.length === 0)
+      if (options.method === "PATCH" && (!body.record || typeof body.record !== "object")) {
+        throw new Error("El servidor no confirmó el registro actualizado.");
+      }
+      const savedRecords = options.method === "PATCH" ? [body.record] : Array.isArray(body.records) && (body.records.length > 0 || records.length === 0)
         ? body.records
         : records;
       if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {

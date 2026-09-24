@@ -4,6 +4,7 @@ import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
 
 export function VehiclesTable({
+  className = "",
   vehicles,
   operationalDate,
   now,
@@ -11,6 +12,7 @@ export function VehiclesTable({
   onUpdateVehicle,
   onUpdateVisited,
 }: {
+  className?: string;
   vehicles: Vehiculo[];
   operationalDate: string;
   now: Date;
@@ -80,11 +82,11 @@ export function VehiclesTable({
   }
 
   return (
-    <div className="data-shell rounded-lg">
+    <div className={`data-shell rounded-lg ${className}`}>
       <div className="flex flex-col gap-3 border-b border-slate-200/70 bg-white/86 px-4 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-[#10223d]">Vehículos en ruta</h2>
-          <p className="text-xs text-slate-500">Selecciona una fila para ver el detalle.</p>
+          <p className="text-xs text-slate-500">Selecciona una fila para ver el detalle. Confirma las cantidades con Enter o al salir del campo.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{visibleVehicles.length} rutas</span>
@@ -171,13 +173,14 @@ export function VehiclesTable({
 
               return (
                 <tr
+                  data-behind-plan={isBehindPlan || undefined}
                   className={isBehindPlan ? "cursor-pointer bg-red-50/55" : "cursor-pointer"}
                   key={recordKey}
                   onClick={() => onSelectVehicle(item)}
                 >
                   <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
+                      <span data-vehicle-icon className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
                         <Truck size={13} />
                       </span>
                       <EditableText value={item.vehiculo} onChange={(value) => onUpdateVehicle(recordKey, { vehiculo: value })} strong />
@@ -337,14 +340,22 @@ function EditableNumber({ allowDecimal = false, className, value, onChange }: { 
       className={className || "h-7 w-full min-w-0 rounded border border-transparent bg-transparent px-1 text-[11px] font-medium text-slate-700 outline-none transition hover:border-slate-200 hover:bg-white focus:border-[#0f7c58] focus:bg-white"}
       min={0}
       onBlur={() => {
-        if (!draft) onChange(0);
+        const nextValue = Number(draft || 0);
+        if (Number.isFinite(nextValue) && nextValue !== value) onChange(nextValue);
         setFocused(false);
       }}
       onChange={(event) => {
         const cleanValue = cleanNumberInput(event.target.value, allowDecimal);
         setDraft(cleanValue);
-        if (cleanValue) onChange(Number(cleanValue));
       }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(value ? String(value) : "");
+          event.preventDefault();
+        }
+      }}
+      inputMode={allowDecimal ? "decimal" : "numeric"}
       onFocus={() => setFocused(true)}
       placeholder="0"
       type="text"
