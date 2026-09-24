@@ -10,6 +10,8 @@ import { isSecurityOwnerEmail, normalizeContractorName } from "../../lib/contrac
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 import { dedupeUpsertRows } from "../../lib/seguimientoUpsert";
+import { SEGUIMIENTO_EDITABLE_FIELDS, SEGUIMIENTO_TEXT_FIELDS, SEGUIMIENTO_NUMBER_FIELDS, preserveSeguimientoFields } from "../../lib/seguimientoPersistence";
+import { JORNADA_FIELDS, preserveJornada } from "../../lib/jornadaPersistence";
 
 const TABLE = "seguimiento_vehiculos";
 const CAPACITY_TABLE = "capacidad_carga";
@@ -62,15 +64,15 @@ export async function GET(request: Request) {
     const canScanAllRows = Boolean(supabaseAdminHeaders());
     const params = new URLSearchParams(
       isGlobalAdminQuery || canScanAllRows
-        ? { select: "record_id,contractor,data", order: "updated_at.desc" }
-        : { select: "record_id,contractor,data", contractor: `eq.${contractor}`, order: "updated_at.desc" },
+        ? { select: "record_id,contractor,data,updated_at", order: "record_id.asc" }
+        : { select: "record_id,contractor,data,updated_at", contractor: `eq.${contractor}`, order: "record_id.asc" },
     );
     if (session) scopeQuery(params, session);
     // El campo puede estar guardado como "DT-123" o con espacios/separadores.
     // La coincidencia normalizada se confirma abajo para no aceptar parciales.
     if (requestedDt) params.set("data->>transporte", `ilike.*${requestedDt}*`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    let rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
+    let rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null; updated_at?: string }>(
       TABLE,
       params,
       `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:dt:${requestedDt || "all"}`,
@@ -85,7 +87,7 @@ export async function GET(request: Request) {
           const contractorKey = normalizeContractorName(contractor);
           return [row.data.transportista, row.contractor].map(normalizeContractorName).includes(contractorKey);
         })
-        .map((row) => ({ ...row.data, recordId: row.record_id, transportista: row.contractor || row.data.transportista || "" }));
+        .map((row) => ({ ...row.data, recordId: row.record_id, recordUpdatedAt: row.updated_at, transportista: row.contractor || row.data.transportista || "" }));
     let matchedRows = filterRows(rows);
     // Algunas cargas guardan el DT en un formato que PostgREST no encuentra
     // con el filtro JSON ilike. Reintenta por contratista y compara el DT
@@ -94,7 +96,7 @@ export async function GET(request: Request) {
       const broadParams = new URLSearchParams(params);
       broadParams.delete("data->>transporte");
       broadParams.delete("data->>fechaDespacho");
-      rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null }>(
+      rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null; updated_at?: string }>(
         TABLE,
         broadParams,
         `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:fallback`,
@@ -137,6 +139,7 @@ export async function PUT(request: Request) {
       const recordId = getSeguimientoRecordId(record, session.contractor, index);
       const storedRecord = { ...record };
       delete storedRecord.dispatchDateChanged;
+      delete storedRecord.recordUpdatedAt;
 
       return {
         record_id: recordId,
@@ -145,9 +148,10 @@ export async function PUT(request: Request) {
         updated_at: new Date().toISOString(),
       };
     });
-    rows = dedupeUpsertRows(await preservePersistedRouteProgress(rows, session.contractor, session.accessToken));
+    const expectedVersions = new Map<string, string | null>();
+    rows = dedupeUpsertRows(await preservePersistedRouteProgress(rows, session.accessToken, expectedVersions));
     if (rows.length) {
-      const writeError = await scopedWrite(TABLE, "record_id", rows, getWriteHeaders(session.accessToken), { legacyOwnerField: "transportista" });
+      const writeError = await scopedWrite(TABLE, "record_id", rows, getWriteHeaders(session.accessToken), { legacyOwnerField: "transportista", expectedVersions });
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");
@@ -157,8 +161,18 @@ export async function PUT(request: Request) {
     // Guardar o volver a importar nunca elimina filas. Los DT solo se borran
     // mediante DELETE, después de una confirmacion expresa en la interfaz.
 
-    const savedParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${session.contractor}`, order: "updated_at.desc" });
-    const savedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, savedParams, supabaseReadHeaders(session.accessToken));
+    const savedRows: { record_id: string; data: Vehiculo; updated_at?: string }[] = [];
+    for (let offset = 0; offset < rows.length; offset += 50) {
+      const savedParams = new URLSearchParams({
+        select: "record_id,data,updated_at",
+        contractor: `eq.${session.contractor}`,
+        record_id: `in.(${rows.slice(offset, offset + 50).map((row) => JSON.stringify(row.record_id)).join(",")})`,
+      });
+      savedRows.push(...await readPagedRows<typeof savedRows[number]>(TABLE, savedParams, supabaseReadHeaders(session.accessToken)));
+    }
+    if (savedRows.length !== rows.length) {
+      return NextResponse.json({ error: "No se pudo confirmar la lista completa guardada. Recarga antes de reintentar." }, { status: 409 });
+    }
     await writeAuditLog({
       action: "seguimiento_guardado",
       contractor: session.contractor,
@@ -172,7 +186,7 @@ export async function PUT(request: Request) {
       session,
     });
     const savedRecords = await applyDatabaseCapacities(
-      removeDuplicateDtRecords(savedRows.map((row) => ({ ...row.data, recordId: row.record_id }))),
+      removeDuplicateDtRecords(savedRows.map((row) => ({ ...row.data, recordId: row.record_id, recordUpdatedAt: row.updated_at }))),
       session.accessToken,
     );
     return NextResponse.json({ records: await applyAttendanceToVehicles(savedRecords, session.accessToken, session.contractor) });
@@ -189,19 +203,30 @@ export async function PATCH(request: Request) {
 
     const body = (await request.json()) as { recordId?: string; changes?: Partial<Vehiculo> };
     const recordId = String(body.recordId || "").trim();
-    const changes = body.changes;
-    const hasSupportedChange = changes && (
-      changes.visitados !== undefined ||
-      changes.transporte !== undefined ||
-      changes.status !== undefined ||
-      changes.liquidado !== undefined ||
-      changes.vehiculo !== undefined ||
-      changes.vehiculoAnterior !== undefined ||
-      changes.capacidad !== undefined ||
-      changes.validadorPeso !== undefined
-    );
-    if (!recordId || !changes || !hasSupportedChange) {
+    const rawChanges = body.changes;
+    if (!recordId || !rawChanges || typeof rawChanges !== "object" || Array.isArray(rawChanges)) {
       return NextResponse.json({ error: "Falta el registro o el cambio a guardar." }, { status: 400 });
+    }
+    const changes = Object.fromEntries(SEGUIMIENTO_EDITABLE_FIELDS
+      .filter((field) => rawChanges[field] !== undefined)
+      .map((field) => [field, rawChanges[field]])) as Partial<Vehiculo>;
+    if (!Object.keys(changes).length) {
+      return NextResponse.json({ error: "No hay campos editables para guardar." }, { status: 400 });
+    }
+    for (const field of SEGUIMIENTO_TEXT_FIELDS) {
+      const value = changes[field];
+      if (value !== undefined && (typeof value !== "string" || value.length > 4000)) {
+        return NextResponse.json({ error: "El cambio debe ser texto de máximo 4000 caracteres." }, { status: 400 });
+      }
+    }
+    for (const field of SEGUIMIENTO_NUMBER_FIELDS) {
+      const value = changes[field];
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || (["clientes", "visitados"].includes(field) && !Number.isInteger(value)))) {
+        return NextResponse.json({ error: "Las cantidades deben ser números válidos no negativos." }, { status: 400 });
+      }
+    }
+    if (changes.liquidado !== undefined && typeof changes.liquidado !== "boolean") {
+      return NextResponse.json({ error: "El estado de liquidación debe ser Sí o No." }, { status: 400 });
     }
     for (const field of ["transporte", "vehiculo", "vehiculoAnterior"] as const) {
       const value = changes[field];
@@ -213,7 +238,7 @@ export async function PATCH(request: Request) {
     }
 
     const params = new URLSearchParams({
-      select: "contractor,data",
+      select: "contractor,data,updated_at",
       record_id: `eq.${recordId}`,
       limit: "1",
     });
@@ -222,7 +247,7 @@ export async function PATCH(request: Request) {
       cache: "no-store",
     });
     if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
-    const currentRows = (await currentResponse.json()) as { contractor: string | null; data: Vehiculo }[];
+    const currentRows = (await currentResponse.json()) as { contractor: string | null; data: Vehiculo; updated_at: string | null }[];
     const stored = currentRows[0];
     const current = stored?.data;
     if (!current) return NextResponse.json({ error: "No se encontró la ruta en Supabase." }, { status: 404 });
@@ -234,11 +259,33 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
     }
 
-    if (changes.visitados !== undefined) {
-      if (!Number.isInteger(changes.visitados) || changes.visitados < 0 || changes.visitados > current.clientes) {
-        return NextResponse.json({ error: `Los visitados deben ser un entero entre 0 y ${current.clientes}.` }, { status: 400 });
+    const targetClientes = changes.clientes ?? current.clientes ?? 0;
+    // Un cambio de estado también debe persistir los relojes compatibles.
+    // Si queda la llegada anterior, la interfaz interpreta la ruta como finalizada.
+    if (changes.status === "En ruta") {
+      changes.horaLlegada = "Pendiente";
+      changes.tiempoRuta = "Pendiente";
+      if (!hasStoredTime(changes.horaSalida ?? current.horaSalida)) {
+        changes.horaSalida = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour12: false });
       }
-      if ((current.status === "Finalizado" || hasStoredTime(current.horaLlegada)) && changes.visitados !== current.clientes) {
+    } else if (changes.status === "Finalizado") {
+      changes.visitados = targetClientes;
+      if (!hasStoredTime(changes.horaLlegada ?? current.horaLlegada)) {
+        changes.horaLlegada = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour12: false });
+      }
+    } else if (["Pendiente por salir", "Cargando", "Cambio de fecha", "Pernoctado"].includes(changes.status || "")) {
+      changes.horaSalida = "Pendiente";
+      changes.horaLlegada = "Pendiente";
+      changes.tiempoRuta = "Pendiente";
+    }
+    if (changes.fechaDespacho !== undefined) changes.date = changes.fechaDespacho;
+    const targetStatus = changes.status ?? current.status;
+    const targetArrival = changes.horaLlegada ?? current.horaLlegada;
+    if (changes.visitados !== undefined) {
+      if (!Number.isInteger(changes.visitados) || changes.visitados < 0 || changes.visitados > targetClientes) {
+        return NextResponse.json({ error: `Los visitados deben ser un entero entre 0 y ${targetClientes}.` }, { status: 400 });
+      }
+      if ((targetStatus === "Finalizado" || hasStoredTime(targetArrival)) && changes.visitados !== targetClientes) {
         return NextResponse.json({ error: "La ruta está finalizada. Cámbiala a En ruta antes de corregir los visitados." }, { status: 409 });
       }
       // La corrección manual no depende del reloj del navegador.
@@ -259,7 +306,7 @@ export async function PATCH(request: Request) {
         select: "record_id,data",
         or: `(${ownerFilters.join(",")})`,
       }), supabaseReadHeaders(session.accessToken));
-      const date = routeDateValue(current.fechaDespacho || current.date || current.createdAt);
+      const date = routeDateValue(changes.fechaDespacho || current.fechaDespacho || current.date || current.createdAt);
       if (candidates.some((row) => row.record_id !== recordId && row.data &&
         normalizeDt(row.data.transporte) === normalizeDt(changes.transporte) &&
         routeDateValue(row.data.fechaDespacho || row.data.date || row.data.createdAt) === date)) {
@@ -267,28 +314,41 @@ export async function PATCH(request: Request) {
       }
     }
 
+    const savedAt = new Date(Math.max(Date.now(), (Date.parse(stored.updated_at || "") || 0) + 1)).toISOString();
+    if (changes.clientes !== undefined && changes.visitados === undefined) {
+      changes.visitados = targetStatus === "Finalizado" || hasStoredTime(targetArrival)
+        ? targetClientes : Math.min(current.visitados, targetClientes);
+    }
     const data = {
       ...current,
       ...changes,
       recordId,
-      ...(changes.status !== undefined ? { statusUpdatedAt: changes.statusUpdatedAt || new Date().toISOString() } : {}),
-      ...(changes.liquidado !== undefined ? { liquidadoUpdatedAt: changes.liquidadoUpdatedAt || new Date().toISOString() } : {}),
+      manualUpdatedFields: [...new Set([...(current.manualUpdatedFields || []), ...Object.keys(changes)])],
+      jornadaUpdatedAt: JORNADA_FIELDS.some((field) => changes[field] !== undefined)
+        ? savedAt : current.jornadaUpdatedAt,
+      ...(changes.status !== undefined ? { statusUpdatedAt: savedAt } : {}),
+      ...(changes.liquidado !== undefined ? { liquidadoUpdatedAt: savedAt } : {}),
+      ...(changes.clientes !== undefined ? { clientesUpdatedAt: savedAt } : {}),
+      ...(changes.visitados !== undefined ? { visitadosUpdatedAt: savedAt } : {}),
+      ...(changes.fechaDespacho !== undefined ? { dispatchDateUpdatedAt: savedAt, date: changes.fechaDespacho } : {}),
       transportista: session.contractor,
     };
+    delete data.recordUpdatedAt;
     const updateParams = new URLSearchParams({
       contractor: stored.contractor === null ? "is.null" : `eq.${stored.contractor}`,
       record_id: `eq.${recordId}`,
-      select: "record_id,data",
+      select: "record_id,data,updated_at",
+      updated_at: stored.updated_at == null ? "is.null" : `eq.${stored.updated_at}`,
     });
     if (stored.contractor === null) updateParams.set("data->>transportista", `eq.${owner}`);
     const updateResponse = await fetch(supabaseRest(TABLE, `?${updateParams.toString()}`), {
       method: "PATCH",
       headers: getWriteHeaders(session.accessToken, { Prefer: "return=representation" }),
-      body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
+      body: JSON.stringify({ data, updated_at: savedAt }),
       cache: "no-store",
     });
     if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
-    const updatedRows = (await updateResponse.json()) as { record_id: string; data?: Vehiculo }[];
+    const updatedRows = (await updateResponse.json()) as { record_id: string; data?: Vehiculo; updated_at?: string }[];
     if (updatedRows.length !== 1 || updatedRows[0].record_id !== recordId) {
       return NextResponse.json({ error: "No se confirmó el guardado de la ruta. Recarga e intenta nuevamente." }, { status: 409 });
     }
@@ -299,7 +359,7 @@ export async function PATCH(request: Request) {
     if (changes.visitados !== undefined && updatedRows[0].data?.visitados !== changes.visitados) {
       return NextResponse.json({ error: "La base de datos no confirmó la cantidad de clientes visitados." }, { status: 409 });
     }
-    return NextResponse.json({ record: { ...(updatedRows[0].data || data), recordId } });
+    return NextResponse.json({ record: { ...(updatedRows[0].data || data), recordId, recordUpdatedAt: updatedRows[0].updated_at || savedAt } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el estado." }, { status: 500 });
   }
@@ -326,8 +386,7 @@ export async function DELETE(request: Request) {
     if (!recordIds.length) return NextResponse.json({ error: "Falta el registro que se debe borrar." }, { status: 400 });
     if (recordIds.length > 100) return NextResponse.json({ error: "Solo se pueden borrar hasta 100 registros por operación." }, { status: 400 });
 
-    // La vista agrupa las filas duplicadas de un mismo DT. Si se elimina solo
-    // el record_id visible, una copia antigua reaparece en el siguiente GET.
+    // Cada ID es una ruta independiente, aunque comparta DT con otra.
     const currentParams = new URLSearchParams({ select: "record_id,data", contractor: `eq.${targetContractor}` });
     const currentRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(
       TABLE,
@@ -335,22 +394,12 @@ export async function DELETE(request: Request) {
       supabaseUserHeaders(session.accessToken),
     );
     const requestedIds = new Set(recordIds);
-    const requestedRouteKeys = new Set((body.routes || []).map((route) => deletionRouteKey(route)).filter(Boolean));
-    const requestedRows = currentRows.filter(
-      (row) => requestedIds.has(row.record_id) || requestedRouteKeys.has(deletionRouteKey(row.data)),
-    );
+    const requestedRows = currentRows.filter((row) => requestedIds.has(row.record_id));
     if (!requestedRows.length) {
       return NextResponse.json({ error: "El DT ya no existe o no se pudo encontrar en Supabase." }, { status: 404 });
     }
 
-    const requestedKeys = new Set(requestedRows.map((row) => deletionRouteKey(row.data)).filter(Boolean));
-    const idsToDelete = Array.from(
-      new Set(
-        currentRows
-          .filter((row) => requestedIds.has(row.record_id) || requestedKeys.has(deletionRouteKey(row.data)))
-          .map((row) => row.record_id),
-      ),
-    );
+    const idsToDelete = requestedRows.map((row) => row.record_id);
 
     const deleteError = await deleteSeguimientoRows(
       idsToDelete,
@@ -380,13 +429,21 @@ export async function DELETE(request: Request) {
 
 async function preservePersistedRouteProgress<T extends { record_id: string; data: Vehiculo; updated_at: string }>(
   rows: T[],
-  contractor: string,
   accessToken: string,
+  expectedVersions: Map<string, string | null>,
 ) {
   if (!rows.length) return rows;
 
-  const params = new URLSearchParams({ select: "record_id,data", contractor: `eq.${contractor}` });
-  const persistedRows = await readPagedRows<{ record_id: string; data: Vehiculo }>(TABLE, params, supabaseUserHeaders(accessToken)).catch(() => []);
+  // Leer únicamente las rutas enviadas. Si falla, no escribir sobre datos desconocidos.
+  const persistedRows: { record_id: string; data: Vehiculo; updated_at: string | null }[] = [];
+  for (let offset = 0; offset < rows.length; offset += 50) {
+    const params = new URLSearchParams({
+      select: "record_id,data,updated_at",
+      record_id: `in.(${rows.slice(offset, offset + 50).map((row) => JSON.stringify(row.record_id)).join(",")})`,
+    });
+    persistedRows.push(...await readPagedRows<typeof persistedRows[number]>(TABLE, params, supabaseReadHeaders(accessToken)));
+  }
+  persistedRows.forEach((row) => expectedVersions.set(row.record_id, row.updated_at));
   if (!persistedRows.length) return rows;
   const persistedById = new Map(persistedRows.map((row) => [row.record_id, row.data]));
 
@@ -432,8 +489,9 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
 
     return {
       ...row,
-      data: {
-        ...row.data,
+      updated_at: new Date(Math.max(Date.now(), (Date.parse(expectedVersions.get(row.record_id) || "") || 0) + 1)).toISOString(),
+      data: preserveSeguimientoFields({
+        ...preserveJornada(row.data, persisted),
         clientes,
         clientesUpdatedAt: incomingClientesIsNewer
           ? row.data.clientesUpdatedAt
@@ -459,7 +517,7 @@ async function preservePersistedRouteProgress<T extends { record_id: string; dat
               dispatchDateUpdatedAt: persisted.dispatchDateUpdatedAt,
             }
           : {}),
-      },
+      }, persisted),
     };
   });
 }
@@ -608,28 +666,9 @@ function getWriteHeaders(accessToken: string, extra: Record<string, string> = {}
 }
 
 function removeDuplicateDtRecords(records: Vehiculo[]) {
-  const movedRouteDates = new Map<string, Set<string>>();
-  records.forEach((record) => {
-    if (!record.dispatchDateUpdatedAt) return;
-    const routeKey = getMovedRouteKey(record);
-    const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
-    if (!routeKey || !dateKey) return;
-
-    const dates = movedRouteDates.get(routeKey) || new Set<string>();
-    dates.add(dateKey);
-    movedRouteDates.set(routeKey, dates);
-  });
-
   const recordsByRoute = new Map<string, Vehiculo>();
   const recordsWithoutRoute: Vehiculo[] = [];
-
-  records.filter((record) => {
-    if (record.dispatchDateUpdatedAt) return true;
-    const movedDates = movedRouteDates.get(getMovedRouteKey(record));
-    if (!movedDates?.size) return true;
-    const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
-    return !dateKey || movedDates.has(dateKey);
-  }).forEach((record) => {
+  records.forEach((record) => {
     const dt = normalizeDt(record.transporte);
     const fallbackKey = getVehicleRecordKey(record);
     if (!dt && (!fallbackKey || fallbackKey.endsWith("-sin-fecha"))) {
@@ -639,7 +678,7 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
 
     const contractorKey = normalizeContractorName(record.transportista);
     const dateKey = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
-    const uniqueKey = `${contractorKey}:${dt || fallbackKey}:${dateKey || "sin-fecha"}`;
+    const uniqueKey = record.recordId || `${contractorKey}:${dt || fallbackKey}:${dateKey || "sin-fecha"}`;
     const current = recordsByRoute.get(uniqueKey);
     if (!current) {
       recordsByRoute.set(uniqueKey, record);
@@ -661,19 +700,6 @@ function removeDuplicateDtRecords(records: Vehiculo[]) {
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
 }
 
-function getMovedRouteKey(record: Pick<Vehiculo, "transporte" | "vehiculo">) {
-  const dt = normalizeDt(record.transporte);
-  const plate = normalizePlate(record.vehiculo);
-  return dt || plate;
-}
-
-function deletionRouteKey(record: Partial<Pick<Vehiculo, "transporte" | "vehiculo" | "fechaDespacho" | "date" | "createdAt">> | undefined) {
-  if (!record) return "";
-  const dt = normalizeDt(record.transporte);
-  const plate = String(record.vehiculo || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  const date = routeDateValue(record.fechaDespacho || record.date || record.createdAt);
-  return date && (dt || plate) ? `${dt || plate}:${date}` : "";
-}
 
 function getSeguimientoRecordId(record: Vehiculo, contractor: string, index: number) {
   const routeKey = getVehicleRecordKey(record);
@@ -741,7 +767,7 @@ async function applyAttendanceToVehicles(records: Vehiculo[], accessToken: strin
 
     const attendanceResponsible = attendance.nombreResponsable || (attendance.cedulaResponsable ? `CC ${attendance.cedulaResponsable}` : "");
 
-    return {
+    return preserveSeguimientoFields({
       ...vehicle,
       cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
       cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
@@ -750,7 +776,7 @@ async function applyAttendanceToVehicles(records: Vehiculo[], accessToken: strin
       nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
       nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
       responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
-    };
+    }, vehicle);
   });
 }
 
@@ -823,21 +849,34 @@ function routeDateValue(value: string | undefined) {
 
 async function readPagedRows<T>(table: string, baseParams: URLSearchParams, headers: Record<string, string>) {
   const rows: T[] = [];
+  const useCursor = table === TABLE && !baseParams.has("record_id") && baseParams.get("select")?.split(",").includes("record_id");
+  let lastId = "";
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const params = new URLSearchParams(baseParams);
     params.set("limit", String(PAGE_SIZE));
-    params.set("offset", String(offset));
+    if (useCursor) {
+      params.set("order", "record_id.asc");
+      if (lastId) params.set("record_id", `gt.${lastId}`);
+    } else {
+      params.set("offset", String(offset));
+    }
     const response = await fetch(supabaseRest(table, `?${params.toString()}`), { headers, cache: "no-store" });
     if (!response.ok) throw new Error(await supabaseError(response));
     const page = (await response.json()) as T[];
     rows.push(...page);
     if (page.length < PAGE_SIZE) break;
+    if (useCursor) {
+      const nextId = String((page[page.length - 1] as { record_id?: string }).record_id || "");
+      if (!nextId || nextId === lastId) throw new Error("No se pudo completar la consulta de rutas. Intenta de nuevo.");
+      lastId = nextId;
+    }
   }
   return rows;
 }
 
 async function readPagedRowsCached<T>(table: string, baseParams: URLSearchParams, cachePrefix: string, ttlMs: number, headers: Record<string, string>) {
-  if (ttlMs <= 0) return readPagedRows<T>(table, baseParams, headers);
+  // No mezclar páginas de seguimiento almacenadas en instancias distintas.
+  if (ttlMs <= 0 || table === TABLE) return readPagedRows<T>(table, baseParams, headers);
   const rows: T[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const params = new URLSearchParams(baseParams);
@@ -859,7 +898,7 @@ async function applyDatabaseCapacities(records: Vehiculo[], accessToken?: string
 
   return records.map((record) => {
     const capacity = capacityByPlate.get(normalizePlate(record.vehiculo));
-    return typeof capacity === "number" ? { ...record, capacidad: capacity } : record;
+    return typeof capacity === "number" ? preserveSeguimientoFields({ ...record, capacidad: capacity }, record) : record;
   });
 }
 

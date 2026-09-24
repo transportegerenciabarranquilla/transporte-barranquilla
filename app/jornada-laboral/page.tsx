@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUpDown, BarChart3, CalendarDays, Clock3, Download, RotateCcw, Save, Search, ShieldAlert, Truck, Users, X } from "lucide-react";
-import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
+import { SEGUIMIENTO_STORAGE_KEY, saveSeguimientoJornada } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { isLogisticosContractor } from "../lib/contractors";
-import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
+import { loadSeguimientoVehiculos } from "../seguimiento/services/vehicleRecords";
+import type { JornadaChanges } from "../lib/jornadaPersistence";
 import type { Vehiculo } from "../seguimiento/types";
 import { getStatus, getVehicleUiKey, hasTimeValue, ROUTE_STATUSES, toDateKey } from "../seguimiento/utils";
 
@@ -48,6 +49,8 @@ export default function JornadaLaboralPage() {
   const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [relevadores] = useState<Persona[]>([]);
   const [canAccessJornada, setCanAccessJornada] = useState<boolean | null>(null);
+  const draftRef = useRef<Vehiculo[] | null>(null);
+  const saveVersion = useRef(0);
   const vehiculos = draftVehiculos ?? storedVehiculos;
   const jornadaVehiculos = useMemo(() => vehiculos.filter(isLogisticosVehicle), [vehiculos]);
 
@@ -129,33 +132,38 @@ export default function JornadaLaboralPage() {
     return jornadaVehiculos.find((vehicle) => getVehicleUiKey(vehicle) === selectedVehicleKey) ?? null;
   }, [jornadaVehiculos, selectedVehicleKey]);
 
-  function updateVehicle(recordKey: string, changes: Partial<Vehiculo>) {
-    const next = prepareSeguimientoVehicles(
-      vehiculos.map((vehicle) => {
-        if (getVehicleUiKey(vehicle) !== recordKey) return vehicle;
-
-        const updated = { ...vehicle, ...changes };
-        const metaRelevo = calculateMetaRelevo(updated.horaSalida);
-        const clasificacion = classifyRelevo(updated.horaSalida, updated.horaInicioRelevo);
-        const hasSifAlert = hasSifPotential(updated, now);
-
-        return {
-          ...updated,
-          metaRelevo,
-          clasificacionRelevo: clasificacion,
-          alertaSifPotencial: hasSifAlert ? "Si" : "No",
-        };
-      }),
-    );
-
+  function updateVehicle(recordKey: string, changes: JornadaChanges) {
+    const current = draftRef.current ?? storedVehiculos;
+    const vehicle = current.find((item) => getVehicleUiKey(item) === recordKey);
+    if (!vehicle) return;
+    if (!vehicle.recordId) {
+      setMessage("Recarga la página antes de editar esta ruta.");
+      return;
+    }
+    const updated = { ...vehicle, ...changes };
+    const jornadaChanges: JornadaChanges = {
+      ...changes,
+      metaRelevo: calculateMetaRelevo(updated.horaSalida),
+      clasificacionRelevo: classifyRelevo(updated.horaSalida, updated.horaInicioRelevo),
+      alertaSifPotencial: hasSifPotential(updated, now) ? "Si" : "No",
+    };
+    const nextRecord = { ...updated, ...jornadaChanges };
+    const next = current.map((item) => getVehicleUiKey(item) === recordKey ? nextRecord : item);
+    const version = ++saveVersion.current;
+    draftRef.current = next;
     setDraftVehiculos(next);
     setMessage("Guardando cambios...");
-    saveSeguimientoVehiculos(next)
+    void saveSeguimientoJornada(nextRecord, jornadaChanges)
       .then(() => {
+        if (saveVersion.current !== version) return;
+        draftRef.current = null;
         setDraftVehiculos(null);
         setMessage("Cambios guardados.");
       })
       .catch((error) => {
+        if (saveVersion.current !== version) return;
+        draftRef.current = null;
+        setDraftVehiculos(null);
         setMessage(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
       });
   }

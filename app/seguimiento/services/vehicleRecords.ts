@@ -1,3 +1,4 @@
+import { preserveSeguimientoFields } from "../../lib/seguimientoPersistence";
 import { readAsistenciaRegistros, type AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { getCheckinByDt, readCheckinCajasRegistros } from "../../lib/checkinStorage";
 import {
@@ -28,29 +29,10 @@ export function prepareSeguimientoVehicles(records: Vehiculo[]) {
 }
 
 export function removeDuplicateDtRecords(records: Vehiculo[]) {
-  const movedRouteDates = new Map<string, Set<string>>();
-  records.forEach((vehicle) => {
-    if (!vehicle.dispatchDateUpdatedAt) return;
-    const routeKey = getMovedRouteKey(vehicle);
-    const dateKey = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
-    if (!routeKey || !dateKey) return;
-
-    const dates = movedRouteDates.get(routeKey) || new Set<string>();
-    dates.add(dateKey);
-    movedRouteDates.set(routeKey, dates);
-  });
-
   const recordsByRoute = new Map<string, Vehiculo>();
   const recordsWithoutRoute: Vehiculo[] = [];
-
-  records.filter((vehicle) => {
-    if (vehicle.dispatchDateUpdatedAt) return true;
-    const movedDates = movedRouteDates.get(getMovedRouteKey(vehicle));
-    if (!movedDates?.size) return true;
-    const dateKey = dateValue(vehicle.fechaDespacho || vehicle.date || vehicle.createdAt);
-    return !dateKey || movedDates.has(dateKey);
-  }).forEach((vehicle) => {
-    const routeKey = getVehicleRecordKey(vehicle);
+  records.forEach((vehicle) => {
+    const routeKey = vehicle.recordId || getVehicleRecordKey(vehicle);
     if (!routeKey || routeKey.endsWith("-sin-fecha")) {
       recordsWithoutRoute.push(vehicle);
       return;
@@ -64,11 +46,6 @@ export function removeDuplicateDtRecords(records: Vehiculo[]) {
   return [...recordsWithoutRoute, ...recordsByRoute.values()];
 }
 
-function getMovedRouteKey(vehicle: Pick<Vehiculo, "transporte" | "vehiculo">) {
-  const dt = normalizeDt(vehicle.transporte);
-  const plate = normalizePlate(vehicle.vehiculo);
-  return dt || plate;
-}
 
 export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {
   const XLSX = await import("xlsx");
@@ -85,15 +62,17 @@ export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo
 export function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
   // Un numero de DT puede volver a usarse en otra fecha. Solo se reemplaza la
   // misma ruta (DT + fecha); el historial de otros dias debe permanecer.
-  const records = new Map(current.map((vehicle) => [getVehicleRecordKey(vehicle), vehicle]));
+  const records = new Map(current.map((vehicle) => [vehicle.recordId || getVehicleRecordKey(vehicle), vehicle]));
+  const byRoute = new Map(current.map((vehicle) => [getVehicleRecordKey(vehicle), vehicle]));
   const capacityByPlate = createCapacityByPlate(current);
 
   imported.forEach((vehicle) => {
-    const currentRecord = records.get(getVehicleRecordKey(vehicle));
+    const currentRecord = byRoute.get(getVehicleRecordKey(vehicle));
     const fixedCapacity = getFixedCapacity(vehicle.vehiculo, capacityByPlate, vehicle.capacidad);
     const merged = mergeImportedVehicle(currentRecord, vehicle, fixedCapacity);
 
-    records.set(getVehicleRecordKey(merged), merged);
+    records.set(merged.recordId || getVehicleRecordKey(merged), merged);
+    byRoute.set(getVehicleRecordKey(merged), merged);
   });
 
   return Array.from(records.values());
@@ -117,6 +96,7 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
   return {
     ...currentRecord,
     ...importedVehicle,
+    recordId: currentRecord.recordId || importedVehicle.recordId,
     ...(currentRecord.dispatchDateUpdatedAt
       ? {
           fechaDespacho: currentRecord.fechaDespacho,
@@ -264,7 +244,7 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
     if (!attendance) return vehicle;
     const attendanceResponsible = attendance.nombreResponsable || (attendance.cedulaResponsable ? `CC ${attendance.cedulaResponsable}` : "");
 
-    return {
+    return preserveSeguimientoFields({
       ...vehicle,
       cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
       cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
@@ -273,7 +253,7 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
       nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
       nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
       responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
-    };
+    }, vehicle);
   });
 }
 

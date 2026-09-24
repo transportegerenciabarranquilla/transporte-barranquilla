@@ -1,4 +1,5 @@
 import type { Vehiculo } from "../seguimiento/types";
+import type { JornadaChanges } from "./jornadaPersistence";
 import { getVehicleUiKey } from "../seguimiento/utils";
 import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords, waitForRemoteSaves } from "./remoteStore";
 
@@ -12,20 +13,25 @@ export function readSeguimientoVehiculos() {
 export function saveSeguimientoVehiculos(records: Vehiculo[], options: { deleteMissing?: boolean; partial?: boolean } = {}) {
   return saveRemoteRecords("/api/seguimiento", records, {
     extraBody: { deleteMissing: options.deleteMissing === true },
-    ...(options.partial ? { mergeByKey: getVehicleUiKey } : {}),
+    mergeByKey: getVehicleUiKey,
   });
 }
 
 export async function saveSeguimientoLiquidado(recordId: string, liquidado: boolean, liquidadoUpdatedAt: string) {
-  const response = await fetch("/api/seguimiento", {
+  const record = readSeguimientoVehiculos().find((item) => item.recordId === recordId);
+  if (!record) throw new Error("Recarga la página antes de editar esta ruta.");
+  return saveSeguimientoChanges({ ...record, liquidado, liquidadoUpdatedAt }, { liquidado });
+}
+
+export async function saveSeguimientoChanges(record: Vehiculo, changes: Partial<Vehiculo>) {
+  if (!record.recordId) throw new Error("Recarga la página antes de editar esta ruta.");
+  const [saved] = await saveRemoteRecords<Vehiculo>("/api/seguimiento", [record], {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recordId, changes: { liquidado, liquidadoUpdatedAt } }),
-    cache: "no-store",
+    mergeByKey: getVehicleUiKey,
+    extraBody: { recordId: record.recordId, changes },
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "No se pudo guardar el estado de liquidación.");
-  return body.record as Vehiculo;
+  if (saved?.recordId !== record.recordId) throw new Error("No se confirmó el guardado de la ruta.");
+  return saved;
 }
 
 export async function saveSeguimientoVisitados(record: Vehiculo) {
@@ -37,6 +43,17 @@ export async function saveSeguimientoVisitados(record: Vehiculo) {
   if (saved?.recordId !== record.recordId || saved.visitados !== record.visitados) {
     throw new Error("No se confirmó la cantidad de clientes visitados. Intenta nuevamente.");
   }
+  return saved;
+}
+
+export async function saveSeguimientoJornada(record: Vehiculo, changes: JornadaChanges) {
+  if (!record.recordId) throw new Error("Recarga la página antes de editar esta ruta.");
+  const [saved] = await saveRemoteRecords<Vehiculo>("/api/seguimiento", [record], {
+    method: "PATCH",
+    mergeByKey: getVehicleUiKey,
+    extraBody: { recordId: record.recordId, changes },
+  });
+  if (saved?.recordId !== record.recordId) throw new Error("No se confirmó el guardado de la jornada.");
   return saved;
 }
 

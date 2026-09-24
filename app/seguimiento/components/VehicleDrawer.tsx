@@ -255,7 +255,7 @@ export function VehicleDrawer({
                 });
               }}
             />
-            <EditableInfo icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} onChange={(value) => updateVehicle({ transportista: String(value) })} />
+            <Info icon={<Truck size={18} />} label="Transportista" value={vehicle.transportista} />
             {canEditResponsibleManual ? (
               <EditableInfo icon={<Users size={18} />} label="Responsable" value={vehicle.responsable} onChange={(value) => updateVehicle({ responsable: String(value) })} />
             ) : (

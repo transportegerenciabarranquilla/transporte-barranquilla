@@ -1,5 +1,8 @@
 export type Vehiculo = {
   recordId?: string;
+  recordUpdatedAt?: string;
+  manualUpdatedFields?: string[];
+  jornadaUpdatedAt?: string;
   dispatchDateChanged?: boolean;
   dispatchDateUpdatedAt?: string;
   cajasGestionadas: number;

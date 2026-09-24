@@ -11,7 +11,7 @@ export async function scopedWrite(
   idColumn: string,
   rows: Array<Record<string, unknown> & { contractor: string }>,
   headers: Record<string, string>,
-  options: { legacyOwnerField?: "transportista" } = {},
+  options: { legacyOwnerField?: "transportista"; expectedVersions?: Map<string, string | null> } = {},
 ) {
   if (rows.some((row) => typeof row[idColumn] !== "string" || !String(row[idColumn]).trim() || String(row[idColumn]).length > 500)) {
     return Response.json({ error: "Identificador de registro inválido." }, { status: 400 });
@@ -40,9 +40,15 @@ export async function scopedWrite(
         return Response.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
       }
       existing.set(String(row[idColumn]), { contractor: row.contractor === null ? null : String(row.contractor), owner });
+      if (options.expectedVersions && !options.expectedVersions.has(String(row[idColumn]))) {
+        return Response.json({ error: "Una ruta cambió durante el guardado. Recarga antes de reintentar." }, { status: 409 });
+      }
     }
   }
   const newRows = unique.filter((row) => !existing.has(String(row[idColumn])));
+  if (options.expectedVersions && newRows.some((row) => options.expectedVersions!.has(String(row[idColumn])))) {
+    return Response.json({ error: "Una ruta se eliminó durante el guardado. Recarga antes de reintentar." }, { status: 409 });
+  }
   if (newRows.length) {
     const inserted = await fetch(supabaseRest(table), {
       method: "POST", headers: { ...headers, Prefer: "return=minimal" },
@@ -61,6 +67,10 @@ export async function scopedWrite(
       });
       if (stored.contractor === null && options.legacyOwnerField) {
         params.set(`data->>${options.legacyOwnerField}`, `eq.${stored.owner}`);
+      }
+      if (options.expectedVersions) {
+        const version = options.expectedVersions.get(String(row[idColumn]));
+        params.set("updated_at", version == null ? "is.null" : `eq.${version}`);
       }
       const response = await fetch(supabaseRest(table, `?${params}`), {
         method: "PATCH", headers: { ...headers, Prefer: "return=representation" },

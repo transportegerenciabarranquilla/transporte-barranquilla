@@ -1,6 +1,8 @@
 "use client";
 
 import { notifyStorageChange } from "./storageEvents";
+import { mergeSeguimientoVersions } from "./seguimientoPersistence";
+import type { Vehiculo } from "../seguimiento/types";
 
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
@@ -8,6 +10,7 @@ const fetchedAt = new Map<string, number>();
 const saveQueues = new Map<string, Promise<void>>();
 const mutationVersions = new Map<string, number>();
 const preserveAfterWriteUntil = new Map<string, number>();
+let cacheGeneration = 0;
 const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
 const ENDPOINT_STORAGE_KEYS: Record<string, string> = {
@@ -27,6 +30,7 @@ function shouldRedirectOnUnauthorized() {
 }
 
 export function clearRemoteCache() {
+  cacheGeneration += 1;
   cache.clear();
   loading.clear();
   fetchedAt.clear();
@@ -43,6 +47,7 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
   if (loading.has(endpoint)) return loading.get(endpoint);
 
   const mutationVersion = mutationVersions.get(endpoint) || 0;
+  const generation = cacheGeneration;
   const request = fetch(options.requestUrl || endpoint, { cache: "no-store" })
     .then(async (response) => {
       const body = await response.json().catch(() => ({}));
@@ -55,7 +60,7 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
       const data = body.records ?? body.persona ?? body.data ?? [];
       // Si hubo una edición mientras esta lectura estaba en curso, su
       // respuesta ya es obsoleta y no debe reemplazar la caché optimista.
-      if ((mutationVersions.get(endpoint) || 0) !== mutationVersion) return;
+      if (generation !== cacheGeneration || (mutationVersions.get(endpoint) || 0) !== mutationVersion) return;
       const incomingRecords = Array.isArray(data) ? data : data ? [data] : [];
       const cachedRecords = cache.get(endpoint) ?? [];
       // Supabase puede responder una lista anterior justo despues del PUT
@@ -66,7 +71,9 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
         (preserveAfterWriteUntil.get(endpoint) ?? 0) > Date.now()
         && incomingRecords.length < cachedRecords.length;
       if (preserveOptimisticRecords) return;
-      cache.set(endpoint, incomingRecords);
+      cache.set(endpoint, endpoint === "/api/seguimiento"
+        ? mergeSeguimientoVersions(cachedRecords as Vehiculo[], incomingRecords as Vehiculo[])
+        : incomingRecords);
       if (endpoint === MODULACIONES_ENDPOINT) removeConfirmedModulaciones(incomingRecords);
       fetchedAt.set(endpoint, Date.now());
       notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
@@ -103,9 +110,11 @@ export function saveRemoteRecords<T>(
   options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH" } = {},
 ) {
   const mutationVersion = (mutationVersions.get(endpoint) || 0) + 1;
+  const generation = cacheGeneration;
   mutationVersions.set(endpoint, mutationVersion);
   const previousSave = saveQueues.get(endpoint) ?? Promise.resolve();
   const operation = previousSave.catch(() => undefined).then(async () => {
+    if (generation !== cacheGeneration) throw new Error("La sesión cambió. Recarga antes de guardar.");
     const previousRecords = cache.get(endpoint);
     cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
@@ -136,7 +145,9 @@ export function saveRemoteRecords<T>(
       const savedRecords = options.method === "PATCH" ? [body.record] : Array.isArray(body.records) && (body.records.length > 0 || records.length === 0)
         ? body.records
         : records;
-      if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
+      // Los PATCH se ejecutan en cola: confirmar cada respuesta antes de
+      // empezar la siguiente evita perder campos si después falla un guardado.
+      if (generation === cacheGeneration && (endpoint === "/api/seguimiento" || options.method === "PATCH" || (mutationVersions.get(endpoint) || 0) === mutationVersion)) {
         cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, savedRecords, options.mergeByKey) : savedRecords);
         if (endpoint === MODULACIONES_ENDPOINT) persistConfirmedModulaciones(savedRecords);
         fetchedAt.set(endpoint, Date.now());
@@ -145,7 +156,7 @@ export function saveRemoteRecords<T>(
       }
       return savedRecords as T[];
     } catch (error) {
-      if ((mutationVersions.get(endpoint) || 0) === mutationVersion) {
+      if (generation === cacheGeneration && (endpoint === "/api/seguimiento" || (mutationVersions.get(endpoint) || 0) === mutationVersion)) {
         if (previousRecords) {
           cache.set(endpoint, previousRecords);
         } else {

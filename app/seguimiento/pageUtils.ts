@@ -1,6 +1,7 @@
 import { getLocalDateKey, type ModulacionRegistro } from "../lib/modulacionStorage";
 import type { Vehiculo } from "./types";
 import { getVehicleUiKey } from "./utils";
+import { isOlderSeguimientoRecord } from "../lib/seguimientoPersistence";
 
 export function getModulacionDateKey(registro: ModulacionRegistro) {
   return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
@@ -61,6 +62,10 @@ export function formatCurrentTime() {
 }
 
 function mergeVehiclePreservingProgress(currentVehicle: Vehiculo, storedVehicle: Vehiculo) {
+  if (isOlderSeguimientoRecord(storedVehicle, currentVehicle)) return currentVehicle;
+  // Con versión del servidor manda el registro completo, incluso si reduce
+  // visitados o cambia un estado. No comparar relojes locales por campo.
+  if (storedVehicle.recordUpdatedAt) return storedVehicle;
   const currentClientesTime = Date.parse(currentVehicle.clientesUpdatedAt || "");
   const storedClientesTime = Date.parse(storedVehicle.clientesUpdatedAt || "");
   const keepCurrentClientes =
