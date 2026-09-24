@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scopedWrite } from "../../lib/scopedWrite";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { CONTRACTORS, normalizeContractorName } from "../../lib/contractors";
@@ -68,17 +69,12 @@ export async function PUT(request: Request) {
     }));
 
     if (rows.length) {
-      const response = await fetch(supabaseRest(TABLE, "?on_conflict=report_id"), {
-        method: "POST",
-        headers: supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
-        body: JSON.stringify(rows),
-        cache: "no-store",
-      });
-      if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+      const writeError = await scopedWrite(TABLE, "report_id", rows, supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken));
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:admin-rango:");
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");
+      if (writeError) return writeError;
     }
 
     for (const record of records) {

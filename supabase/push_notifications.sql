@@ -15,15 +15,9 @@ create table if not exists public.push_subscriptions (
 alter table public.push_subscriptions enable row level security;
 
 drop policy if exists "users manage own push subscription" on public.push_subscriptions;
-create policy "users manage own push subscription"
-on public.push_subscriptions
-for all
-to authenticated
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);
-
-revoke all on table public.push_subscriptions from anon;
-grant select, insert, update, delete on table public.push_subscriptions to authenticated;
+-- Only the authenticated admin API may register subscriptions using server credentials.
+revoke all on table public.push_subscriptions from anon, authenticated;
+grant all on table public.push_subscriptions to service_role;
 
 comment on table public.push_subscriptions is 'Suscripciones Web Push; el backend solo envía alertas operativas al administrador.';
 

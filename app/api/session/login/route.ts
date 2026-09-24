@@ -9,7 +9,12 @@ type LoginResponse = { access_token?: string; refresh_token?: string; expires_in
 const AUTH_TIMEOUT_MS = 12_000;
 
 export async function POST(request: Request) {
-  const { email, password, remember } = (await request.json()) as { email?: string; password?: string; remember?: boolean };
+  const bodyInput = await request.json().catch(() => null);
+  if (!bodyInput || typeof bodyInput.email !== "string" || typeof bodyInput.password !== "string" || bodyInput.email.length > 254 || !bodyInput.password || bodyInput.password.length > 1024) {
+    return NextResponse.json({ error: "Correo o contraseña inválidos." }, { status: 400 });
+  }
+  const { email, password } = bodyInput as { email: string; password: string };
+  const remember = bodyInput.remember === true;
   const normalizedEmail = email?.trim().toLowerCase() || "";
   const contractor = contractorForEmail(normalizedEmail);
   if (!contractor) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });

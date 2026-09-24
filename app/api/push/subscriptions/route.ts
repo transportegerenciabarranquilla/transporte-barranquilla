@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAllowedPushEndpoint } from "../../../lib/pushEndpoint";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
@@ -9,7 +10,7 @@ export async function POST(request: Request) {
   const endpoint = String(body.endpoint || "").trim();
   const p256dh = String(body.keys?.p256dh || "").trim();
   const auth = String(body.keys?.auth || "").trim();
-  if (!endpoint.startsWith("https://") || !p256dh || !auth) {
+  if (!isAllowedPushEndpoint(endpoint) || !/^[A-Za-z0-9_-]{80,100}={0,2}$/.test(p256dh) || !/^[A-Za-z0-9_-]{20,30}={0,2}$/.test(auth)) {
     return NextResponse.json({ error: "La suscripción enviada no es válida." }, { status: 400 });
   }
 

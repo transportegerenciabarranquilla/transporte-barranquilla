@@ -1,0 +1,65 @@
+import { normalizeContractorName } from "./contractors";
+import { supabaseRest } from "./supabaseServer";
+
+/** Never use a privileged ON CONFLICT UPDATE with a browser-supplied global ID.
+ * Updates include the persisted owner in the WHERE clause. New IDs use INSERT
+ * without upsert, so a concurrent insertion cannot turn into an ownership change.
+ * Batches are not transactional; callers must invalidate caches after any write.
+ */
+export async function scopedWrite(
+  table: string,
+  idColumn: string,
+  rows: Array<Record<string, unknown> & { contractor: string }>,
+  headers: Record<string, string>,
+) {
+  if (rows.some((row) => typeof row[idColumn] !== "string" || !String(row[idColumn]).trim() || String(row[idColumn]).length > 500)) {
+    return Response.json({ error: "Identificador de registro inválido." }, { status: 400 });
+  }
+  const unique = [...new Map(rows.map((row) => [row[idColumn], row])).values()];
+  const existing = new Map<string, string>();
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    const batch = unique.slice(offset, offset + 50);
+    const params = new URLSearchParams({
+      select: `${idColumn},contractor`,
+      [idColumn]: `in.(${batch.map((row) => JSON.stringify(row[idColumn])).join(",")})`,
+      limit: "50",
+    });
+    const response = await fetch(supabaseRest(table, `?${params}`), { headers, cache: "no-store" });
+    if (!response.ok) return Response.json({ error: "No se pudo verificar la propiedad de los registros." }, { status: 503 });
+    const found = await response.json() as Array<Record<string, unknown>>;
+    for (const row of found) {
+      const incoming = batch.find((item) => item[idColumn] === row[idColumn]);
+      if (!incoming || !row.contractor || normalizeContractorName(String(row.contractor)) !== normalizeContractorName(incoming.contractor)) {
+        return Response.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
+      }
+      existing.set(String(row[idColumn]), String(row.contractor));
+    }
+  }
+  const newRows = unique.filter((row) => !existing.has(String(row[idColumn])));
+  if (newRows.length) {
+    const inserted = await fetch(supabaseRest(table), {
+      method: "POST", headers: { ...headers, Prefer: "return=minimal" },
+      body: JSON.stringify(newRows), cache: "no-store",
+    });
+    if (!inserted.ok) return Response.json({ error: "No se pudieron insertar los registros. Recarga antes de reintentar." }, { status: inserted.status === 409 ? 409 : 502 });
+  }
+  const updates = unique.filter((row) => existing.has(String(row[idColumn])));
+  for (let offset = 0; offset < updates.length; offset += 10) {
+    const results = await Promise.all(updates.slice(offset, offset + 10).map(async (row) => {
+      const params = new URLSearchParams({
+        [idColumn]: `eq.${row[idColumn]}`,
+        contractor: `eq.${existing.get(String(row[idColumn]))}`,
+        select: idColumn,
+      });
+      const response = await fetch(supabaseRest(table, `?${params}`), {
+        method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+        body: JSON.stringify(row), cache: "no-store",
+      });
+      if (!response.ok) return false;
+      const saved = await response.json();
+      return Array.isArray(saved) && saved.length === 1;
+    }));
+    if (results.some((ok) => !ok)) return Response.json({ error: "No se confirmó toda la actualización. Recarga antes de reintentar." }, { status: 409 });
+  }
+  return null;
+}

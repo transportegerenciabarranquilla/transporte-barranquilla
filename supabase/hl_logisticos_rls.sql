@@ -65,9 +65,13 @@ on public.modulaciones_ruta
 for all
 to authenticated
 using (
+  lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
+  and
   lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 )
 with check (
+  lower((select auth.jwt()) ->> 'email') = 'hllogistica@gmail.com'
+  and
   lower(trim(contractor)) in ('hl logisticos', 'hl logistica', 'hl logísticos')
 );
 

@@ -1,4 +1,5 @@
 import { scopeQuery } from "../../lib/adminScope";
+import { scopedWrite } from "../../lib/scopedWrite";
 import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -90,12 +91,17 @@ export async function PUT(request: Request) {
       data: restoreExistingImage({ ...record, contratista: contractor }, existingById.get(record.id)),
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, isPublicSubmission ? "" : "?on_conflict=modulation_id"), {
+    const writeError = !isPublicSubmission
+      ? await scopedWrite(TABLE, "modulation_id", rows, getWriteHeaders(session?.accessToken, false))
+      : null;
+    clearServerCache(`supabase:${TABLE}:`);
+    if (writeError) return writeError;
+    const response = isPublicSubmission ? await fetch(supabaseRest(TABLE), {
       method: "POST",
-      headers: getWriteHeaders(session?.accessToken, isPublicSubmission),
+      headers: getWriteHeaders(undefined, true),
       body: JSON.stringify(rows),
       cache: "no-store",
-    });
+    }) : new Response(null, { status: 204 });
     if (!response.ok) {
       const errorMessage = await supabaseError(response);
       if (/permission denied/i.test(errorMessage) && !supabaseAdminHeaders()) {

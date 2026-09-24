@@ -11,13 +11,15 @@ export async function GET() {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    const params = new URLSearchParams({ select: "operational_date,contractor,file_name,rows,uploaded_at,closed_at", order: "operational_date.desc" });
+    if (!session.isAdmin && !session.isPeople) params.set("contractor", `eq.${session.contractor}`);
     const response = await fetch(
-      supabaseRest("attendance_snapshots", "?select=operational_date,contractor,file_name,rows,uploaded_at,closed_at&order=operational_date.desc"),
+      supabaseRest("attendance_snapshots", `?${params}`),
       { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" },
     );
     if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
     const records = (await response.json().catch(() => [])) as AttendanceRecord[];
-    return NextResponse.json({ snapshots: records.filter((row) => !session.isSiteAdmin || canAccessContractor(session, row.contractor)).map((row) => session.isSiteAdmin ? { ...toSnapshot(row), rows: (row.rows || []).filter((person) => canAccessContractor(session, person.contratista || row.contractor)) } : toSnapshot(row)) });
+    return NextResponse.json({ snapshots: records.filter((row) => canAccessContractor(session, row.contractor)).map((row) => ({ ...toSnapshot(row), rows: (row.rows || []).filter((person) => canAccessContractor(session, person.contratista || row.contractor)) })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar la asistencia." }, { status: 500 });
   }
@@ -69,6 +71,7 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as { operationalDate?: string; personKey?: string; usedAsRelay?: boolean };
     const operationalDate = String(body.operationalDate || "");
     if (body.personKey && typeof body.usedAsRelay === "boolean") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(operationalDate)) return NextResponse.json({ error: "Fecha inválida." }, { status: 400 });
       const contractor = session.contractor;
       const current = await readSnapshot(operationalDate, contractor, session.accessToken);
       if (current instanceof NextResponse) return current;

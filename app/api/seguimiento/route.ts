@@ -1,4 +1,5 @@
 import { scopeQuery } from "../../lib/adminScope";
+import { scopedWrite } from "../../lib/scopedWrite";
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -145,19 +146,11 @@ export async function PUT(request: Request) {
     });
     rows = dedupeUpsertRows(await preservePersistedRouteProgress(rows, session.contractor, session.accessToken));
     if (rows.length) {
-      const upsert = await fetch(supabaseRest(TABLE, "?on_conflict=record_id"), {
-        method: "POST",
-        // La API ya fija contractor desde la sesión autenticada. La escritura
-        // debe usar la credencial del servidor cuando está configurada para
-        // que una política RLS desactualizada no bloquee una contratista nueva.
-        headers: getWriteHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" }),
-        body: JSON.stringify(rows),
-        cache: "no-store",
-      });
-      if (!upsert.ok) return NextResponse.json({ error: await supabaseError(upsert) }, { status: upsert.status });
+      const writeError = await scopedWrite(TABLE, "record_id", rows, getWriteHeaders(session.accessToken));
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:people-summary:");
       clearServerCache("supabase:admin-seguimiento:");
+      if (writeError) return writeError;
     }
 
     // Guardar o volver a importar nunca elimina filas. Los DT solo se borran
@@ -209,8 +202,7 @@ export async function PATCH(request: Request) {
     }
 
     const params = new URLSearchParams({
-      select: "data",
-      contractor: `eq.${session.contractor}`,
+      select: "contractor,data",
       record_id: `eq.${recordId}`,
       limit: "1",
     });
@@ -219,9 +211,17 @@ export async function PATCH(request: Request) {
       cache: "no-store",
     });
     if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
-    const currentRows = (await currentResponse.json()) as { data: Vehiculo }[];
-    const current = currentRows[0]?.data;
+    const currentRows = (await currentResponse.json()) as { contractor: string | null; data: Vehiculo }[];
+    const stored = currentRows[0];
+    const current = stored?.data;
     if (!current) return NextResponse.json({ error: "No se encontró la ruta en Supabase." }, { status: 404 });
+
+    // Los históricos pueden tener contractor NULL. Solo en ese caso se usa
+    // el transportista persistido, nunca el que envíe el cliente.
+    const owner = stored.contractor ?? current.transportista;
+    if (!owner || normalizeContractorName(owner) !== normalizeContractorName(session.contractor)) {
+      return NextResponse.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
+    }
 
     const data = {
       ...current,
@@ -232,16 +232,22 @@ export async function PATCH(request: Request) {
       transportista: session.contractor,
     };
     const updateParams = new URLSearchParams({
-      contractor: `eq.${session.contractor}`,
+      contractor: stored.contractor === null ? "is.null" : `eq.${stored.contractor}`,
       record_id: `eq.${recordId}`,
+      select: "record_id",
     });
+    if (stored.contractor === null) updateParams.set("data->>transportista", `eq.${owner}`);
     const updateResponse = await fetch(supabaseRest(TABLE, `?${updateParams.toString()}`), {
       method: "PATCH",
-      headers: getWriteHeaders(session.accessToken, { Prefer: "return=minimal" }),
+      headers: getWriteHeaders(session.accessToken, { Prefer: "return=representation" }),
       body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
       cache: "no-store",
     });
     if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+    const updatedRows = (await updateResponse.json()) as { record_id: string }[];
+    if (updatedRows.length !== 1 || updatedRows[0].record_id !== recordId) {
+      return NextResponse.json({ error: "No se confirmó el guardado de la ruta. Recarga e intenta nuevamente." }, { status: 409 });
+    }
 
     clearServerCache(`supabase:${TABLE}:`);
     clearServerCache("supabase:people-summary:");

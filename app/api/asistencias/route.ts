@@ -1,4 +1,5 @@
 import { scopeQuery } from "../../lib/adminScope";
+import { scopedWrite } from "../../lib/scopedWrite";
 import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
@@ -65,15 +66,10 @@ export async function PUT(request: Request) {
       data: { ...record, contratista: contractor },
       updated_at: new Date().toISOString(),
     }));
-    const response = await fetch(supabaseRest(TABLE, "?on_conflict=attendance_key"), {
-      method: "POST",
-      headers: getWriteHeaders(session?.accessToken),
-      body: JSON.stringify(rows),
-      cache: "no-store",
-    });
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+    const writeError = await scopedWrite(TABLE, "attendance_key", rows, getWriteHeaders(session?.accessToken));
     clearServerCache(`supabase:${TABLE}:`);
     clearServerCache("supabase:seguimiento:");
+    if (writeError) return writeError;
 
     await writeAuditLog({
       action: "asistencia_guardada",

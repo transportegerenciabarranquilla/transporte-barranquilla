@@ -21,6 +21,13 @@ export async function POST(request: Request) {
   if (!id || !(file instanceof File)) return NextResponse.json({ error: "Selecciona una evidencia." }, { status: 400 });
   if (!ALLOWED_TYPES.has(file.type) || !/\.(pdf|png|jpe?g)$/i.test(file.name)) return NextResponse.json({ error: "La evidencia debe ser PDF, PNG, JPG o JPEG." }, { status: 400 });
   if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: "La evidencia supera el limite de 5 MB." }, { status: 413 });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const validSignature = file.type === "application/pdf"
+    ? Buffer.from(bytes.subarray(0, 5)).toString("ascii") === "%PDF-"
+    : file.type === "image/png"
+      ? [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
+      : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  if (!validSignature) return NextResponse.json({ error: "El contenido no coincide con el tipo de archivo." }, { status: 400 });
 
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const current = await readComplaint(id, headers);
@@ -31,7 +38,7 @@ export async function POST(request: Request) {
   const storageResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path.split("/").map(encodeURIComponent).join("/")}`, {
     method: "POST",
     headers: { ...headers, "Content-Type": file.type, "x-upsert": "false" },
-    body: await file.arrayBuffer(),
+    body: bytes,
   });
   if (!storageResponse.ok) return NextResponse.json({ error: `Evidencia: ${await supabaseError(storageResponse)}` }, { status: storageResponse.status });
   const evidence = { path, name: file.name, type: file.type, uploadedAt: new Date().toISOString(), uploadedBy: session.email };
@@ -58,9 +65,10 @@ export async function GET(request: Request) {
   if (current && session.isSiteAdmin && !canAccessContractor(session, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const evidence = current?.data.evidence;
   if (!evidence?.path) return NextResponse.json({ error: "La queja no tiene evidencia." }, { status: 404 });
+  if (evidence.path.split("/").some((part) => !part || part === "." || part === "..") || !ALLOWED_TYPES.has(evidence.type)) return NextResponse.json({ error: "Evidencia inválida." }, { status: 400 });
   const storageResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${BUCKET}/${evidence.path.split("/").map(encodeURIComponent).join("/")}`, { headers, cache: "no-store" });
   if (!storageResponse.ok) return NextResponse.json({ error: await supabaseError(storageResponse) }, { status: storageResponse.status });
-  return new Response(await storageResponse.arrayBuffer(), { headers: { "Content-Type": evidence.type, "Content-Disposition": `inline; filename="${evidence.name.replaceAll('"', '')}"`, "Cache-Control": "private, max-age=60" } });
+  return new Response(await storageResponse.arrayBuffer(), { headers: { "Content-Type": evidence.type, "Content-Disposition": `inline; filename="${evidence.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`, "Cache-Control": "private, no-store", "Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff" } });
 }
 
 async function readComplaint(id: string, headers: Record<string, string>) {

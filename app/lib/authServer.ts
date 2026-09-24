@@ -19,7 +19,7 @@ type SupabaseRefreshResponse = {
 
 const sharedRefresh = sharePendingAuthRequests<SupabaseRefreshResponse | null>();
 
-export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean; allowEffectiveRest?: boolean } = {}) {
+export async function getAuthenticatedSession(options: { allowDuringLockdown?: boolean; allowSiteAdmin?: boolean; allowEffectiveRest?: boolean; refreshSession?: boolean } = {}) {
   const cookieStore = await cookies();
   let accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
@@ -29,6 +29,8 @@ export async function getAuthenticatedSession(options: { allowDuringLockdown?: b
   let user = accessToken ? await fetchSupabaseUser(supabaseKey, accessToken) : null;
 
   if (!user && refreshToken) {
+    // Server Components cannot set cookies; route handlers retain refresh support.
+    if (options.refreshSession === false) return null;
     const refreshed = await refreshSupabaseSession(supabaseKey, refreshToken);
     if (!refreshed?.access_token) return null;
 

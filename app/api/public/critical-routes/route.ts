@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest } from "../../../lib/supabaseServer";
 import { isRrRole } from "../../../lib/rrRole";
 import { encodeCoordinateDetails, readCoordinateRecord } from "../../../lib/coordinateRecords";
@@ -107,6 +108,9 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session.isAdmin && !session.isPeople) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
     const id = Number(new URL(request.url).searchParams.get("id"));
     if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "Coordenada inválida." }, { status: 400 });

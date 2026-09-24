@@ -1,7 +1,10 @@
 import webpush from "web-push";
-import { supabaseAdminHeaders, supabaseRest } from "./supabaseServer";
+import { supabaseAdminHeaders, supabaseRest, SUPABASE_URL } from "./supabaseServer";
+import { isAdminEmail, isSiteAdminEmail } from "./contractors";
+import { isAllowedPushEndpoint } from "./pushEndpoint";
 
 type StoredSubscription = {
+  user_id: string;
   endpoint: string;
   p256dh: string;
   auth: string;
@@ -27,7 +30,7 @@ export async function sendAdminPush(payload: PushPayload) {
   const headers = supabaseAdminHeaders();
   if (!headers || !configureWebPush()) return { sent: 0, skipped: true };
 
-  const params = new URLSearchParams({ select: "endpoint,p256dh,auth", is_admin: "eq.true", enabled: "eq.true" });
+  const params = new URLSearchParams({ select: "user_id,endpoint,p256dh,auth", is_admin: "eq.true", enabled: "eq.true" });
   const response = await fetch(supabaseRest("push_subscriptions", `?${params}`), { headers, cache: "no-store" });
   if (!response.ok) return { sent: 0, skipped: true };
   const subscriptions = await response.json() as StoredSubscription[];
@@ -35,6 +38,12 @@ export async function sendAdminPush(payload: PushPayload) {
 
   await Promise.all(subscriptions.map(async (subscription) => {
     try {
+      if (!isAllowedPushEndpoint(subscription.endpoint) || !/^[0-9a-f-]{36}$/i.test(subscription.user_id)) return;
+      // Stored is_admin/email are not proof of role: older RLS let their owner edit them.
+      const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${subscription.user_id}`, { headers, cache: "no-store" });
+      if (!userResponse.ok) return;
+      const user = await userResponse.json() as { email?: string };
+      if (!isAdminEmail(user.email) || isSiteAdminEmail(user.email)) return;
       await webpush.sendNotification({
         endpoint: subscription.endpoint,
         keys: { p256dh: subscription.p256dh, auth: subscription.auth },

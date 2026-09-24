@@ -1,3 +1,5 @@
+import "server-only";
+
 export const SUPABASE_URL =
   process.env.SUPABASE_URL ||
   "https://brtdrqslzfspsiyukzrl.supabase.co";

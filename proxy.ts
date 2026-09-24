@@ -1,9 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isEffectiveRestEmail } from "./app/lib/contractors";
+import { isTrustedMutation } from "./app/lib/requestOrigin";
 
 // Optimistic navigation restriction only. Pages and APIs independently validate
 // the session against Supabase; the unsigned payload never grants permissions.
 export function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/") && !isTrustedMutation(request)) {
+    return NextResponse.json({ error: "Origen de solicitud no permitido." }, { status: 403 });
+  }
   const token = request.cookies.get("bavaria_access_token")?.value;
   let email = "";
   try { email = JSON.parse(Buffer.from(token?.split(".")[1] || "", "base64url").toString()).email || ""; } catch { /* Server auth handles expired or invalid sessions. */ }
