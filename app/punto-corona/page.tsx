@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowLeft,
@@ -409,7 +409,7 @@ export default function PuntoCoronaPage() {
             {selectedModulationDetail ? (
               <ModulationClientDetail detail={selectedModulationDetail} modulaciones={modulaciones} onClose={() => setSelectedModulationDetail(null)} report={visibleReport} />
             ) : null}
-            <CrewTable modulaciones={modulaciones} report={visibleReport} />
+            <CrewTable key={visibleReport.id} modulaciones={modulaciones} report={visibleReport} />
           </>
         ) : (
           <EmptyState onUpload={() => fileInputRef.current?.click()} />
@@ -789,8 +789,12 @@ function StackedChart({
   );
 }
 
-function RangeClientDetail({ onClose, range, report }: { onClose: () => void; range: RangeDetail; report: PuntoCoronaRouteReport }) {
-  const rows = getRowsForRange(report, range);
+function RangeClientDetail({ crew, onClose, range, report }: { crew?: PuntoCoronaCrewSummary; onClose: () => void; range: RangeDetail; report: PuntoCoronaRouteReport }) {
+  const rows = getRowsForRange(report, range).filter((row) => !crew || (
+    normalizeDt(row.dt) === normalizeDt(crew.dt) &&
+    row.driverName === crew.driverName &&
+    row.truckLicensePlate === crew.truckLicensePlate
+  ));
   const title = getRangeTitle(range);
 
   return (
@@ -799,6 +803,7 @@ function RangeClientDetail({ onClose, range, report }: { onClose: () => void; ra
         <div>
           <h2 className="text-base font-semibold text-[#10223d]">{title}</h2>
           <p className="text-xs text-slate-500">Clientes del archivo seleccionado para {formatDate(report.operationalDate)}.</p>
+          {crew ? <p className="mt-1 text-xs font-semibold text-slate-700">{crew.truckLicensePlate} · {crew.driverName} · DT {crew.dt}</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{rows.length} clientes</span>
@@ -815,6 +820,8 @@ function RangeClientDetail({ onClose, range, report }: { onClose: () => void; ra
               <th className="w-20 px-2.5 py-1.5 text-left">Placa</th>
               <th className="w-40 px-2.5 py-1.5 text-left">Cliente</th>
               <th className="w-44 px-2.5 py-1.5 text-left">Tripulacion</th>
+              {crew ? <th className="w-28 px-2.5 py-1.5 text-left">Ruta</th> : null}
+              {crew ? <th className="w-32 px-2.5 py-1.5 text-left">Estado</th> : null}
               <th className="px-2.5 py-1.5 text-left">Motivo</th>
             </tr>
           </thead>
@@ -829,12 +836,14 @@ function RangeClientDetail({ onClose, range, report }: { onClose: () => void; ra
                     <span className="block truncate text-[10px] text-slate-500">{row.pocExternalId || "Sin codigo"}</span>
                   </td>
                   <td className="px-2.5 py-1.5 text-slate-700">{row.driverName || "-"}</td>
+                  {crew ? <td className="break-words px-2.5 py-1.5 text-slate-700">{row.tourDisplayId || "-"}</td> : null}
+                  {crew ? <td className="break-words px-2.5 py-1.5 text-slate-700">{getRouteStatusLabel(row.status)}</td> : null}
                   <td className="px-2.5 py-1.5 text-slate-600">{getRangeReason(row, range)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td className="px-3 py-6 text-center text-xs font-medium text-slate-500" colSpan={5}>
+                <td className="px-3 py-6 text-center text-xs font-medium text-slate-500" colSpan={crew ? 7 : 5}>
                   No hay clientes para este grupo.
                 </td>
               </tr>
@@ -974,6 +983,7 @@ function Charts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; 
 
 function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const crews = report.summary.crews;
+  const [selectedCrewKey, setSelectedCrewKey] = useState<string | null>(null);
   const [sort, setSort] = useState<{ column: "delivery" | "modulation"; order: "asc" | "desc" } | null>(null);
   const rows = useMemo(() => {
     const values = crews.map((crew) => ({ crew, modulationStats: getCrewModulationStats(report, crew, modulaciones) }));
@@ -998,7 +1008,7 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
       <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/78 px-4 py-3 backdrop-blur">
         <div>
           <h2 className="text-base font-semibold text-[#10223d]">Detalle por tripulacion</h2>
-          <p className="text-xs text-slate-500">Resumen por placa del reporte de rango.</p>
+          <p className="text-xs text-slate-500">Resumen por placa del reporte de rango. Pulsa una fila con visitas fuera de rango para ver sus envíos.</p>
         </div>
         <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{crews.length} registros</span>
       </div>
@@ -1048,34 +1058,62 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
           </thead>
           <tbody>
             {rows.map(({ crew, modulationStats }) => {
+              const isExpanded = selectedCrewKey === crew.key && crew.outOfRange > 0;
+              const detailId = `crew-range-${encodeURIComponent(crew.key)}`;
+              const toggleDetail = () => setSelectedCrewKey(isExpanded ? null : crew.key);
               return (
-                <tr key={crew.key}>
-                  <td className="px-2 py-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
-                        <Truck size={13} />
+                <Fragment key={crew.key}>
+                  <tr
+                    className={crew.outOfRange > 0 ? `cursor-pointer hover:bg-red-50 ${isExpanded ? "bg-red-50" : ""}` : undefined}
+                    onClick={crew.outOfRange > 0 ? toggleDetail : undefined}
+                  >
+                    <td className="px-2 py-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-sm">
+                          <Truck size={13} />
+                        </span>
+                        <span className="truncate font-semibold text-[#10223d]" title={crew.truckLicensePlate}>
+                          {crew.truckLicensePlate}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-1">
+                      <span className="block truncate rounded bg-white/62 px-1.5 py-1 text-[10px] font-semibold text-[#10223d]" title={crew.driverName}>
+                        {crew.driverName}
                       </span>
-                      <span className="truncate font-semibold text-[#10223d]" title={crew.truckLicensePlate}>
-                        {crew.truckLicensePlate}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-1">
-                    <span className="block truncate rounded bg-white/62 px-1.5 py-1 text-[10px] font-semibold text-[#10223d]" title={crew.driverName}>
-                      {crew.driverName}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1 text-right"><span className="number-pill">{crew.totalStarted}</span></td>
-                  <td className="px-2 py-1 text-right text-emerald-700"><span className="number-pill border-emerald-100 bg-emerald-50">{crew.inRange}</span></td>
-                  <td className="px-2 py-1 text-right text-red-700"><span className="number-pill border-red-100 bg-red-50">{crew.outOfRange}</span></td>
-                  <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{crew.deliveryRangePercent.toFixed(2)}%</td>
-                  <td className="px-2 py-1 text-right text-[#07556b]"><span className="number-pill border-cyan-100 bg-cyan-50">{modulationStats.modulated}</span></td>
-                  <td className="px-2 py-1 text-right">
-                    <CausePills causes={modulationStats.causes} />
-                  </td>
-                  <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{modulationStats.percent.toFixed(2)}%</td>
-                  <td className="px-2 py-1 text-right font-semibold text-slate-700">{formatSeguimientoProgress(crew)}</td>
-                </tr>
+                    </td>
+                    <td className="px-2 py-1 text-right"><span className="number-pill">{crew.totalStarted}</span></td>
+                    <td className="px-2 py-1 text-right text-emerald-700"><span className="number-pill border-emerald-100 bg-emerald-50">{crew.inRange}</span></td>
+                    <td className="px-2 py-1 text-right text-red-700">
+                      {crew.outOfRange > 0 ? (
+                        <button
+                          aria-controls={isExpanded ? detailId : undefined}
+                          aria-expanded={isExpanded}
+                          aria-label={`Ver ${crew.outOfRange} envíos fuera de rango de ${crew.truckLicensePlate}, ${crew.driverName}, DT ${crew.dt}`}
+                          className="number-pill cursor-pointer border-red-200 bg-red-50 underline decoration-dotted underline-offset-2 hover:bg-red-100 focus-visible:outline-2 focus-visible:outline-red-600"
+                          onClick={(event) => { event.stopPropagation(); toggleDetail(); }}
+                          type="button"
+                        >{crew.outOfRange}</button>
+                      ) : <span className="number-pill border-red-100 bg-red-50">0</span>}
+                    </td>
+                    <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{crew.deliveryRangePercent.toFixed(2)}%</td>
+                    <td className="px-2 py-1 text-right text-[#07556b]"><span className="number-pill border-cyan-100 bg-cyan-50">{modulationStats.modulated}</span></td>
+                    <td className="px-2 py-1 text-right">
+                      <CausePills causes={modulationStats.causes} />
+                    </td>
+                    <td className="px-2 py-1 text-right font-semibold text-[#10223d]">{modulationStats.percent.toFixed(2)}%</td>
+                    <td className="px-2 py-1 text-right font-semibold text-slate-700">{formatSeguimientoProgress(crew)}</td>
+                  </tr>
+                  {isExpanded ? (
+                    <tr>
+                      <td className="bg-red-50/40 p-3" colSpan={10}>
+                        <div id={detailId}>
+                          <RangeClientDetail crew={crew} onClose={() => setSelectedCrewKey(null)} range="outOfRange" report={report} />
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })}
           </tbody>
@@ -1083,6 +1121,19 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
       </div>
     </div>
   );
+}
+
+function getRouteStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    CONCLUDED: "Entregado",
+    DEFINITELY_RETURNED: "Devuelto",
+    NOT_STARTED: "Sin iniciar",
+    WAITING_MODULATION: "Esperando modulación",
+    RESCHEDULED: "Reprogramado",
+    DELIVERY_STARTED: "Entrega iniciada",
+    PARTIAL_DELIVERY: "Entrega parcial",
+  };
+  return labels[status] || status || "Sin estado";
 }
 
 function getRowsForRange(report: PuntoCoronaRouteReport, range: RangeDetail) {
