@@ -5,6 +5,7 @@ import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Download, MapPinned
 import { useRouter } from "next/navigation";
 import { coordinatesCsv, filterCoordinateRecords, readCoordinateRecord, type CoordinateRecord } from "../../lib/coordinateRecords";
 import CoordinateHeatMap from "./CoordinateHeatMap";
+import CoordinateCharts from "./CoordinateCharts";
 
 const PAGE_SIZE = 8;
 const dateFormat = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -159,6 +160,7 @@ export default function AdminCoordinatesPage() {
         </section>
         <CoordinateHeatMap rows={filtered} selectedId={selectedId} focusRequest={focusRequest} />
       </div>
+      <CoordinateCharts rows={filtered} loading={loading && !rows.length} />
       <p className="text-[10px] text-slate-500">La descarga CSV incluye todos los resultados filtrados y se puede abrir en Excel. Los registros antiguos pueden no tener código de cliente.</p>
     </section>
   </main>;
