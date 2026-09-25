@@ -10,11 +10,14 @@ import {
   normalizeDt,
   readModulacionRegistros,
   saveModulacionRegistro,
+  updateModulacionGestion,
+  type ModulacionGestionChanges,
   type ModulacionRegistro,
 } from "../lib/modulacionStorage";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { refreshRemoteRecords } from "../lib/remoteStore";
 import { useStorageSnapshot } from "../lib/storageEvents";
+import { startVisiblePolling } from "../lib/visiblePolling";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
 import type { Vehiculo } from "../seguimiento/types";
@@ -38,6 +41,10 @@ export default function ModulacionPage() {
   const [telefonosPreventista, setTelefonosPreventista] = useState<Record<string, string>>({});
   const [nombresPreventista, setNombresPreventista] = useState<Record<string, string>>({});
   const [gestionadasDrafts, setGestionadasDrafts] = useState<Record<string, string>>({});
+  const [originDrafts, setOriginDrafts] = useState<Record<string, "Logística" | "Ventas">>({});
+  const [saveStates, setSaveStates] = useState<Record<string, string>>({});
+  const pendingChanges = useRef(new Map<string, ModulacionGestionChanges>());
+  const saveVersions = useRef(new Map<string, number>());
   const [currentTime, setCurrentTime] = useState(0);
   const requestedClienteCodes = useRef(new Set<string>());
 
@@ -47,12 +54,7 @@ export default function ModulacionPage() {
   );
 
   useEffect(() => {
-    void refreshRemoteRecords("/api/modulaciones");
-    const interval = window.setInterval(() => {
-      void refreshRemoteRecords("/api/modulaciones");
-    }, MODULACION_REFRESH_MS);
-
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(() => refreshRemoteRecords("/api/modulaciones"), MODULACION_REFRESH_MS);
   }, []);
 
   useEffect(() => {
@@ -68,9 +70,7 @@ export default function ModulacionPage() {
 
   useEffect(() => {
     const updateCurrentTime = () => setCurrentTime(Date.now());
-    updateCurrentTime();
-    const interval = window.setInterval(updateCurrentTime, 30_000);
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(updateCurrentTime, 30_000);
   }, []);
 
   const contractorOptions = useMemo(() => {
@@ -169,7 +169,29 @@ export default function ModulacionPage() {
       .catch(() => requestedClienteCodes.current.delete(codigoCliente));
 
     return () => controller.abort();
-  }, [registroSeleccionado]);
+  }, [registroSeleccionado?.codigoCliente]);
+
+  function persistGestion(id: string, changes: ModulacionGestionChanges) {
+    const combined = { ...pendingChanges.current.get(id), ...changes };
+    pendingChanges.current.set(id, combined);
+    const version = (saveVersions.current.get(id) ?? 0) + 1;
+    saveVersions.current.set(id, version);
+    setSaveStates((current) => ({ ...current, [id]: "Guardando…" }));
+    void updateModulacionGestion(id, combined).then(() => {
+      if (saveVersions.current.get(id) !== version) return;
+      pendingChanges.current.delete(id);
+      setSaveStates((current) => ({ ...current, [id]: "Guardado" }));
+      setGestionadasDrafts((current) => current[id] === combined.cajasGestionadas ? removeDraft(current, id) : current);
+      setOriginDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }).catch((error: unknown) => {
+      if (saveVersions.current.get(id) !== version) return;
+      setSaveStates((current) => ({ ...current, [id]: error instanceof Error ? error.message : "No se pudo guardar." }));
+    });
+  }
 
   function updateCajasGestionadasDraft(id: string, value: string) {
     setGestionadasDrafts((current) => ({ ...current, [id]: value.replace(/\D/g, "") }));
@@ -186,30 +208,22 @@ export default function ModulacionPage() {
       return;
     }
 
-    const rejected = Number(nextRecord.totalCajas) || 0;
-    const managed = Number(nextValue) || 0;
-    const isComplete = rejected > 0 && managed >= rejected;
-    void saveModulacionRegistro({
-      ...nextRecord,
-      cajasGestionadas: nextValue,
-      gestionCompletadaAt: isComplete ? nextRecord.gestionCompletadaAt || new Date().toISOString() : undefined,
-    }).finally(() => {
-      setGestionadasDrafts((current) => (current[id] === nextValue ? removeDraft(current, id) : current));
-    });
+    persistGestion(id, { cajasGestionadas: nextValue });
   }
 
   function updateComentarioModulador(id: string, value: string) {
     const nextRecord = registros.find((registro) => registro.id === id);
     if (!nextRecord) return;
 
-    saveModulacionRegistro({ ...nextRecord, comentarioModulador: value });
+    persistGestion(id, { comentarioModulador: value });
   }
 
   function updateOrigenReubicacion(id: string, origenReubicacion: "Logística" | "Ventas") {
     const nextRecord = registros.find((registro) => registro.id === id);
     if (!nextRecord) return;
-    const nextOrigin = nextRecord.origenReubicacion === origenReubicacion ? undefined : origenReubicacion;
-    void saveModulacionRegistro({ ...nextRecord, origenReubicacion: nextOrigin });
+    if ((originDrafts[id] ?? nextRecord.origenReubicacion) === origenReubicacion && !pendingChanges.current.has(id)) return;
+    setOriginDrafts((current) => ({ ...current, [id]: origenReubicacion }));
+    persistGestion(id, { origenReubicacion });
   }
 
   async function deleteRegistro(registro: ModulacionRegistro) {
@@ -301,6 +315,13 @@ export default function ModulacionPage() {
             <p className="mt-0.5 text-xl font-semibold text-[#10223d]">{registrosFiltrados.length}</p>
           </div>
         </div>
+
+        {Object.entries(saveStates).filter(([, state]) => state !== "Guardando…" && state !== "Guardado").map(([id, error]) => (
+          <div key={id} role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <span>No se guardó la gestión del cliente {registros.find((record) => record.id === id)?.codigoCliente}: {error}</span>
+            <button type="button" className="shrink-0 font-semibold underline" onClick={() => persistGestion(id, pendingChanges.current.get(id) ?? {})}>Reintentar</button>
+          </div>
+        ))}
 
         <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_210px_1fr_170px_170px_auto] xl:items-center">
@@ -445,6 +466,7 @@ export default function ModulacionPage() {
               <tbody>
                 {registrosFiltrados.length ? (
                   registrosFiltrados.map((registro) => {
+                    const selectedOrigin = originDrafts[registro.id] ?? registro.origenReubicacion;
                     const gestionadasValue = getGestionadasInputValue(registro, gestionadasDrafts);
                     const visibleRegistro = withGestionadasValue(registro, gestionadasValue);
 
@@ -470,7 +492,7 @@ export default function ModulacionPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <p className="line-clamp-2 text-xs font-medium leading-4 text-slate-600" title={registro.origenReubicacion || "Sin clasificar"}>{registro.origenReubicacion || "Sin clasificar"}</p>
+                        <p className="line-clamp-2 text-xs font-medium leading-4 text-slate-600" title={selectedOrigin || "Sin clasificar"}>{selectedOrigin || "Sin clasificar"}</p>
                       </td>
                       <td className="px-3 py-2 text-center">
                         <span className="number-pill border-red-100 bg-red-50 text-red-700">{registro.totalCajas}</span>
@@ -481,6 +503,7 @@ export default function ModulacionPage() {
                             <input
                               className="h-7 w-14 rounded-md border border-slate-200 bg-white/90 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#00b8d9]"
                               inputMode="numeric"
+                              aria-label={`Cajas gestionadas del cliente ${registro.codigoCliente}`}
                               onBlur={() => commitCajasGestionadas(registro.id)}
                               onChange={(event) => updateCajasGestionadasDraft(registro.id, event.target.value)}
                               onKeyDown={(event) => {
@@ -495,10 +518,10 @@ export default function ModulacionPage() {
                           <div className="grid w-full grid-cols-2 gap-1">
                             {(["Logística", "Ventas"] as const).map((origin) => (
                               <button
-                                aria-pressed={registro.origenReubicacion === origin}
-                                aria-label={registro.origenReubicacion === origin ? `Quitar asignación de ${origin}` : `Asignar gestión a ${origin}`}
+                                aria-pressed={selectedOrigin === origin}
+                                aria-label={`Asignar gestión a ${origin}`}
                                 className={`h-6 rounded border px-1 text-[9px] font-bold transition ${
-                                  registro.origenReubicacion === origin
+                                  selectedOrigin === origin
                                     ? origin === "Logística" ? "border-cyan-600 bg-cyan-600 text-white" : "border-violet-600 bg-violet-600 text-white"
                                     : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                                 }`}
@@ -510,6 +533,9 @@ export default function ModulacionPage() {
                               </button>
                             ))}
                           </div>
+                          {saveStates[registro.id] ? <p role="status" className={`text-[10px] font-medium ${saveStates[registro.id] === "Guardado" ? "text-emerald-700" : "text-slate-600"}`}>
+                            {["Guardando…", "Guardado"].includes(saveStates[registro.id]) ? saveStates[registro.id] : "Sin guardar · reintenta arriba"}
+                          </p> : null}
                         </div>
                       </td>
                       <td className="px-3 py-2">
@@ -570,6 +596,7 @@ export default function ModulacionPage() {
 
         {registroEditando ? (
           <EditModulacionModal
+            key={registroEditando.id}
             onClose={() => setEditingRegistroId(null)}
             onSave={async (record) => {
               await saveModulacionRegistro(record);
@@ -597,13 +624,6 @@ function EditModulacionModal({
   const [error, setError] = useState("");
   const [clienteError, setClienteError] = useState("");
   const [loadingCliente, setLoadingCliente] = useState(false);
-
-  useEffect(() => {
-    setDraft(registro);
-    setError("");
-    setClienteError("");
-    setLoadingCliente(false);
-  }, [registro]);
 
   useEffect(() => {
     const codigo = draft.codigoCliente.replace(/\D/g, "").trim();

@@ -45,7 +45,7 @@ export function SeguimientoFilters({
               onSearchChange("");
               onDateRangeChange("", "");
               onOnlyWithoutResponsibleChange(false);
-              onStatusChange([]);
+              onStatusChange(["Activos"]);
             }}
             type="button"
           >
@@ -120,12 +120,19 @@ export function SeguimientoFilters({
                 {statusFilters.length === 0
                   ? "Todos los estados"
                   : statusFilters.length === 1
-                    ? statusFilters[0]
+                    ? statusFilters[0] === "Activos" ? (fechaDesdeFilter || fechaHastaFilter ? "Activos" : "Todos los estados") : statusFilters[0]
                     : `${statusFilters.length} estados seleccionados`}
               </span>
               <ChevronDown className="shrink-0 text-slate-400 transition group-open:rotate-180" size={17} />
             </summary>
             <div className="absolute right-0 z-[100] mt-2 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white p-2 shadow-xl">
+              <button
+                className="mb-1 flex w-full items-center rounded px-2 py-2 text-left text-xs font-semibold text-[#10223d] hover:bg-slate-50"
+                onClick={() => onStatusChange(["Activos"])}
+                type="button"
+              >
+                Vista operativa (activos en el rango)
+              </button>
               <button
                 className="mb-1 flex w-full items-center rounded px-2 py-2 text-left text-xs font-semibold text-[#10223d] hover:bg-slate-50"
                 onClick={() => onStatusChange([])}
@@ -140,7 +147,7 @@ export function SeguimientoFilters({
                     <input
                       checked={selected}
                       className="h-4 w-4 accent-[#1264ff]"
-                      onChange={() => onStatusChange(selected ? statusFilters.filter((item) => item !== status) : [...statusFilters, status])}
+                      onChange={() => onStatusChange(selected ? statusFilters.filter((item) => item !== status) : [...statusFilters.filter((item) => item !== "Activos"), status])}
                       type="checkbox"
                     />
                     {status}

@@ -9,6 +9,7 @@ import { refreshRemoteRecords } from "../lib/remoteStore";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import type { Vehiculo } from "../seguimiento/types";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 const REFRESH_MS = 60_000;
 const MAX_RESULTS = 8;
@@ -24,6 +25,10 @@ type SearchResult = {
 };
 
 export function GlobalOperationsSearch({ isAdmin = false }: { isAdmin?: boolean }) {
+  return isAdmin ? <AdminOperationsSearch /> : null;
+}
+
+function AdminOperationsSearch() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
@@ -31,24 +36,14 @@ export function GlobalOperationsSearch({ isAdmin = false }: { isAdmin?: boolean 
   const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
 
   useEffect(() => {
-    if (!isAdmin) return;
-
-    void refreshRemoteRecords("/api/seguimiento");
-    void refreshRemoteRecords("/api/asistencias");
-    void refreshRemoteRecords("/api/modulaciones");
-
-    const interval = window.setInterval(() => {
-      void refreshRemoteRecords("/api/seguimiento");
-      void refreshRemoteRecords("/api/asistencias");
-      void refreshRemoteRecords("/api/modulaciones");
-    }, REFRESH_MS);
-
-    return () => window.clearInterval(interval);
-  }, [isAdmin]);
+    return startVisiblePolling(() => Promise.all([
+      refreshRemoteRecords("/api/seguimiento"),
+      refreshRemoteRecords("/api/asistencias"),
+      refreshRemoteRecords("/api/modulaciones"),
+    ]), REFRESH_MS);
+  }, []);
 
   const results = useMemo(() => buildResults(query, vehicles, attendances, modulaciones), [attendances, modulaciones, query, vehicles]);
-
-  if (!isAdmin) return null;
 
   return (
     <section className="mb-7 rounded-lg border border-slate-200 bg-white/90 p-4 shadow-[0_14px_36px_rgba(15,23,42,0.08)]">

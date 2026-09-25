@@ -20,6 +20,7 @@ import {
   summarizeModulaciones,
 } from "../../lib/modulacionStorage";
 import { refreshRemoteRecords } from "../../lib/remoteStore";
+import { startVisiblePolling } from "../../lib/visiblePolling";
 import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../../lib/storageEvents";
 import type { Vehiculo } from "../types";
@@ -42,14 +43,11 @@ export default function CajasCheckinPage() {
   const [selectedDate, setSelectedDate] = useState(getLocalDateKey);
 
   useEffect(() => {
-    const refresh = () => {
-      void refreshRemoteRecords("/api/checkins", { force: true });
-      void refreshRemoteRecords("/api/modulaciones", { force: true });
-      void refreshRemoteRecords("/api/seguimiento", { force: true });
-    };
-    refresh();
-    const interval = window.setInterval(refresh, DATA_REFRESH_MS);
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(() => Promise.all([
+      refreshRemoteRecords("/api/checkins", { force: true }),
+      refreshRemoteRecords("/api/modulaciones", { force: true }),
+      refreshRemoteRecords("/api/seguimiento", { force: true }),
+    ]), DATA_REFRESH_MS);
   }, []);
 
   useEffect(() => {

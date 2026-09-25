@@ -211,6 +211,7 @@ for (const fails of [false, true]) test(`formulario guarda el cero visible y mue
       summarizeModulaciones: () => ({ cajasPendientes: 0 }), readModulacionRegistros: () => [],
     },
     '../../lib/remoteStore': {},
+    '../../lib/visiblePolling': {},
     '../../lib/seguimientoStorage': { SEGUIMIENTO_STORAGE_KEY: 'vehicles', readSeguimientoVehiculos: () => [{ transporte: record.dt }] },
     '../../lib/storageEvents': { useStorageSnapshot: (_keys, read) => read() },
     './_components/CheckinHeader': { CheckinHeader: 'header-mock' },

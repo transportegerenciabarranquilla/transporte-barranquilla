@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { AlertTriangle, ArrowLeft, BarChart3, CalendarDays, ChevronDown, ClipboardCheck, FileDown, FileSpreadsheet, Trash2, Truck, X } from "lucide-react";
 import { ModulacionNotificationAlert } from "./components/ModulacionNotificationAlert";
 import { ComplaintsNotificationAlert } from "./components/ComplaintsNotificationAlert";
@@ -10,7 +11,6 @@ import { SeguimientoFilters } from "./components/SeguimientoFilters";
 import { SeguimientoHero } from "./components/SeguimientoHero";
 import { CoronaHero } from "./components/CoronaHero";
 import coronaStyles from "./components/corona.module.css";
-import { VehicleDrawer } from "./components/VehicleDrawer";
 import { VehiclesTable } from "./components/VehiclesTable";
 import {
   enrichVehiclesWithModulacion,
@@ -20,7 +20,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getProgress, getStatus, getVehicleUiKey, hasRecargueValue, hasTimeValue, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
+import { calculateRouteTime, getVehicleUiKey, hasTimeValue, matchesRouteStatusFilter, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, moveCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -29,6 +29,7 @@ import { seguimientoChanges } from "../lib/seguimientoPersistence";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
+import { startVisiblePolling } from "../lib/visiblePolling";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY } from "../lib/adminSettings";
 import {
   formatCurrentTime,
@@ -45,6 +46,7 @@ const SEGUIMIENTO_DATE_FROM_FILTER_KEY = "bavaria.seguimiento.fechaDesdeFiltro";
 const SEGUIMIENTO_DATE_TO_FILTER_KEY = "bavaria.seguimiento.fechaHastaFiltro";
 const MODULACION_ALERT_VISIBLE_MS = 5 * 60 * 1000;
 const DATA_REFRESH_MS = 30_000;
+const VehicleDrawer = dynamic(() => import("./components/VehicleDrawer").then((module) => module.VehicleDrawer));
 
 export default function SeguimientoPage() {
   const router = useRouter();
@@ -66,7 +68,7 @@ export default function SeguimientoPage() {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   
   const [search, setSearch] = useState("");
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [statusFilters, setStatusFilters] = useState<string[]>(["Activos"]);
   const [fechaDesdeFilter, setFechaDesdeFilter] = useState("");
   const [fechaHastaFilter, setFechaHastaFilter] = useState("");
   const [onlyWithoutResponsible, setOnlyWithoutResponsible] = useState(false);
@@ -142,12 +144,8 @@ export default function SeguimientoPage() {
   }, [fechaDesdeFilter, fechaHastaFilter, onlyWithoutResponsible, search, vehiculos]);
 
   const filteredVehicles = useMemo(() => {
-    return matchingVehicles.filter((item) => {
-      if (statusFilters.length === 0) return true;
-      const operationalStatus = getStatus(getProgress(item), item);
-      return statusFilters.some((filter) => (filter === "Recargue" ? hasRecargueValue(item.recargue) : operationalStatus === filter));
-    });
-  }, [matchingVehicles, statusFilters]);
+    return matchingVehicles.filter((item) => matchesRouteStatusFilter(item, statusFilters, Boolean(fechaDesdeFilter || fechaHastaFilter)));
+  }, [matchingVehicles, statusFilters, fechaDesdeFilter, fechaHastaFilter]);
 
   const resumen = useMemo(() => {
     const clientes = filteredVehicles.reduce((total, item) => total + item.clientes, 0);
@@ -194,26 +192,17 @@ export default function SeguimientoPage() {
   }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 1000);
-
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(() => setNow(new Date()), 15_000);
   }, []);
 
   useEffect(() => {
-    void refreshRemoteRecords("/api/seguimiento", { force: true });
-    void refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" });
-    void refreshRemoteRecords("/api/modulaciones");
-    void refreshRemoteRecords("/api/checkins");
-    void loadComplaints();
-    const interval = window.setInterval(() => {
-      void refreshRemoteRecords("/api/seguimiento", { force: true });
-      void refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" });
-      void refreshRemoteRecords("/api/modulaciones");
-      void refreshRemoteRecords("/api/checkins");
-      void loadComplaints();
-    }, DATA_REFRESH_MS);
-
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(() => Promise.allSettled([
+      refreshRemoteRecords("/api/seguimiento", { force: true }),
+      refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" }),
+      refreshRemoteRecords("/api/modulaciones"),
+      refreshRemoteRecords("/api/checkins"),
+      loadComplaints(),
+    ]), DATA_REFRESH_MS);
   }, []);
 
   async function loadComplaints() {
@@ -357,7 +346,7 @@ export default function SeguimientoPage() {
     }
 
     if (shouldRecalculateRouteTime) {
-      updated.tiempoRuta = calculateRouteTime(updated, now);
+      updated.tiempoRuta = calculateRouteTime(updated, new Date());
     }
 
     return updated;

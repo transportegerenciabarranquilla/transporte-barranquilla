@@ -125,6 +125,16 @@ export function hasTimeValue(value: string | undefined) {
   return Boolean(value && value !== "Pendiente" && value !== "-");
 }
 
+export function matchesRouteStatusFilter(item: Vehiculo, filters: string[], hasDateRange = false) {
+  const status = getStatus(getProgress(item), item);
+  if (!filters.length) return true;
+  return filters.some((filter) => {
+    if (filter === "Activos") return !hasDateRange || !(status === "Finalizado" && hasTimeValue(item.horaLlegada));
+    if (filter === "Recargue") return hasRecargueValue(item.recargue);
+    return status === filter;
+  });
+}
+
 export function isLateDepartureTime(value: string | undefined) {
   const seconds = parseTimeToSeconds(value);
   return seconds !== null && seconds > 7 * 3600 + 30 * 60;

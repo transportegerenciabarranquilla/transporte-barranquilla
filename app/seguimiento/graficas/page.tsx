@@ -13,6 +13,7 @@ import { useContractorBrand } from "../../lib/contractorBranding";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getStatus, getVehicleRecordKey, hasRecargueValue, hasTimeValue, normalizeCajasTotal } from "../utils";
 import { loadSeguimientoVehiculos } from "../services/vehicleRecords";
+import { startVisiblePolling } from "../../lib/visiblePolling";
 
 export default function SeguimientoGraficasPage() {
   const router = useRouter();
@@ -47,9 +48,7 @@ export default function SeguimientoGraficasPage() {
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 1000);
-
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(() => setNow(new Date()), 15_000);
   }, []);
 
   useEffect(() => {

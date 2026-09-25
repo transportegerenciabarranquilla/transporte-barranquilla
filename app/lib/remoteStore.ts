@@ -71,12 +71,14 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
         (preserveAfterWriteUntil.get(endpoint) ?? 0) > Date.now()
         && incomingRecords.length < cachedRecords.length;
       if (preserveOptimisticRecords) return;
-      cache.set(endpoint, endpoint === "/api/seguimiento"
+      const nextRecords = endpoint === "/api/seguimiento"
         ? mergeSeguimientoVersions(cachedRecords as Vehiculo[], incomingRecords as Vehiculo[])
-        : incomingRecords);
+        : incomingRecords;
+      const changed = !cache.has(endpoint) || !sameJsonValue(cachedRecords, nextRecords);
+      if (changed) cache.set(endpoint, nextRecords);
       if (endpoint === MODULACIONES_ENDPOINT) removeConfirmedModulaciones(incomingRecords);
       fetchedAt.set(endpoint, Date.now());
-      notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
+      if (changed) notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     })
     .catch(() => undefined)
     .finally(() => loading.delete(endpoint));
@@ -107,7 +109,7 @@ export function waitForRemoteSaves(endpoint: string) {
 export function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],
-  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH" } = {},
+  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH"; prepareRecords?: (current: T[]) => T[] } = {},
 ) {
   const mutationVersion = (mutationVersions.get(endpoint) || 0) + 1;
   const generation = cacheGeneration;
@@ -116,6 +118,7 @@ export function saveRemoteRecords<T>(
   const operation = previousSave.catch(() => undefined).then(async () => {
     if (generation !== cacheGeneration) throw new Error("La sesión cambió. Recarga antes de guardar.");
     const previousRecords = cache.get(endpoint);
+    records = options.prepareRecords?.((previousRecords ?? []) as T[]) ?? records;
     cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
 
@@ -156,7 +159,7 @@ export function saveRemoteRecords<T>(
       }
       return savedRecords as T[];
     } catch (error) {
-      if (generation === cacheGeneration && (endpoint === "/api/seguimiento" || (mutationVersions.get(endpoint) || 0) === mutationVersion)) {
+      if (generation === cacheGeneration && (endpoint === "/api/seguimiento" || options.method === "PATCH" || (mutationVersions.get(endpoint) || 0) === mutationVersion)) {
         if (previousRecords) {
           cache.set(endpoint, previousRecords);
         } else {
@@ -271,4 +274,20 @@ function recordId(record: unknown) {
   return typeof record === "object" && record !== null && "id" in record
     ? String((record as { id?: unknown }).id || "")
     : "";
+}
+
+// Las respuestas JSON idénticas no deben invalidar todos los cálculos y tablas.
+// Comparamos también campos anidados; una marca de fecha sola no es suficiente.
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left)) {
+    return Array.isArray(right) && left.length === right.length && left.every((value, index) => sameJsonValue(value, right[index]));
+  }
+  if (Array.isArray(right)) return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return keys.length === Object.keys(rightRecord).length && keys.every((key) =>
+    Object.prototype.hasOwnProperty.call(rightRecord, key) && sameJsonValue(leftRecord[key], rightRecord[key]));
 }

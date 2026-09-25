@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { motion, useReducedMotion } from "framer-motion";
 import type { CSSProperties } from "react";
 import styles from "./portal.module.css";
 import { Truck, PackageCheck, Clock3, Users, Route, CalendarCheck, Timer, BriefcaseBusiness, Star, ChartColumn, ClipboardCheck, Phone, MapPinned, MessageSquareWarning, ReceiptText, BedDouble, LayoutGrid, type LucideIcon } from "lucide-react";
@@ -24,7 +23,6 @@ export function PortalDashboard({
   contractor?: string;
 }) {
   const router = useRouter();
-  const reduceMotion = useReducedMotion();
   const visibleModules = getVisiblePortalModules({ contractor, isAdmin, isPeople });
   const sessionLabel = getPortalSessionLabel({ contractor, isAdmin, isPeople });
   const heroTitle = isPeople ? "Gestion de personas por contratista" : `Gestion central para ${contractor === "Admin Arenosa" ? "CD Arenosa" : isAdmin ? "toda la operacion" : sessionLabel}`;
@@ -56,11 +54,8 @@ export function PortalDashboard({
       </header>
 
       <section className="mx-auto max-w-7xl px-4 py-5 sm:px-8 lg:py-7">
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
+        <div
           className={`${styles.hero} mb-6 overflow-hidden rounded-2xl p-5 sm:p-7`}
-          initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-          transition={{ duration: 0.35 }}
         >
           <svg aria-hidden="true" className={styles.routes} viewBox="0 0 360 180" fill="none"><path d="M0 140H90Q120 140 120 110V70Q120 40 150 40H360M35 180V120Q35 95 60 95H230Q260 95 260 65V0" stroke="#67e8f9" strokeWidth="2" strokeDasharray="5 5"/><circle cx="120" cy="95" r="9" fill="#67e8f9"/><circle cx="260" cy="40" r="7" fill="#fbbf24"/></svg>
           <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -77,7 +72,7 @@ export function PortalDashboard({
               <p className="text-sm text-slate-300">módulos disponibles</p>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {contractor !== "Control de ingreso" && <GlobalOperationsSearch isAdmin={isAdmin} />}
 
@@ -90,20 +85,16 @@ export function PortalDashboard({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-          {visibleModules.map((module, index) => (
-            <motion.button
-              animate={{ opacity: 1, y: 0 }}
+          {visibleModules.map((module) => (
+            <button
               className={`${styles.card} group relative flex min-h-28 min-w-0 items-center gap-3 overflow-hidden rounded-2xl border border-slate-200/80 border-l-[3px] bg-gradient-to-br from-white via-white to-slate-50/80 p-4 text-left shadow-[0_3px_12px_rgba(15,23,42,0.035)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(15,23,42,0.09)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 motion-reduce:transform-none sm:gap-4 sm:px-5 ${module.accent}`}
-              initial={reduceMotion ? false : { opacity: 0, y: 14 }}
               style={{ "--accent": (modulePalette[module.id] || ["#475569"])[0], "--soft": (modulePalette[module.id] || ["", "#f1f5f9"])[1] } as CSSProperties}
-              whileTap={reduceMotion ? undefined : { scale: 0.985 }}
               key={module.id}
               onClick={() => {
                 // Load a new document so the scanner receives its camera policy.
                 if (module.href === "/descanso-efectivo") window.location.assign(module.href);
                 else router.push(module.href);
               }}
-              transition={{ delay: 0.05 * index, duration: 0.28 }}
               type="button"
             >
               <span className={`${styles.moduleIcon} grid h-12 w-12 shrink-0 place-items-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ring-1 ring-inset ring-black/[0.025] transition duration-200 group-hover:scale-105 motion-reduce:transform-none sm:h-14 sm:w-14 `}>
@@ -116,7 +107,7 @@ export function PortalDashboard({
               <span className={`${styles.arrow} grid h-8 w-8 shrink-0 place-items-center rounded-full opacity-60 transition group-hover:translate-x-0.5 group-hover:opacity-100 motion-reduce:transform-none `}>
                 <Icon name="arrow" />
               </span>
-            </motion.button>
+            </button>
           ))}
         </div>
       </section>

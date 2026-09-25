@@ -1,5 +1,6 @@
 import { deleteRemoteRecords, readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 import { calculatePendingRefusalBoxes } from "./refusalCalculation";
+import { createBatchedRecordUpdater } from "./batchedRecordUpdates";
 
 export const MODULACION_STORAGE_KEY = "bavaria.modulacion.registros";
 
@@ -172,6 +173,19 @@ export function saveModulacionRegistros(records: ModulacionRegistro[]) {
 export function saveModulacionRegistro(record: ModulacionRegistro) {
   return saveRemoteRecords("/api/modulaciones", [record], { mergeByKey: (item) => item.id });
 }
+
+export type ModulacionGestionChanges = Partial<Pick<ModulacionRegistro, "cajasGestionadas" | "origenReubicacion" | "comentarioModulador">>;
+
+export const updateModulacionGestion = createBatchedRecordUpdater(async (id: string, changes: ModulacionGestionChanges) => {
+  const fallback = readModulacionRegistros().find((record) => record.id === id);
+  if (!fallback) throw new Error("No se encontró la modulación. Recarga antes de guardar.");
+  return saveRemoteRecords<ModulacionRegistro>("/api/modulaciones", [], {
+    method: "PATCH",
+    extraBody: { id, changes },
+    mergeByKey: (record) => record.id,
+    prepareRecords: (current) => [{ ...(current.find((record) => record.id === id) ?? fallback), ...changes }],
+  });
+});
 
 export function deleteModulacionRegistro(id: string) {
   return deleteRemoteRecords<ModulacionRegistro>("/api/modulaciones", [id], { getKey: (item) => item.id });

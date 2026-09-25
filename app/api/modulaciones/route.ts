@@ -62,6 +62,71 @@ export async function GET() {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (session.isAdmin) return NextResponse.json({ error: "El administrador solo consulta las modulaciones globales." }, { status: 403 });
+    const { id, changes } = await request.json();
+    if (typeof id !== "string" || !id.trim() || id.length > 500 || !changes || typeof changes !== "object" || Array.isArray(changes)) {
+      return NextResponse.json({ error: "Falta el registro o el cambio a guardar." }, { status: 400 });
+    }
+    const fields = ["cajasGestionadas", "origenReubicacion", "comentarioModulador"];
+    if (!Object.keys(changes).length || Object.keys(changes).some((field) => !fields.includes(field))) {
+      return NextResponse.json({ error: "El cambio contiene campos no editables." }, { status: 400 });
+    }
+    if ((changes.cajasGestionadas !== undefined && (typeof changes.cajasGestionadas !== "string" || !/^\d{0,9}$/.test(changes.cajasGestionadas)))
+      || (changes.origenReubicacion !== undefined && !["Logística", "Ventas"].includes(changes.origenReubicacion))
+      || (changes.comentarioModulador !== undefined && (typeof changes.comentarioModulador !== "string" || changes.comentarioModulador.length > 4000))) {
+      return NextResponse.json({ error: "Revisa la cantidad, el origen o la nota de la gestión." }, { status: 400 });
+    }
+
+    // Fusionar solo los campos editados con la versión actual; nunca reenviar
+    // una instantánea completa del navegador que borre la gestión anterior.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const params = new URLSearchParams({ select: "contractor,data,updated_at", modulation_id: `eq.${id}`, limit: "1" });
+      const currentResponse = await fetch(supabaseRest(TABLE, `?${params}`), {
+        headers: supabaseReadHeaders(session.accessToken), cache: "no-store",
+      });
+      if (!currentResponse.ok) return NextResponse.json({ error: await supabaseError(currentResponse) }, { status: currentResponse.status });
+      const [stored] = await currentResponse.json() as { contractor: string | null; data: ModulacionRegistro; updated_at: string | null }[];
+      if (!stored?.data) return NextResponse.json({ error: "No se encontró la modulación." }, { status: 404 });
+      const owner = stored.contractor ?? stored.data.contratista;
+      if (!owner || normalizeContractorName(owner) !== normalizeContractorName(session.contractor)) {
+        return NextResponse.json({ error: "No puedes modificar registros de otra contratista." }, { status: 403 });
+      }
+      const record: ModulacionRegistro = { ...stored.data, ...changes };
+      if (changes.cajasGestionadas !== undefined) {
+        const complete = Number(record.totalCajas) > 0 && Number(record.cajasGestionadas) >= Number(record.totalCajas);
+        record.gestionCompletadaAt = complete ? stored.data.gestionCompletadaAt || new Date().toISOString() : undefined;
+      }
+      const writeParams = new URLSearchParams({
+        modulation_id: `eq.${id}`,
+        contractor: stored.contractor === null ? "is.null" : `eq.${stored.contractor}`,
+        updated_at: stored.updated_at == null ? "is.null" : `eq.${stored.updated_at}`,
+        select: "modulation_id",
+      });
+      if (stored.contractor === null) writeParams.set("data->>contratista", `eq.${owner}`);
+      const response = await fetch(supabaseRest(TABLE, `?${writeParams}`), {
+        method: "PATCH", headers: { ...getWriteHeaders(session.accessToken, false), Prefer: "return=representation" },
+        body: JSON.stringify({ data: record, updated_at: new Date().toISOString() }), cache: "no-store",
+      });
+      if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+      const saved = await response.json();
+      if (!Array.isArray(saved) || saved.length !== 1) continue;
+      clearServerCache(`supabase:${TABLE}:`);
+      clearServerCache("supabase:people-summary:");
+      clearServerCache("supabase:admin-seguimiento:");
+      await writeAuditLog({ action: "modulacion_guardada", contractor: owner, module: "modulacion", recordId: id,
+        details: { fields: Object.keys(changes), dt: record.dt }, request, session });
+      return NextResponse.json({ record: toListRecord(record) });
+    }
+    return NextResponse.json({ error: "La modulación cambió durante el guardado. Intenta guardar nuevamente." }, { status: 409 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando la gestión." }, { status: 500 });
+  }
+}
+
 export async function PUT(request: Request) {
   try {
     const session = await getAuthenticatedSession();
