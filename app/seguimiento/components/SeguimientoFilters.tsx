@@ -128,14 +128,20 @@ export function SeguimientoFilters({
             <div className="absolute right-0 z-[100] mt-2 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white p-2 shadow-xl">
               <button
                 className="mb-1 flex w-full items-center rounded px-2 py-2 text-left text-xs font-semibold text-[#10223d] hover:bg-slate-50"
-                onClick={() => onStatusChange(["Activos"])}
+                onClick={(event) => {
+                  onStatusChange(["Activos"]);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
                 type="button"
               >
                 Vista operativa (activos en el rango)
               </button>
               <button
                 className="mb-1 flex w-full items-center rounded px-2 py-2 text-left text-xs font-semibold text-[#10223d] hover:bg-slate-50"
-                onClick={() => onStatusChange([])}
+                onClick={(event) => {
+                  onStatusChange([]);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
                 type="button"
               >
                 Todos los estados
@@ -147,7 +153,10 @@ export function SeguimientoFilters({
                     <input
                       checked={selected}
                       className="h-4 w-4 accent-[#1264ff]"
-                      onChange={() => onStatusChange(selected ? statusFilters.filter((item) => item !== status) : [...statusFilters.filter((item) => item !== "Activos"), status])}
+                      onChange={(event) => {
+                        onStatusChange(selected ? statusFilters.filter((item) => item !== status) : [...statusFilters.filter((item) => item !== "Activos"), status]);
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                      }}
                       type="checkbox"
                     />
                     {status}
