@@ -175,14 +175,21 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   });
   // La viabilidad de RR + auxiliar se optimiza sin amarrarla al VH histórico:
   // los vehículos se redistribuyen después según peso y disponibilidad.
+  // Cada nivel debe pesar más que la suma de todos los niveles inferiores.
+  // Un bono fijo permitía sacrificar una ruta con conocimiento cuando había
+  // muchos viajes y las mejoras pequeñas de los demás se acumulaban.
+  const scoreBound = Math.max(1, ...plans.flatMap(plan => plan.candidates.map(candidate => Math.abs(candidate.totalZki) + Math.abs(candidate.workloadAdjustment || 0))));
+  const viableBonus = plans.length * scoreBound * 2 + 1;
+  const knowledgeBonus = plans.length * (viableBonus + scoreBound * 2) + 1;
+  const assignedBonus = plans.length * (knowledgeBonus + viableBonus + scoreBound * 2) + 1;
   const weights = candidateMatrix.map((row) => row.map((candidate) => candidate
-    ? 10_000
+    ? assignedBonus
       + candidate.totalZki
       + (candidate.workloadAdjustment || 0)
       // Primero maximiza cuántas rutas quedan con conocimiento real; solo
       // después compara el puntaje ZKI y usa responsables de respaldo.
-      + (candidate.zki > 0 ? 2_000 : 0)
-      + (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? 1_000 : 0)
+      + (candidate.zki > 0 ? knowledgeBonus : 0)
+      + (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? viableBonus : 0)
     : 0));
   const assignment = maximumWeightAssignment(weights);
   const result = new Map<string, Candidate>();
@@ -228,6 +235,8 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Ca
     return assignCatalogPairsGlobally(plans, available, minimumZki, retentionPercent);
   }
   const used = new Set<string>();
+  const usedDrivers: Array<{ driver: string; driverId: string }> = [];
+  const assignedResponsibles = plans.flatMap(({ recommendation }) => recommendation ? [{ id: recommendation.rrId, name: recommendation.rr }] : []);
   const result = new Map<string, Candidate>();
   // La pareja RR-conductor es la unidad habitual que se debe conservar. El
   // auxiliar es intercambiable y se distribuye luego segun disponibilidad.
@@ -258,7 +267,9 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Ca
     if (!recommendation) return;
     const assignedKey = normalizeVehicleKey(trip.assignedPlate || trip.vehicle);
     const habitualKey = normalizeVehicleKey(recommendation.vehicle);
-    const unused = available.filter((pair) => !used.has(pair.key));
+    const unused = available.filter((pair) => !used.has(pair.key)
+      && !assignedResponsibles.some(person => samePerson(person.id, person.name, pair.driverId, pair.driver))
+      && !usedDrivers.some(driver => samePerson(driver.driverId, driver.driver, pair.driverId, pair.driver)));
     const fitting = unused.filter((pair) => pair.capacity >= trip.weight);
     const hasResponsibleCatalog = available.some((pair) => pair.responsible || pair.responsibleId);
     let activeRecommendation = recommendation;
@@ -301,6 +312,7 @@ export function assignDriverVehiclePairs<T extends { trip: Trip; candidates?: Ca
     }
 
     used.add(selected.key);
+    usedDrivers.push(selected);
     const fits = selected.capacity > 0 && selected.capacity >= trip.weight;
     result.set(trip.id, {
       ...activeRecommendation,
@@ -459,31 +471,39 @@ function crewAssignmentPriority(candidate: Candidate | undefined, minimumZki: nu
 }
 
 function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZki: number) {
-  const unavailable = new Set<string>();
-  assignments.forEach((candidate) => {
-    unavailable.add(personIdentity(candidate.rrId, candidate.rr));
-    if (!normalizePersonName(candidate.driver).startsWith("sin conductor")) unavailable.add(personIdentity(candidate.driverId, candidate.driver));
+  const responsibles = [...assignments.values()].map(candidate => ({ id: candidate.rrId, name: candidate.rr }));
+  const usedDrivers: Candidate[] = [];
+  const rows = Array.from(assignments.entries()).map(([tripId, candidate]): [string, Candidate] => {
+    const isRealDriver = candidate.driver.trim() && !normalize(candidate.driver).startsWith("sin");
+    if (!isRealDriver) return [tripId, candidate];
+    if (responsibles.some(person => samePerson(person.id, person.name, candidate.driverId, candidate.driver))
+      || usedDrivers.some(driver => samePerson(driver.driverId, driver.driver, candidate.driverId, candidate.driver))) {
+      // Conserva el territorio y su RR; no oculta la ruta por falta de conductor.
+      return [tripId, { ...candidate, driver: "Sin conductor disponible", driverId: "", vehicle: "Sin placa", capacity: 0, viable: false, reason: "Pendiente: el conductor ya está asignado como responsable o conductor; se requiere otra pareja conductor–vehículo." }];
+    }
+    usedDrivers.push(candidate);
+    return [tripId, candidate];
   });
-  const usedDrivers = new Set<string>();
-  const rows = Array.from(assignments.entries()).filter(([, candidate]) => {
-    const driverKey = personIdentity(candidate.driverId, candidate.driver);
-    const isRealDriver = driverKey && !normalizePersonName(candidate.driver).startsWith("sin conductor");
-    if (isRealDriver && usedDrivers.has(driverKey)) return false;
-    if (isRealDriver) usedDrivers.add(driverKey);
-    return true;
-  });
+  const unavailable = [...responsibles, ...rows.flatMap(([, candidate]) => normalize(candidate.driver).startsWith("sin") ? [] : [{ id: candidate.driverId, name: candidate.driver }])];
+  const auxiliaryIdentities: Array<{ id: string; name: string; key: string }> = [];
   const optionMaps = rows.map(([, candidate]) => {
     const options = [
       ...(candidate.auxiliaryOptions || []),
       { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki },
     ];
     return new Map(options.flatMap((option) => {
-      const key = personIdentity(option.id, option.name);
-      if (!key || unavailable.has(key) || normalizePersonName(option.name).startsWith("sin auxiliar")) return [];
+      if (!option.name.trim() || normalize(option.name).startsWith("sin") || unavailable.some(person => samePerson(person.id, person.name, option.id, option.name))) return [];
+      const identity = auxiliaryIdentities.find(person => samePerson(person.id, person.name, option.id, option.name));
+      const key = identity?.key || `aux:${auxiliaryIdentities.length}`;
+      if (!identity) auxiliaryIdentities.push({ ...option, key });
       return [[key, option] as const];
     }));
   });
   const auxiliaryKeys = Array.from(new Set(optionMaps.flatMap((options) => Array.from(options.keys()))));
+  // Primero evita tripulaciones con total cero, después reparte conocimiento
+  // entre auxiliares y finalmente optimiza el umbral y los puntajes.
+  const positiveAuxiliaryBonus = (rows.length + 1) * 200_000_000;
+  const rescuedRouteBonus = (rows.length + 1) * positiveAuxiliaryBonus;
   const weights = optionMaps.map((options, rowIndex) => [
     ...auxiliaryKeys.map((key) => {
       const option = options.get(key);
@@ -499,9 +519,10 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
       // Solo premia el aporte que hace falta para llegar al objetivo. Un RR 100
       // aprovecha como máximo 60 puntos del auxiliar; el excedente se reserva
       // para una ruta con RR bajo.
-      // Alcanzar el umbral tiene prioridad absoluta: así el reparto global
-      // maximiza primero la cantidad de rutas viables y luego el aporte útil.
-      return (reachesTarget ? 100_000_000 : 1_000_000)
+      // Tras reducir totales cero y auxiliares sin conocimiento, prioriza
+      // alcanzar el umbral y después el aporte útil.
+      return (rrZki <= 0 ? rescuedRouteBonus : 0) + positiveAuxiliaryBonus
+        + (reachesTarget ? 100_000_000 : 1_000_000)
         + usefulContribution * 10_000 - excess * 100 + combined;
     }),
     ...new Array(rows.length).fill(0),
@@ -535,7 +556,9 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
       auxiliaryZki: replacement.zki,
       totalZki,
       viable,
-      reason: !candidate.hasKnowledge
+      reason: candidate.capacity <= 0
+        ? candidate.reason
+        : !candidate.hasKnowledge
         ? "Pendiente: la tripulación está completa, pero el RR no tiene historial ZKI en el territorio."
         : totalZki < minimumZki
           ? `No viable: el ZKI combinado es ${Math.round(totalZki)} y requiere ${minimumZki}.`
@@ -554,9 +577,9 @@ function personIdentity(id: string | undefined, name: string | undefined) {
   return normalizedId ? `id:${normalizedId}` : "";
 }
 
-function samePerson(leftId: string | undefined, leftName: string | undefined, rightId: string | undefined, rightName: string | undefined) {
-  const cleanLeftId = String(leftId || "").replace(/\D/g, "");
-  const cleanRightId = String(rightId || "").replace(/\D/g, "");
+export function samePerson(leftId: string | undefined, leftName: string | undefined, rightId: string | undefined, rightName: string | undefined) {
+  const cleanLeftId = String(leftId || "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  const cleanRightId = String(rightId || "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
   if (cleanLeftId && cleanRightId && cleanLeftId === cleanRightId) return true;
   const cleanLeftName = normalizePersonName(leftName || "");
   const cleanRightName = normalizePersonName(rightName || "");
@@ -726,7 +749,7 @@ export function parseTrips(rows: RawRow[]): Trip[] {
     const zone = text(read(raw, ["Nombre", "Zona", "Población", "Poblacion", "Territorio", "Ruta"]));
     return {
       id: `${date}:${tripNumber || index + 1}:${normalize(zone)}`,
-      territoryId: tripNumber,
+      territoryId: normalizeZkiCode(tripNumber),
       date,
       zone: zone || `Viaje ${tripNumber || index + 1}`,
       vehicle: text(read(raw, ["Vehículo", "Vehiculo", "VH"])),
@@ -759,7 +782,7 @@ export function parseZkiVisits(rows: RawRow[]): ZkiVisit[] {
   return rows.map((row) => ({
     rr: text(read(row, ["Nombre RR", "RR", "Responsable", "nombreResponsable", "Nombre", "Vendedor", "Repartidor"])),
     rrId: text(read(row, ["Cedula", "Cédula", "Cedula RR", "Documento RR"])),
-    client: text(read(row, ["Codigo", "Código", "Cliente", "ID cliente", "Código cliente", "Codigo cliente", "Cuenta", "Establecimiento"])),
+    client: normalizeZkiCode(read(row, ["Codigo", "Código", "Cliente", "ID cliente", "Código cliente", "Codigo cliente", "Cuenta", "Establecimiento"])),
     zone: text(read(row, ["Zona", "Población", "Poblacion", "Territorio", "Ruta", "Nombre ruta"])),
     neighborhood: text(read(row, ["Barrio", "Neighborhood"])),
     driver: text(read(row, ["Conductor", "Nombre conductor", "nombreAuxiliar1"])),
@@ -767,15 +790,14 @@ export function parseZkiVisits(rows: RawRow[]): ZkiVisit[] {
     role: text(read(row, ["Cargo", "Rol", "Role"])),
     count: Math.max(1, number(read(row, ["Visitas", "Cantidad", "Frecuencia"]))),
   })).filter((row) => {
-    const role = normalize(row.role);
-    return row.rr && row.client && (!role || role.includes("responsable") || role.includes("auxiliar"));
+    return row.rr && row.client && (isResponsibleVisit(row) || isAuxiliaryVisit(row));
   });
 }
 
 export function parseTerritoryClients(rows: RawRow[]): TerritoryClient[] {
   return rows.map((row) => ({
-    territoryId: text(read(row, ["id territory", "territory", "territorio", "id territorio", "Número", "Numero"])),
-    client: text(read(row, ["Codigos de cliente", "Códigos de cliente", "Codigo de cliente", "Código de cliente", "Cliente"])),
+    territoryId: normalizeZkiCode(read(row, ["id territory", "territory", "territorio", "id territorio", "Número", "Numero"])),
+    client: normalizeZkiCode(read(row, ["Codigos de cliente", "Códigos de cliente", "Codigo de cliente", "Código de cliente", "Cliente"])),
   })).filter((row) => row.territoryId && row.client);
 }
 
@@ -790,13 +812,13 @@ export function rankCandidates(
 ): Candidate[] {
   const rrNames = new Map<string, string>();
   visits.filter(isResponsibleVisit).forEach((row) => rrNames.set(normalizePersonName(row.rr), row.rr));
-  const configuredClients = new Set(territoryClientCodes.map(normalize).filter(Boolean));
+  const configuredClients = new Set(territoryClientCodes.map(normalizeZkiCode).filter(Boolean));
   const territoryVisits = configuredClients.size
-    ? visits.filter((row) => configuredClients.has(normalize(row.client)))
+    ? visits.filter((row) => configuredClients.has(normalizeZkiCode(row.client)))
     : visits.filter((row) => !row.zone || sameZone(row.zone, trip.zone));
   const territoryClientSet = configuredClients.size
     ? configuredClients
-    : new Set(territoryVisits.map((row) => normalize(row.client)).filter(Boolean));
+    : new Set(territoryVisits.map((row) => normalizeZkiCode(row.client)).filter(Boolean));
   const responsibleVisitsByRr = new Map<string, ZkiVisit[]>();
   territoryVisits.forEach((row) => {
     if (!isResponsibleVisit(row)) return;
@@ -822,7 +844,7 @@ export function rankCandidates(
     const rrVisits = responsibleVisitsByRr.get(rrKey) || [];
     const visitsByClient = new Map<string, number>();
     rrVisits.forEach((row) => {
-      const client = normalize(row.client);
+      const client = normalizeZkiCode(row.client);
       if (client) visitsByClient.set(client, (visitsByClient.get(client) || 0) + visitCount(row));
     });
     const uniqueVisited = visitsByClient.size;
@@ -897,6 +919,13 @@ export function rankCandidates(
     .sort((left, right) => Number(right.viable) - Number(left.viable) || Number(right.hasKnowledge) - Number(left.hasKnowledge) || (right.totalZki + (right.workloadAdjustment || 0)) - (left.totalZki + (left.workloadAdjustment || 0)));
 }
 
+export function rankTerritoryAuxiliaries(trip: Trip, visits: ZkiVisit[], codes: string[], settings: ZkiSettings) {
+  const configured = new Set(codes.map(normalizeZkiCode).filter(Boolean));
+  const relevant = visits.filter(row => configured.size ? configured.has(normalizeZkiCode(row.client)) : !row.zone || sameZone(row.zone, trip.zone));
+  const clients = Math.max(trip.clients, configured.size || new Set(relevant.map(row => normalizeZkiCode(row.client))).size);
+  return rankAuxiliaries(relevant, clients, settings).map(({ name, id, zki }) => ({ name, id, zki }));
+}
+
 function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings: ZkiSettings) {
   const grouped = new Map<string, ZkiVisit[]>();
   visits.forEach((visit) => {
@@ -911,7 +940,7 @@ function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings:
   return Array.from(grouped.values()).map((rows) => {
     const byClient = new Map<string, number>();
     rows.forEach((row) => {
-      const client = normalize(row.client);
+      const client = normalizeZkiCode(row.client);
       if (client) byClient.set(client, (byClient.get(client) || 0) + visitCount(row));
     });
     const unique = byClient.size;
@@ -928,7 +957,7 @@ function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings:
 
 function isResponsibleVisit(visit: ZkiVisit) {
   const role = normalize(visit.role);
-  return !role || role.includes("responsable");
+  return !role || role === "rr" || role.includes("responsable") || role === "liderderuta";
 }
 
 function isAuxiliaryVisit(visit: ZkiVisit) {
@@ -1005,7 +1034,7 @@ function normalize(value: unknown) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 }
 
-function normalizePersonName(value: unknown) {
+export function normalizePersonName(value: unknown) {
   return String(value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -1014,6 +1043,14 @@ function normalizePersonName(value: unknown) {
     .filter(Boolean)
     .sort()
     .join("");
+}
+
+export function normalizeZkiCode(value: unknown) {
+  const raw = String(value ?? "").trim();
+  // Excel suele convertir identificadores enteros a 123.0 o conservar ceros
+  // de relleno. No se usan coincidencias parciales entre clientes distintos.
+  if (/^\d+(?:[.,]0+)?$/.test(raw)) return raw.replace(/[.,]0+$/, "").replace(/^0+(?=\d)/, "");
+  return normalize(raw);
 }
 
 function text(value: unknown) {

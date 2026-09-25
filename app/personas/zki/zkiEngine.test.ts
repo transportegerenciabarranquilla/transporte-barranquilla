@@ -1,6 +1,127 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { rankTerritoryAuxiliaries } from "./zkiEngine.ts";
+
+test("no asigna como conductor a un responsable de otra ruta y busca reemplazo", () => {
+  const trips = parseTrips([{ Numero: 1, Nombre: "A", Peso: 1000 }, { Numero: 2, Nombre: "B", Peso: 1000 }]);
+  const plans = trips.map((trip, index) => ({ trip, recommendation: { ...fakeCandidate(index ? "Jimenez Mosquera Omar Jose" : "Otro RR", 90), rrId: index ? "123" : "456", vehicle: "" } }));
+  const assigned = assignFreeResponsiblesToDriverVehicles(plans, [
+    { plate: "AAA111", driver: "Jimenez Mosquera Omar Jose", driverId: "123" },
+    { plate: "BBB222", driver: "Conductor libre uno", driverId: "789" },
+    { plate: "CCC333", driver: "Conductor libre dos", driverId: "987" },
+  ], new Map([["aaa111", 2000], ["bbb222", 2000], ["ccc333", 2000]]));
+  assert.equal(assigned.size, 2);
+  assert.deepEqual([...assigned.values()].map(row => row.driverId), ["789", "987"]);
+});
+
+test("controla responsable-conductor-auxiliar por cédula aunque el nombre cambie", () => {
+  const assigned = enforceUniqueAssignedCrew([
+    { tripId: "T1", recommendation: { ...fakeCandidate("Omar Jimenez Mosquera", 90), rrId: "123", driver: "Conductor libre", driverId: "456", auxiliary: "Omar Jose Jimenez", auxiliaryId: "00123", auxiliaryZki: 70, auxiliaryOptions: [{ name: "Auxiliar libre", id: "789", zki: 50 }] } },
+    { tripId: "T2", recommendation: { ...fakeCandidate("Otro responsable", 80), rrId: "321", driver: "Jimenez Mosquera Omar Jose", driverId: "123" } },
+  ]);
+  assert.equal(assigned.get("T1")?.auxiliaryId, "789");
+  assert.equal(assigned.get("T2")?.driverId, "");
+  assert.equal(assigned.get("T2")?.viable, false);
+  assert.equal(assigned.size, 2);
+});
+
+test("no repite auxiliares con la misma cédula y variantes de nombre", () => {
+  const assigned = enforceUniqueAssignedCrew([
+    { tripId: "T1", recommendation: { ...fakeCandidate("RR uno", 90), auxiliary: "Luis Diaz", auxiliaryId: "123", auxiliaryZki: 60 } },
+    { tripId: "T2", recommendation: { ...fakeCandidate("RR dos", 80), auxiliary: "Luis Alberto Diaz", auxiliaryId: "00123", auxiliaryZki: 70 } },
+  ]);
+  assert.equal([...assigned.values()].filter(row => row.auxiliaryId).length, 1);
+  assert.equal(assigned.size, 2);
+});
+
+test("un conductor con dos placas solo se usa una vez y se elige otro conductor libre", () => {
+  const trips = parseTrips([{ Numero: 1, Nombre: "A", Peso: 1000 }, { Numero: 2, Nombre: "B", Peso: 1000 }]);
+  const plans = trips.map((trip, index) => ({ trip, recommendation: { ...fakeCandidate(`RR ${index}`, 90), driverId: "", vehicle: "" } }));
+  const assigned = assignFreeResponsiblesToDriverVehicles(plans, [
+    { plate: "AAA111", driver: "Juan Perez", driverId: "00123" },
+    { plate: "BBB222", driver: "Perez Juan Carlos", driverId: "123" },
+    { plate: "CCC333", driver: "Luis Diaz", driverId: "456" },
+  ], new Map([["aaa111", 2000], ["bbb222", 2000], ["ccc333", 2000]]));
+  assert.equal(assigned.size, 2);
+  assert.deepEqual([...assigned.values()].map(row => row.driver), ["Juan Perez", "Luis Diaz"]);
+});
+
+test("el control final reconoce la misma cédula con distinto nombre y conserva la ruta pendiente", () => {
+  const assigned = enforceUniqueAssignedCrew([
+    { tripId: "T1", recommendation: { ...fakeCandidate("RR 1", 90), driver: "Juan Perez", driverId: "00123" } },
+    { tripId: "T2", recommendation: { ...fakeCandidate("RR 2", 80), driver: "Juan Carlos Perez", driverId: "123" } },
+  ]);
+  assert.equal(assigned.size, 2);
+  assert.equal(assigned.get("T1")?.driverId, "00123");
+  assert.equal(assigned.get("T2")?.driverId, "");
+  assert.equal(assigned.get("T2")?.driver, "Sin conductor disponible");
+  assert.equal(assigned.get("T2")?.capacity, 0);
+  assert.equal(assigned.get("T2")?.viable, false);
+  assert.match(assigned.get("T2")?.reason || "", /ya está asignado/);
+});
+
+test("sin cédula detecta el conductor con nombres reordenados y no elimina rutas pendientes", () => {
+  const assigned = enforceUniqueAssignedCrew([
+    { tripId: "T1", recommendation: { ...fakeCandidate("RR 1", 90), driver: "Juan Pérez", driverId: "" } },
+    { tripId: "T2", recommendation: { ...fakeCandidate("RR 2", 80), driver: "Perez Juan", driverId: "" } },
+    { tripId: "T3", recommendation: { ...fakeCandidate("RR 3", 70), driver: "Sin conductor disponible", driverId: "", capacity: 0 } },
+  ]);
+  assert.equal(assigned.size, 3);
+  assert.equal([...assigned.values()].filter(row => row.driver === "Sin conductor disponible").length, 2);
+});
+
+test("recupera el ZKI del auxiliar aunque no haya RR con historial en el territorio", () => {
+  const trip = parseTrips([{ Numero: 1, Nombre: "Zona", Peso: 1000, Clientes: 1 }])[0];
+  const visits = parseZkiVisits([{ Nombre: "Auxiliar real", Cedula: "123", Cargo: "Auxiliar", Codigo: "00100", Visitas: 5 }]);
+  const scores = rankTerritoryAuxiliaries(trip, visits, ["100"], DEFAULT_ZKI_SETTINGS);
+  assert.equal(scores.length, 1);
+  assert.equal(scores[0].zki, 100);
+  assert.deepEqual(rankTerritoryAuxiliaries(trip, visits, ["200"], DEFAULT_ZKI_SETTINGS), []);
+});
+
+test("asigna el auxiliar con historial al total cero antes de aumentar una ruta positiva", () => {
+  const options = [{ name: "Auxiliar experto", id: "301", zki: 30 }, { name: "Auxiliar reserva", id: "302", zki: 0 }];
+  const base = { auxiliary: options[0].name, auxiliaryId: options[0].id, auxiliaryZki: 30, auxiliaryOptions: options };
+  const assigned = enforceUniqueAssignedCrew([
+    { tripId: "POSITIVA", recommendation: { ...fakeCandidate("RR positivo", 70), ...base, zki: 70, totalZki: 100 } },
+    { tripId: "CERO", recommendation: { ...fakeCandidate("RR reserva", 0), ...base, zki: 0, hasKnowledge: false, totalZki: 30 } },
+  ]);
+  assert.equal(assigned.get("CERO")?.auxiliaryZki, 30);
+  assert.equal(assigned.get("CERO")?.zki, 0);
+  assert.equal(assigned.get("CERO")?.viable, false);
+  assert.equal(assigned.get("POSITIVA")?.totalZki, 70);
+  assert.equal([...assigned.values()].filter(row => row.totalZki === 0).length, 0);
+  assert.equal(new Set([...assigned.values()].map(row => row.auxiliaryId)).size, 2);
+});
 import { assignFreeResponsiblesToDriverVehicles, assignCompatibleVehicles, assignDriverVehiclePairs, assignResponsiblesWithCrewRetention, assignUniqueResponsibles, capacityMap, DEFAULT_ZKI_SETTINGS, enforceUniqueAssignedCrew, parseCrewHistory, parseTrips, parseZkiVisits, rankCandidates, type Candidate } from "./zkiEngine.ts";
+
+test("cruza códigos numéricos de Excel y reconoce RR y líder de ruta", () => {
+  const trip = parseTrips([{ Numero: "007.0", Nombre: "Zona", Peso: 500, Clientes: 1 }])[0];
+  assert.equal(trip.territoryId, "7");
+  const visits = parseZkiVisits([
+    { Nombre: "Ana Perez", Cargo: "RR", Codigo: "000123.0", Visitas: 5 },
+    { Nombre: "Luis Diaz", Cargo: "Líder de Ruta", Codigo: 123, Visitas: 5 },
+    { Nombre: "Conductor", Cargo: "Conductor", Codigo: 123, Visitas: 5 },
+  ]);
+  assert.equal(visits.length, 2);
+  const ranked = rankCandidates(trip, [], visits, ["00123"], new Map(), DEFAULT_ZKI_SETTINGS);
+  assert.equal(ranked.length, 2);
+  assert.ok(ranked.every(candidate => candidate.zki === 100));
+  assert.ok(rankCandidates(trip, [], visits, ["1234"], new Map(), DEFAULT_ZKI_SETTINGS).every(candidate => candidate.zki === 0));
+});
+
+test("prioriza cubrir todas las rutas con conocimiento aunque varias bajen del umbral", () => {
+  const plans = Array.from({ length: 5 }, (_, index) => ({
+    tripId: `T${index}`,
+    candidates: index < 4
+      ? [fakeCandidate(`RR ${index}`, 100), fakeCandidate(`RR ${index + 1}`, 1)]
+      : [fakeCandidate("RR 0", 1), { ...fakeCandidate("RR 4", 0), hasKnowledge: false }],
+  }));
+  const assigned = [...assignUniqueResponsibles(plans).values()];
+  assert.equal(assigned.length, 5);
+  assert.equal(assigned.filter(candidate => candidate.zki > 0).length, 5);
+  assert.equal(new Set(assigned.map(candidate => candidate.rr)).size, 5);
+});
 
 test("interpreta las columnas operativas del Excel ZKI", () => {
   const [trip] = parseTrips([{ "Fecha de entrega": "8/6/2026", Número: 1, Nombre: "El Triunfo", Peso: "8547,08", Clientes: 20, "Peso Maximo": 9710 }]);

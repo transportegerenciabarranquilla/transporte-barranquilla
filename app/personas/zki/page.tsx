@@ -18,6 +18,10 @@ import {
   parseTerritoryClients,
   parseZkiVisits,
   rankCandidates,
+  rankTerritoryAuxiliaries,
+  samePerson,
+  normalizeZkiCode,
+  normalizePersonName,
   type Candidate,
   type RawRow,
   type ZkiVisit,
@@ -49,7 +53,7 @@ function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[
   const unavailable = rules.filter((person) => !person.available);
   const matches = (person: PersonnelRule, id: string, name: string) =>
     (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) ||
-    (person.name && normalizePerson(person.name) === normalizePerson(name));
+    (person.name && normalizePersonName(person.name) === normalizePersonName(name));
   // Solo se excluye una persona cuando fue marcada explícitamente como no
   // disponible. No pertenecer al catálogo editable no elimina su historial.
   const blocked = (id: string, name: string) => unavailable.some((person) => matches(person, id, name));
@@ -61,12 +65,12 @@ function candidateIsLogisticsRr(candidate: Candidate, rules: PersonnelRule[], cr
     if (!(["RR", "Líder de Ruta"] as PersonnelRule["role"][]).includes(person.role)) return false;
     if (normalizePerson(person.contractor) !== "logisticos") return false;
     return (person.id && candidate.rrId && person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
-      || (person.name && normalizePerson(person.name) === normalizePerson(candidate.rr));
+      || (person.name && normalizePersonName(person.name) === normalizePersonName(candidate.rr));
   });
   if (inPersonnel) return true;
   return crewPairs.some((pair) =>
     (pair.responsibleId && candidate.rrId && pair.responsibleId.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
-    || (pair.responsible && normalizePerson(pair.responsible) === normalizePerson(candidate.rr)),
+    || (pair.responsible && normalizePersonName(pair.responsible) === normalizePersonName(candidate.rr)),
   );
 }
 
@@ -254,7 +258,7 @@ export default function ZkiPage() {
   const visitsByClient = useMemo(() => {
     const index = new Map<string, typeof visits>();
     visits.forEach((visit) => {
-      const key = normalizePerson(visit.client);
+      const key = normalizeZkiCode(visit.client);
       if (!key) return;
       const current = index.get(key);
       if (current) current.push(visit);
@@ -335,12 +339,13 @@ export default function ZkiPage() {
   }, [deferredPersonnelSearch, personnelRole, personnelView]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = clientsByTerritory.get(trip.territoryId) || [];
-    const relevantVisits = clientCodes.length ? clientCodes.flatMap((client) => visitsByClient.get(normalizePerson(client)) || []) : visits;
+    const relevantVisits = clientCodes.length ? [...new Set(clientCodes)].flatMap((client) => visitsByClient.get(normalizeZkiCode(client)) || []) : visits;
     const rankedWithHistory = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRangeRules, trip.clients)
       .filter((candidate) => candidate.zki > 0)
       .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki }))
       .filter((candidate) => candidateIsLogisticsRr(candidate, personnelRules, data?.crew || []) && candidatePersonnelAvailable(candidate, personnelRules));
-    const ranked = addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules);
+    const auxiliaryScores = rankTerritoryAuxiliaries(trip, relevantVisits, clientCodes, settings);
+    const ranked = addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules, auxiliaryScores);
     return { trip, candidates: ranked };
   }), [auxiliaryRoster, capacities, clientsByTerritory, data?.crew, history, personnelRangeRules, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
@@ -350,14 +355,18 @@ export default function ZkiPage() {
     );
     const preliminary = rankedPlanning.map(({ trip, candidates }) => ({ trip, candidates, recommendation: assignments.get(trip.id) }));
     const paired = assignFreeResponsiblesToDriverVehicles(preliminary, data?.crew || [], capacities, settings.minimumZki);
-    const unique = enforceUniqueAssignedCrew(preliminary.map(item => ({ tripId: item.trip.id, recommendation: paired.get(item.trip.id) })), settings.minimumZki);
+    const unique = enforceUniqueAssignedCrew(preliminary.map(item => {
+      const recommendation = paired.get(item.trip.id);
+      const ids = resolveExportCrewIds(recommendation, personnelRules, data?.crew || []);
+      return { tripId: item.trip.id, recommendation: recommendation ? { ...recommendation, rrId: ids.responsibleId || recommendation.rrId, driverId: ids.driverId || recommendation.driverId, auxiliaryId: ids.auxiliaryId || recommendation.auxiliaryId } : undefined };
+    }), settings.minimumZki);
     return preliminary.map(item => ({ ...item, recommendation: unique.get(item.trip.id) }));
-  }, [capacities, data?.crew, rankedPlanning, settings.minimumZki]);
+  }, [capacities, data?.crew, personnelRules, rankedPlanning, settings.minimumZki]);
   const candidates = useMemo(
     () => activeTrip ? rankedPlanning.find((item) => item.trip.id === activeTrip.id)?.candidates || [] : [],
     [activeTrip, rankedPlanning],
   );
-  const viable = candidates.filter((candidate) => candidate.viable);
+  const viable = planning.flatMap(({ recommendation: assigned }) => assigned?.viable && hasCompleteCrew(assigned) ? [assigned] : []);
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
   const incompleteTrips = planning.filter(({ recommendation: item }) => !hasCompleteCrew(item));
   const planningComplete = planning.length > 0 && incompleteTrips.length === 0;
@@ -463,6 +472,24 @@ export default function ZkiPage() {
     if (!planning.length) {
       setError("Carga los viajes y el catálogo de territorios antes de generar el Excel.");
       return;
+    }
+    const assignedPeople: Array<{ id: string; name: string; territory: string; role: string }> = [];
+    for (const { trip, recommendation: item } of planning) {
+      if (!item) continue;
+      const ids = resolveExportCrewIds(item, personnelRules, data?.crew || []);
+      for (const person of [
+        { id: ids.responsibleId, name: item.rr, role: "responsable" },
+        { id: ids.driverId, name: item.driver, role: "conductor" },
+        { id: ids.auxiliaryId, name: item.auxiliary, role: "auxiliar" },
+      ]) {
+        if (!person.name.trim() || /^sin\b/i.test(person.name.trim())) continue;
+        const previous = assignedPeople.find(other => samePerson(other.id, other.name, person.id, person.name));
+        if (previous) {
+          setError(`No se generó el Excel: ${person.name} figura como ${previous.role} en territorio ${previous.territory} y como ${person.role} en territorio ${trip.territoryId}. Actualiza la planeación y revisa su registro de personal.`);
+          return;
+        }
+        assignedPeople.push({ ...person, territory: trip.territoryId });
+      }
     }
     const XLSX = await import("xlsx");
     const assignments = planning.map(({ trip, recommendation: item }) => {
@@ -653,7 +680,7 @@ export default function ZkiPage() {
             <Stat label="Viajes cargados" value={trips.length} />
             <Stat label="Visitas históricas ZKI" value={source?.rows || visits.length} />
             <Stat label="Clientes del catálogo" value={new Set(territoryClients.map((row) => row.client)).size} />
-            <Stat label="Opciones viables" value={viable.length} />
+            <Stat label="Asignaciones viables" value={viable.length} />
           </div>
           <div className="border-t border-slate-200 p-4">
             <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -859,6 +886,7 @@ function addCrewResponsibleFallbacks(
   capacities: Map<string, number>,
   auxiliaryRoster: ZkiVisit[],
   personnelRules: PersonnelRule[],
+  auxiliaryScores: Array<{ name: string; id: string; zki: number }>,
 ) {
   const existingIds = new Set(candidates.map((candidate) => candidate.rrId.replace(/\D/g, "")).filter(Boolean));
   const existingNames = new Set(candidates.map((candidate) => normalizePerson(candidate.rr)).filter(Boolean));
@@ -866,9 +894,10 @@ function addCrewResponsibleFallbacks(
   const isUnavailable = (id: string, name: string) => unavailable.some((person) =>
     (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) || normalizePerson(person.name) === normalizePerson(name),
   );
+  const scoredByName = new Map(auxiliaryScores.map(option => [normalizePersonName(option.name), option]));
   const auxiliaryOptions = [...new Map(auxiliaryRoster
     .filter((person) => person.rr && !isUnavailable(person.rrId || "", person.rr))
-    .map((person) => [normalizePerson(person.rrId || person.rr), { name: person.rr, id: person.rrId || "", zki: 0 }])).values()];
+    .map((person) => [normalizePersonName(person.rr), scoredByName.get(normalizePersonName(person.rr)) || { name: person.rr, id: person.rrId || "", zki: 0 }])).values()].sort((left, right) => right.zki - left.zki);
 
   const fallbacks = crewPairs.flatMap((pair): Candidate[] => {
     const rrId = pair.responsibleId.replace(/\D/g, "");
@@ -891,9 +920,9 @@ function addCrewResponsibleFallbacks(
       zki: 0,
       auxiliary: auxiliary.name,
       auxiliaryId: auxiliary.id,
-      auxiliaryZki: 0,
+      auxiliaryZki: auxiliary.zki,
       auxiliaryOptions,
-      totalZki: 0,
+      totalZki: auxiliary.zki,
       capacity: capacities.get(vehicleKey) || 0,
       viable: false,
       hasKnowledge: false,
