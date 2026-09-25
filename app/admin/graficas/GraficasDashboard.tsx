@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import ManagementOriginChart from "./ManagementOriginChart";
+import DiferenciaKilometros from "./page1";
 import styles from "./mobile.module.css";
 import { ArrowLeft, BarChart3, CalendarDays, ChevronRight, ClipboardCheck, Clock3, Gauge, MapPinCheck, MessageSquareText, PackageCheck, Search, ShieldAlert, Table2, TrendingUp, Trophy, Users, X } from "lucide-react";
 import { normalizeContractorName } from "../../lib/contractors";
@@ -371,6 +372,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         </nav>
 
         {activeView === "summary" ? <>
+        {!contractorMode && <DiferenciaKilometros records={records} recordsLoading={loading} recordsError={error} />}
         <section className="mb-5">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
