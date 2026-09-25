@@ -9,6 +9,7 @@ import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, se
 import type { CheckinCajasRegistro } from "../lib/checkinStorage";
 import { calculateRefusalTotals, normalizeDt, type ModulacionRegistro } from "../lib/modulacionStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
+import FueraDeRangoCharts from "./FueraDeRangoCharts";
 
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 
@@ -69,7 +70,7 @@ type VehiclePerson = PersonSummary & {
   role: string;
 };
 
-type AdminTab = "resumen" | "detalle" | "errores" | "exportar";
+type AdminTab = "resumen" | "detalle" | "errores" | "exportar" | "fuera-rango";
 type AdminIssueKind = "sin-responsable" | "sin-asistencia" | "salida-tardia" | "bajo-avance" | "modulacion-pendiente" | "sin-fecha" | "sin-salida";
 type ModulacionExportFormat = "xlsx" | "pdf";
 type ModulacionExportPeriod = "today" | "month" | "history";
@@ -388,6 +389,13 @@ export default function AdminPage() {
     } finally {
       setExportingRefusal("");
     }
+  }
+
+  if (activeTab === "fuera-rango") {
+    return <main className="min-h-screen bg-[#f4f7fb] px-5 py-6 sm:px-8"><div className="mx-auto max-w-7xl">
+      <button type="button" onClick={() => router.push("/")} className="mb-5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#10223d]">← Volver a módulos</button>
+      <FueraDeRangoCharts contractor={selectedContractor} from={dateFrom} to={dateTo} dt={dtSearch} />
+    </div></main>;
   }
 
   return (
@@ -1016,10 +1024,11 @@ function AdminTabs({
     { id: "detalle", label: "Detalle", detail: `${recordCount} registros` },
     { id: "errores", label: "Errores", detail: `${issueCount} alertas` },
     { id: "exportar", label: "Exportar", detail: "excel y pdf" },
+    { id: "fuera-rango", label: "Fuera de RangoCharts", detail: "Clientes y modulaciones" },
   ];
 
   return (
-    <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white/92 p-2 shadow-sm backdrop-blur sm:grid-cols-4">
+    <div className="mb-5 grid gap-2 rounded-lg border border-slate-200 bg-white/92 p-2 shadow-sm backdrop-blur sm:grid-cols-3 xl:grid-cols-5">
       {tabs.map((tab) => (
         <button
           className={`rounded-md px-3 py-2 text-left transition ${
@@ -1157,7 +1166,7 @@ function issueLabel(kind: AdminIssueKind) {
 }
 
 function isAdminTab(value: string | null): value is AdminTab {
-  return value === "resumen" || value === "detalle" || value === "errores" || value === "exportar";
+  return value === "resumen" || value === "detalle" || value === "errores" || value === "exportar" || value === "fuera-rango";
 }
 
 function isAdminIssueKind(value: string | null): value is AdminIssueKind {

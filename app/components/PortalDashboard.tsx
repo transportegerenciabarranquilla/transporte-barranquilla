@@ -5,8 +5,8 @@ import type { CSSProperties } from "react";
 import styles from "./portal.module.css";
 import { Truck, PackageCheck, Clock3, Users, Route, CalendarCheck, Timer, BriefcaseBusiness, Star, ChartColumn, ClipboardCheck, Phone, MapPinned, MessageSquareWarning, ReceiptText, BedDouble, LayoutGrid, type LucideIcon } from "lucide-react";
 
-const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn };
-const modulePalette: Record<number, [string, string]> = { 1: ["#2563eb", "#eff6ff"], 2: ["#0d9488", "#f0fdfa"], 3: ["#b77912", "#fffbeb"], 5: ["#16835d", "#ecfdf5"], 12: ["#0284c7", "#f0f9ff"], 13: ["#7c3aed", "#f5f3ff"], 15: ["#be3455", "#fff1f2"], 19: ["#087e96", "#ecfeff"] };
+const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn, 22: MapPinned };
+const modulePalette: Record<number, [string, string]> = { 1: ["#2563eb", "#eff6ff"], 2: ["#0d9488", "#f0fdfa"], 3: ["#b77912", "#fffbeb"], 5: ["#16835d", "#ecfdf5"], 12: ["#0284c7", "#f0f9ff"], 13: ["#7c3aed", "#f5f3ff"], 15: ["#be3455", "#fff1f2"], 19: ["#087e96", "#ecfeff"], 22: ["#be123c", "#fff1f2"] };
 import { Icon } from "./Icon";
 import { GlobalOperationsSearch } from "./GlobalOperationsSearch";
 import { getPortalHeroCopy, getPortalSessionLabel, getVisiblePortalModules } from "./portalModules";

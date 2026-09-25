@@ -130,6 +130,15 @@ const adminRangoModule: PortalModule = {
   detail: "Historial global y por contratista",
 };
 
+const adminFueraDeRangoModule: PortalModule = {
+  id: 22,
+  title: "Fuera de RangoCharts",
+  href: "/admin/fuera-rango",
+  detail: "Clientes en rango, fuera de rango y seguimientos cargados",
+  tone: "from-[#be123c] to-[#f97316]",
+  accent: "border-l-[#be123c]",
+};
+
 const adminLiquidationStatusModule: PortalModule = {
   id: 16,
   title: "Estatus Liq",
@@ -210,7 +219,7 @@ export function getVisiblePortalModules({
   if (isPeople) return [peopleModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
-    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
+    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = isLogisticosContractor(contractor);
