@@ -62,7 +62,7 @@ export default function RegistroModulacionPage() {
         // Usar el mismo conjunto de rutas que muestra el detalle de
         // Modulaciones. La búsqueda filtrada por contratista/DT podía omitir
         // una ruta que sí está disponible en el seguimiento general.
-        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}`, {
+        fetch(`/api/seguimiento?contratista=${encodeURIComponent(contratista)}&dt=${encodeURIComponent(dt)}`, {
           cache: "no-store",
           signal: controller.signal,
         }),

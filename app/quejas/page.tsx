@@ -48,7 +48,7 @@ export default function ComplaintsPage() {
   useEffect(() => {
     if (access !== "allowed" || !isAdminSession) return;
     const refresh = () => { if (!document.hidden) void loadRecords(true); };
-    const interval = window.setInterval(refresh, 3_000);
+    const interval = window.setInterval(refresh, 30_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {

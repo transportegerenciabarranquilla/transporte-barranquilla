@@ -130,6 +130,7 @@ export default function ManagementPage() {
   const [now, setNow] = useState(0);
   const [refreshIn, setRefreshIn] = useState(REFRESH_SECONDS);
   const [sourceCounts, setSourceCounts] = useState({ seguimiento: 0, asistencias: 0 });
+  const refreshPending = useRef<Promise<void> | null>(null);
 
   const refreshManagementData = useCallback(async () => {
     const response = await fetch(`/api/people/gerencia?refresh=${Date.now()}`, { cache: "no-store" });
@@ -158,8 +159,10 @@ export default function ManagementPage() {
   }, []);
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshManagementData(), refreshAttendanceData()]);
-    setRefreshIn(REFRESH_SECONDS);
+    if (refreshPending.current) return refreshPending.current;
+    const request = Promise.all([refreshManagementData(), refreshAttendanceData()]).then(() => { setRefreshIn(REFRESH_SECONDS); });
+    refreshPending.current = request;
+    try { await request; } finally { if (refreshPending.current === request) refreshPending.current = null; }
   }, [refreshAttendanceData, refreshManagementData]);
 
   useEffect(() => {
@@ -177,6 +180,7 @@ export default function ManagementPage() {
   useEffect(() => {
     if (!isAllowed) return;
     const refresh = () => {
+      if (document.hidden) return;
       void refreshAll().catch((caught) => {
         setError(caught instanceof Error ? caught.message : "No se pudo actualizar el tablero.");
       });

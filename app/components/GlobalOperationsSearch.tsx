@@ -3,16 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardCheck, PackageSearch, Search, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { ASISTENCIA_STORAGE_KEY, readAsistenciaRegistros, type AsistenciaRegistro } from "../lib/asistenciaStorage";
-import { MODULACION_STORAGE_KEY, readModulacionRegistros, type ModulacionRegistro } from "../lib/modulacionStorage";
-import { refreshRemoteRecords } from "../lib/remoteStore";
-import { readSeguimientoVehiculos, SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
+import { ASISTENCIA_STORAGE_KEY, type AsistenciaRegistro } from "../lib/asistenciaStorage";
+import { MODULACION_STORAGE_KEY, type ModulacionRegistro } from "../lib/modulacionStorage";
+import { readCachedRemoteRecords, refreshRemoteRecords } from "../lib/remoteStore";
+import { SEGUIMIENTO_STORAGE_KEY } from "../lib/seguimientoStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
 import type { Vehiculo } from "../seguimiento/types";
 import { startVisiblePolling } from "../lib/visiblePolling";
 
 const REFRESH_MS = 60_000;
 const MAX_RESULTS = 8;
+const readCachedVehicles = () => readCachedRemoteRecords<Vehiculo>("/api/seguimiento");
+const readCachedAttendances = () => readCachedRemoteRecords<AsistenciaRegistro>("/api/asistencias");
+const readCachedModulations = () => readCachedRemoteRecords<ModulacionRegistro>("/api/modulaciones");
 
 type SearchResult = {
   id: string;
@@ -31,17 +34,19 @@ export function GlobalOperationsSearch({ isAdmin = false }: { isAdmin?: boolean 
 function AdminOperationsSearch() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
-  const attendances = useStorageSnapshot<AsistenciaRegistro[]>([ASISTENCIA_STORAGE_KEY], readAsistenciaRegistros, []);
-  const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
+  const vehicles = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readCachedVehicles, []);
+  const attendances = useStorageSnapshot<AsistenciaRegistro[]>([ASISTENCIA_STORAGE_KEY], readCachedAttendances, []);
+  const modulaciones = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readCachedModulations, []);
+  const searchActive = query.trim().length >= 2;
 
   useEffect(() => {
+    if (!searchActive) return;
     return startVisiblePolling(() => Promise.all([
       refreshRemoteRecords("/api/seguimiento"),
       refreshRemoteRecords("/api/asistencias"),
       refreshRemoteRecords("/api/modulaciones"),
     ]), REFRESH_MS);
-  }, []);
+  }, [searchActive]);
 
   const results = useMemo(() => buildResults(query, vehicles, attendances, modulaciones), [attendances, modulaciones, query, vehicles]);
 

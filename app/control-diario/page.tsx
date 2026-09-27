@@ -29,11 +29,17 @@ export default function DailyControlPage() {
   const [completed, setCompleted] = useState({ departure: false, return: false, absence: false });
   const [editing, setEditing] = useState({ departure: false, return: false, absence: false });
   const [dashboard, setDashboard] = useState<DashboardData>({ checklists: [], absences: [], modulations: [], ranges: [], tracking: [], attendance: [], relays: [], rti: {} });
+  const attendanceRefreshPending = useRef<Promise<void> | null>(null);
   const refreshAttendance = useCallback(async () => {
-    const response = await fetch(`/api/people/attendance-snapshots?refresh=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) return;
-    const body = await response.json().catch(() => ({}));
-    setDashboard((current) => ({ ...current, attendance: body.snapshots || [] }));
+    if (attendanceRefreshPending.current) return attendanceRefreshPending.current;
+    const request = (async () => {
+      const response = await fetch(`/api/people/attendance-snapshots?refresh=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const body = await response.json().catch(() => ({}));
+      setDashboard((current) => ({ ...current, attendance: body.snapshots || [] }));
+    })();
+    attendanceRefreshPending.current = request;
+    try { await request; } finally { if (attendanceRefreshPending.current === request) attendanceRefreshPending.current = null; }
   }, []);
   const absencePercentage = useMemo(() => Number(scheduled) ? Math.round((Number(absent) / Number(scheduled)) * 1_000) / 10 : 0, [absent, scheduled]);
   const dayComplete = completed.departure && completed.return && completed.absence && !Object.values(editing).some(Boolean);
@@ -84,7 +90,7 @@ export default function DailyControlPage() {
   }, [date]);
 
   useEffect(() => {
-    const refresh = () => void refreshAttendance();
+    const refresh = () => { if (!document.hidden) void refreshAttendance(); };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") refresh();
     };

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getAuthenticatedSession } from "../../lib/authServer";
+import { canAccessContractor } from "../../lib/adminScope";
 import { cachedJsonFetch } from "../../lib/serverCache";
 import { contractorLabel, normalizeContractorName } from "../../lib/contractors";
 import { isRrRole } from "../../lib/rrRole";
@@ -6,6 +8,7 @@ import { supabaseAdminHeaders, supabaseHeaders, supabaseRest } from "../../lib/s
 
 const PEOPLE_CACHE_TTL_MS = 10 * 60 * 1000;
 const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA,CELULAR";
+const PUBLIC_PERSON_SELECT = "NOMBRE,CARGO,CONTRATISTA";
 
 type PersonaRow = {
   CC?: string | number;
@@ -19,21 +22,35 @@ export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
     const rawCc = searchParams.get("cc");
-    const contractor = searchParams.get("contratista")?.trim();
+    let contractor = searchParams.get("contratista")?.trim();
     const cargo = searchParams.get("cargo")?.trim();
     const query = searchParams.get("q")?.trim();
     const shouldListAll = searchParams.get("listar") === "1" || searchParams.get("all") === "1";
     const cc = rawCc?.replace(/\D/g, "").trim();
 
     if (!cc) {
+      if (query || shouldListAll || cargo) {
+        const session = await getAuthenticatedSession({ allowSiteAdmin: true });
+        if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+        if (!session.isAdmin && !session.isPeople) contractor = session.contractor;
+        if (session.isSiteAdmin && (!contractor || !canAccessContractor(session, contractor))) {
+          return NextResponse.json({ error: "Contratista no autorizado." }, { status: 403 });
+        }
+      }
+      if (query && query.length < 3) return NextResponse.json({ personas: [] });
       if (query) return searchPersonas(query, contractor);
       if (shouldListAll) return listPersonas(contractor);
       if (cargo) return listPersonasByCargo(cargo, contractor);
       return NextResponse.json({ persona: null });
     }
 
+    const session = await getAuthenticatedSession({ allowSiteAdmin: true });
+    if (session && !session.isAdmin && !session.isPeople) contractor = session.contractor;
+    if (session?.isSiteAdmin && (!contractor || !canAccessContractor(session, contractor))) {
+      return NextResponse.json({ error: "Contratista no autorizado." }, { status: 403 });
+    }
     const params = new URLSearchParams({
-      select: PEOPLE_SELECT,
+      select: session ? PEOPLE_SELECT : PUBLIC_PERSON_SELECT,
       CC: `eq.${cc}`,
       limit: "1",
     });
@@ -48,7 +65,12 @@ export async function GET(request: Request) {
     const normalizedPersona = persona
       ? { ...persona, CONTRATISTA: contractorLabel(persona.CONTRATISTA) || persona.CONTRATISTA }
       : null;
-    return NextResponse.json({ persona: normalizedPersona, isRR: isRrRole(normalizedPersona?.CARGO) });
+    const publicPersona = !session && normalizedPersona
+      ? contractor
+        ? { NOMBRE: normalizedPersona.NOMBRE, CARGO: normalizedPersona.CARGO, CONTRATISTA: normalizedPersona.CONTRATISTA }
+        : { NOMBRE: normalizedPersona.NOMBRE }
+      : normalizedPersona;
+    return NextResponse.json({ persona: publicPersona, isRR: isRrRole(normalizedPersona?.CARGO) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error buscando la persona." },

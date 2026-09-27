@@ -57,6 +57,126 @@ test('HL: los dos DT intercambiados siguen visibles y conservan sus IDs al volve
   } finally { globalThis.fetch = oldFetch; }
 });
 
+test('seguimiento público exige DT y conserva variantes históricas sin exponer otro contratista', async () => {
+  const route = compile('../app/api/seguimiento/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => null },
+    '../../lib/supabaseServer': { ...supabase, supabaseReadHeaders: () => ({}) },
+    '../../lib/scopedWrite': {},
+    '../../lib/auditLog': {},
+    '../../lib/serverCache': { cachedJsonFetch: async () => [], clearServerCache: () => {} },
+  });
+  const oldFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    calls.push(parsed);
+    if (parsed.pathname.endsWith('/seguimiento_vehiculos')) return Response.json([
+      { record_id: 'pc-1', contractor: 'Punto Corona', data: { transporte: 'DT-123', transportista: 'Punto Corona', vehiculo: 'ABC123', fechaDespacho: '2026-09-27' } },
+      { record_id: 'pc-2', contractor: 'Punto Corona', data: { transporte: 'R1S123', transportista: 'Punto Corona', vehiculo: 'DEF123', fechaDespacho: '2026-09-26' } },
+      { record_id: 'surti-1', contractor: 'Surti Cervezas', data: { transporte: '123', transportista: 'Surti Cervezas', vehiculo: 'XYZ123', fechaDespacho: '2026-09-27' } },
+    ]);
+    return Response.json([]);
+  };
+  try {
+    const missing = await route.GET(new Request('https://example.test/api/seguimiento?contratista=Punto%20Corona'));
+    assert.equal(missing.status, 400);
+    assert.equal(calls.length, 0);
+    const response = await route.GET(new Request('https://example.test/api/seguimiento?contratista=Punto%20Corona&dt=123'));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.records.map((record) => record.vehiculo), ['ABC123', 'DEF123']);
+    assert.equal(body.records[0].recordId, undefined);
+    assert.equal(body.records[0].visitados, undefined);
+    const params = calls[0].searchParams;
+    assert.match(params.get('or'), /contractor\.eq\."Punto Corona"/);
+    assert.match(params.get('or'), /contractor\.is\.null/);
+    assert.equal(params.has('data->>transporte'), false);
+    assert.equal(calls.filter((call) => call.pathname.endsWith('/seguimiento_vehiculos')).length, 1);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('seguimiento autenticado ignora contratista manipulado y admin puede elegir contratista', async () => {
+  let session = { contractor: 'Punto Corona', accessToken: 'token', userId: 'u1', email: 'puntocorona@bavaria-seguimiento.com', isAdmin: false, isPeople: false };
+  const route = compile('../app/api/seguimiento/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => session },
+    '../../lib/supabaseServer': { ...supabase, supabaseReadHeaders: () => ({}) },
+    '../../lib/scopedWrite': {},
+    '../../lib/auditLog': {},
+    '../../lib/serverCache': { cachedJsonFetch: async () => [], clearServerCache: () => {} },
+  });
+  const oldFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(new URL(url)); return Response.json([]); };
+  try {
+    for (const [own, requested] of [
+      ['Punto Corona', 'Surti Cervezas'],
+      ['Surti Cervezas', 'Logisticos'],
+      ['Logisticos', 'Punto Corona'],
+    ]) {
+      session = { ...session, contractor: own };
+      await route.GET(new Request(`https://example.test/api/seguimiento?contratista=${encodeURIComponent(requested)}`));
+      assert.ok(calls[0].searchParams.get('or').includes(`contractor.eq."${own}"`));
+      assert.ok(!calls[0].searchParams.get('or').includes(requested));
+      calls.length = 0;
+    }
+    session = { ...session, contractor: 'Admin', isAdmin: true };
+    await route.GET(new Request('https://example.test/api/seguimiento?contratista=Surti%20Cervezas'));
+    assert.match(calls[0].searchParams.get('or'), /contractor\.eq\."Surti Cervezas"/);
+    calls.length = 0;
+    await route.GET(new Request('https://example.test/api/seguimiento'));
+    assert.equal(calls[0].searchParams.has('or'), false);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('personas no entrega listados ni búsquedas públicas', async () => {
+  const route = compile('../app/api/personas/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => null },
+    '../../lib/supabaseServer': supabase,
+    '../../lib/serverCache': { cachedJsonFetch: async () => { throw Error('No debe leer personas'); } },
+  });
+  for (const suffix of ['?listar=1', '?q=Maria', '?cargo=conductor']) {
+    const response = await route.GET(new Request(`https://example.test/api/personas${suffix}`));
+    assert.equal(response.status, 401);
+  }
+});
+
+test('personas: consulta pública no devuelve celular; contratista autenticado no puede cambiar el alcance', async () => {
+  let session = null;
+  const queries = [];
+  const route = compile('../app/api/personas/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => session },
+    '../../lib/supabaseServer': supabase,
+    '../../lib/serverCache': { cachedJsonFetch: async (key, ttl, url) => {
+      queries.push(new URL(url).searchParams);
+      return [{ CC: '123456', NOMBRE: 'Ana', CARGO: 'CONDUCTOR', CONTRATISTA: 'Surti Cervezas', CELULAR: '3001234567' }];
+    } },
+  });
+  const publicResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456&contratista=Surti%20Cervezas'));
+  assert.equal(publicResponse.status, 200);
+  assert.equal(queries[0].get('select'), 'NOMBRE,CARGO,CONTRATISTA');
+  assert.equal((await publicResponse.json()).persona.CELULAR, undefined);
+  const rrResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456'));
+  assert.deepEqual((await rrResponse.json()).persona, { NOMBRE: 'Ana' });
+  queries.length = 0;
+  session = { contractor: 'Punto Corona', accessToken: 'token', email: 'puntocorona@bavaria-seguimiento.com', isAdmin: false, isPeople: false };
+  const privateResponse = await route.GET(new Request('https://example.test/api/personas?q=Ana&contratista=Surti%20Cervezas'));
+  assert.equal(privateResponse.status, 200);
+  assert.equal(queries[0].get('CONTRATISTA'), 'eq.Punto Corona');
+  queries.length = 0;
+  const ccResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456&contratista=Surti%20Cervezas'));
+  assert.equal(ccResponse.status, 200);
+  assert.equal(queries[0].get('select'), 'CC,NOMBRE,CARGO,CONTRATISTA,CELULAR');
+  assert.equal((await ccResponse.json()).persona, null);
+  queries.length = 0;
+  session = { ...session, contractor: 'Surti Cervezas' };
+  const phoneResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456&contratista=Surti%20Cervezas'));
+  assert.equal((await phoneResponse.json()).persona.CELULAR, '3001234567');
+});
+
 test('segundos viajes: editar DT y placas conserva la fila; duplicados y registros ajenos no se escriben', async () => {
   const route = compile('../app/api/seguimiento/route.ts', {
     'next/server': responseMock,

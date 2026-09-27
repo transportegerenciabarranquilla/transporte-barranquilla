@@ -42,6 +42,7 @@ export async function GET(request: Request) {
     const publicContractor = PUBLIC_CONTRACTORS[normalizeContractorName(requestedContractor)];
 
     if (!session && !publicContractor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session && !requestedDt) return NextResponse.json({ error: "Indica un DT válido." }, { status: 400 });
 
     // Admin y People consultan el contratista seleccionado en el formulario.
     // Antes People caía en session.contractor ("People") y nunca encontraba
@@ -61,16 +62,17 @@ export async function GET(request: Request) {
       : supabaseAdminHeaders() ?? supabaseHeaders();
     const readScope = session ? `user:${session.userId}` : "public";
     const listTtl = session && !session.isAdmin && !session.isPeople ? 0 : LIST_CACHE_TTL_MS;
-    const canScanAllRows = Boolean(supabaseAdminHeaders());
-    const params = new URLSearchParams(
-      isGlobalAdminQuery || canScanAllRows
-        ? { select: "record_id,contractor,data,updated_at", order: "record_id.asc" }
-        : { select: "record_id,contractor,data,updated_at", contractor: `eq.${contractor}`, order: "record_id.asc" },
-    );
+    const params = new URLSearchParams({ select: "record_id,contractor,data,updated_at", order: "record_id.asc" });
+    if (!isGlobalAdminQuery && contractor) {
+      // La columna contractor identifica al dueño; el JSON solo se usa para filas históricas sin dueño.
+      params.set("or", contractorOwnerFilter(contractor, "transportista"));
+    }
     if (session) scopeQuery(params, session);
     // El campo puede estar guardado como "DT-123" o con espacios/separadores.
     // La coincidencia normalizada se confirma abajo para no aceptar parciales.
-    if (requestedDt) params.set("data->>transporte", `ilike.*${requestedDt}*`);
+    // El formulario público debe encontrar también DT históricos con prefijos/separadores.
+    // Una búsqueda textual parcial puede devolver una ruta antigua y omitir otra del mismo DT.
+    if (requestedDt && session) params.set("data->>transporte", `ilike.*${requestedDt}*`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
     let rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null; updated_at?: string }>(
       TABLE,
@@ -92,7 +94,7 @@ export async function GET(request: Request) {
     // Algunas cargas guardan el DT en un formato que PostgREST no encuentra
     // con el filtro JSON ilike. Reintenta por contratista y compara el DT
     // normalizado aquí antes de declarar que la ruta no tiene placa.
-    if (!matchedRows.length && requestedDt) {
+    if (!matchedRows.length && requestedDt && params.has("data->>transporte")) {
       const broadParams = new URLSearchParams(params);
       broadParams.delete("data->>transporte");
       broadParams.delete("data->>fechaDespacho");
@@ -106,8 +108,20 @@ export async function GET(request: Request) {
       matchedRows = filterRows(rows);
     }
     const records = removeDuplicateDtRecords(matchedRows);
-    const withCapacities = await applyDatabaseCapacities(records, session?.accessToken);
-    return NextResponse.json({ records: await applyAttendanceToVehicles(withCapacities, session?.accessToken, session?.isAdmin || session?.isPeople ? undefined : contractor) });
+    const withCapacities = session ? await applyDatabaseCapacities(records, session.accessToken) : records;
+    const enriched = await applyAttendanceToVehicles(withCapacities, session?.accessToken, isGlobalAdminQuery ? undefined : contractor);
+    return NextResponse.json({ records: session ? enriched : enriched.map((record) => ({
+      transporte: record.transporte,
+      transportista: record.transportista,
+      vehiculo: record.vehiculo,
+      fechaDespacho: record.fechaDespacho,
+      fechaDt: record.fechaDt,
+      date: record.date,
+      createdAt: record.createdAt,
+      responsable: record.responsable,
+      cedulaResponsable: record.cedulaResponsable,
+      nombreResponsable: record.nombreResponsable,
+    })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando seguimiento." }, { status: 500 });
   }
@@ -784,9 +798,7 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   const byContractorDtAndDate = new Map<string, AsistenciaRegistro>();
   const latestByContractorDt = new Map<string, AsistenciaRegistro>();
   const params = new URLSearchParams({ select: "contractor,data", order: "updated_at.desc" });
-  // No filtrar aquí por texto literal: hay filas históricas de HL con
-  // "HL Logistica" y otras con "HL Logisticos". El filtro seguro se aplica
-  // abajo con normalizeContractorName, después de leer las filas permitidas.
+  if (contractor) params.set("or", contractorOwnerFilter(contractor, "contratista"));
 
   const rows = await readPagedRowsCached<{ contractor?: string; data: AsistenciaRegistro }>(
     "asistencias_ruta",
@@ -816,6 +828,16 @@ async function readAttendanceIndex(accessToken: string | undefined, contractor?:
   });
 
   return { byContractorDtAndDate, latestByContractorDt };
+}
+
+function contractorOwnerFilter(contractor: string, legacyField: string) {
+  const owners = normalizeContractorName(contractor) === "hllogisticos"
+    ? ["HL Logisticos", "HL Logistica", "HL Logísticos"]
+    : [contractor];
+  return `(${owners.flatMap((owner) => [
+    `contractor.eq.${JSON.stringify(owner)}`,
+    `and(contractor.is.null,data->>${legacyField}.eq.${JSON.stringify(owner)})`,
+  ]).join(",")})`;
 }
 
 function isNewerAttendance(next: AsistenciaRegistro, current: AsistenciaRegistro) {

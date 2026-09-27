@@ -40,15 +40,33 @@ export function PwaManager() {
     setNotificationPermission("Notification" in window && "serviceWorker" in navigator && "PushManager" in window ? Notification.permission : "unsupported");
     navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
 
+    const controller = new AbortController();
+    let sessionRequestPending = false;
+    let refreshAfterPending = false;
     const refreshSession = () => {
-      fetch("/api/session/session", { cache: "no-store" })
+      if (document.hidden || sessionRequestPending) return;
+      sessionRequestPending = true;
+      fetch("/api/session/session", { cache: "no-store", signal: controller.signal })
         .then((response) => response.ok ? response.json() : null)
-        .then((body) => setIsAdmin(Boolean(body?.session?.isAdmin)))
-        .catch(() => undefined);
+        .then((body) => { if (!controller.signal.aborted) setIsAdmin(Boolean(body?.session?.isAdmin)); })
+        .catch(() => undefined)
+        .finally(() => {
+          sessionRequestPending = false;
+          if (refreshAfterPending && !controller.signal.aborted) {
+            refreshAfterPending = false;
+            refreshSession();
+          }
+        });
+    };
+    const refreshOnFocus = () => {
+      if (sessionRequestPending) refreshAfterPending = true;
+      else refreshSession();
     };
     refreshSession();
-    const sessionInterval = window.setInterval(refreshSession, 15_000);
-    window.addEventListener("focus", refreshSession);
+    const sessionInterval = window.setInterval(() => {
+      if (!document.hidden) refreshSession();
+    }, 60_000);
+    window.addEventListener("focus", refreshOnFocus);
 
     const receivePrompt = (event: Event) => {
       event.preventDefault();
@@ -60,8 +78,9 @@ export function PwaManager() {
     return () => {
       window.removeEventListener("beforeinstallprompt", receivePrompt);
       window.removeEventListener("appinstalled", markInstalled);
-      window.removeEventListener("focus", refreshSession);
+      window.removeEventListener("focus", refreshOnFocus);
       window.clearInterval(sessionInterval);
+      controller.abort();
     };
   }, []);
 

@@ -102,6 +102,11 @@ export function readRemoteRecords<T>(endpoint: string): T[] {
   return mergeCachedRecords(readPersistedModulaciones() as T[], (cached ?? []) as T[], (record) => recordId(record)) as T[];
 }
 
+// Para vistas opcionales que no deben iniciar una consulta al montarse.
+export function readCachedRemoteRecords<T>(endpoint: string): T[] {
+  return (cache.get(endpoint) ?? []) as T[];
+}
+
 export function waitForRemoteSaves(endpoint: string) {
   return saveQueues.get(endpoint) ?? Promise.resolve();
 }
