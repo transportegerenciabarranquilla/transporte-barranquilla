@@ -2,6 +2,76 @@
   min-width: 0;
 }
 
+.adminDashboard {
+  display: flex;
+  background: #f3f8fd;
+}
+
+.adminSidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex: 0 0 184px;
+  flex-direction: column;
+  height: 100vh;
+  padding: 20px 10px 14px;
+  color: #d8e6ff;
+  background: linear-gradient(145deg, #07132b, #07264a 72%, #064476);
+  box-shadow: 5px 0 20px #0c345128;
+}
+
+.sidebarBrand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 27px; }
+.sidebarBrand strong, .sidebarProfile strong { display: block; font-size: 12px; color: white; }
+.sidebarBrand small, .sidebarProfile small { display: block; margin-top: 3px; font-size: 10px; color: #9cb6d6; }
+.brandIcon { display: grid; width: 31px; height: 31px; flex: none; place-items: center; border-radius: 9px; color: #75ddff; background: #123b65; }
+.sidebarNav { display: flex; flex-direction: column; gap: 5px; }
+.sidebarNav button, .sidebarHeading { display: flex; align-items: center; gap: 11px; width: 100%; border-radius: 7px; padding: 10px 11px; text-align: left; font-size: 11px; font-weight: 600; }
+.sidebarNav button { color: #d9e5f7; cursor: pointer; }
+.sidebarNav button:hover { background: #ffffff16; color: white; }
+.sidebarNav .sidebarActive { border-left: 3px solid #34baff; padding-left: 8px; color: white; background: linear-gradient(90deg, #1468aa, #143d70); box-shadow: 0 3px 13px #05152860; }
+.sidebarHeading { margin-top: 7px; color: #b8cce5; }
+.sidebarProfile { display: flex; align-items: center; gap: 10px; margin-top: auto; border-top: 1px solid #ffffff24; padding: 14px 8px 0; }
+.sidebarProfile > span { display: grid; width: 29px; height: 29px; flex: none; place-items: center; border-radius: 50%; background: #e5e9ff; color: #234478; font-size: 10px; font-weight: 800; }
+.dashboardContent { min-width: 0; flex: 1; }
+.adminDashboard .dashboardContent > header { background: #ffffffdd; }
+.adminDashboard .dashboardContent > section { max-width: none; padding: 14px; }
+.adminDashboard nav[aria-label="Secciones de graficas"] { top: 74px; gap: 0; margin-bottom: 10px; border-radius: 11px; padding: 4px; box-shadow: 0 6px 18px #16385a12; }
+.adminDashboard nav[aria-label="Secciones de graficas"] button { display: flex; align-items: center; gap: 10px; border-radius: 8px; padding: 10px 13px; }
+.adminDashboard nav[aria-label="Secciones de graficas"] button:not(:last-child) { border-right: 1px solid #e5eef8; }
+.adminDashboard nav[aria-label="Secciones de graficas"] button[aria-pressed="true"] { background: linear-gradient(120deg, #07345b, #0364a2 70%, #06254d); }
+.sectionIcon { display: grid; flex: none; place-items: center; color: #123970; }
+button[aria-pressed="true"] .sectionIcon { color: #d9f4ff; }
+.adminDashboard .summaryHeading { display: none; }
+.adminDashboard .healthCard { min-height: 112px; border-radius: 11px; padding: 10px; }
+.adminDashboard .healthCard > div:first-child { gap: 6px; }
+.adminDashboard .healthCard > div:first-child > span:first-child { width: 34px; height: 34px; border-radius: 11px; }
+.adminDashboard .healthCard > div:first-child > span:last-child { width: 21px; height: 21px; }
+.adminDashboard .healthCard > div:nth-child(2) { margin-top: 7px; gap: 4px; }
+.adminDashboard .healthCard > div:nth-child(2) p:first-child { font-size: 8px; letter-spacing: .04em; }
+.adminDashboard .healthCard > div:nth-child(2) p:nth-child(2) { margin-top: 1px; font-size: clamp(16px, 1.4vw, 22px); white-space: nowrap; }
+.adminDashboard .healthCard > div:nth-child(2) p:nth-child(3) { margin-top: 0; font-size: 9px; }
+.adminDashboard .healthCard > div:nth-child(2) > div:last-child { width: 42px; height: 42px; }
+.adminDashboard .healthCard > div:nth-child(2) > div:last-child span { font-size: 9px; }
+
+@media (min-width: 1200px) {
+  .adminMetricGrid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1100px) {
+  .adminSidebar { flex-basis: 60px; padding-right: 7px; padding-left: 7px; }
+  .sidebarBrand { justify-content: center; padding-right: 0; padding-left: 0; }
+  .sidebarBrand > span:last-child, .sidebarHeading, .sidebarProfile > div { display: none; }
+  .sidebarNav button { justify-content: center; gap: 0; padding-right: 0; padding-left: 0; font-size: 0; }
+  .sidebarNav .sidebarActive { padding-left: 0; }
+  .sidebarProfile { justify-content: center; padding-right: 0; padding-left: 0; }
+}
+
+@media (max-width: 700px) {
+  .adminSidebar { display: none; }
+  .adminDashboard .dashboardContent > section { padding: 12px; }
+  .adminDashboard nav[aria-label="Secciones de graficas"] { top: 0; }
+}
+
 @media (max-width: 639px) {
   .dashboard > header {
     position: static;

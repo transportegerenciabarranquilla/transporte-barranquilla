@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import ManagementOriginChart from "./ManagementOriginChart";
 import DiferenciaKilometros from "./page1";
 import styles from "./mobile.module.css";
-import { ArrowLeft, BarChart3, CalendarDays, ChevronRight, ClipboardCheck, Clock3, Gauge, MapPinCheck, MessageSquareText, PackageCheck, Search, ShieldAlert, Table2, TrendingUp, Trophy, Users, X } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, ChevronRight, ClipboardCheck, Clock3, Gauge, Home, MapPinCheck, MessageSquareText, PackageCheck, Search, Settings2, ShieldAlert, Table2, TrendingUp, Trophy, Truck, Users, X } from "lucide-react";
 import { normalizeContractorName } from "../../lib/contractors";
 import type { DailyAbsenteeismRecord } from "../../lib/dailyAbsenteeism";
 import { checklistPercentage, type DailyChecklistRecord } from "../../lib/dailyChecklist";
@@ -239,7 +239,23 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
   }
 
   return (
-    <main className={`${styles.dashboard} min-h-screen bg-[#f4f7fb] text-slate-900`}>
+    <main className={`${styles.dashboard} ${!contractorMode ? styles.adminDashboard : ""} min-h-screen bg-[#f4f7fb] text-slate-900`}>
+      {!contractorMode ? <aside className={styles.adminSidebar} aria-label="Navegación de administración">
+        <div className={styles.sidebarBrand}><span className={styles.brandIcon}><Truck size={22} /></span><span><strong>Control operativo</strong><small>Panel administrador</small></span></div>
+        <nav className={styles.sidebarNav}>
+          <button onClick={() => router.push("/admin")} type="button"><Home size={17} />Inicio</button>
+          <span className={styles.sidebarHeading}>Operaciones</span>
+          <button className={styles.sidebarActive} type="button"><BarChart3 size={17} />Gráficas admin</button>
+          <button onClick={() => router.push("/seguimiento")} type="button"><Truck size={17} />Viajes</button>
+          <button onClick={() => router.push("/seguimiento/checkin")} type="button"><PackageCheck size={17} />Cajas</button>
+          <button onClick={() => router.push("/personas")} type="button"><Users size={17} />Personal</button>
+          <button onClick={() => router.push("/preventa")} type="button"><ShieldAlert size={17} />Clientes</button>
+          <button onClick={() => router.push("/admin/graficas/causales")} type="button"><Table2 size={17} />Reportes</button>
+          <span className={styles.sidebarHeading}><Settings2 size={16} />Configuración</span>
+        </nav>
+        <div className={styles.sidebarProfile}><span>AP</span><div><strong>Admin</strong><small>Administrador</small></div></div>
+      </aside> : null}
+      <div className={styles.dashboardContent}>
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className={`mx-auto flex flex-col gap-3 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between ${contractorMode ? "max-w-[1900px]" : "max-w-7xl"}`}>
           <div className="flex items-center gap-3">
@@ -365,16 +381,16 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
               onClick={() => setActiveView(value)}
               type="button"
             >
-              <span className="block text-xs font-black uppercase tracking-wide">{label}</span>
-              <span className={`mt-0.5 block text-[10px] font-semibold ${activeView === value ? "text-cyan-300" : "text-slate-400"}`}>{detail}</span>
+              <span className={styles.sectionIcon}>{value === "summary" ? <BarChart3 size={20} /> : value === "ontime" ? <Truck size={20} /> : value === "modulation" ? <PackageCheck size={20} /> : value === "refusal" ? <ShieldAlert size={20} /> : <Users size={20} />}</span>
+              <span><span className="block text-xs font-black tracking-wide">{label}</span>
+              <span className={`mt-0.5 block text-[10px] font-semibold ${activeView === value ? "text-cyan-300" : "text-slate-400"}`}>{detail}</span></span>
             </button>
           ))}
         </nav>
 
         {activeView === "summary" ? <>
-        {!contractorMode && <DiferenciaKilometros records={records} recordsLoading={loading} recordsError={error} />}
         <section className="mb-5">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div className={`${!contractorMode ? styles.summaryHeading : ""} mb-3 flex flex-wrap items-end justify-between gap-3`}>
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-700">Vista ejecutiva</p>
               <h2 className="mt-1 text-xl font-black text-[#10223d]">Estado general de la operación</h2>
@@ -383,7 +399,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
               {activeDateRange.from} — {activeDateRange.to}
             </span>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" id="rti-sic">
+          <div className={`grid gap-3 sm:grid-cols-2 ${contractorMode ? "xl:grid-cols-4" : `lg:grid-cols-4 ${styles.adminMetricGrid}`}`} id="rti-sic">
             <OperationalHealthCard
               detail={`${operationalOverview.range.inRange.toLocaleString("es-CO")} de ${operationalOverview.range.total.toLocaleString("es-CO")} visitas`}
               href="/admin/rango"
@@ -429,6 +445,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
             <OperationalHealthCard detail={`${operationalOverview.absenteeism.absent} ausentes de ${operationalOverview.absenteeism.scheduled} programados`} href="/control-diario" icon={<Users size={20} />} label="Ausentismo" loading={overviewLoading} percentage={operationalOverview.absenteeism.percentage} tone="red" onOpen={router.push} />
           </div>
         </section>
+
+        {!contractorMode && <DiferenciaKilometros records={records} recordsLoading={loading} recordsError={error} />}
 
         <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <SignalStat icon={<MapPinCheck size={16} />} label="Fuera de rango" tone="red" value={operationalOverview.range.outOfRange.toLocaleString("es-CO")} />
@@ -545,6 +563,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         ) : null}
 
       </section>
+      </div>
     </main>
   );
 }
@@ -888,7 +907,7 @@ function OperationalHealthCard({
   percentage: number;
   tone: "emerald" | "violet" | "cyan" | "red";
 }) {
-  const styles = {
+  const cardTone = {
     emerald: { accent: "#10b981", icon: "bg-emerald-100 text-emerald-700", glow: "from-emerald-500/15" },
     violet: { accent: "#8b5cf6", icon: "bg-violet-100 text-violet-700", glow: "from-violet-500/15" },
     cyan: { accent: "#06b6d4", icon: "bg-cyan-100 text-cyan-700", glow: "from-cyan-500/15" },
@@ -898,12 +917,12 @@ function OperationalHealthCard({
 
   return (
     <button
-      className={`group relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br ${styles.glow} via-white to-white p-5 text-left shadow-[0_16px_35px_-24px_rgba(15,23,42,.45)] transition duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_22px_45px_-24px_rgba(15,23,42,.55)]`}
+      className={`group ${styles.healthCard} relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br ${cardTone.glow} via-white to-white p-5 text-left shadow-[0_16px_35px_-24px_rgba(15,23,42,.45)] transition duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_22px_45px_-24px_rgba(15,23,42,.55)]`}
       onClick={() => onOpen(href)}
       type="button"
     >
       <div className="flex items-start justify-between gap-4">
-        <span className={`grid h-10 w-10 place-items-center rounded-2xl ${styles.icon}`}>{icon}</span>
+        <span className={`grid h-10 w-10 place-items-center rounded-2xl ${cardTone.icon}`}>{icon}</span>
         <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 transition group-hover:translate-x-0.5 group-hover:text-slate-700"><ChevronRight size={15} /></span>
       </div>
       <div className="mt-5 flex items-end justify-between gap-4">
@@ -912,7 +931,7 @@ function OperationalHealthCard({
           <p className="mt-1 text-3xl font-black text-slate-950">{loading ? "—" : `${percentage.toLocaleString("es-CO")} %`}</p>
           <p className="mt-1 truncate text-xs font-semibold text-slate-500" title={detail}>{loading ? "Consultando datos…" : detail}</p>
         </div>
-        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full p-1" style={{ background: `conic-gradient(${styles.accent} ${ringPercentage * 3.6}deg, #e2e8f0 0deg)` }}>
+        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full p-1" style={{ background: `conic-gradient(${cardTone.accent} ${ringPercentage * 3.6}deg, #e2e8f0 0deg)` }}>
           <span className="grid h-full w-full place-items-center rounded-full bg-white text-[10px] font-black text-slate-500">{Math.round(ringPercentage)}%</span>
         </div>
       </div>
