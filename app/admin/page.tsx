@@ -1024,7 +1024,7 @@ function AdminTabs({
     { id: "detalle", label: "Detalle", detail: `${recordCount} registros` },
     { id: "errores", label: "Errores", detail: `${issueCount} alertas` },
     { id: "exportar", label: "Exportar", detail: "excel y pdf" },
-    { id: "fuera-rango", label: "Fuera de RangoCharts", detail: "Clientes y modulaciones" },
+    { id: "fuera-rango", label: "Fuera de rango", detail: "Clientes y modulaciones" },
   ];
 
   return (

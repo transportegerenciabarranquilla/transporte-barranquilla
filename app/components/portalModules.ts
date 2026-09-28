@@ -132,7 +132,7 @@ const adminRangoModule: PortalModule = {
 
 const adminFueraDeRangoModule: PortalModule = {
   id: 22,
-  title: "Fuera de RangoCharts",
+  title: "Fuera de rango",
   href: "/admin/fuera-rango",
   detail: "Clientes en rango, fuera de rango y seguimientos cargados",
   tone: "from-[#be123c] to-[#f97316]",
