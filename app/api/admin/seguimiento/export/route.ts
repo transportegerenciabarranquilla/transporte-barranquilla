@@ -65,6 +65,7 @@ function buildWorkbook(records: Vehiculo[], label: string, contractor: string) {
     Responsable: record.nombreResponsable || record.responsable, "Responsable CC": record.cedulaResponsable || "",
     "Auxiliar 1": record.nombreAuxiliar1 || "", "Auxiliar 1 CC": record.cedulaAuxiliar1 || "",
     "Auxiliar 2": record.nombreAuxiliar2 || "", "Auxiliar 2 CC": record.cedulaAuxiliar2 || "",
+    "Auxiliar 3": record.nombreAuxiliar3 || "", "Auxiliar 3 CC": record.cedulaAuxiliar3 || "",
     Cajas: numberValue(record.cajas), HL: numberValue(record.hl), Clientes: numberValue(record.clientes), Visitados: numberValue(record.visitados),
     "Avance ruta": record.avanceRuta, Estado: record.status, "Hora salida": record.horaSalida, "Hora llegada": record.horaLlegada,
     "Tiempo ruta": record.tiempoRuta, "Tiempo planeado": record.tiempoPlaneado || "", "Causal salida tardía": record.causalSalidaTardia || "",

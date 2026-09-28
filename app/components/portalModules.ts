@@ -61,6 +61,15 @@ const peopleModule: PortalModule = {
   accent: "border-l-[#7c3aed]",
 };
 
+const contractorPersonnelModule: PortalModule = {
+  id: 23,
+  title: "Personal",
+  href: "/personal",
+  detail: "Tu equipo, altas e importación Excel",
+  tone: "from-[#7c3aed] to-[#0891b2]",
+  accent: "border-l-[#7c3aed]",
+};
+
 const rangoModule: PortalModule = {
   id: 5,
   title: "Rango",
@@ -223,7 +232,7 @@ export function getVisiblePortalModules({
   }
   const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
   const canSeePresale = isLogisticosContractor(contractor);
-  return contractor ? [...contractorModules, contractorChartsModule, ...(normalizeContractorName(contractor) === "hllogisticos" ? [refusalModule] : []), ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
+  return contractor ? [...contractorModules, contractorPersonnelModule, contractorChartsModule, ...(normalizeContractorName(contractor) === "hllogisticos" ? [refusalModule] : []), ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }
 
 function getModuleHref(href: string, contractor?: string) {

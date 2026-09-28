@@ -17,10 +17,11 @@ type FormState = {
   cedulaResponsable: string;
   cedulaAuxiliar1: string;
   cedulaAuxiliar2: string;
+  cedulaAuxiliar3: string;
 };
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
-type PersonField = "cedulaResponsable" | "cedulaAuxiliar1" | "cedulaAuxiliar2";
+type PersonField = "cedulaResponsable" | "cedulaAuxiliar1" | "cedulaAuxiliar2" | "cedulaAuxiliar3";
 type Persona = { CC: string | number; NOMBRE: string; CARGO: string; CONTRATISTA: string };
 
 const initialForm: FormState = {
@@ -29,10 +30,11 @@ const initialForm: FormState = {
   cedulaResponsable: "",
   cedulaAuxiliar1: "",
   cedulaAuxiliar2: "",
+  cedulaAuxiliar3: "",
 };
 
 const contractors = CONTRACTORS;
-const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2"];
+const personFields: PersonField[] = ["cedulaResponsable", "cedulaAuxiliar1", "cedulaAuxiliar2", "cedulaAuxiliar3"];
 
 function onlyNumbers(value: string) {
   return value.replace(/\D/g, "");
@@ -58,13 +60,14 @@ export default function AsistenciaPage() {
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const personasCacheRef = useRef(new Map<string, Persona | null>());
-  const { cedulaAuxiliar1, cedulaAuxiliar2, cedulaResponsable, contratista } = form;
+  const { cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista } = form;
 
   useEffect(() => {
     let cancelled = false;
     const cedulas: Record<PersonField, string> = {
       cedulaAuxiliar1,
       cedulaAuxiliar2,
+      cedulaAuxiliar3,
       cedulaResponsable,
     };
 
@@ -101,7 +104,7 @@ export default function AsistenciaPage() {
       cancelled = true;
       timers.forEach((timer) => timer && window.clearTimeout(timer));
     };
-  }, [cedulaAuxiliar1, cedulaAuxiliar2, cedulaResponsable, contratista]);
+  }, [cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista]);
 
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -138,9 +141,11 @@ export default function AsistenciaPage() {
       cedulaResponsable: form.cedulaResponsable,
       cedulaAuxiliar1: form.cedulaAuxiliar1,
       cedulaAuxiliar2: form.cedulaAuxiliar2,
+      cedulaAuxiliar3: form.cedulaAuxiliar3,
       nombreResponsable: personas.cedulaResponsable?.NOMBRE,
       nombreAuxiliar1: personas.cedulaAuxiliar1?.NOMBRE,
       nombreAuxiliar2: personas.cedulaAuxiliar2?.NOMBRE,
+      nombreAuxiliar3: personas.cedulaAuxiliar3?.NOMBRE,
       llave: createAttendanceKey(form.contratista, form.dt, attendanceDate),
       createdAt,
     };
@@ -153,6 +158,7 @@ export default function AsistenciaPage() {
         cedulaResponsable: "",
         cedulaAuxiliar1: "",
         cedulaAuxiliar2: "",
+        cedulaAuxiliar3: "",
       }));
       setPersonas({});
     } catch (error) {
@@ -240,6 +246,15 @@ export default function AsistenciaPage() {
               value={form.cedulaAuxiliar2}
             />
             <PersonMatch persona={personas.cedulaAuxiliar2} value={form.cedulaAuxiliar2} />
+
+            <NumericField
+              error={errors.cedulaAuxiliar3}
+              icon={<Users size={18} />}
+              label="Cédula segundo auxiliar (opcional)"
+              onChange={(value) => updateField("cedulaAuxiliar3", value)}
+              value={form.cedulaAuxiliar3}
+            />
+            <PersonMatch persona={personas.cedulaAuxiliar3} value={form.cedulaAuxiliar3} />
 
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400] disabled:opacity-60"

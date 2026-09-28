@@ -62,6 +62,8 @@ export async function GET(request: Request) {
         "Auxiliar 1": record.nombreAuxiliar1 || "",
         "Auxiliar 2 CC": record.cedulaAuxiliar2,
         "Auxiliar 2": record.nombreAuxiliar2 || "",
+        "Auxiliar 3 CC": record.cedulaAuxiliar3 || "",
+        "Auxiliar 3": record.nombreAuxiliar3 || "",
         Llave: record.llave,
       }));
       const workbook = XLSX.utils.book_new();
@@ -81,7 +83,7 @@ export async function GET(request: Request) {
         pdf.addPage();
         y = 36;
       }
-      pdf.text(`${index + 1}. ${attendanceDate(record)} | ${record.contratista} | DT ${record.dt} | VH ${record.route?.vehiculo || "Sin placa"} | ${formatTrip(record.route?.viaje)} | ${record.nombreResponsable || record.cedulaResponsable || "Sin responsable"} | ${record.nombreAuxiliar1 || record.cedulaAuxiliar1 || "Sin auxiliar 1"} | ${record.nombreAuxiliar2 || record.cedulaAuxiliar2 || "Sin auxiliar 2"}`, 36, y, { maxWidth: 760 });
+      pdf.text(`${index + 1}. ${attendanceDate(record)} | ${record.contratista} | DT ${record.dt} | VH ${record.route?.vehiculo || "Sin placa"} | ${formatTrip(record.route?.viaje)} | ${record.nombreResponsable || record.cedulaResponsable || "Sin responsable"} | ${record.nombreAuxiliar1 || record.cedulaAuxiliar1 || "Sin auxiliar 1"} | ${record.nombreAuxiliar2 || record.cedulaAuxiliar2 || "Sin auxiliar 2"} | ${record.nombreAuxiliar3 || record.cedulaAuxiliar3 || "Sin auxiliar 3"}`, 36, y, { maxWidth: 760 });
       y += 14;
     });
     return new Response(pdf.output("arraybuffer"), { headers: downloadHeaders(filename, "application/pdf") });

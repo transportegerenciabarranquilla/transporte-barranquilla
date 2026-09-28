@@ -279,6 +279,12 @@ export function VehicleDrawer({
               <Info icon={<Users size={18} />} label="Cedula auxiliar 2" value={vehicle.cedulaAuxiliar2 || "Sin identificar"} />
             )}
             <Info icon={<Users size={18} />} label="Nombre auxiliar 2" value={vehicle.nombreAuxiliar2 || "Sin identificar"} />
+            {canEditResponsibleManual ? (
+              <EditableInfo icon={<Users size={18} />} label="Cedula auxiliar 3" value={vehicle.cedulaAuxiliar3 || ""} onChange={(value) => updateVehicle({ cedulaAuxiliar3: String(value) })} />
+            ) : (
+              <Info icon={<Users size={18} />} label="Cedula auxiliar 3" value={vehicle.cedulaAuxiliar3 || "Sin identificar"} />
+            )}
+            <Info icon={<Users size={18} />} label="Nombre auxiliar 3" value={vehicle.nombreAuxiliar3 || "Sin identificar"} />
             <EditableInfo icon={<MapPin size={18} />} label="Territorio" value={vehicle.territorio} onChange={(value) => updateVehicle({ territorio: String(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Viaje" value={vehicle.viaje} onChange={(value) => updateVehicle({ viaje: String(value) })} />
             <EditableInfo icon={<Route size={18} />} label="Bloque" value={vehicle.bloque} onChange={(value) => updateVehicle({ bloque: String(value) })} />

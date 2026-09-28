@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Activity, CalendarDays, Download, EllipsisVertical, Filter, Search, TrendingDown, TrendingUp, UsersRound, X } from "lucide-react";
 import { Icon } from "../components/Icon";
+import { CONTRACTORS as OPERATIONAL_CONTRACTORS } from "../lib/contractors";
 
 type PersonHistory = {
   type: string;
@@ -61,7 +62,7 @@ type PeopleProfile = {
   removed?: boolean;
 };
 
-const CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
+const CONTRACTORS = [...OPERATIONAL_CONTRACTORS];
 const PAGE_SIZE = 10;
 type PeopleSort = "nombre" | "rutas" | "hl" | "rango" | "gestionadas";
 
@@ -77,7 +78,6 @@ export default function PeoplePage() {
   const [groups, setGroups] = useState<ContractorGroup[]>([]);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [localPeople, setLocalPeople] = useState<Person[]>([]);
-  const [removedPeople, setRemovedPeople] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<PeopleProfile[]>([]);
   const [selectedContractor, setSelectedContractor] = useState("Logisticos");
   const [selectedCc, setSelectedCc] = useState("");
@@ -95,6 +95,11 @@ export default function PeoplePage() {
   const [isAllowed, setIsAllowed] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [isSavingPerson, setIsSavingPerson] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +115,8 @@ export default function PeoplePage() {
         const params = new URLSearchParams();
         if (rangeFrom) params.set("from", rangeFrom);
         if (rangeTo) params.set("to", rangeTo);
-        const summaryUrl = params.size ? `/api/people/summary?${params}` : "/api/people/summary";
+        params.set("live", "1");
+        const summaryUrl = `/api/people/summary?${params}`;
         return Promise.all([
           fetch(summaryUrl, { cache: "no-store", signal: controller.signal }),
           fetch("/api/people/profiles", { cache: "no-store", signal: controller.signal }),
@@ -132,19 +138,18 @@ export default function PeoplePage() {
       })
       .finally(() => { if (!cancelled) { setIsLoading(false); setIsRefreshing(false); } });
     return () => { cancelled = true; controller.abort(); };
-  }, [rangeFrom, rangeTo]);
+  }, [rangeFrom, rangeTo, reload]);
 
   const mergedGroups = useMemo(() => {
-    const removed = new Set(removedPeople);
     const byContractor = new Map(groups.map((group) => [group.name, group.people]));
 
     return CONTRACTORS.map((contractor) => {
       const remote = byContractor.get(contractor) || [];
       const local = localPeople.filter((person) => person.contratista === contractor);
-      const people = dedupePeople([...local, ...remote]).filter((person) => !removed.has(personKey(person)));
+      const people = dedupePeople([...local, ...remote]);
       return { name: contractor, total: people.length, people };
     });
-  }, [groups, localPeople, removedPeople]);
+  }, [groups, localPeople]);
 
   const selectedGroup = mergedGroups.find((group) => group.name === selectedContractor) || mergedGroups[0];
 
@@ -190,7 +195,7 @@ export default function PeoplePage() {
     setProfileMenuOpen(false);
   }, [selectedCc]);
 
-  function handleAddPerson(event: FormEvent<HTMLFormElement>) {
+  async function handleAddPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const cleanDraft = {
       cc: draft.cc.trim(),
@@ -198,38 +203,121 @@ export default function PeoplePage() {
       cargo: draft.cargo.trim(),
       contratista: draft.contratista,
     };
-    if (!cleanDraft.cc || !cleanDraft.nombre) {
-      setError("La cedula y el nombre son obligatorios.");
-      return;
-    }
-
-    const newPerson: Person = {
-      ...cleanDraft,
-      isLocal: true,
-      stats: { rutas: 0, modulaciones: 0, reubicaciones: 0, hectolitros: 0, visitasRango: 0, enRango: 0, fueraRango: 0, porcentajeRango: 0, tiempoPromedioRuta: "Sin dato", ultimoDt: "" },
-      history: [],
-    };
-    const nextPeople = [newPerson, ...localPeople.filter((person) => personKey(person) !== personKey(newPerson))];
-    setLocalPeople(nextPeople);
-    void saveProfiles(upsertProfiles(profiles, personToProfile(newPerson)));
-    setSelectedContractor(cleanDraft.contratista);
-    setSelectedCc(cleanDraft.cc);
-    setDraft(emptyDraft);
+    setIsSavingPerson(true);
     setError("");
+    setSuccess("");
+    try {
+      await savePersonnel([cleanDraft]);
+      setSelectedContractor(cleanDraft.contratista);
+      setSelectedCc(cleanDraft.cc);
+      setDraft(emptyDraft);
+      setSuccess("Persona guardada en el padrón. Ya puede registrar asistencia.");
+      setReload((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "No se pudo agregar la persona.");
+    } finally {
+      setIsSavingPerson(false);
+    }
   }
 
-  function removePerson(person: Person) {
-    const key = personKey(person);
-    if (person.isLocal) {
-      const nextPeople = localPeople.filter((item) => personKey(item) !== key);
-      setLocalPeople(nextPeople);
-      void saveProfiles(upsertProfiles(profiles, { ...personToProfile(person), removed: true }));
-      return;
+  async function savePersonnel(people: DraftPerson[]) {
+    let created = 0;
+    let updated = 0;
+    for (let index = 0; index < people.length; index += 100) {
+      const response = await fetch("/api/people/personnel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ people: people.slice(index, index + 100) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Se guardaron ${created + updated} personas antes del error.`);
+      created += Number(result.created || 0);
+      updated += Number(result.updated || 0);
     }
+    return { created, updated };
+  }
 
-    const nextRemoved = Array.from(new Set([...removedPeople, key]));
-    setRemovedPeople(nextRemoved);
-    void saveProfiles(upsertProfiles(profiles, { ...personToProfile(person), removed: true }));
+  async function handleImport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setIsImporting(true);
+    setError("");
+    setSuccess("");
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", raw: false });
+      const candidateSheets = workbook.SheetNames.map((name) => XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], { defval: "", raw: false }));
+      const rows = candidateSheets.filter((sheet) => sheet.length && Object.keys(sheet[0]).some((key) => ["cc", "cedula", "identificacion", "numerodedocumento", "documento"].includes(normalizeHeader(key)))).sort((left, right) => right.length - left.length)[0] || [];
+      const people = rows.map((row) => {
+        const columns = Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeHeader(key), String(value ?? "").trim()]));
+        return {
+          cc: columns.cc || columns.cedula || columns.identificacion || columns.numerodedocumento || columns.documento || "",
+          nombre: columns.nombre || columns.nombrecompleto || columns.apellidosynombres || columns.nombresyapellidos || "",
+          cargo: columns.cargo || columns.nombrecargo || "",
+          contratista: columns.contratista || columns.transportista || columns.empresa || selectedContractor,
+          celular: columns.celular || columns.telefono || "",
+          correo: columns.correo || columns.email || "",
+        };
+      }).filter((person) => /^\d{5,15}$/.test(person.cc.replace(/\D/g, "")) && /\p{L}/u.test(person.nombre));
+      const skipped = rows.length - people.length;
+      if (!people.length) throw new Error("No se encontraron personas. Usa la plantilla de People o una hoja con cédula y nombre.");
+      const result = await savePersonnel(people);
+      setSuccess(`${result.created} personas agregadas y ${result.updated} actualizadas. ${skipped ? `Se omitieron ${skipped} filas sin cédula o nombre válido. ` : ""}Las demás personas permanecen en la base.`);
+      setReload((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "No se pudo importar el Excel.");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  async function downloadTemplate() {
+    const XLSX = await import("xlsx");
+    const sheet = XLSX.utils.aoa_to_sheet([["CC", "NOMBRE", "CARGO", "CONTRATISTA", "CELULAR", "CORREO"]]);
+    sheet["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 28 }, { wch: 25 }, { wch: 18 }, { wch: 35 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Personal");
+    XLSX.writeFile(workbook, "plantilla-personal-people.xlsx");
+  }
+
+  async function enablePreviousPeople() {
+    setIsImporting(true);
+    setError("");
+    try {
+      const result = await savePersonnel(localPeople);
+      setSuccess(`${result.created + result.updated} personas anteriores habilitadas para asistencia.`);
+      setReload((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "No se pudieron habilitar las personas anteriores.");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  async function removePerson(person: Person) {
+    setIsRemoving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch("/api/people/personnel", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cc: person.cc, contratista: person.contratista }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo eliminar la persona.");
+      const key = personKey(person);
+      setGroups((current) => current.map((group) => ({ ...group, people: group.people.filter((item) => personKey(item) !== key) })));
+      setLocalPeople((current) => current.filter((item) => personKey(item) !== key));
+      setSelectedCc("");
+      setSuccess(`${person.nombre} fue eliminado del padrón.`);
+      setReload((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo eliminar la persona.");
+    } finally {
+      setIsRemoving(false);
+    }
   }
 
   function handlePhoto(person: Person, file: File | null) {
@@ -247,7 +335,6 @@ export default function PeoplePage() {
     setProfiles(nextProfiles);
     setPhotos(Object.fromEntries(nextProfiles.filter((profile) => profile.photo && !profile.removed).map((profile) => [profileKey(profile), profile.photo || ""])));
     setLocalPeople(nextProfiles.filter((profile) => profile.isLocal && !profile.removed).map(profileToPerson));
-    setRemovedPeople(nextProfiles.filter((profile) => profile.removed).map(profileKey));
   }
 
   async function saveProfiles(nextProfiles: PeopleProfile[]) {
@@ -348,6 +435,7 @@ export default function PeoplePage() {
 
       <section className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
         {error ? <p className="mb-4 rounded-md border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p> : null}
+        {success ? <p className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</p> : null}
 
         <section className="relative mb-5 overflow-hidden rounded-2xl bg-[linear-gradient(125deg,#10223d_0%,#1e3a8a_58%,#6d28d9_100%)] p-5 text-white shadow-[0_18px_45px_rgba(30,58,138,.2)] sm:p-7">
           <div className="absolute -right-16 -top-20 h-60 w-60 rounded-full bg-cyan-300/15 blur-2xl" />
@@ -506,7 +594,7 @@ export default function PeoplePage() {
                   </label>
                   <div className="relative ml-auto">
                     <button aria-expanded={profileMenuOpen} aria-label="Opciones de persona" className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" onClick={() => setProfileMenuOpen((value) => !value)} type="button"><EllipsisVertical size={17} /></button>
-                    {profileMenuOpen ? <div className="absolute bottom-full right-0 z-10 mb-2 w-44 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50" onClick={() => { setProfileMenuOpen(false); if (window.confirm(`¿Quitar a ${selectedPerson.nombre} del módulo People?`)) removePerson(selectedPerson); }} type="button">Quitar persona</button></div> : null}
+                    {profileMenuOpen ? <div className="absolute bottom-full right-0 z-10 mb-2 w-44 rounded-md border border-slate-200 bg-white p-1.5 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60" disabled={isRemoving} onClick={() => { setProfileMenuOpen(false); if (window.confirm(`¿Eliminar a ${selectedPerson.nombre} del padrón de personal?`)) void removePerson(selectedPerson); }} type="button">{isRemoving ? "Quitando..." : "Quitar persona"}</button></div> : null}
                   </div>
                   </div>
                 </div>
@@ -515,6 +603,14 @@ export default function PeoplePage() {
             
             <form className="rounded-lg border border-white/70 bg-white/90 p-5 shadow-sm backdrop-blur" onSubmit={handleAddPerson}>
               <h2 className="text-lg font-semibold text-[#10223d]">Nueva persona</h2>
+              <p className="mt-1 text-xs text-slate-500">Agrega una persona o actualiza varias con la plantilla Excel.</p>
+              <label className="mt-4 block cursor-pointer rounded-md border border-[#7c3aed]/30 bg-[#f5f3ff] px-4 py-3 text-center text-sm font-semibold text-[#5b21b6]">
+                {isImporting ? "Importando..." : "Importar Excel de personal"}
+                <input accept=".xlsx,.xls,.csv" className="hidden" disabled={isImporting || isSavingPerson} onChange={handleImport} type="file" />
+              </label>
+              <button className="mt-2 w-full rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-[#10223d] hover:bg-slate-50" onClick={() => void downloadTemplate()} type="button">Descargar plantilla Excel</button>
+              <p className="mt-2 text-xs text-slate-500">Puedes subir varias personas o un padrón completo. Se actualizan las cédulas existentes y se agregan las nuevas; las demás permanecen. Si falta CONTRATISTA, se usa {selectedContractor}.</p>
+              {localPeople.length ? <button className="mt-3 w-full rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60" disabled={isImporting || isSavingPerson} onClick={() => void enablePreviousPeople()} type="button">Habilitar {localPeople.length} personas anteriores para asistencia</button> : null}
               <div className="mt-4 space-y-3">
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, cc: event.target.value })} placeholder="Cedula" value={draft.cc} />
                 <input className="h-11 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#7c3aed]" onChange={(event) => setDraft({ ...draft, nombre: event.target.value })} placeholder="Nombre completo" value={draft.nombre} />
@@ -527,8 +623,8 @@ export default function PeoplePage() {
                   ))}
                 </select>
               </div>
-              <button className="mt-4 w-full rounded-md bg-[#10223d] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1264ff]" type="submit">
-                Agregar persona
+              <button className="mt-4 w-full rounded-md bg-[#10223d] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1264ff] disabled:opacity-60" disabled={isSavingPerson || isImporting} type="submit">
+                {isSavingPerson ? "Guardando..." : "Agregar persona"}
               </button>
             </form>
           </aside>
@@ -772,6 +868,10 @@ function StickerStat({ label, tone = "slate", value }: { label: string; tone?: "
 
 function personKey(person: Pick<Person, "cc" | "contratista">) {
   return `${normalizeText(person.contratista)}:${String(person.cc || "").replace(/\D/g, "")}`.toLowerCase();
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
 function profileKey(profile: Pick<PeopleProfile, "cc" | "contratista">) {

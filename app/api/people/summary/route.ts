@@ -1,7 +1,7 @@
 import { allowedContractors, canAccessContractor, scopeQuery } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { CONTRACTORS, normalizeContractorName } from "../../../lib/contractors";
+import { CONTRACTORS, contractorLabel, normalizeContractorName } from "../../../lib/contractors";
 import { readServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
@@ -29,9 +29,11 @@ type VehicleRow = {
   cedulaResponsable?: string;
   cedulaAuxiliar1?: string;
   cedulaAuxiliar2?: string;
+  cedulaAuxiliar3?: string;
   nombreResponsable?: string;
   nombreAuxiliar1?: string;
   nombreAuxiliar2?: string;
+  nombreAuxiliar3?: string;
 };
 
 type ModulationRow = {
@@ -81,7 +83,7 @@ type PuntoCoronaReportRow = {
 
 const PEOPLE_SELECT = "CC,NOMBRE,CARGO,CONTRATISTA";
 const VEHICLE_SELECT =
-  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
+  "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,hl:data->>hl,clientes:data->>clientes,visitados:data->>visitados,responsable:data->>responsable,tiempoRuta:data->>tiempoRuta,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,cedulaAuxiliar3:data->>cedulaAuxiliar3,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2,nombreAuxiliar3:data->>nombreAuxiliar3";
 const MODULATION_SELECT =
   "contractor,dt:data->>dt,fechaDespacho:data->>fechaDespacho,persona:data->>persona,personaNombre:data->>personaNombre,cajasGestionadas:data->>cajasGestionadas,causal:data->>causal,comentario:data->>comentario,comentarioModulador:data->>comentarioModulador,createdAt:data->>createdAt";
 const NOT_STARTED = "NOT_STARTED";
@@ -144,6 +146,7 @@ export async function GET(request: Request) {
         cedulaResponsable: vehicle.cedulaResponsable,
         cedulaAuxiliar1: vehicle.cedulaAuxiliar1,
         cedulaAuxiliar2: vehicle.cedulaAuxiliar2,
+        cedulaAuxiliar3: vehicle.cedulaAuxiliar3,
       }));
 
       return { contractors, seguimiento, generatedAt: new Date().toISOString() };
@@ -159,26 +162,12 @@ export async function GET(request: Request) {
 }
 
 async function readPeople(headers: Record<string, string>) {
-  const entries = await Promise.all(
-    CONTRACTORS.map(async (contractor) => {
-      const params = new URLSearchParams({
-        select: PEOPLE_SELECT,
-        CONTRATISTA: `eq.${contractor}`,
-        order: "NOMBRE.asc",
-        limit: "350",
-      });
-      const response = await fetch(supabaseRest("transporte_barranquilla", `?${params.toString()}`), {
-        headers,
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await supabaseError(response));
-
-      const rows = (await response.json().catch(() => [])) as PersonRow[];
-      return [contractor, dedupePeople(rows.map(normalizePerson))] as const;
-    }),
-  );
-
-  return new Map(entries);
+  const params = new URLSearchParams({ select: PEOPLE_SELECT, order: "NOMBRE.asc" });
+  const rows = await readPagedRows<PersonRow>("transporte_barranquilla", params, headers);
+  return new Map(CONTRACTORS.map((contractor) => [
+    contractor,
+    dedupePeople(rows.filter((row) => normalizeContractorName(contractorLabel(row.CONTRATISTA)) === normalizeContractorName(contractor)).map(normalizePerson)),
+  ] as const));
 }
 
 async function readVehicles(headers: Record<string, string>, session: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSession>>>) {
@@ -236,11 +225,11 @@ function buildPersonSummary(
 
   const matchedVehicles = vehicles.filter((vehicle) => {
     if (normalizeContractorName(vehicle.contractor) !== contractorKey) return false;
-    const ids = [vehicle.cedulaResponsable, vehicle.cedulaAuxiliar1, vehicle.cedulaAuxiliar2].map(normalizeId);
+    const ids = [vehicle.cedulaResponsable, vehicle.cedulaAuxiliar1, vehicle.cedulaAuxiliar2, vehicle.cedulaAuxiliar3].map(normalizeId);
     if (personCc && ids.includes(personCc)) return true;
     if (personCc) return false;
 
-    const names = [vehicle.nombreResponsable, vehicle.nombreAuxiliar1, vehicle.nombreAuxiliar2, vehicle.responsable].map(normalizeText);
+    const names = [vehicle.nombreResponsable, vehicle.nombreAuxiliar1, vehicle.nombreAuxiliar2, vehicle.nombreAuxiliar3, vehicle.responsable].map(normalizeText);
     return Boolean(personName && names.some((name) => name === personName));
   });
   const personVehicles = uniqueVehiclesByDt(matchedVehicles).filter((vehicle) => isDateInRange(dateKey(vehicle.fechaDespacho || vehicle.fechaDt), dateRange));
@@ -344,9 +333,11 @@ function normalizeVehicle(row: VehicleRow): Required<VehicleRow> {
     cedulaResponsable: readString(row.cedulaResponsable),
     cedulaAuxiliar1: readString(row.cedulaAuxiliar1),
     cedulaAuxiliar2: readString(row.cedulaAuxiliar2),
+    cedulaAuxiliar3: readString(row.cedulaAuxiliar3),
     nombreResponsable: readString(row.nombreResponsable),
     nombreAuxiliar1: readString(row.nombreAuxiliar1),
     nombreAuxiliar2: readString(row.nombreAuxiliar2),
+    nombreAuxiliar3: readString(row.nombreAuxiliar3),
   };
 }
 

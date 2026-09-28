@@ -314,9 +314,11 @@ export default function SeguimientoPage() {
       updated.cedulaResponsable = undefined;
       updated.cedulaAuxiliar1 = undefined;
       updated.cedulaAuxiliar2 = undefined;
+      updated.cedulaAuxiliar3 = undefined;
       updated.nombreResponsable = undefined;
       updated.nombreAuxiliar1 = undefined;
       updated.nombreAuxiliar2 = undefined;
+      updated.nombreAuxiliar3 = undefined;
       updated.responsable = item.responsable.startsWith("RR ") ? "Sin responsable" : updated.responsable;
       updated.visitados = 0;
     }
@@ -448,6 +450,8 @@ export default function SeguimientoPage() {
         "Cedula conductor / auxiliar 1": vehicle.cedulaAuxiliar1 || "",
         "Nombre auxiliar 2": vehicle.nombreAuxiliar2 || "",
         "Cedula auxiliar 2": vehicle.cedulaAuxiliar2 || "",
+        "Nombre auxiliar 3": vehicle.nombreAuxiliar3 || "",
+        "Cedula auxiliar 3": vehicle.cedulaAuxiliar3 || "",
         "Fecha despacho": vehicle.fechaDespacho,
         "Fecha DT": vehicle.fechaDt,
         Estado: vehicle.status,

@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     // históricas (por ejemplo, "HL Logistica" y "HL Logisticos"). Buscar por
     // cédula y comparar el nombre canónico evita rechazar a la persona.
     params.set("limit", "20");
-    const rows = await readPersonas(params);
+    const rows = await readPersonas(params, true);
     const persona = contractor
       ? rows.find((row) => sameContractor(row.CONTRATISTA, contractor))
       : rows[0];
@@ -133,8 +133,13 @@ async function listPersonasByCargo(cargo: string, contractor: string | undefined
   return NextResponse.json({ personas: filteredPersonas });
 }
 
-function readPersonas(params: URLSearchParams) {
+async function readPersonas(params: URLSearchParams, fresh = false) {
   const url = supabaseRest("transporte_barranquilla", `?${params.toString()}`);
+  if (fresh) {
+    const response = await fetch(url, { headers: supabaseAdminHeaders() ?? supabaseHeaders(), cache: "no-store" });
+    if (!response.ok) throw new Error(`No se pudo consultar personal (${response.status}).`);
+    return await response.json() as PersonaRow[];
+  }
   return cachedJsonFetch<PersonaRow[]>(`supabase:personas:${url}`, PEOPLE_CACHE_TTL_MS, url, {
     headers: supabaseAdminHeaders() ?? supabaseHeaders(),
   });

@@ -786,9 +786,11 @@ async function applyAttendanceToVehicles(records: Vehiculo[], accessToken: strin
       cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
       cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
       cedulaAuxiliar2: attendance.cedulaAuxiliar2 || vehicle.cedulaAuxiliar2,
+      cedulaAuxiliar3: attendance.cedulaAuxiliar3 || vehicle.cedulaAuxiliar3,
       nombreResponsable: attendance.nombreResponsable || vehicle.nombreResponsable,
       nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
       nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
+      nombreAuxiliar3: attendance.nombreAuxiliar3 || vehicle.nombreAuxiliar3,
       responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
     }, vehicle);
   });

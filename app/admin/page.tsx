@@ -1347,6 +1347,7 @@ function getVehiclePeople(vehicle: Vehiculo, people: PersonSummary[]): VehiclePe
     { role: "Responsable", cc: vehicle.cedulaResponsable, name: vehicle.nombreResponsable || vehicle.responsable },
     { role: "Auxiliar 1", cc: vehicle.cedulaAuxiliar1, name: vehicle.nombreAuxiliar1 },
     { role: "Auxiliar 2", cc: vehicle.cedulaAuxiliar2, name: vehicle.nombreAuxiliar2 },
+    { role: "Auxiliar 3", cc: vehicle.cedulaAuxiliar3, name: vehicle.nombreAuxiliar3 },
   ].filter((candidate) => candidate.cc || candidate.name);
 
   const used = new Set<string>();

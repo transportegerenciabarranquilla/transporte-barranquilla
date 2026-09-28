@@ -156,6 +156,8 @@ function attendanceResult(attendance: AsistenciaRegistro, index: number, needle:
       attendance.nombreAuxiliar1,
       attendance.cedulaAuxiliar2,
       attendance.nombreAuxiliar2,
+      attendance.cedulaAuxiliar3,
+      attendance.nombreAuxiliar3,
     ].join(" "),
   );
   const score = scoreMatch(haystack, needle, [normalizeSearch(dt), normalizeSearch(attendance.cedulaResponsable)]);

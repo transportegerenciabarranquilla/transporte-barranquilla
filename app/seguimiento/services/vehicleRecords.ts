@@ -249,9 +249,11 @@ function applyAttendanceToVehicles(records: Vehiculo[]) {
       cedulaResponsable: attendance.cedulaResponsable || vehicle.cedulaResponsable,
       cedulaAuxiliar1: attendance.cedulaAuxiliar1 || vehicle.cedulaAuxiliar1,
       cedulaAuxiliar2: attendance.cedulaAuxiliar2 || vehicle.cedulaAuxiliar2,
+      cedulaAuxiliar3: attendance.cedulaAuxiliar3 || vehicle.cedulaAuxiliar3,
       nombreResponsable: attendance.nombreResponsable || vehicle.nombreResponsable,
       nombreAuxiliar1: attendance.nombreAuxiliar1 || vehicle.nombreAuxiliar1,
       nombreAuxiliar2: attendance.nombreAuxiliar2 || vehicle.nombreAuxiliar2,
+      nombreAuxiliar3: attendance.nombreAuxiliar3 || vehicle.nombreAuxiliar3,
       responsable: shouldFillResponsible(vehicle.responsable) ? attendanceResponsible || vehicle.responsable : vehicle.responsable,
     }, vehicle);
   });
@@ -382,6 +384,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
     cedulaResponsable: stringValue(value(["cedula responsable", "cedula rr"])),
     cedulaAuxiliar1: stringValue(value(["cedula auxiliar 1", "cedula conductor"])),
     cedulaAuxiliar2: stringValue(value(["cedula auxiliar 2"])),
+    cedulaAuxiliar3: stringValue(value(["cedula auxiliar 3", "cedula segundo auxiliar"])),
   };
 }
 
