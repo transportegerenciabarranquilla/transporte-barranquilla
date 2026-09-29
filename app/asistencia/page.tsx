@@ -57,9 +57,11 @@ export default function AsistenciaPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState<FormState | null>(null);
   const [personas, setPersonas] = useState<Partial<Record<PersonField, Persona | null>>>({});
+  const [lookupErrors, setLookupErrors] = useState<FormErrors>({});
+  const [lookupAttempt, setLookupAttempt] = useState(0);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
-  const personasCacheRef = useRef(new Map<string, Persona | null>());
+  const personasCacheRef = useRef(new Map<string, Persona>());
   const { cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista } = form;
 
   useEffect(() => {
@@ -72,6 +74,7 @@ export default function AsistenciaPage() {
     };
 
     const timers = personFields.map((field) => {
+      setLookupErrors((current) => ({ ...current, [field]: undefined }));
       const cc = cedulas[field];
       const contractor = contratista.trim();
       if (!cc || cc.length < 5 || !contractor) {
@@ -85,17 +88,20 @@ export default function AsistenciaPage() {
         return undefined;
       }
 
+      setPersonas((current) => ({ ...current, [field]: undefined }));
       return window.setTimeout(async () => {
         try {
           const response = await fetch(`/api/personas?cc=${encodeURIComponent(cc)}&contratista=${encodeURIComponent(contractor)}`, { cache: "no-store" });
           const body = await response.json();
           if (!response.ok) throw new Error(body.error || "No se pudo buscar la cedula.");
           const persona = body.persona ?? null;
-          personasCacheRef.current.set(cacheKey, persona);
+          if (persona) personasCacheRef.current.set(cacheKey, persona);
           if (!cancelled) setPersonas((current) => ({ ...current, [field]: persona }));
-        } catch {
-          personasCacheRef.current.set(cacheKey, null);
-          if (!cancelled) setPersonas((current) => ({ ...current, [field]: null }));
+        } catch (error) {
+          if (!cancelled) setLookupErrors((current) => ({
+            ...current,
+            [field]: error instanceof Error ? error.message : "No se pudo consultar la cédula. Reintenta la búsqueda.",
+          }));
         }
       }, 350);
     });
@@ -104,11 +110,18 @@ export default function AsistenciaPage() {
       cancelled = true;
       timers.forEach((timer) => timer && window.clearTimeout(timer));
     };
-  }, [cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista]);
+  }, [cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista, lookupAttempt]);
 
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
+    if (key === "contratista") {
+      setPersonas({});
+      setLookupErrors({});
+    } else if (personFields.includes(key as PersonField)) {
+      setPersonas((current) => ({ ...current, [key]: undefined }));
+      setLookupErrors((current) => ({ ...current, [key]: undefined }));
+    }
     setSubmitted(null);
   }
 
@@ -120,7 +133,9 @@ export default function AsistenciaPage() {
       const persona = personas[field];
       if (!form[field]) return;
 
-      if (!persona) nextErrors[field] = "Cedula no encontrada en Transporte Barranquilla.";
+      if (lookupErrors[field]) nextErrors[field] = lookupErrors[field];
+      else if (persona === undefined) nextErrors[field] = "Espera a que termine la búsqueda de la cédula.";
+      else if (persona === null) nextErrors[field] = "Cédula no encontrada para este contratista. Solicita a People revisar su registro y asignación.";
       if (persona && normalizeContractorName(contractorLabel(persona.CONTRATISTA)) !== normalizeContractorName(contractorLabel(form.contratista))) {
         nextErrors[field] = `La persona pertenece a ${persona.CONTRATISTA}.`;
       }
@@ -227,7 +242,7 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaResponsable", value)}
               value={form.cedulaResponsable}
             />
-            <PersonMatch persona={personas.cedulaResponsable} value={form.cedulaResponsable} />
+            <PersonMatch persona={personas.cedulaResponsable} value={form.cedulaResponsable} error={lookupErrors.cedulaResponsable} />
 
             <NumericField
               error={errors.cedulaAuxiliar1}
@@ -236,7 +251,7 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaAuxiliar1", value)}
               value={form.cedulaAuxiliar1}
             />
-            <PersonMatch persona={personas.cedulaAuxiliar1} value={form.cedulaAuxiliar1} />
+            <PersonMatch persona={personas.cedulaAuxiliar1} value={form.cedulaAuxiliar1} error={lookupErrors.cedulaAuxiliar1} />
 
             <NumericField
               error={errors.cedulaAuxiliar2}
@@ -245,7 +260,7 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaAuxiliar2", value)}
               value={form.cedulaAuxiliar2}
             />
-            <PersonMatch persona={personas.cedulaAuxiliar2} value={form.cedulaAuxiliar2} />
+            <PersonMatch persona={personas.cedulaAuxiliar2} value={form.cedulaAuxiliar2} error={lookupErrors.cedulaAuxiliar2} />
 
             <NumericField
               error={errors.cedulaAuxiliar3}
@@ -254,7 +269,13 @@ export default function AsistenciaPage() {
               onChange={(value) => updateField("cedulaAuxiliar3", value)}
               value={form.cedulaAuxiliar3}
             />
-            <PersonMatch persona={personas.cedulaAuxiliar3} value={form.cedulaAuxiliar3} />
+            <PersonMatch persona={personas.cedulaAuxiliar3} value={form.cedulaAuxiliar3} error={lookupErrors.cedulaAuxiliar3} />
+
+            {personFields.some((field) => lookupErrors[field] || personas[field] === null) ? (
+              <button className="text-sm font-semibold text-blue-700 underline" type="button" onClick={() => setLookupAttempt((attempt) => attempt + 1)}>
+                Reintentar búsqueda de cédulas
+              </button>
+            ) : null}
 
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400] disabled:opacity-60"
@@ -284,10 +305,11 @@ export default function AsistenciaPage() {
   );
 }
 
-function PersonMatch({ persona, value }: { persona?: Persona | null; value: string }) {
+function PersonMatch({ persona, value, error }: { persona?: Persona | null; value: string; error?: string }) {
   if (!value) return null;
+  if (error) return <p className="-mt-3 text-xs font-medium text-red-600">{error}</p>;
   if (persona === undefined) return <p className="-mt-3 text-xs text-slate-400">Buscando persona...</p>;
-  if (persona === null) return <p className="-mt-3 text-xs font-medium text-amber-700">Cedula no encontrada en Transporte Barranquilla.</p>;
+  if (persona === null) return <p className="-mt-3 text-xs font-medium text-amber-700">Cédula no encontrada para este contratista. Solicita a People revisar su registro y asignación.</p>;
   return <p className="-mt-3 text-sm font-semibold text-emerald-700">{persona.NOMBRE} - {persona.CARGO}</p>;
 }
 
