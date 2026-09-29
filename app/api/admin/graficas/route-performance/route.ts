@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
-import { parseRoutePerformanceRows } from "../../../../lib/routePerformanceImport";
+import { parseRoutePerformanceFile as parseFile, readRoutePerformanceFile } from "../../../../lib/routePerformanceFile";
 import { supabaseAdminHeaders, supabaseError, supabaseRest } from "../../../../lib/supabaseServer";
 
 const TABLE = "graficas_route_performance_files";
@@ -27,33 +27,11 @@ async function storageError(response: Response) {
   return supabaseError(response);
 }
 
-async function parseFile(buffer: Buffer) {
-  const XLSX = await import("xlsx");
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames.includes("Viajes") ? "Viajes" : workbook.SheetNames[0]];
-  if (!sheet) throw new Error("El Excel no contiene una hoja para leer.");
-  const cells = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true, blankrows: true });
-  return parseRoutePerformanceRows(cells);
-}
-
 export async function GET() {
   try {
     const session = await getAuthenticatedSession();
     if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-    const params = new URLSearchParams({
-      select: "id,file_name,file_base64,row_count,created_at",
-      order: "created_at.desc,id.desc",
-      limit: "1",
-    });
-    const response = await fetch(supabaseRest(TABLE, `?${params}`), {
-      headers: serverHeaders(),
-      cache: "no-store",
-    });
-    if (!response.ok) return NextResponse.json({ error: await storageError(response) }, { status: response.status });
-    const stored = ((await response.json()) as StoredFile[])[0];
-    if (!stored) return NextResponse.json({ rows: [], fileName: "", uploadedAt: "" });
-    const rows = await parseFile(Buffer.from(stored.file_base64, "base64"));
-    return NextResponse.json({ rows, fileName: stored.file_name, uploadedAt: stored.created_at });
+    return NextResponse.json(await readRoutePerformanceFile());
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo cargar el Excel guardado." }, { status: 500 });
   }

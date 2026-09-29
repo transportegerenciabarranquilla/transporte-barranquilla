@@ -10,7 +10,7 @@ test("HL Logisticos recibe los módulos de Surti y Refusal con identidad indepen
   assert.equal(normalizeContractorName("HL Logistica"), normalizeContractorName(contractor));
   const modules = getVisiblePortalModules({ contractor: contractor! });
   const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
-  assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal"), surti);
+  assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal" && href !== "/cumplimiento-entregas"), surti);
   assert.equal(modules.filter(({ href }) => href === "/seguimiento/refusal").length, 1);
   assert.equal(isComplaintsContractor(contractor), true);
   assert.equal(canManageComplaint(contractor, "Surti Cervezas"), false);

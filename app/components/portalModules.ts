@@ -1,4 +1,4 @@
-import { contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
 
 export type PortalModule = {
   id: number;
@@ -103,6 +103,15 @@ const refusalModule: PortalModule = {
   href: "/seguimiento/refusal",
   detail: "Cajas rechazadas, gestionadas e histórico",
   tone: "from-[#0891b2] to-[#0f766e]",
+  accent: "border-l-[#0891b2]",
+};
+
+const deliveryComplianceModule: PortalModule = {
+  id: 24,
+  title: "Cumplimiento de entregas",
+  href: "/cumplimiento-entregas",
+  detail: "Kilómetros, entrega en rango y desempeño de tripulaciones",
+  tone: "from-[#0891b2] to-[#7c3aed]",
   accent: "border-l-[#0891b2]",
 };
 
@@ -230,7 +239,7 @@ export function getVisiblePortalModules({
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
     return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
   }
-  const contractorModules = baseModules.filter((module) => module.href !== "/graficas");
+  const contractorModules = [...baseModules.filter((module) => module.href !== "/graficas"), ...(canAccessDeliveryCompliance({ contractor, isAdmin, isPeople }) ? [deliveryComplianceModule] : [])];
   const canSeePresale = isLogisticosContractor(contractor);
   return contractor ? [...contractorModules, contractorPersonnelModule, contractorChartsModule, ...(normalizeContractorName(contractor) === "hllogisticos" ? [refusalModule] : []), ...(canSeePresale ? [presaleModule] : []), ...(isComplaintsContractor(contractor) ? [complaintsModule] : []), rangoModule, dailyControlModule] : baseModules;
 }

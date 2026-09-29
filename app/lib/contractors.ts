@@ -71,6 +71,10 @@ export function isLogisticosContractor(value: string | null | undefined) {
   return normalized === "logisticos" || normalized === "logisticosarenosa";
 }
 
+export function canAccessDeliveryCompliance(session: { contractor?: string; isAdmin?: boolean; isPeople?: boolean } | null) {
+  return Boolean(session && !session.isAdmin && !session.isPeople && normalizeContractorName(session.contractor) === "hllogisticos");
+}
+
 export function isPuntoCoronaContractor(value: string | null | undefined) {
   const normalized = normalizeContractorName(value);
   return normalized === "puntocorona" || normalized === "corona" || normalized === "puntocoronaarenosa" || normalized === "coronaarenosa";

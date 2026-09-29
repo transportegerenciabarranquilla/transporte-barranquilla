@@ -69,11 +69,11 @@ function ContractorCard({ name, rows, position }: { name: string; rows: MatchedR
   </article>;
 }
 
-export default function RoutePerformanceCharts({ rows }: { rows: MatchedRoutePerformance[] }) {
+export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { rows: MatchedRoutePerformance[]; contractorOnly?: string }) {
   const summary = totals(rows);
   const range = average(rows, "rangePercent");
   const adherence = average(rows, "adherenceKmPercent");
-  const byContractor = ROUTE_PERFORMANCE_CONTRACTORS.map((name) => ({ name, rows: rows.filter((row) => routePerformanceContractor(row.contractor) === name) }));
+  const byContractor = (contractorOnly ? [contractorOnly] : ROUTE_PERFORMANCE_CONTRACTORS).map((name) => ({ name, rows: rows.filter((row) => routePerformanceContractor(row.contractor) === name) }));
   const identifiedTrips = byContractor.reduce((count, group) => count + group.rows.length, 0);
   return <div className="space-y-5">
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">

@@ -58,7 +58,7 @@ type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreComplet
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 type GraphView = "summary" | "ontime" | "modulation" | "refusal" | "people";
 
-export default function GraficasDashboard({ contractorMode = false, contractorName = "" }: { contractorMode?: boolean; contractorName?: string }) {
+export default function GraficasDashboard({ contractorMode = false, contractorName = "", deliveryMode = false }: { contractorMode?: boolean; contractorName?: string; deliveryMode?: boolean }) {
   const router = useRouter();
   const today = toDateKey(new Date());
   const [initialFilters] = useState(() => getInitialGraphFilters(today));
@@ -75,6 +75,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
   const [checkinRecords, setCheckinRecords] = useState<AdminCheckinRecord[]>([]);
   const [rtiRecords, setRtiRecords] = useState<RtiRecord[]>([]);
   const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewErrors, setOverviewErrors] = useState<string[]>([]);
   const [managementError, setManagementError] = useState("");
   const [managementLoading, setManagementLoading] = useState(true);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
@@ -118,7 +119,10 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         .then((body) => setDailyChecklists(body.records || [])),
       fetchJson<{ records?: DailyAbsenteeismRecord[] }>("/api/daily-absenteeism")
         .then((body) => setAbsenteeismRecords(body.records || [])),
-    ]).finally(() => setOverviewLoading(false));
+    ]).then((results) => {
+      const sources = ["entrega en rango", "modulaciones", "check-ins", "RTI", "checklists", "ausentismo"];
+      setOverviewErrors(results.flatMap((result, index) => result.status === "rejected" ? [sources[index]] : []));
+    }).finally(() => setOverviewLoading(false));
   }, []);
 
   useEffect(() => {
@@ -268,8 +272,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
               <ArrowLeft size={19} />
             </button>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">{contractorMode ? "SIC / Gráficas" : "Gráficas admin"}</p>
-              <h1 className="text-2xl font-semibold text-[#10223d]">{contractorMode ? "Indicadores de mi operación" : "Centro de gráficas"}</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f7c58]">{deliveryMode ? "HL Logísticos" : contractorMode ? "SIC / Gráficas" : "Gráficas admin"}</p>
+              <h1 className="text-2xl font-semibold text-[#10223d]">{deliveryMode ? "Cumplimiento de entregas" : contractorMode ? "Indicadores de mi operación" : "Centro de gráficas"}</h1>
             </div>
           </div>
           {!contractorMode ? <div className="flex flex-wrap gap-2">
@@ -301,6 +305,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         {error ? <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {loading ? <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Cargando graficas...</div> : null}
 
+        {deliveryMode && <DiferenciaKilometros records={[]} contractorOnly={contractorName} />}
+        {deliveryMode && <h2 className="mb-3 text-lg font-bold text-[#10223d]">Indicadores operativos de HL Logísticos</h2>}
         <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
             <label className="text-sm font-semibold text-[#10223d]">
@@ -366,7 +372,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
           </div> : null}
         </section>
 
-        <nav aria-label="Secciones de graficas" className={`sticky top-[88px] z-10 mb-6 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/50 backdrop-blur ${contractorMode ? "sm:grid-cols-4" : "sm:grid-cols-5"}`}>
+        {!deliveryMode && <nav aria-label="Secciones de graficas" className={`sticky top-[88px] z-10 mb-6 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/50 backdrop-blur ${contractorMode ? "sm:grid-cols-4" : "sm:grid-cols-5"}`}>
           {([
             ["summary", "Resumen", "Indicadores generales"],
             ...(!contractorMode ? [["ontime", "On Time", "Vehiculos y salidas"]] as const : []),
@@ -386,10 +392,10 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
               <span className={`mt-0.5 block text-[10px] font-semibold ${activeView === value ? "text-cyan-300" : "text-slate-400"}`}>{detail}</span></span>
             </button>
           ))}
-        </nav>
+        </nav>}
 
         {activeView === "summary" ? <>
-        <section className="mb-5">
+        {!deliveryMode && <section className="mb-5">
           <div className={`${!contractorMode ? styles.summaryHeading : ""} mb-3 flex flex-wrap items-end justify-between gap-3`}>
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-700">Vista ejecutiva</p>
@@ -444,10 +450,13 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
             <OperationalHealthCard detail={`${operationalOverview.checklists.return.records} registros diarios`} href="/control-diario" icon={<ClipboardCheck size={20} />} label="Checklist de retorno" loading={overviewLoading} percentage={operationalOverview.checklists.return.percentage} tone="violet" onOpen={router.push} />
             <OperationalHealthCard detail={`${operationalOverview.absenteeism.absent} ausentes de ${operationalOverview.absenteeism.scheduled} programados`} href="/control-diario" icon={<Users size={20} />} label="Ausentismo" loading={overviewLoading} percentage={operationalOverview.absenteeism.percentage} tone="red" onOpen={router.push} />
           </div>
-        </section>
+        </section>}
 
         {!contractorMode && <DiferenciaKilometros records={records} recordsLoading={loading} recordsError={error} />}
 
+        {deliveryMode && overviewLoading && <p className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500" role="status">Cargando indicadores operativos de HL Logísticos…</p>}
+        {deliveryMode && (overviewErrors.length > 0 || managementError) && <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" role="alert">No se pudieron cargar todos los indicadores: {[...overviewErrors, ...(managementError ? ["modulaciones"] : [])].join(", ")}. Recarga la página para reintentar.</p>}
+        {(!deliveryMode || (!overviewLoading && !loading && !error && !overviewErrors.length && !managementError)) && <>
         <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <SignalStat icon={<MapPinCheck size={16} />} label="Fuera de rango" tone="red" value={operationalOverview.range.outOfRange.toLocaleString("es-CO")} />
           <SignalStat icon={<PackageCheck size={16} />} label="Modulaciones" tone="violet" value={operationalOverview.modulation.records.toLocaleString("es-CO")} />
@@ -461,6 +470,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
           <ExecutiveTrendChart data={operationalTrend} />
           <ContractorBenchmarkTable rows={contractorBenchmark} />
         </section>
+        </>}
         </> : null}
 
         {!contractorMode && activeView === "ontime" ? <>
