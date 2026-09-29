@@ -9,6 +9,7 @@ import surtiLogo from "../imagenes/logo surti.jpeg";
 import logisticosLogo from "../imagenes/logisticos logo.webp";
 import { normalizeContractorName } from "../lib/contractors";
 import type { Vehiculo } from "../seguimiento/types";
+import { isSecondTripRecord } from "../seguimiento/utils";
 
 type PlateCheck = { capacidad: number | null; placa: string; ok: boolean; error?: string };
 
@@ -18,6 +19,7 @@ export default function SegundosViajesPage() {
   const router = useRouter();
   const [records, setRecords] = useState<Vehiculo[]>([]);
   const [contractor, setContractor] = useState("");
+  const [selectedDate, setSelectedDate] = useState(bogotaToday);
   const [logoUnavailable, setLogoUnavailable] = useState(false);
   const contractorLogo = contractor === "hllogisticos"
     ? { src: hlLogisticaLogo, alt: "HL Logísticos" }
@@ -82,10 +84,9 @@ export default function SegundosViajesPage() {
     return () => controller.abort();
   }, []);
 
-  const today = bogotaToday();
   const trips = useMemo(
-    () => records.filter((record) => isSecondTrip(record.viaje) && recordDate(record) === today),
-    [records, today],
+    () => records.filter((record) => isSecondTripRecord(record) && recordDate(record) === selectedDate),
+    [records, selectedDate],
   );
 
   function openPlateChange(record: Vehiculo) {
@@ -211,9 +212,9 @@ export default function SegundosViajesPage() {
           <div className="flex items-center gap-3">
             <button aria-label="Volver al portal" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-[#10223d] shadow-sm hover:bg-slate-50" onClick={() => router.push("/")} type="button"><ArrowLeft size={19} /></button>
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-orange-100 text-orange-600"><Truck size={24} /></span>
-            <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Operación diaria</p><h1 className="text-2xl font-black tracking-tight lg:text-3xl">{pageTitle}</h1><p className="text-sm text-slate-500">DT de viaje 11 · {formatDate(today)}</p></div>
+            <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Operación diaria</p><h1 className="text-2xl font-black tracking-tight lg:text-3xl">{pageTitle}</h1><p className="text-sm text-slate-500">Recargues y DT de viaje 11 · {formatDate(selectedDate)}</p></div>
           </div>
-          <button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-orange-600 shadow-sm hover:bg-orange-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={18} /></button>
+          <div className="flex items-end gap-2"><label className="text-xs font-semibold text-slate-600">Fecha de los viajes<input aria-label="Fecha de los segundos viajes" className="mt-1 block h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-[#10223d] shadow-sm" onChange={(event) => setSelectedDate(event.target.value)} type="date" value={selectedDate} /></label><button aria-label="Actualizar" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-orange-600 shadow-sm hover:bg-orange-50" onClick={() => void load()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={18} /></button></div>
         </header>
 
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
@@ -237,7 +238,7 @@ export default function SegundosViajesPage() {
                   {!contractorLogo || logoUnavailable ? <ClipboardList className="shrink-0 text-orange-600" size={20} /> : null}
                   {contractorLogo ? pageTitle : "DT pendientes de segundo viaje"}
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-500">Solo se muestran registros identificados como viaje 11.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Rutas marcadas con recargue y registros identificados como viaje 11.</p>
               </div>
             </div>
             <span className="shrink-0 rounded-full bg-orange-100 px-3 py-1 text-sm font-black text-orange-700">{trips.length}</span>
@@ -245,7 +246,7 @@ export default function SegundosViajesPage() {
           <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#10223d] text-[10px] font-black uppercase tracking-[.12em] text-white"><tr><th className="px-5 py-3">DT</th><th className="px-5 py-3">Placa anterior</th><th className="px-5 py-3">Placa nueva</th><th className="px-5 py-3 text-right">Clientes</th><th className="px-5 py-3 text-right">Acción</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={5}>Cargando segundos viajes...</td></tr> : trips.length ? trips.map((record) => {
             const weightAccepted = isWeightAccepted(record);
             return <tr className={weightAccepted ? "bg-emerald-50/90 hover:bg-emerald-100/80" : "hover:bg-orange-50/40"} key={record.recordId || `${record.transporte}-${record.fechaDespacho}`}><td className="px-5 py-4 font-black text-[#10223d]"><div className="flex flex-wrap items-center gap-2"><span>DT {record.transporte || "Sin DT"}</span>{weightAccepted ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700"><CheckCircle2 size={12} /></span> : null}</div></td><td className="px-5 py-4 font-bold text-slate-600">{record.vehiculoAnterior || record.vehiculo || "Sin placa"}</td><td className={`px-5 py-4 font-black ${weightAccepted ? "text-emerald-700" : "text-cyan-700"}`}>{record.vehiculoAnterior ? record.vehiculo || "Sin placa" : "Pendiente"}</td><td className="px-5 py-4 text-right font-black text-[#10223d]">{Number(record.clientes || 0).toLocaleString("es-CO")}</td><td className="px-5 py-4 text-right"><button className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black text-white shadow-sm ${weightAccepted ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-600 hover:bg-orange-700"}`} onClick={() => openPlateChange(record)} type="button"><Truck size={15} />Editar DT y placas</button><select aria-label={`Estado del DT ${record.transporte}`} className={`ml-2 h-8 rounded-lg border px-2 text-xs font-black ${statusSelectClass(record.status)}`} disabled={savingStatus === record.recordId} onChange={(event) => void updateStatus(record, event.target.value)} value={SECOND_TRIP_STATUSES.includes(record.status as (typeof SECOND_TRIP_STATUSES)[number]) ? record.status : "Cargando"}>{SECOND_TRIP_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></td></tr>;
-          }) : <tr><td className="px-5 py-14 text-center text-sm text-slate-500" colSpan={5}>No hay segundos viajes registrados para hoy.</td></tr>}</tbody></table></div>
+          }) : <tr><td className="px-5 py-14 text-center text-sm text-slate-500" colSpan={5}>No hay recargues ni segundos viajes registrados para esta fecha.</td></tr>}</tbody></table></div>
         </section>
       </section>
 
@@ -272,7 +273,6 @@ export default function SegundosViajesPage() {
     </main>
   );
 }   
-function isSecondTrip(value: string) { return /^(?:viaje\s*)?11(?:\D.*)?$/i.test(String(value || "").trim()); }
 function isWeightAccepted(record: Vehiculo) { return /aceptad|validad/i.test(String(record.validadorPeso || "")); }
 function recordDate(record: Vehiculo) { const raw = String(record.fechaDespacho || record.fechaDt || record.date || record.createdAt || ""); if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/); if (!match) return ""; return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`; }
 function bogotaToday() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }

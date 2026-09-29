@@ -20,7 +20,7 @@ import {
   prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
-import { calculateRouteTime, getVehicleUiKey, hasTimeValue, matchesRouteStatusFilter, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
+import { calculateRouteTime, getVehicleUiKey, hasRecargueValue, hasTimeValue, matchesRouteStatusFilter, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
 import { ASISTENCIA_STORAGE_KEY, removeAsistenciaByDt } from "../lib/asistenciaStorage";
 import { CHECKIN_STORAGE_KEY, moveCheckinByDt } from "../lib/checkinStorage";
 import { getLocalDateKey, getOperationalModulaciones, readModulacionRegistros, type ModulacionRegistro, MODULACION_STORAGE_KEY } from "../lib/modulacionStorage";
@@ -144,7 +144,9 @@ export default function SeguimientoPage() {
   }, [fechaDesdeFilter, fechaHastaFilter, onlyWithoutResponsible, search, vehiculos]);
 
   const filteredVehicles = useMemo(() => {
-    return matchingVehicles.filter((item) => matchesRouteStatusFilter(item, statusFilters, Boolean(fechaDesdeFilter || fechaHastaFilter)));
+    return matchingVehicles.filter((item) =>
+      (!hasRecargueValue(item.recargue) || statusFilters.includes("Recargue")) &&
+      matchesRouteStatusFilter(item, statusFilters, Boolean(fechaDesdeFilter || fechaHastaFilter)));
   }, [matchingVehicles, statusFilters, fechaDesdeFilter, fechaHastaFilter]);
 
   const resumen = useMemo(() => {

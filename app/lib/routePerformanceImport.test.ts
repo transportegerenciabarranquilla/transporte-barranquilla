@@ -68,6 +68,48 @@ test("supports Excel dates, fraction percentages, zero and missing percentages w
   assert.throws(() => parseRoutePerformanceRows([headers, ["1/07/2026", "XMB964", "", 1, "", 1, 0, 50]]), /PLAN_KM/);
 });
 
+test("reads optional ADH_KM percentages from numeric Excel cells and text", () => {
+  const adherenceHeaders = [...headers, "ADH_KM"];
+  const rows = parseRoutePerformanceRows([adherenceHeaders,
+    ["1/07/2026", "XMB964", "", 1, 29, 59, 30, "49,10 %", 0.572],
+    ["2/07/2026", "ABC123", "", 2, 20, 21, 1, 80, "63,30 %"],
+    ["3/07/2026", "ABC123", "", 3, 20, 21, 1, 80, ""],
+  ]);
+  assert.ok(Math.abs(rows[0].adherenceKmPercent! - 57.2) < 1e-9);
+  assert.equal(rows[1].adherenceKmPercent, 63.3);
+  assert.equal(rows[2].adherenceKmPercent, null);
+  assert.equal(parseRoutePerformanceRows(source)[0].adherenceKmPercent, null);
+  assert.throws(() => parseRoutePerformanceRows([adherenceHeaders, ["1/07/2026", "XMB964", "", 1, 29, 59, 30, 80, "101 %"]]), /ADH_KM/);
+});
+
+test("uses the contractor supplied by the Excel when Seguimiento has no match", () => {
+  const rows = parseRoutePerformanceRows([[...headers, "CONTRATISTA"],
+    ["1/07/2026", "XMB964", "", 1, 29, 59, 30, 49, "Surti Cervezas"],
+  ]);
+  assert.equal(matchRoutePerformance(rows, [])[0].contractor, "Surti Cervezas");
+});
+
+test("reads a previous export's Viajes sheet and labels imported matches", () => {
+  const exported = parseRoutePerformanceRows([[
+    "Fecha", "Placa", "Placa original", "Viaje", "DT", "Contratista", "RR", "Conductor", "Plan km", "Ejecutado km", "Diferencia km", "Adherencia km %", "Entrega en rango %", "Cruce",
+  ], ["2026-07-01", "XMB964", "", 1, "123", "Surti Cervezas", "RR Ana", "Conductor Luis", 29.1, 59.33, 30.22, 57.2, 49.1, "Coincide"]]);
+  const [row] = matchRoutePerformance(exported, []);
+  assert.equal(row.contractor, "Surti Cervezas");
+  assert.equal(row.rr, "RR Ana");
+  assert.equal(row.driver, "Conductor Luis");
+  assert.equal(row.dt, "123");
+  assert.equal(row.adherenceKmPercent, 57.2);
+  assert.equal(row.match, "matched");
+  assert.equal(row.matchSource, "archivo");
+});
+
+test("reads the MyGeotab range column from a newly exported workbook", () => {
+  const rows = parseRoutePerformanceRows([[
+    "Fecha", "Placa", "Plan km", "Ejecutado km", "Diferencia km", "Entrega en rango MyGeotab %",
+  ], ["2026-07-01", "XMB964", 29.1, 59.33, 30.22, 49.1]]);
+  assert.equal(rows[0].rangePercent, 49.1);
+});
+
 test("charts average per trip and exclude unmatched or missing percentage rows", () => {
   const rows = parseRoutePerformanceRows([headers,
     ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "50 %"],

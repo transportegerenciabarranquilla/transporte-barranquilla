@@ -6,14 +6,21 @@ export type RoutePerformanceRow = {
   plate: string;
   originalPlate: string;
   trip: string;
+  excelContractor: string;
+  excelRr: string;
+  excelDriver: string;
+  excelDt: string;
+  excelMatch: string;
   plannedKm: number;
   executedKm: number;
   differenceKm: number;
+  adherenceKmPercent: number | null;
   rangePercent: number | null;
   outsidePercent: number | null;
 };
 export type MatchedRoutePerformance = RoutePerformanceRow & {
   match: "matched" | "missing" | "ambiguous";
+  matchSource: "seguimiento" | "archivo" | "none";
   matchedPlate: string;
   rr: string;
   driver: string;
@@ -52,30 +59,40 @@ function numericCell(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-export function parsePerformancePercent(value: unknown, fila: number): number | null {
+export function parsePerformancePercent(value: unknown, fila: number, label = "ENTREGA RANGO"): number | null {
   if (value == null || String(value).trim() === "") return null;
   const text = typeof value === "string" ? value.trim().replace(/\s*%$/, "") : value;
   const parsed = numericCell(text);
   // Excel percentage cells are stored as fractions; strings such as "92,31 %" are percentage points.
   const percent = parsed === null ? null : typeof value === "number" && parsed >= 0 && parsed <= 1 ? parsed * 100 : parsed;
-  if (percent === null || percent < 0 || percent > 100) throw new Error(`Fila ${fila}: ENTREGA RANGO debe ser un porcentaje entre 0 y 100.`);
+  if (percent === null || percent < 0 || percent > 100) throw new Error(`Fila ${fila}: ${label} debe ser un porcentaje entre 0 y 100.`);
   return percent;
 }
 
 export function parseRoutePerformanceRows(data: unknown[][]): RoutePerformanceRow[] {
   const headers = (data[0] ?? []).map(headerKey);
   const required = ["fecha_viaje2", "PLACA", "PLAN_KM", "EJE_KM", "DIFERENCIAKM", "ENTREGA RANGO"];
+  const aliases: Record<string, string[]> = {
+    fecha_viaje2: ["Fecha"],
+    PLACAORIGINAL: ["Placa original"],
+    PLAN_KM: ["Plan km"],
+    EJE_KM: ["Ejecutado km"],
+    DIFERENCIAKM: ["Diferencia km"],
+    "ENTREGA RANGO": ["Entrega en rango %", "Entrega en rango MyGeotab %"],
+    ADH_KM: ["Adherencia km %"],
+  };
+  const columnIndex = (label: string) => [label, ...(aliases[label] || [])].map(headerKey).map((key) => headers.indexOf(key)).find((index) => index >= 0) ?? -1;
   for (const label of required) {
-    if (!headers.includes(headerKey(label))) throw new Error(`Falta la columna ${label} en la primera fila del Excel.`);
+    if (columnIndex(label) < 0) throw new Error(`Falta la columna ${label} en la primera fila del Excel.`);
   }
-  for (const label of [...required, "PLACAORIGINAL", "Viaje"]) {
+  for (const label of [...required, "PLACAORIGINAL", "Viaje", "ADH_KM", "CONTRATISTA", "TRANSPORTISTA"]) {
     if (headers.filter((header) => header === headerKey(label)).length > 1) throw new Error(`La columna ${label} está repetida.`);
   }
   const rows: RoutePerformanceRow[] = [];
   data.slice(1).forEach((cells, index) => {
     if (cells.every((value) => value == null || String(value).trim() === "")) return;
     const fila = index + 2;
-    const read = (label: string) => cells[headers.indexOf(headerKey(label))];
+    const read = (label: string) => cells[columnIndex(label)];
     const date = performanceDate(read("fecha_viaje2"));
     const plate = String(read("PLACA") ?? "").trim();
     const originalPlate = String(read("PLACAORIGINAL") ?? "").trim();
@@ -86,7 +103,13 @@ export function parseRoutePerformanceRows(data: unknown[][]): RoutePerformanceRo
     const differenceKm = numericCell(read("DIFERENCIAKM"));
     if (plannedKm === null || plannedKm < 0 || executedKm === null || executedKm < 0 || differenceKm === null) throw new Error(`Fila ${fila}: revisa PLAN_KM, EJE_KM y DIFERENCIAKM; deben ser números.`);
     const rangePercent = parsePerformancePercent(read("ENTREGA RANGO"), fila);
-    rows.push({ fila, date, plate, originalPlate, trip: String(read("Viaje") ?? "").trim(), plannedKm, executedKm, differenceKm, rangePercent, outsidePercent: rangePercent === null ? null : 100 - rangePercent });
+    const adherenceKmPercent = columnIndex("ADH_KM") >= 0 ? parsePerformancePercent(read("ADH_KM"), fila, "ADH_KM") : null;
+    const excelContractor = String((headers.includes(headerKey("CONTRATISTA")) ? read("CONTRATISTA") : undefined) || (headers.includes(headerKey("TRANSPORTISTA")) ? read("TRANSPORTISTA") : undefined) || "").trim();
+    const excelRr = String(read("RR") ?? "").trim();
+    const excelDriver = String(read("Conductor") ?? "").trim();
+    const excelDt = String(read("DT") ?? "").trim();
+    const excelMatch = String(read("Cruce") ?? "").trim();
+    rows.push({ fila, date, plate, originalPlate, trip: String(read("Viaje") ?? "").trim(), excelContractor, excelRr, excelDriver, excelDt, excelMatch, plannedKm, executedKm, differenceKm, adherenceKmPercent, rangePercent, outsidePercent: rangePercent === null ? null : 100 - rangePercent });
   });
   if (!rows.length) throw new Error("La primera hoja no contiene viajes para comparar.");
   return rows;
@@ -114,7 +137,7 @@ export function matchRoutePerformance(rows: RoutePerformanceRow[], vehicles: Per
     index.set(key, candidates);
   }
   return rows.map((row) => {
-    const empty = { ...row, matchedPlate: "", rr: "", driver: "", contractor: "", dt: "" };
+    const empty = { ...row, matchedPlate: "", rr: row.excelRr, driver: row.excelDriver, contractor: row.excelContractor, dt: row.excelDt };
     const plate = normalizePerformancePlate(row.plate);
     const original = normalizePerformancePlate(row.originalPlate);
     let candidates = index.get(`${row.date}:${plate}`) ?? [];
@@ -125,14 +148,19 @@ export function matchRoutePerformance(rows: RoutePerformanceRow[], vehicles: Per
       // Missing trip data can only be used when the plate/date identifies a single record.
       candidates = sameTrip.length ? sameTrip : candidates.filter((vehicle) => !tripKey(vehicle.viaje));
     }
-    if (!candidates.length) return { ...empty, match: "missing" };
-    if (candidates.length > 1) return { ...empty, match: "ambiguous" };
+    if (!candidates.length) {
+      const reportedMatch = headerKey(row.excelMatch);
+      if (reportedMatch === "COINCIDE" || reportedMatch === "COINCIDEENARCHIVO") return { ...empty, match: "matched", matchSource: "archivo" };
+      if (reportedMatch === "VARIASCOINCIDENCIAS") return { ...empty, match: "ambiguous", matchSource: "archivo" };
+      return { ...empty, match: "missing", matchSource: row.excelMatch ? "archivo" : "none" };
+    }
+    if (candidates.length > 1) return { ...empty, match: "ambiguous", matchSource: "seguimiento" };
     const vehicle = candidates[0];
     return {
-      ...empty, match: "matched", matchedPlate: vehicle.vehiculo,
-      rr: personName(vehicle.nombreResponsable) || personName(vehicle.responsable) || (vehicle.cedulaResponsable ? `CC ${vehicle.cedulaResponsable}` : ""),
-      driver: personName(vehicle.nombreAuxiliar1) || (vehicle.cedulaAuxiliar1 ? `CC ${vehicle.cedulaAuxiliar1}` : ""),
-      contractor: vehicle.transportista || "", dt: vehicle.transporte || "",
+      ...empty, match: "matched", matchSource: "seguimiento", matchedPlate: vehicle.vehiculo,
+      rr: row.excelRr || personName(vehicle.nombreResponsable) || personName(vehicle.responsable) || (vehicle.cedulaResponsable ? `CC ${vehicle.cedulaResponsable}` : ""),
+      driver: row.excelDriver || personName(vehicle.nombreAuxiliar1) || (vehicle.cedulaAuxiliar1 ? `CC ${vehicle.cedulaAuxiliar1}` : ""),
+      contractor: row.excelContractor || vehicle.transportista || "", dt: row.excelDt || vehicle.transporte || "",
     };
   });
 }

@@ -150,6 +150,10 @@ export function hasRecargueValue(value: string | undefined) {
   return Boolean(normalized && !["no", "sin", "sin recargue", "pendiente", "-", "0"].includes(normalized));
 }
 
+export function isSecondTripRecord(item: Pick<Vehiculo, "viaje" | "recargue">) {
+  return /^(?:viaje\s*)?11(?:\D.*)?$/i.test(String(item.viaje || "").trim()) || hasRecargueValue(item.recargue);
+}
+
 export function isVehicleScheduledForDate(item: Pick<Vehiculo, "fechaDespacho">, dateKey: string) {
   return toDateKey(item.fechaDespacho) === dateKey;
 }

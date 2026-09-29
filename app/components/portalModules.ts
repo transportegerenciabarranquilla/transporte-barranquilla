@@ -22,7 +22,7 @@ const modules: PortalModule[] = [
     id: 20,
     title: "Segundos viajes",
     href: "/segundos-viajes",
-    detail: "Viaje 11 y cambio de placa",
+    detail: "Recargues, viaje 11 y placas",
     tone: "from-[#ea580c] to-[#f59e0b]",
     accent: "border-l-[#ea580c]",
   },
