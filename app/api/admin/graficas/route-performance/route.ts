@@ -1,0 +1,93 @@
+import { NextResponse } from "next/server";
+import { getAuthenticatedSession } from "../../../../lib/authServer";
+import { parseRoutePerformanceRows } from "../../../../lib/routePerformanceImport";
+import { supabaseAdminHeaders, supabaseError, supabaseRest } from "../../../../lib/supabaseServer";
+
+const TABLE = "graficas_route_performance_files";
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+type StoredFile = {
+  id: string;
+  file_name: string;
+  file_base64: string;
+  row_count: number;
+  created_at: string;
+};
+
+function serverHeaders(extra?: Record<string, string>) {
+  const headers = supabaseAdminHeaders(extra);
+  if (!headers) throw new Error("Falta configurar la clave de servidor de Supabase para guardar el Excel.");
+  return headers;
+}
+
+async function storageError(response: Response) {
+  if (response.status === 404) {
+    return "Falta crear la tabla de Excel. Ejecuta supabase/route_performance_files.sql en Supabase SQL Editor.";
+  }
+  return supabaseError(response);
+}
+
+async function parseFile(buffer: Buffer) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames.includes("Viajes") ? "Viajes" : workbook.SheetNames[0]];
+  if (!sheet) throw new Error("El Excel no contiene una hoja para leer.");
+  const cells = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true, blankrows: true });
+  return parseRoutePerformanceRows(cells);
+}
+
+export async function GET() {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    const params = new URLSearchParams({
+      select: "id,file_name,file_base64,row_count,created_at",
+      order: "created_at.desc,id.desc",
+      limit: "1",
+    });
+    const response = await fetch(supabaseRest(TABLE, `?${params}`), {
+      headers: serverHeaders(),
+      cache: "no-store",
+    });
+    if (!response.ok) return NextResponse.json({ error: await storageError(response) }, { status: response.status });
+    const stored = ((await response.json()) as StoredFile[])[0];
+    if (!stored) return NextResponse.json({ rows: [], fileName: "", uploadedAt: "" });
+    const rows = await parseFile(Buffer.from(stored.file_base64, "base64"));
+    return NextResponse.json({ rows, fileName: stored.file_name, uploadedAt: stored.created_at });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo cargar el Excel guardado." }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session?.isAdmin) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File) || !/\.(xlsx|xls)$/i.test(file.name) || file.size <= 0 || file.size > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: "Selecciona un Excel .xlsx o .xls de máximo 10 MB." }, { status: 400 });
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const rows = await parseFile(buffer);
+    const response = await fetch(supabaseRest(TABLE, "?select=id,file_name,row_count,created_at"), {
+      method: "POST",
+      headers: serverHeaders({ Prefer: "return=representation" }),
+      body: JSON.stringify({
+        file_name: file.name.slice(0, 255),
+        file_base64: buffer.toString("base64"),
+        row_count: rows.length,
+        uploaded_by: session.userId,
+      }),
+      cache: "no-store",
+    });
+    if (!response.ok) return NextResponse.json({ error: await storageError(response) }, { status: response.status });
+    const saved = ((await response.json()) as StoredFile[])[0];
+    if (!saved?.id || saved.row_count !== rows.length) {
+      return NextResponse.json({ error: "Supabase no confirmó el archivo guardado." }, { status: 409 });
+    }
+    return NextResponse.json({ rows, fileName: saved.file_name, uploadedAt: saved.created_at });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el Excel." }, { status: 500 });
+  }
+}

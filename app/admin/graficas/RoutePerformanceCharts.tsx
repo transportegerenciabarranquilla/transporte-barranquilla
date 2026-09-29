@@ -3,6 +3,7 @@
 import { MapPinned, Route, Target } from "lucide-react";
 import { ROUTE_PERFORMANCE_CONTRACTORS, routePerformanceContractor } from "../../lib/routePerformanceContractors";
 import type { MatchedRoutePerformance } from "../../lib/routePerformanceImport";
+import RoutePerformanceTrend from "./RoutePerformanceTrend";
 
 const format = (value: number) => value.toLocaleString("es-CO", { maximumFractionDigits: 2 });
 const compact = (value: number) => new Intl.NumberFormat("es-CO", { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -45,7 +46,7 @@ function PercentageRing({ value, label, small = false, tone = "range" }: { value
 }
 
 function ContractorCard({ name, rows, position }: { name: string; rows: MatchedRoutePerformance[]; position: number }) {
-  const summary = totals(rows);
+  const adherence = average(rows, "adherenceKmPercent");
   const range = average(rows, "rangePercent");
   const initials = name.split(" ").map((word) => word[0]).join("").slice(0, 2);
   return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
@@ -55,9 +56,9 @@ function ContractorCard({ name, rows, position }: { name: string; rows: MatchedR
     </div>
     <div className="grid divide-y divide-slate-100 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
       <div className="flex flex-col items-center gap-1 pb-4 sm:pb-0 sm:pr-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Kilómetros</p>
-        <KilometerRing rows={rows} small />
-        <p className="text-center text-[11px] tabular-nums text-slate-600">Plan <strong className="text-blue-700">{format(summary.planned)}</strong> · Real <strong className="text-cyan-700">{format(summary.executed)}</strong> km</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-700">Adherencia km</p>
+        <PercentageRing value={adherence.value} label={`Adherencia a kilómetros de ${name}`} tone="adherence" small />
+        <p className="text-center text-[11px] text-slate-600">{adherence.count.toLocaleString("es-CO")} viajes con ADH_KM</p>
       </div>
       <div className="flex flex-col items-center gap-1 pt-4 sm:pt-0 sm:pl-2">
         <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Rango MyGeotab</p>
@@ -88,8 +89,9 @@ export default function RoutePerformanceCharts({ rows }: { rows: MatchedRoutePer
         <section aria-label="Adherencia a kilómetros general" className="flex items-center justify-between gap-3 rounded-2xl border border-violet-100 bg-[#f8f5ff] p-4 shadow-sm sm:p-5"><div className="min-w-0"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><Target size={19} /></div><h3 className="text-sm font-bold text-slate-900">Adherencia a kilómetros</h3><p className="mt-1 text-xs text-slate-600">Promedio de {adherence.count.toLocaleString("es-CO")} viajes</p><p className="mt-3 text-xs font-semibold text-violet-700">Columna ADH_KM del Excel</p></div><PercentageRing value={adherence.value} label="Adherencia a kilómetros general" tone="adherence" /></section>
       </div>
     </div>
+    <RoutePerformanceTrend rows={rows} />
     <section aria-label="Indicadores por contratista" className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Kilómetros y entrega en rango MyGeotab, con los filtros actuales.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Adherencia a kilómetros y entrega en rango MyGeotab, con los filtros actuales.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>
       {rows.length > 0 && identifiedTrips === 0 && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">No se identificaron viajes de Surti Cervezas, Logisticos ni HL Logisticos. El Excel puede incluir una columna CONTRATISTA o TRANSPORTISTA para mostrar este desglose.</p>}
       <div className="mt-4 grid gap-3 xl:grid-cols-3">{byContractor.map(({ name, rows: contractorRows }, index) => <ContractorCard key={name} name={name} rows={contractorRows} position={index + 1} />)}</div>
     </section>
