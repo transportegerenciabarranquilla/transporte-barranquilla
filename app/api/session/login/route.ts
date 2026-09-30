@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
 import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "../../../lib/contractors";
 import { readSecurityState } from "../../../lib/securityState";
+import { requestIp } from "../../../lib/securityIp";
+import { isIpBlocked } from "../../../lib/securityIpState";
 import { requireSupabaseKey, SUPABASE_URL, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
 type LoginResponse = { access_token?: string; refresh_token?: string; expires_in?: number; user?: { email?: string }; error_description?: string; msg?: string };
@@ -53,6 +55,16 @@ export async function POST(request: Request) {
       { error: "El servicio de inicio de sesión presenta una falla temporal. Intenta nuevamente en unos minutos." },
       { status: 503 },
     );
+  }
+  // La excepción del propietario depende del usuario autenticado por Supabase.
+  const authenticatedEmail = body.user?.email?.trim().toLowerCase() || "";
+  if (!authenticatedEmail || authenticatedEmail !== normalizedEmail) return NextResponse.json({ error: "No se pudo verificar la cuenta." }, { status: 401 });
+  if (!isSecurityOwnerEmail(authenticatedEmail)) {
+    try {
+      if (await isIpBlocked(requestIp(request.headers))) return NextResponse.json({ error: "El acceso desde esta IP está bloqueado. Contacta al administrador." }, { status: 423 });
+    } catch {
+      return NextResponse.json({ error: "No se pudo verificar la seguridad del acceso. Intenta nuevamente." }, { status: 503 });
+    }
   }
   const security = await readSecurityState(supabaseUserHeaders(body.access_token)).catch((error) => {
     console.error("No se pudo consultar el estado de seguridad durante el inicio de sesión.", error);

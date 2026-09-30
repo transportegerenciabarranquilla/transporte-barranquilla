@@ -452,7 +452,6 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
           </div>
         </section>}
 
-        {!contractorMode && <DiferenciaKilometros records={records} recordsLoading={loading} recordsError={error} />}
 
         {deliveryMode && overviewLoading && <p className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500" role="status">Cargando indicadores operativos de HL Logísticos…</p>}
         {deliveryMode && (overviewErrors.length > 0 || managementError) && <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" role="alert">No se pudieron cargar todos los indicadores: {[...overviewErrors, ...(managementError ? ["modulaciones"] : [])].join(", ")}. Recarga la página para reintentar.</p>}

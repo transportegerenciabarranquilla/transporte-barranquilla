@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { LockKeyhole, ShieldAlert, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
+import SecurityIpControls from "./SecurityIpControls";
 
 type Status = {
   state: { active: boolean; reason: string; activatedAt: string };
   canControl: boolean;
   configured: boolean;
+  ipBlocked?: boolean;
 };
 
 export function SecurityLockdownGuard() {
@@ -15,13 +17,14 @@ export function SecurityLockdownGuard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/security/lockdown", { cache: "no-store" });
     if (!response.ok) return;
     const next = await response.json() as Status;
     setStatus(next);
-    if (next.state.active && !next.canControl) {
+    if ((next.state.active || next.ipBlocked) && !next.canControl) {
       await fetch("/api/session/logout", { method: "POST" }).catch(() => undefined);
     }
   }, []);
@@ -62,7 +65,7 @@ export function SecurityLockdownGuard() {
   // La portada conserva el formulario de acceso como via de recuperacion
   // para la cuenta propietaria. El servidor rechaza cualquier otro correo
   // mientras el bloqueo siga activo.
-  if (status?.state.active && !status.canControl && pathname !== "/") {
+  if ((status?.state.active || status?.ipBlocked) && !status.canControl && pathname !== "/") {
     return (
       <div className="fixed inset-0 z-[9999] grid place-items-center bg-[#071522] p-6 text-white">
         <section className="max-w-lg text-center">
@@ -76,7 +79,8 @@ export function SecurityLockdownGuard() {
 
   if (!status?.canControl) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-[9998] flex max-w-sm items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+    <div className="fixed bottom-4 right-4 z-[9998] max-h-[85vh] w-[calc(100vw-2rem)] max-w-sm overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+      <div className="flex items-center gap-3">
       {status.state.active ? <ShieldAlert className="text-red-600" size={22} /> : <ShieldCheck className="text-emerald-600" size={22} />}
       <div className="min-w-0 flex-1">
         <p className="text-xs font-black text-slate-900">Seguridad global</p>
@@ -89,8 +93,11 @@ export function SecurityLockdownGuard() {
         onClick={() => void changeLockdown(!status.state.active)}
         type="button"
       >
-        {busy ? "Procesando" : status.state.active ? "Reactivar" : "Bloquear"}
+        {busy ? "Procesando" : status.state.active ? "Reactivar todos" : "Bloquear todos"}
       </button>
+      </div>
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">{expanded ? "Cerrar control por IP" : "Administrar bloqueos por IP"}</button>
+      {expanded && <SecurityIpControls />}
     </div>
   );
 }

@@ -429,7 +429,8 @@ test('JWT manipulado no fija el rol: identidad obtenida de Supabase Auth', async
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ id: 'contractor-a', email: 'logisticos@bavaria-seguimiento.com', user_metadata: { isAdmin: true } });
   const auth = compile('../app/lib/authServer.ts', {
-    'next/headers': { cookies: async () => ({ get: () => ({ value: 'forged-admin-token' }) }) },
+    'next/headers': { cookies: async () => ({ get: () => ({ value: 'forged-admin-token' }) }), headers: async () => new Headers() },
+    './securityIpState': { isIpBlocked: async () => false },
     './supabaseServer': { ...supabase, requireSupabaseKey: () => 'test', SUPABASE_URL: 'https://db.test' },
     './securityState': { readSecurityState: async () => ({ state: { active: false } }) },
   });

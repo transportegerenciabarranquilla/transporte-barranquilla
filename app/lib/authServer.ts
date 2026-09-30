@@ -1,4 +1,6 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { requestIp } from "./securityIp";
+import { isIpBlocked } from "./securityIpState";
 import { isRejectedAuthResponse, sharePendingAuthRequests } from "./authResponse";
 import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isSiteAdminEmail, isEffectiveRestEmail } from "./contractors";
 import { requireSupabaseKey, SUPABASE_URL } from "./supabaseServer";
@@ -53,6 +55,7 @@ export async function getAuthenticatedSession(options: { allowDuringLockdown?: b
   if (isSiteAdminEmail(email) && !options.allowSiteAdmin) return null;
   const contractor = contractorForEmail(email);
   if (!contractor || !user.id) return null;
+  if (!options.allowDuringLockdown && !isSecurityOwnerEmail(email) && await isIpBlocked(requestIp(await headers()))) return null;
   if (!options.allowDuringLockdown && !isSecurityOwnerEmail(email)) {
     const security = await readSecurityState(supabaseUserHeaders(accessToken));
     if (security.state.active) return null;

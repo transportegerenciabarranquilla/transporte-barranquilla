@@ -2,13 +2,17 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { isSecurityOwnerEmail } from "../../../lib/contractors";
 import { readSecurityState } from "../../../lib/securityState";
+import { isIpBlocked } from "../../../lib/securityIpState";
+import { requestIp } from "../../../lib/securityIp";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getAuthenticatedSession({ allowDuringLockdown: true });
   const headers = session ? (supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken)) : undefined;
   const result = await readSecurityState(headers);
-  return NextResponse.json({ ...result, canControl: isSecurityOwnerEmail(session?.email) });
+  const canControl = isSecurityOwnerEmail(session?.email);
+  const ipBlocked = !canControl && await isIpBlocked(requestIp(request.headers));
+  return NextResponse.json({ ...result, ipBlocked: !canControl && ipBlocked, canControl });
 }
 
 export async function POST(request: Request) {

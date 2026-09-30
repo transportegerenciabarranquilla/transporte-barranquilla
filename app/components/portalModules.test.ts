@@ -4,6 +4,18 @@ import { getVisiblePortalModules } from "./portalModules.ts";
 import { canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
 import { canAccessContractor } from "../lib/adminScope.ts";
 
+test("Análisis de rutas tiene módulo propio solo para administradores", () => {
+  for (const contractor of ["Admin", "Admin Arenosa"]) {
+    const modules = getVisiblePortalModules({ contractor, isAdmin: true });
+    assert.equal(modules.filter(({ href }) => href === "/admin/analisis-rutas").length, 1);
+    assert.equal(modules.find(({ href }) => href === "/admin/analisis-rutas")?.title, "Análisis de rutas");
+    assert.equal(new Set(modules.map(({ id }) => id)).size, modules.length);
+  }
+  for (const session of [{ contractor: "Surti Cervezas" }, { contractor: "HL Logisticos" }, { isPeople: true }]) {
+    assert.equal(getVisiblePortalModules(session).some(({ href }) => href === "/admin/analisis-rutas"), false);
+  }
+});
+
 test("HL Logisticos recibe los módulos de Surti y Refusal con identidad independiente", () => {
   const contractor = contractorForEmail(" HLLogistica@gmail.com ");
   assert.equal(contractor, "HL Logisticos");
