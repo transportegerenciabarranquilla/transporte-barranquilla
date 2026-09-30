@@ -150,7 +150,7 @@ const adminRangoModule: PortalModule = {
 
 const adminRouteAnalysisModule: PortalModule = {
   id: 25,
-  title: "Análisis de rutas",
+  title: "Route Tracking",
   href: "/admin/analisis-rutas",
   detail: "Kilómetros, cumplimiento y desempeño de tripulaciones",
   tone: "from-[#10283f] to-[#0891b2]",

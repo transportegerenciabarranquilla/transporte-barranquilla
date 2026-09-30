@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getVisiblePortalModules } from "./portalModules.ts";
-import { canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
 import { canAccessContractor } from "../lib/adminScope.ts";
 
-test("Análisis de rutas tiene módulo propio solo para administradores", () => {
+test("Route Tracking tiene módulo propio solo para administradores", () => {
   for (const contractor of ["Admin", "Admin Arenosa"]) {
     const modules = getVisiblePortalModules({ contractor, isAdmin: true });
     assert.equal(modules.filter(({ href }) => href === "/admin/analisis-rutas").length, 1);
-    assert.equal(modules.find(({ href }) => href === "/admin/analisis-rutas")?.title, "Análisis de rutas");
+    assert.equal(modules.find(({ href }) => href === "/admin/analisis-rutas")?.title, "Route Tracking");
     assert.equal(new Set(modules.map(({ id }) => id)).size, modules.length);
   }
   for (const session of [{ contractor: "Surti Cervezas" }, { contractor: "HL Logisticos" }, { isPeople: true }]) {
@@ -22,7 +22,7 @@ test("HL Logisticos recibe los módulos de Surti y Refusal con identidad indepen
   assert.equal(normalizeContractorName("HL Logistica"), normalizeContractorName(contractor));
   const modules = getVisiblePortalModules({ contractor: contractor! });
   const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
-  assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal" && href !== "/cumplimiento-entregas"), surti);
+  assert.deepEqual(modules.filter(({ href }) => href !== "/seguimiento/refusal"), surti);
   assert.equal(modules.filter(({ href }) => href === "/seguimiento/refusal").length, 1);
   assert.equal(isComplaintsContractor(contractor), true);
   assert.equal(canManageComplaint(contractor, "Surti Cervezas"), false);
@@ -54,6 +54,14 @@ test("Punto Corona Arenosa tiene SIC Gráficas sin recibir los módulos exclusiv
   assert.equal(modules.some(({ href }) => href === "/preventa"), false);
   assert.equal(modules.some(({ href }) => href === "/admin/graficas"), false);
   assert.equal(modules.some(({ href }) => href === "/quejas"), true);
+});
+
+test("cumplimiento de entregas no está disponible para HL, Logísticos ni Surti", () => {
+  for (const contractor of ["HL Logisticos", "HL Logistica", "Logísticos", "Surti Cervezas"]) {
+    const session = { contractor, isAdmin: false, isPeople: false };
+    assert.equal(canAccessDeliveryCompliance(session), false);
+    assert.equal(getVisiblePortalModules(session).some(({ href }) => href === "/cumplimiento-entregas"), false);
+  }
 });
 
 test("correos no asignados siguen sin acceso a una contratista", () => {

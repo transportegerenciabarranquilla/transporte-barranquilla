@@ -31,9 +31,9 @@ export default function AnalisisRutasPage() {
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-8">
         <div className="flex items-center gap-3">
           <Link href="/" aria-label="Volver al panel de módulos" className="rounded-lg border border-slate-200 p-2.5 hover:bg-slate-50"><ArrowLeft size={20} /></Link>
-          <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-emerald-700">Módulo admin</p><h1 className="text-2xl font-semibold">Análisis de rutas</h1></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-emerald-700">Módulo admin</p><h1 className="text-2xl font-semibold">Route Tracking</h1></div>
         </div>
-        <nav className="flex gap-3" aria-label="Navegación de análisis de rutas">
+        <nav className="flex gap-3" aria-label="Navegación de Route Tracking">
           <Link href="/admin/graficas" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium hover:bg-slate-50"><ChartColumn size={17} />Gráficas</Link>
           <Link href="/" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium hover:bg-slate-50"><Home size={17} />Panel admin</Link>
         </nav>

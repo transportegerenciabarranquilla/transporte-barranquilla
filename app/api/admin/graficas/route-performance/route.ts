@@ -64,7 +64,11 @@ export async function POST(request: Request) {
     if (!saved?.id || saved.row_count !== rows.length) {
       return NextResponse.json({ error: "Supabase no confirmó el archivo guardado." }, { status: 409 });
     }
-    return NextResponse.json({ rows, fileName: saved.file_name, uploadedAt: saved.created_at });
+    try {
+      return NextResponse.json(await readRoutePerformanceFile());
+    } catch {
+      return NextResponse.json({ error: "El Excel se guardó, pero no se pudo recargar el historial. Recarga la página; no necesitas subirlo otra vez." }, { status: 500 });
+    }
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el Excel." }, { status: 500 });
   }

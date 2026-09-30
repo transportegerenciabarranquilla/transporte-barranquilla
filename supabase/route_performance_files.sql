@@ -1,5 +1,5 @@
 -- Ejecutar una vez en Supabase SQL Editor del proyecto usado por esta app.
--- Guarda cada Excel original del centro de gráficas; la pantalla carga el último.
+-- Guarda cada Excel original del centro de gráficas; la pantalla acumula los viajes de todos los archivos guardados.
 create table if not exists public.graficas_route_performance_files (
   id uuid primary key default gen_random_uuid(),
   file_name text not null check (length(btrim(file_name)) between 1 and 255),

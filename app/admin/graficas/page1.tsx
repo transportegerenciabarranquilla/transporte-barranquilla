@@ -14,6 +14,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
   const [rows, setRows] = useState<RoutePerformanceRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [uploadedAt, setUploadedAt] = useState("");
+  const [files, setFiles] = useState<Array<{ id: string; fileName: string; rowCount: number }>>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingStored, setLoadingStored] = useState(true);
@@ -35,6 +36,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         if (contractorOnly) setServerMatchedRows(Array.isArray(body.rows) ? body.rows : []);
         setFileName(String(body.fileName || ""));
         setUploadedAt(String(body.uploadedAt || ""));
+        setFiles(Array.isArray(body.files) ? body.files : []);
       })
       .catch((caught) => {
         if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "No se pudo cargar el Excel guardado.");
@@ -76,6 +78,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
       setRows(Array.isArray(body.rows) ? body.rows : []);
       setFileName(String(body.fileName || file.name));
       setUploadedAt(String(body.uploadedAt || ""));
+      setFiles(Array.isArray(body.files) ? body.files : []);
       setSearch("");
       setMatchFilter("all");
       setContractorFilter("all");
@@ -157,7 +160,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
 
   return <section aria-label="Kilómetros, entrega en rango MyGeotab y adherencia del Excel" className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-[#f8fafc] px-4 py-4 sm:px-5">
-      <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#10283f] text-cyan-300"><Table2 size={19} /></span><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Análisis de rutas</p><h2 className="mt-0.5 text-base font-bold text-[#10223d]">Kilómetros y cumplimiento de entregas</h2><p className="mt-0.5 text-xs text-slate-500">Indicadores del Excel y tripulación de Seguimiento</p></div></div>
+      <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#10283f] text-cyan-300"><Table2 size={19} /></span><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Route Tracking</p><h2 className="mt-0.5 text-base font-bold text-[#10223d]">Kilómetros y cumplimiento de entregas</h2><p className="mt-0.5 text-xs text-slate-500">Indicadores del Excel y tripulación de Seguimiento</p></div></div>
       <div className="flex flex-wrap items-center gap-2">
         {!contractorOnly && <input aria-label="Archivo Excel de viajes" className="sr-only" ref={inputRef} type="file" accept=".xlsx,.xls" disabled={loading || loadingStored} onChange={uploadExcel} />}
         {!contractorOnly && <button className="flex items-center gap-2 rounded-md bg-[#10223d] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" disabled={loading || loadingStored} onClick={() => inputRef.current?.click()} type="button"><Upload size={15} /> {loading ? "Guardando Excel…" : "Subir y guardar Excel"}</button>}
@@ -166,9 +169,11 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
       </div>
     </header>
     <div className="space-y-4 p-4">
-      {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{error}{rows.length ? " Se conserva el archivo anterior." : ""}</p>}
+      {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{error}{rows.length ? " Se conservan los registros anteriores." : ""}</p>}
       {recordsError && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800" role="alert">No se pudo cargar Seguimiento. El cruce de RR y conductor no está disponible: {recordsError}</p>}
-      <p className="text-xs font-semibold text-slate-600" role="status" aria-live="polite">{loadingStored ? "Cargando el último Excel guardado…" : loading ? "Validando y guardando Excel…" : fileName ? `${fileName} · ${rows.length} viajes${contractorOnly ? " de HL Logísticos" : " guardados"}${uploadedAt ? ` · ${new Date(uploadedAt).toLocaleString("es-CO")}` : ""}` : contractorOnly ? "No hay un Excel disponible del administrador." : "Sube un Excel para guardar los viajes en Supabase y ver las gráficas."}{recordsLoading ? " Cargando Seguimiento para cruzar las placas…" : ""}</p>
+      <p className="text-xs font-semibold text-slate-600" role="status" aria-live="polite">{loadingStored ? "Cargando los viajes guardados…" : loading ? "Validando y guardando Excel…" : fileName ? `${contractorOnly ? "Historial de viajes" : `${files.length} archivos guardados`} · ${rows.length} viajes${uploadedAt ? ` · Última carga: ${new Date(uploadedAt).toLocaleString("es-CO")}` : ""}` : contractorOnly ? "No hay un Excel disponible del administrador." : "Sube un Excel para guardar los viajes y ver las gráficas."}{recordsLoading ? " Cargando Seguimiento para cruzar las placas…" : ""}</p>
+      {!contractorOnly && <p className="text-xs text-slate-500">Cada Excel agrega sus viajes al historial. Los archivos anteriores se conservan.</p>}
+      {!contractorOnly && files.length > 0 && <details className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Archivos guardados ({files.length})</summary><ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">{files.map((file) => <li key={file.id}>{file.fileName} · {file.rowCount} viajes</li>)}</ul></details>}
       {contractorOnly && !loadingStored && !error && rows.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Todavía no hay viajes identificados de HL Logísticos en el archivo del administrador.</p>}
       {rows.length > 0 && <>
         <div className="grid gap-3 sm:grid-cols-3">

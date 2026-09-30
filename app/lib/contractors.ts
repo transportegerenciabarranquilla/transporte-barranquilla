@@ -76,8 +76,11 @@ export function canEditRangeReasons(contractor: string | null | undefined) {
   return normalized === "surticervezas" || normalized === "hllogisticos" || normalized === "logisticos";
 }
 
+// El módulo de cumplimiento de entregas queda deshabilitado para las contratistas.
+const DELIVERY_COMPLIANCE_CONTRACTORS = new Set<string>();
+
 export function canAccessDeliveryCompliance(session: { contractor?: string; isAdmin?: boolean; isPeople?: boolean } | null) {
-  return Boolean(session && !session.isAdmin && !session.isPeople && normalizeContractorName(session.contractor) === "hllogisticos");
+  return Boolean(session && !session.isAdmin && !session.isPeople && DELIVERY_COMPLIANCE_CONTRACTORS.has(normalizeContractorName(session.contractor)));
 }
 
 export function isPuntoCoronaContractor(value: string | null | undefined) {
