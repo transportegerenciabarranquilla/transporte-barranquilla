@@ -1,4 +1,5 @@
-import { canAccessContractor } from "../../../../lib/adminScope";
+import { allowedContractors, canAccessContractor } from "../../../../lib/adminScope";
+import { enrichExportVehicles, readExportCheckins, readExportModulations } from "../../../../lib/adminExportCheckin";
 import { jsPDF } from "jspdf";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
@@ -33,7 +34,12 @@ export async function GET(request: Request) {
     const label = period === "today" ? "Lo que va del día" : period === "month" ? "Lo que va del mes" : "Histórico completo";
     const filename = buildFilename(period, contractor, format);
     if (format === "xlsx") {
-      const bytes = buildWorkbook(records, label, contractor);
+      const contractors = allowedContractors(session).filter((item) => !contractor || normalizeContractorName(item) === normalizeContractorName(contractor));
+      const [checkins, modulations] = await Promise.all([
+        readExportCheckins(contractors, session.accessToken),
+        readExportModulations(contractors, session.accessToken),
+      ]);
+      const bytes = buildWorkbook(enrichExportVehicles(records, modulations, checkins), label, contractor);
       return new Response(bytes, { headers: downloadHeaders(filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") });
     }
     return new Response(buildPdf(records, label, contractor), { headers: downloadHeaders(filename, "application/pdf") });
@@ -70,7 +76,7 @@ function buildWorkbook(records: Vehiculo[], label: string, contractor: string) {
     "Avance ruta": record.avanceRuta, Estado: record.status, "Hora salida": record.horaSalida, "Hora llegada": record.horaLlegada,
     "Tiempo ruta": record.tiempoRuta, "Tiempo planeado": record.tiempoPlaneado || "", "Causal salida tardía": record.causalSalidaTardia || "",
     "Comentario salida tardía": record.comentarioSalidaTardia || "", "Cajas rechazadas": numberValue(record.cajasRechazadas),
-    "Cajas gestionadas": numberValue(record.cajasGestionadas), "Refusal final": numberValue(record.cajasRefusalFinal), "Refusal %": numberValue(record.refusal),
+    "Cajas gestionadas": numberValue(record.cajasGestionadas), "Cajas de check-in": record.cajasCheckin ?? "", "Refusal final": numberValue(record.cajasRefusalFinal), "Refusal %": numberValue(record.refusal),
     Centro: record.centro, Territorio: record.territorio, Bloque: record.bloque,
   }));
   const workbook = XLSX.utils.book_new();
