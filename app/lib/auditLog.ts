@@ -11,6 +11,7 @@ export type AuditAction =
   | "modulacion_eliminada"
   | "modulacion_guardada"
   | "punto_corona_archivo_subido"
+  | "rango_motivo_actualizado"
   | "quejas_cargadas"
   | "queja_evidencia_subida"
   | "queja_comentada"

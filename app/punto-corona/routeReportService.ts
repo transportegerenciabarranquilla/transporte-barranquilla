@@ -72,7 +72,12 @@ export function mergePuntoCoronaRouteReports(
   if (!existing || existing.id !== incoming.id || existing.kind !== "current") return incoming;
 
   const rowsById = new Map(existing.rows.map((row) => [row.id, row]));
-  incoming.rows.forEach((row) => rowsById.set(row.id, row));
+  incoming.rows.forEach((row) => rowsById.set(row.id, {
+    ...row,
+    ...(rowsById.get(row.id)?.manualOutOfRadiusReason
+      ? { manualOutOfRadiusReason: rowsById.get(row.id)!.manualOutOfRadiusReason }
+      : {}),
+  }));
   const rows = Array.from(rowsById.values());
   const matchedDts = new Set(rows.map((row) => normalizeDt(row.dt)).filter(Boolean)).size;
 

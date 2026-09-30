@@ -33,17 +33,18 @@ import {
   type PuntoCoronaRouteReport,
   type PuntoCoronaRouteRow,
 } from "../lib/puntoCoronaRoutesStorage";
-import { refreshRemoteRecords } from "../lib/remoteStore";
+import { clearRemoteCache, refreshRemoteRecords } from "../lib/remoteStore";
+import { getRangoSession } from "../lib/rangoSession";
 import { saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
-import { CONTRACTORS, normalizeContractorName } from "../lib/contractors";
+import { canEditRangeReasons, normalizeContractorName } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
+import RangeReasonSelect from "./RangeReasonSelect";
 import { createClosureReport, mergePuntoCoronaRouteReports, parsePuntoCoronaRouteFile } from "./routeReportService";
 
 const DATA_REFRESH_MS = 30_000;
-const ALLOWED_CONTRACTORS = new Set<string>(CONTRACTORS);
 const NOT_STARTED = "NOT_STARTED";
 const RETURNED = "DEFINITELY_RETURNED";
 const WAITING_MODULATION = "WAITING_MODULATION";
@@ -67,6 +68,7 @@ export default function PuntoCoronaPage() {
     [],
   );
   const [access, setAccess] = useState<AccessState>("checking");
+  const [sessionError, setSessionError] = useState("");
   const [message, setMessage] = useState("");
   const [downloadError, setDownloadError] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -82,15 +84,38 @@ export default function PuntoCoronaPage() {
   const [historyRr, setHistoryRr] = useState("");
 
   useEffect(() => {
-    fetch("/api/session/session", { cache: "no-store" })
-      .then(async (response) => (response.ok ? response.json() : null))
-      .then((body) => {
-        const session = body?.session;
-        const sessionContractor = session?.contractor || "";
-        setContractor(sessionContractor);
-        setAccess(!session?.isAdmin && ALLOWED_CONTRACTORS.has(sessionContractor) ? "allowed" : "denied");
-      })
-      .catch(() => setAccess("denied"));
+    let disposed = false;
+    let checking = false;
+    let initialContractor: string | undefined;
+    async function verifySession() {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const session = await getRangoSession(initialContractor);
+        if (disposed) return;
+        initialContractor ??= session.contractor;
+        setContractor(session.contractor);
+        setSessionError("");
+        setAccess("allowed");
+      } catch (error) {
+        if (disposed) return;
+        setAccess("denied");
+        setSessionError(error instanceof Error ? error.message : "No se pudo verificar la sesión.");
+        clearRemoteCache();
+      } finally {
+        checking = false;
+      }
+    }
+    void verifySession();
+    window.addEventListener("focus", verifySession);
+    document.addEventListener("visibilitychange", verifySession);
+    const interval = window.setInterval(verifySession, DATA_REFRESH_MS);
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", verifySession);
+      document.removeEventListener("visibilitychange", verifySession);
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -240,7 +265,7 @@ export default function PuntoCoronaPage() {
             <LockKeyhole className="h-5 w-5" />
           </div>
           <h1 className="mt-4 text-xl font-semibold text-[#10223d]">Modulo Rango</h1>
-          <p className="mt-2 text-sm text-slate-500">Este modulo solo esta disponible para sesiones de contratistas.</p>
+          <p role="alert" className="mt-2 text-sm text-slate-500">{sessionError || "Este modulo solo esta disponible para sesiones de contratistas."}</p>
           <button
             className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#10223d] px-4 py-2 text-sm font-semibold text-white"
             onClick={() => router.push("/")}
@@ -838,7 +863,9 @@ function RangeClientDetail({ crew, onClose, range, report }: { crew?: PuntoCoron
                   <td className="px-2.5 py-1.5 text-slate-700">{row.driverName || "-"}</td>
                   {crew ? <td className="break-words px-2.5 py-1.5 text-slate-700">{row.tourDisplayId || "-"}</td> : null}
                   {crew ? <td className="break-words px-2.5 py-1.5 text-slate-700">{getRouteStatusLabel(row.status)}</td> : null}
-                  <td className="px-2.5 py-1.5 text-slate-600">{getRangeReason(row, range)}</td>
+                  <td className="px-2.5 py-1.5 text-slate-600">{range === "outOfRange" && canEditRangeReasons(report.contractor)
+                    ? <RangeReasonSelect key={`${report.id}:${row.id}`} reportId={report.id} contractor={report.contractor} row={row} disabled={report.kind === "closure"} />
+                    : getRangeReason(row, range)}</td>
                 </tr>
               ))
             ) : (
@@ -1200,7 +1227,7 @@ function getRangeReason(row: PuntoCoronaRouteRow, range: RangeDetail) {
   if (range === "inRange") return "Visita iniciada en rango";
   if (range === "unvalidated") return "Sin validacion de rango";
 
-  const reason = (row.outOfRadiusReason || row.skippedReason || "").trim();
+  const reason = (row.manualOutOfRadiusReason || row.outOfRadiusReason || row.skippedReason || "").trim();
   return reason || "Fuera de rango";
 }
 

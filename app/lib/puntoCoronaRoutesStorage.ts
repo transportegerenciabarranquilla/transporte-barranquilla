@@ -1,4 +1,5 @@
 import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
+import { getRangoSession } from "./rangoSession";
 
 export const PUNTO_CORONA_ROUTES_STORAGE_KEY = "bavaria.punto-corona.routes";
 export const PUNTO_CORONA_CONTRACTOR = "Punto Corona";
@@ -25,6 +26,7 @@ export type PuntoCoronaRouteRow = {
   status: PuntoCoronaRouteStatus;
   withinRadius: boolean | null;
   outOfRadiusReason: string;
+  manualOutOfRadiusReason?: string;
   skippedReason: string;
   deliveredVolume: number;
   refusedVolume: number;
@@ -92,6 +94,15 @@ export function readPuntoCoronaRouteReports() {
 
 export function savePuntoCoronaRouteReports(records: PuntoCoronaRouteReport[]) {
   return saveRemoteRecords("/api/punto-corona-routes", records, { mergeByKey: (record) => record.id });
+}
+
+export async function savePuntoCoronaRangeReason(reportId: string, rowId: string, reason: string, contractor: string) {
+  await getRangoSession(contractor);
+  return saveRemoteRecords<PuntoCoronaRouteReport>("/api/punto-corona-routes", [], {
+    method: "PATCH",
+    extraBody: { reportId, rowId, reason, contractor },
+    mergeByKey: (record) => record.id,
+  });
 }
 
 export function getPuntoCoronaCurrentReportId(operationalDate: string, contractor = PUNTO_CORONA_CONTRACTOR) {

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { scopedWrite } from "../../lib/scopedWrite";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { CONTRACTORS, normalizeContractorName } from "../../lib/contractors";
+import { CONTRACTORS, canEditRangeReasons, normalizeContractorName } from "../../lib/contractors";
 import { normalizeDt, normalizeDtVariants } from "../../lib/modulacionStorage";
 import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
+import { isRangeReason } from "../../lib/rangeReasons";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -97,6 +98,62 @@ export async function PUT(request: Request) {
     return NextResponse.json({ records: rows.map((row) => row.data), ignoredDts });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando reportes de rango." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    const body = await request.json().catch(() => null);
+    if (typeof body?.contractor === "string" && normalizeContractorName(body.contractor) !== normalizeContractorName(session.contractor)) {
+      return NextResponse.json({ error: "La sesión cambió en otra pestaña. Vuelve al portal e inicia sesión con la contratista de este reporte." }, { status: 409 });
+    }
+    if (!canUseRangoModule(session) || !canEditRangeReasons(session.contractor)) {
+      return NextResponse.json({ error: "No autorizado para editar estos motivos." }, { status: 403 });
+    }
+    const { reportId, rowId, reason } = body || {};
+    if (typeof reportId !== "string" || !reportId || typeof rowId !== "string" || !rowId || !isRangeReason(reason)) {
+      return NextResponse.json({ error: "Selecciona un cliente y un motivo válido." }, { status: 400 });
+    }
+    const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+    const params = new URLSearchParams({ select: LIST_SELECT, report_id: `eq.${reportId}`, contractor: `eq.${session.contractor}` });
+    // Compare-and-swap preserves edits made to other clients in another tab.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const read = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
+      if (!read.ok) return NextResponse.json({ error: await supabaseError(read) }, { status: read.status });
+      const [stored] = await read.json() as ReportRow[];
+      if (!stored || stored.contractor !== session.contractor) return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+      if (stored.kind !== "current") return NextResponse.json({ error: "Reabre el día para editar el motivo." }, { status: 409 });
+      const row = stored.data.rows.find((item) => item.id === rowId);
+      if (!row || row.withinRadius !== false || row.status === "NOT_STARTED") {
+        return NextResponse.json({ error: "El cliente no está fuera de rango." }, { status: 400 });
+      }
+      const record = normalizeReport({
+        ...stored.data,
+        rows: stored.data.rows.map((item) => item.id === rowId ? { ...item, manualOutOfRadiusReason: reason } : item),
+      }, stored);
+      const updateParams = new URLSearchParams(params);
+      updateParams.set("updated_at", `eq.${stored.updated_at}`);
+      const write = await fetch(supabaseRest(TABLE, `?${updateParams}`), {
+        method: "PATCH",
+        headers: { ...headers, Prefer: "return=representation" },
+        body: JSON.stringify({ data: record, updated_at: new Date().toISOString() }),
+        cache: "no-store",
+      });
+      if (!write.ok) return NextResponse.json({ error: await supabaseError(write) }, { status: write.status });
+      const updated = await write.json() as ReportRow[];
+      if (!updated.length) continue;
+      clearServerCache(`supabase:${TABLE}:`);
+      clearServerCache("supabase:admin-rango:");
+      await writeAuditLog({ action: "rango_motivo_actualizado", contractor: session.contractor,
+        details: { cliente: row.pocExternalId, fecha: record.operationalDate, motivo: reason },
+        module: "punto_corona", recordId: reportId, request, session });
+      return NextResponse.json({ record: normalizeReport(updated[0].data, updated[0]) });
+    }
+    return NextResponse.json({ error: "El reporte cambió mientras guardabas. Intenta nuevamente." }, { status: 409 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo guardar el motivo." }, { status: 500 });
   }
 }
 
