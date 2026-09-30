@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Download, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { COMPLAINT_TEMPLATE_COLUMNS, type ComplaintRecord } from "../lib/complaints";
+import { type ComplaintRecord } from "../lib/complaints";
 import { CONTRACTORS, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../lib/contractors";
+
+import AddComplaintModal from "./AddComplaintModal";
 
 type Access = "checking" | "allowed" | "denied";
 
 export default function ComplaintsPage() {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [adding, setAdding] = useState(false);
   const refreshingRef = useRef(false);
   const [access, setAccess] = useState<Access>("checking");
   const [canUploadComplaints, setCanUploadComplaints] = useState(false);
@@ -18,7 +20,6 @@ export default function ComplaintsPage() {
   const [isArenosaSession, setIsArenosaSession] = useState(false);
   const [records, setRecords] = useState<ComplaintRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -80,52 +81,6 @@ export default function ComplaintsPage() {
     } finally {
       refreshingRef.current = false;
       if (!silent) setLoading(false);
-    }
-  }
-
-  async function downloadTemplate() {
-    const XLSX = await import("xlsx");
-    const sheet = XLSX.utils.aoa_to_sheet([[...COMPLAINT_TEMPLATE_COLUMNS]]);
-    sheet["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 34 }, { wch: 34 }, { wch: 22 }, { wch: 18 }, { wch: 18 }];
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, sheet, "Quejas");
-    XLSX.writeFile(workbook, "plantilla_quejas.xlsx");
-  }
-
-  async function uploadFile(file?: File) {
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    setMessage("");
-    try {
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
-      // La columna "tiempo para cierre" puede contener formulas arrastradas
-      // hasta filas vacias. No debe convertir esas filas residuales en una
-      // queja sin ID.
-      const normalized = raw.map((row, index) => ({ ...normalizeTemplateRow(row), excelRow: index + 2 })).filter(hasComplaintTemplateData);
-      if (!normalized.length) throw new Error("La plantilla no contiene quejas.");
-      const missingIdRows = normalized.filter((row) => !String(row.id ?? "").trim());
-      if (missingIdRows.length) {
-        const details = missingIdRows.slice(0, 5).map((row) => {
-          const reference = [row.code && `código ${row.code}`, row.createdDate && `fecha ${formatTemplateValue(row.createdDate)}`].filter(Boolean).join(", ");
-          return `fila ${row.excelRow}${reference ? ` (${reference})` : ""}`;
-        });
-        throw new Error(`${missingIdRows.length} fila${missingIdRows.length === 1 ? "" : "s"} no ${missingIdRows.length === 1 ? "tiene" : "tienen"} ID: ${details.join("; ")}.`);
-      }
-      const enriched = await fillEstablishmentsFromClientCodes(normalized);
-      const response = await fetch("/api/complaints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: enriched }) });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo cargar la plantilla.");
-      setMessage(`${body.inserted} quejas cargadas · ${body.matched} cruzadas con Seguimiento${body.duplicates ? ` · ${body.duplicates} duplicadas omitidas` : ""}.`);
-      await loadRecords();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo cargar la plantilla.");
-    } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -215,15 +170,11 @@ export default function ComplaintsPage() {
 
       <section className="mx-auto max-w-[1500px] space-y-5 px-5 py-6 sm:px-8">
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las contratistas de ambas sedes." : canUploadComplaints ? (isArenosaSession ? "Administra las quejas de Logisticos Arenosa y Punto Corona Arenosa. Se asignan por transportista o por el cruce del DT." : "Carga la plantilla para Logisticos, Punto Corona y Surti Cervezas, y consulta todos sus campos.") : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las contratistas de ambas sedes." : canUploadComplaints ? (isArenosaSession ? "Administra las quejas de Logisticos Arenosa y Punto Corona Arenosa. Se asignan por transportista o por el cruce del DT." : "Añade quejas de Logisticos, Punto Corona y Surti Cervezas con cruce por DT y código del cliente.") : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
           <div className="flex flex-wrap gap-2">
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("excel")} type="button">{exporting === "excel" ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}Exportar Excel</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("pdf")} type="button">{exporting === "pdf" ? <LoaderCircle className="animate-spin" size={16} /> : <FileText size={16} />}Exportar PDF</button>
-            {canUploadComplaints ? <>
-            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => void downloadTemplate()} type="button"><Download size={16} />Descargar plantilla</button>
-            <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadFile(event.target.files?.[0])} ref={inputRef} type="file" />
-            <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-bold text-white disabled:opacity-50" disabled={uploading} onClick={() => inputRef.current?.click()} type="button">{uploading ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}{uploading ? "Cargando" : "Subir quejas"}</button>
-            </> : null}
+            {canUploadComplaints ? <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-bold text-white hover:bg-red-800" onClick={() => setAdding(true)} type="button"><Plus size={16} />Añadir queja</button> : null}
           </div>
         </section>
 
@@ -241,6 +192,7 @@ export default function ComplaintsPage() {
 
         {isAdminSession ? <ComplaintAdminCharts now={now} records={visible} /> : <ComplaintRecordsTable loading={loading} now={now} onSelect={setSelected} records={visible} />}
       </section>
+      {adding ? <AddComplaintModal contractors={CONTRACTORS.filter((item) => isComplaintsContractor(item) && contractorSiteName(item) === (isArenosaSession ? "Arenosa" : "Galapa"))} onClose={() => setAdding(false)} onSaved={(record) => { setAdding(false); setMessage("Queja guardada correctamente."); setError(""); setSelected(record); void loadRecords(); }} /> : null}
       {selected ? <ComplaintModal busy={evidenceBusy} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onSaveComment={(comments) => void saveComment(comments)} onUpload={(file) => void uploadEvidence(file)} /> : null}
     </main>
   );
@@ -259,7 +211,7 @@ function ComplaintRecordsTable({ loading, now, onSelect, records }: { loading: b
     <div className="max-h-[650px] overflow-auto">
       <table className="w-full min-w-[1250px] text-left text-xs">
         <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo para cierre</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{records.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => onSelect(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT en plantilla"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
+        <tbody className="divide-y divide-slate-100">{records.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => onSelect(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
       </table>
       {!loading && !records.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
     </div>
@@ -269,31 +221,6 @@ function ComplaintRecordsTable({ loading, now, onSelect, records }: { loading: b
 function ComplaintFilters(props: ComplaintFiltersProps) {
   const inputClass = "h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500";
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Filter className="text-blue-700" size={18} /><div><h2 className="font-black text-[#10223d]">Filtros</h2><p className="text-xs text-slate-500">Mostrando {props.visible} de {props.total} quejas</p></div></div><button className="text-xs font-black text-blue-700 hover:underline" onClick={props.onClear} type="button">Limpiar filtros</button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><input className={`${inputClass} xl:col-span-2`} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar ID, DT, placa, persona..." value={props.query} /><select className={inputClass} onChange={(event) => props.setStatusFilter(event.target.value)} value={props.statusFilter}><option value="all">Todos los estados</option><option value="open">Abiertas</option><option value="closed">Cerradas</option></select>{props.showContractor ? <select className={inputClass} onChange={(event) => props.setContractorFilter(event.target.value)} value={props.contractorFilter}><option value="all">Transportistas</option>{props.contractors.map((item) => <option key={item} value={normalizeContractorName(item)}>{item}</option>)}</select> : null}<select className={inputClass} onChange={(event) => props.setMatchFilter(event.target.value)} value={props.matchFilter}><option value="all">Todos los cruces</option><option value="matched">Con cruce</option><option value="unmatched">Sin cruce</option></select><div className="flex gap-2"><input aria-label="Fecha desde" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateFrom(event.target.value)} title="Fecha desde" type="date" value={props.dateFrom} /><input aria-label="Fecha hasta" className={`${inputClass} min-w-0 flex-1 px-2`} onChange={(event) => props.setDateTo(event.target.value)} title="Fecha hasta" type="date" value={props.dateTo} /></div></div></section>;
-}
-
-function normalizeTemplateRow(row: Record<string, unknown>) {
-  const normalized = new Map(Object.entries(row).map(([key, value]) => [normalizeText(key), value]));
-  return {
-    id: normalized.get("id") || "",
-    closingTime: normalized.get("tiempoparacierre") || "",
-    createdDate: normalized.get("fechacreacion") || "",
-    code: normalized.get("codigo") || "",
-    establishment: normalized.get("establecimiento") || "",
-    issue: normalized.get("novedad") || "",
-    contractor: normalized.get("transportista") || "",
-    status: normalized.get("estado") || "",
-    dt: normalized.get("dt") || "",
-  };
-}
-
-function hasComplaintTemplateData(row: ReturnType<typeof normalizeTemplateRow>) {
-  return [row.id, row.createdDate, row.code, row.establishment, row.issue, row.contractor, row.status, row.dt]
-    .some((value) => String(value ?? "").trim());
-}
-
-function formatTemplateValue(value: unknown) {
-  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toLocaleDateString("es-CO");
-  return String(value ?? "").trim();
 }
 
 function normalizeText(value: unknown) { return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase(); }
@@ -409,26 +336,6 @@ function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectUR
 function excelColumnName(index: number) { let value = index; let result = ""; while (value) { value -= 1; result = String.fromCharCode(65 + (value % 26)) + result; value = Math.floor(value / 26); } return result; }
 async function imageFit(dataUrl: string, maxWidth: number, maxHeight: number) { const image = new Image(); image.src = dataUrl; await image.decode(); const ratio = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1); return { width: image.naturalWidth * ratio, height: image.naturalHeight * ratio }; }
 
-async function fillEstablishmentsFromClientCodes<T extends { code: unknown; establishment: unknown }>(rows: T[]) {
-  const codes = Array.from(new Set(rows.map((row) => String(row.code ?? "").replace(/\D/g, "")).filter(Boolean)));
-  const names = new Map<string, string>();
-  let nextIndex = 0;
-  async function worker() {
-    while (nextIndex < codes.length) {
-      const code = codes[nextIndex++];
-      const response = await fetch(`/api/clientes?codigo=${encodeURIComponent(code)}`, { cache: "no-store" });
-      if (!response.ok) continue;
-      const body = await response.json().catch(() => ({}));
-      const name = String(body?.cliente?.nombre || "").trim();
-      if (name) names.set(code, name);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(6, codes.length) }, () => worker()));
-  return rows.map((row) => {
-    const code = String(row.code ?? "").replace(/\D/g, "");
-    return { ...row, establishment: names.get(code) || row.establishment };
-  });
-}
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><span className="grid h-11 w-11 place-items-center rounded-xl bg-red-50 text-red-700">{icon}</span><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="text-2xl font-black text-[#10223d]">{value.toLocaleString("es-CO")}</p></div></article>; }
 
 function ComplaintAdminCharts({ now, records }: { now: number; records: ComplaintRecord[] }) {

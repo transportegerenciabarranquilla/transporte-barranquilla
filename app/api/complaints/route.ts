@@ -88,20 +88,24 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   if (!session.isAdmin && !isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "Solo Logisticos puede cargar quejas." }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { records?: Array<Record<string, unknown>> };
+  const body = await request.json().catch(() => ({})) as { records?: Array<Record<string, unknown>>; action?: "preview" | "create" };
   if (!Array.isArray(body.records) || !body.records.length) return NextResponse.json({ error: "El archivo no contiene quejas." }, { status: 400 });
   if (body.records.length > 5000) return NextResponse.json({ error: "El archivo supera el limite de 5.000 quejas." }, { status: 413 });
 
+  if (body.records.some((record) => !record || typeof record !== "object")) return NextResponse.json({ error: "Queja inválida." }, { status: 400 });
+  if (body.action && (body.records.length !== 1 || !["preview", "create"].includes(body.action))) return NextResponse.json({ error: "Solicitud inválida." }, { status: 400 });
+  if (body.action === "create" && (!text(body.records[0].issue) || text(body.records[0].comments).length > 2000)) return NextResponse.json({ error: "Escribe la novedad y limita los comentarios a 2.000 caracteres." }, { status: 400 });
   const missingIds = body.records.filter((input) => !complaintIdentityKey(input.id));
-  if (missingIds.length) return NextResponse.json({ error: `${missingIds.length} filas no tienen ID. El ID es obligatorio para evitar quejas duplicadas.` }, { status: 400 });
+  if (body.action !== "preview" && missingIds.length) return NextResponse.json({ error: `${missingIds.length} filas no tienen ID. El ID es obligatorio para evitar quejas duplicadas.` }, { status: 400 });
 
   const [seguimiento, crossContractorTracking, existingRows] = await Promise.all([
     readSeguimiento(session.accessToken),
     readCrossContractorSeguimiento(body.records.map((record) => record.dt), session.accessToken),
-    readComplaintRows(session.accessToken),
+    body.action === "preview" ? Promise.resolve([]) : readComplaintRows(session.accessToken),
   ]);
   const tracking = [...seguimiento, ...crossContractorTracking];
   const existingByIdentity = new Map(existingRows.map((row) => [complaintIdentityKey(row.complaint_id), row]));
+  if (body.action === "create" && existingByIdentity.has(complaintIdentityKey(body.records[0].id))) return NextResponse.json({ error: "Ya existe una queja con ese ID. Usa un ID diferente." }, { status: 409 });
   const uploadedAt = new Date().toISOString();
   const ownContractorOnly = !session.isAdmin && contractorSiteName(session.contractor) === "Arenosa";
   if (!session.isAdmin && body.records.some((input) => {
@@ -118,6 +122,7 @@ export async function POST(request: Request) {
     const record = enrichComplaint(input, index, targetTracking, session.email, uploadedAt, targetContractor);
     return { ...record, contractor: record.contractor || targetContractor || "Por identificar" };
   });
+  if (body.action === "preview") return NextResponse.json({ record: enrichedRecords[0] });
   const recordsById = new Map<string, ComplaintRecord>();
   for (const incoming of enrichedRecords) {
     const identity = complaintIdentityKey(incoming.id);
@@ -133,13 +138,14 @@ export async function POST(request: Request) {
     recordsById.set(identity, record);
   }
   const records = Array.from(recordsById.values());
-  if (ownContractorOnly && records.some((record) => !canManageComplaint(session.contractor, record.contractor))) return NextResponse.json({ error: "No se pudo identificar la contratista de algunas quejas. Indica Logisticos Arenosa o Punto Corona Arenosa en la columna transportista." }, { status: 400 });
+  if (ownContractorOnly && records.some((record) => !canManageComplaint(session.contractor, record.contractor))) return NextResponse.json({ error: "No se pudo identificar la contratista de algunas quejas. Indica Logisticos Arenosa o Punto Corona Arenosa en el campo transportista." }, { status: 400 });
   const duplicates = enrichedRecords.length - records.length;
   const invalid = records.filter((record) => !record.id || !record.createdDate);
   if (invalid.length) return NextResponse.json({ error: `${invalid.length} filas no tienen id o fecha creacion validos.` }, { status: 400 });
   const rows = records.map((record) => ({ complaint_id: record.id, contractor: record.contractor, created_date: record.createdDate, dt: record.dt, uploaded_by: session.email, uploaded_at: uploadedAt, data: record }));
-  const headers = supabaseAdminHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }) ?? supabaseUserHeaders(session.accessToken, { Prefer: "resolution=merge-duplicates,return=minimal" });
-  const response = await fetch(supabaseRest(TABLE, "?on_conflict=complaint_id"), { method: "POST", headers, body: JSON.stringify(rows), cache: "no-store" });
+  const prefer = body.action === "create" ? "return=minimal" : "resolution=merge-duplicates,return=minimal";
+  const headers = supabaseAdminHeaders({ Prefer: prefer }) ?? supabaseUserHeaders(session.accessToken, { Prefer: prefer });
+  const response = await fetch(supabaseRest(TABLE, body.action === "create" ? "" : "?on_conflict=complaint_id"), { method: "POST", headers, body: JSON.stringify(rows), cache: "no-store" });
   if (response.status === 409) return NextResponse.json({ error: "Ya existe una queja con ese ID. Recarga e intenta de nuevo; no se creó un duplicado." }, { status: 409 });
   if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
   await writeAuditLog({ action: "quejas_cargadas", contractor: session.contractor, details: { total: records.length, duplicadasOmitidas: duplicates, cruzadas: records.filter((record) => record.matched).length }, module: "quejas", request, session });
