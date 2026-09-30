@@ -37,7 +37,7 @@ import { clearRemoteCache, refreshRemoteRecords } from "../lib/remoteStore";
 import { getRangoSession } from "../lib/rangoSession";
 import { saveSeguimientoVehiculos } from "../lib/seguimientoStorage";
 import { notifyStorageChange, useStorageSnapshot } from "../lib/storageEvents";
-import { canEditRangeReasons, normalizeContractorName } from "../lib/contractors";
+import { canEditRangeReasons, isLogisticosContractor, normalizeContractorName } from "../lib/contractors";
 import { loadSeguimientoVehiculos, prepareSeguimientoVehicles } from "../seguimiento/services/vehicleRecords";
 import type { Vehiculo } from "../seguimiento/types";
 import { downloadPuntoCoronaPdf } from "./pdfReportService";
@@ -1010,10 +1010,17 @@ function Charts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; 
 
 function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
   const crews = report.summary.crews;
+  const [plateSearch, setPlateSearch] = useState("");
+  const [outsideOnly, setOutsideOnly] = useState(false);
+  const canFilterPlates = isLogisticosContractor(report.contractor);
   const [selectedCrewKey, setSelectedCrewKey] = useState<string | null>(null);
   const [sort, setSort] = useState<{ column: "delivery" | "modulation"; order: "asc" | "desc" } | null>(null);
   const rows = useMemo(() => {
-    const values = crews.map((crew) => ({ crew, modulationStats: getCrewModulationStats(report, crew, modulaciones) }));
+    const plateQuery = plateSearch.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const values = crews
+      .filter(crew => !canFilterPlates || ((!outsideOnly || crew.outOfRange > 0)
+        && crew.truckLicensePlate.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(plateQuery)))
+      .map((crew) => ({ crew, modulationStats: getCrewModulationStats(report, crew, modulaciones) }));
     if (!sort) return values;
     return values.sort((left, right) => {
       const leftValue = sort.column === "delivery" ? left.crew.deliveryRangePercent : left.modulationStats.percent;
@@ -1021,7 +1028,7 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
       const difference = leftValue - rightValue;
       return sort.order === "asc" ? difference : -difference;
     });
-  }, [crews, modulaciones, report, sort]);
+  }, [crews, modulaciones, report, sort, plateSearch, outsideOnly, canFilterPlates]);
 
   function toggleSort(column: "delivery" | "modulation") {
     setSort((current) => ({
@@ -1037,8 +1044,21 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
           <h2 className="text-base font-semibold text-[#10223d]">Detalle por tripulacion</h2>
           <p className="text-xs text-slate-500">Resumen por placa del reporte de rango. Pulsa una fila con visitas fuera de rango para ver sus envíos.</p>
         </div>
-        <span className="rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{crews.length} registros</span>
+        <span role="status" className="shrink-0 rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{rows.length === crews.length ? crews.length : `${rows.length} de ${crews.length}`} registros</span>
       </div>
+      {canFilterPlates && <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+        <label className="w-full text-xs font-semibold text-slate-600 sm:w-64">Filtrar por placa
+          <input type="search" value={plateSearch} placeholder="Escribe una placa o parte de ella"
+            className="mt-1 block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            onChange={event => { setPlateSearch(event.target.value); setSelectedCrewKey(null); }} />
+        </label>
+        <label className="flex h-10 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+          <input type="checkbox" checked={outsideOnly} className="h-4 w-4 accent-red-600" onChange={event => { setOutsideOnly(event.target.checked); setSelectedCrewKey(null); }} />
+          Solo con clientes fuera de rango
+        </label>
+        {(plateSearch || outsideOnly) && <button type="button" className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+          onClick={() => { setPlateSearch(""); setOutsideOnly(false); setSelectedCrewKey(null); }}>Limpiar filtros</button>}
+      </div>}
       <div className="max-h-[620px] overflow-auto">
         <table className="data-table w-full min-w-[980px] table-fixed text-[10px]">
           <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">
@@ -1084,6 +1104,7 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-500">No hay tripulaciones que coincidan con los filtros seleccionados.</td></tr>}
             {rows.map(({ crew, modulationStats }) => {
               const isExpanded = selectedCrewKey === crew.key && crew.outOfRange > 0;
               const detailId = `crew-range-${encodeURIComponent(crew.key)}`;

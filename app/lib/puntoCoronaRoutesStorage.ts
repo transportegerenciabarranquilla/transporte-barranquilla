@@ -26,6 +26,9 @@ export type PuntoCoronaRouteRow = {
   status: PuntoCoronaRouteStatus;
   withinRadius: boolean | null;
   outOfRadiusReason: string;
+  outOfRadiusTime?: string;
+  outOfRadiusRecordedAt?: string;
+  outOfRadiusRecordedSource?: "system" | "report";
   manualOutOfRadiusReason?: string;
   skippedReason: string;
   deliveredVolume: number;

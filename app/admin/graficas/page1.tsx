@@ -121,13 +121,14 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
       const offendersSheet = XLSX.utils.json_to_sheet(buildDriverOffenders(filtered).map((item, index) => ({
         Posición: index + 1,
         Conductor: item.driver,
+        Placas: item.plates.join(", "),
         RR: item.rr || "Sin registrar",
         Contratista: item.contractor,
         Viajes: item.trips,
         "ADH_KM promedio %": item.adherenceKmPercent,
         "Diferencia acumulada km": item.differenceKm,
       })));
-      offendersSheet["!cols"] = [12, 28, 28, 24, 12, 24, 27].map((wch) => ({ wch }));
+      offendersSheet["!cols"] = [12, 28, 24, 28, 24, 12, 24, 27].map((wch) => ({ wch }));
       XLSX.utils.book_append_sheet(workbook, offendersSheet, "Top conductores");
 
       const detailSheet = XLSX.utils.json_to_sheet(filtered.map((row) => ({

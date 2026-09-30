@@ -15,16 +15,18 @@ export default function RoutePerformanceTable({ rows, pending, error }: { rows: 
     <div className="grid gap-2 p-3 md:hidden">
       {offenders.map((item, index) => <article className="rounded-xl border border-slate-200 bg-white p-3" key={`${item.contractor}:${item.rr}:${item.driver}`}>
         <div className="flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#10283f] text-xs font-bold text-white">{index + 1}</span><div className="min-w-0"><p className="font-bold text-slate-900">{item.driver}</p><p className="text-xs text-slate-600">RR: {item.rr || "Sin registrar"}</p><p className="text-[11px] text-slate-500">{item.contractor || "Sin contratista"} · {item.trips} viajes</p></div></div>
+        <p className="mt-2 text-xs font-semibold text-slate-700">Placas: {item.plates.join(", ") || "Sin registrar"}</p>
         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-xs"><span className="font-bold text-violet-700">Adherencia {format(item.adherenceKmPercent)} %</span><span className="text-slate-500">{format(item.differenceKm)} km de diferencia</span></div>
       </article>)}
     </div>
     <div className="hidden overflow-x-auto md:block">
-      <table className="w-full min-w-[740px] text-left">
+      <table className="w-full min-w-[860px] text-left">
         <caption className="sr-only">Diez conductores con menor promedio de adherencia a kilómetros y su responsable de ruta</caption>
-        <thead className="bg-[#10223d] text-[10px] font-bold uppercase tracking-[0.08em] text-white"><tr><th className="w-14 px-4 py-3" scope="col">#</th><th className="px-4 py-3" scope="col">Conductor</th><th className="px-4 py-3" scope="col">RR</th><th className="px-4 py-3" scope="col">Contratista</th><th className="px-4 py-3 text-right" scope="col">Viajes</th><th className="min-w-36 px-4 py-3" scope="col">ADH_KM promedio</th><th className="px-4 py-3 text-right" scope="col">Diferencia acumulada</th></tr></thead>
+        <thead className="bg-[#10223d] text-[10px] font-bold uppercase tracking-[0.08em] text-white"><tr><th className="w-14 px-4 py-3" scope="col">#</th><th className="px-4 py-3" scope="col">Conductor</th><th className="px-4 py-3" scope="col">Placas</th><th className="px-4 py-3" scope="col">RR</th><th className="px-4 py-3" scope="col">Contratista</th><th className="px-4 py-3 text-right" scope="col">Viajes</th><th className="min-w-36 px-4 py-3" scope="col">ADH_KM promedio</th><th className="px-4 py-3 text-right" scope="col">Diferencia acumulada</th></tr></thead>
         <tbody className="divide-y divide-slate-100">{offenders.map((item, index) => <tr className="text-xs text-slate-700 odd:bg-white even:bg-slate-50/70" key={`${item.contractor}:${item.rr}:${item.driver}`}>
           <td className="px-4 py-3 font-black tabular-nums text-violet-700">{String(index + 1).padStart(2, "0")}</td>
           <td className="px-4 py-3 font-bold text-slate-900">{item.driver}</td>
+          <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{item.plates.length ? item.plates.map(plate => <span key={plate} className="whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 py-1 font-semibold">{plate}</span>) : "Sin registrar"}</div></td>
           <td className="px-4 py-3">{item.rr || "Sin registrar"}</td>
           <td className="px-4 py-3">{item.contractor || "Sin identificar"}</td>
           <td className="px-4 py-3 text-right font-semibold tabular-nums">{item.trips}</td>

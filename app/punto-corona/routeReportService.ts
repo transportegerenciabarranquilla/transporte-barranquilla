@@ -7,6 +7,7 @@ import {
   type PuntoCoronaRouteSummary,
 } from "../lib/puntoCoronaRoutesStorage";
 import { normalizeContractorName } from "../lib/contractors";
+import { rangeTime } from "../lib/rangeHours";
 import { getLocalDateKey, normalizeDt, normalizeDtVariants } from "../lib/modulacionStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { normalizeCajasValue } from "../seguimiento/utils";
@@ -74,6 +75,7 @@ export function mergePuntoCoronaRouteReports(
   const rowsById = new Map(existing.rows.map((row) => [row.id, row]));
   incoming.rows.forEach((row) => rowsById.set(row.id, {
     ...row,
+    outOfRadiusTime: row.outOfRadiusTime || rowsById.get(row.id)?.outOfRadiusTime,
     ...(rowsById.get(row.id)?.manualOutOfRadiusReason
       ? { manualOutOfRadiusReason: rowsById.get(row.id)!.manualOutOfRadiusReason }
       : {}),
@@ -204,6 +206,10 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
   const read = createRowReader(row);
   const tourDisplayId = read(["tour_display_id", "tour display id", "dt"]);
   const pocExternalId = read(["poc_external_id", "codigo cliente", "cliente"]);
+  const timeColumns = ["out_of_radius_time", "out_of_radius_at", "hora fuera de rango"].map(normalizeKey);
+  const eventTime = Object.entries(row)
+    .filter(([key]) => timeColumns.includes(normalizeKey(key)))
+    .map(([, value]) => rangeTime(value)).find(value => value !== null);
 
   return {
     id: `${tourDisplayId}-${pocExternalId}-${read(["visit_order", "original_order"])}`,
@@ -217,6 +223,7 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
     status: read(["status", "estado"]),
     withinRadius: readBoolean(read(["within_radius", "en rango"])),
     outOfRadiusReason: read(["out_of_radius_reason", "razon fuera de rango"]),
+    outOfRadiusTime: eventTime ?? undefined,
     skippedReason: read(["skipped_reason", "razon omitido"]),
     deliveredVolume: readNumber(
       read([

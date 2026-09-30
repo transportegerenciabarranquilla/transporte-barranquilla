@@ -28,3 +28,19 @@ test("excluye filas sin conductor identificado o sin adherencia", () => {
   ]);
   assert.deepEqual(ranking.map((item) => [item.driver, item.rr, item.adherenceKmPercent]), [["Luis", "", 0]]);
 });
+
+test("muestra todas las placas de la tripulación sin duplicar ni alterar los indicadores", () => {
+  const trip = { driver: "Luis", rr: "Ana", contractor: "Logisticos", adherenceKmPercent: 50, differenceKm: 5 };
+  const [group] = buildDriverOffenders([
+    { ...trip, plate: "COABC123" },
+    { ...trip, plate: "abc-123" },
+    { ...trip, plate: "XXX999", matchedPlate: "XYZ789" },
+    { ...trip, originalPlate: "DEF456" },
+    { ...trip },
+    { ...trip, plate: "BAD111", adherenceKmPercent: null },
+  ]);
+  assert.deepEqual(group.plates, ["ABC123", "DEF456", "XYZ789"]);
+  assert.equal(group.trips, 5);
+  assert.equal(group.adherenceKmPercent, 50);
+  assert.equal(group.differenceKm, 25);
+});

@@ -56,9 +56,9 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
     <ContractorComparison loaded={foxtrot !== null} rows={contractorComparison} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Clientes BEES" value={clients.length} tone="slate" /><Metric label="En rango" value={inside.length} tone="green" /><Metric label="Fuera de rango" value={outside.length} tone="red" /><Metric label="% en rango" value={`${percent.toFixed(2)}%`} tone="green" /></div>
     <Distribution inside={inside.length} outside={outside.length} unvalidated={unvalidated.length} />
+    <RangeReasonsChart rows={clients} />
     <BeesTable title="Detalle por tripulación" subtitle="Clientes BEES agrupados por fecha, DT y RR." groups={crews} showDate />
     <BeesTable title="Resumen por RR" subtitle="Clientes BEES agrupados por responsable de ruta." groups={rrs} />
-    <RangeReasonsChart rows={clients} />
   </section>;
 }
 

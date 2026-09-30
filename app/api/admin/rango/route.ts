@@ -1,4 +1,5 @@
 import { scopeQuery } from "../../../lib/adminScope";
+import { addHistoricalRangeTimes } from "../../../lib/rangeRecordedTime";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel, isAdminRangoExcludedContractor, normalizeContractorName } from "../../../lib/contractors";
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
       uploadedAt: report.uploadedAt,
       updatedAt: report.updatedAt,
       summary: report.summary,
-    })) : reports });
+    })) : addHistoricalRangeTimes(reports) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando historial de rango." }, { status: 500 });
   }

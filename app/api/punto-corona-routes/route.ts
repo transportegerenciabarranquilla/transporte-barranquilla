@@ -6,6 +6,7 @@ import { CONTRACTORS, canEditRangeReasons, normalizeContractorName } from "../..
 import { normalizeDt, normalizeDtVariants } from "../../lib/modulacionStorage";
 import { type PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 import { isRangeReason } from "../../lib/rangeReasons";
+import { recordRangeTimes } from "../../lib/rangeRecordedTime";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -57,7 +58,26 @@ export async function PUT(request: Request) {
     // Un cierre es una fotografia inmutable del reporte que el usuario ya
     // reviso. Volver a cruzarlo contra Seguimiento hacia que perdiera DT si
     // la fuente cambiaba o tenia metadatos historicos desalineados.
-    const records = [...sanitized.records, ...closureRecords];
+    const incoming = [...sanitized.records, ...closureRecords].map(record => ({ ...record, contractor: session.contractor }));
+    const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+    const persisted: ReportRow[] = [];
+    const dates = [...new Set(incoming.map(record => record.operationalDate))];
+    for (let start = 0; start < dates.length; start += 50) {
+      for (let offset = 0; ; ) {
+        const params = new URLSearchParams({ select: LIST_SELECT, contractor: `eq.${session.contractor}`,
+          operational_date: `in.(${dates.slice(start, start + 50).map(date => JSON.stringify(date)).join(",")})`,
+          order: "report_id.asc", limit: "100", offset: String(offset) });
+        const response = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
+        if (!response.ok) throw new Error("No se pudo consultar la hora de los registros anteriores. Intenta nuevamente.");
+        const batch = await response.json() as ReportRow[];
+        if (!batch.length) break;
+        persisted.push(...batch);
+        offset += batch.length;
+      }
+    }
+    const savedAt = new Date().toISOString();
+    const records = recordRangeTimes(incoming, persisted.map(row => normalizeReport(row.data, row)), savedAt);
+    const expectedVersions = new Map(persisted.map(row => [row.report_id, row.updated_at]));
     const ignoredDts = sanitized.ignoredDts;
 
     const rows = records.map((record) => ({
@@ -66,11 +86,11 @@ export async function PUT(request: Request) {
       operational_date: record.operationalDate,
       kind: record.kind,
       data: { ...record, contractor: session.contractor },
-      updated_at: new Date().toISOString(),
+      updated_at: savedAt,
     }));
 
     if (rows.length) {
-      const writeError = await scopedWrite(TABLE, "report_id", rows, supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken));
+      const writeError = await scopedWrite(TABLE, "report_id", rows, headers, { expectedVersions });
       clearServerCache(`supabase:${TABLE}:`);
       clearServerCache("supabase:admin-rango:");
       clearServerCache("supabase:people-summary:");
