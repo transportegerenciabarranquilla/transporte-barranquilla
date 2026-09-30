@@ -143,9 +143,14 @@ test('personas no entrega listados ni búsquedas públicas', async () => {
   }
 });
 
-test('personas: consulta pública no devuelve celular; contratista autenticado no puede cambiar el alcance', async () => {
+test('personas: consulta pública no devuelve celular; contratista autenticado no puede cambiar el alcance', async (t) => {
   let session = null;
   const queries = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    queries.push(new URL(url).searchParams);
+    assert.equal(init.cache, 'no-store');
+    return Response.json([{ CC: '123456', NOMBRE: 'Ana', CARGO: 'CONDUCTOR', CONTRATISTA: 'Surti Cervezas', CELULAR: '3001234567' }]);
+  });
   const route = compile('../app/api/personas/route.ts', {
     'next/server': responseMock,
     '../../lib/authServer': { getAuthenticatedSession: async () => session },
@@ -168,13 +173,49 @@ test('personas: consulta pública no devuelve celular; contratista autenticado n
   assert.equal(queries[0].get('CONTRATISTA'), 'eq.Punto Corona');
   queries.length = 0;
   const ccResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456&contratista=Surti%20Cervezas'));
-  assert.equal(ccResponse.status, 200);
-  assert.equal(queries[0].get('select'), 'CC,NOMBRE,CARGO,CONTRATISTA,CELULAR');
-  assert.equal((await ccResponse.json()).persona, null);
+  assert.equal(ccResponse.status, 403);
+  assert.equal(queries.length, 0);
+  assert.match((await ccResponse.json()).error, /Tu sesión corresponde a Punto Corona/);
   queries.length = 0;
   session = { ...session, contractor: 'Surti Cervezas' };
   const phoneResponse = await route.GET(new Request('https://example.test/api/personas?cc=123456&contratista=Surti%20Cervezas'));
+  assert.equal(queries[0].get('select'), 'CC,NOMBRE,CARGO,CONTRATISTA,CELULAR');
   assert.equal((await phoneResponse.json()).persona.CELULAR, '3001234567');
+});
+
+test('personas: HL encuentra auxiliares y conductores con ambos nombres históricos sin mezclar contratistas', async (t) => {
+  let session = null;
+  const rows = [
+    { CC: '100001', NOMBRE: 'Auxiliar de prueba', CARGO: 'AUX REPARTO', CONTRATISTA: 'HL Logisticos' },
+    { CC: '100002', NOMBRE: 'Conductor de prueba', CARGO: 'Conductor', CONTRATISTA: 'HL logistica' },
+  ];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(init.cache, 'no-store');
+    const cc = new URL(url).searchParams.get('CC').slice(3);
+    return Response.json(rows.filter(row => row.CC === cc));
+  });
+  const route = compile('../app/api/personas/route.ts', {
+    'next/server': responseMock,
+    '../../lib/authServer': { getAuthenticatedSession: async () => session },
+    '../../lib/supabaseServer': supabase,
+    '../../lib/serverCache': { cachedJsonFetch: async () => { throw Error('La búsqueda debe consultar datos frescos'); } },
+  });
+  for (const authenticated of [false, true]) {
+    session = authenticated ? { contractor: 'HL Logisticos', isAdmin: false, isPeople: false } : null;
+    for (const contratista of ['HL Logisticos', 'HL Logistica']) {
+      for (const row of rows) {
+        const response = await route.GET(new Request(`https://example.test/api/personas?${new URLSearchParams({ cc: row.CC, contratista })}`));
+        assert.equal(response.status, 200);
+        const { persona } = await response.json();
+        assert.equal(persona.NOMBRE, row.NOMBRE);
+        assert.equal(persona.CONTRATISTA, 'HL Logisticos');
+        if (!authenticated) assert.equal(persona.CELULAR, undefined);
+      }
+    }
+  }
+  session = null;
+  const response = await route.GET(new Request('https://example.test/api/personas?cc=100001&contratista=Logisticos'));
+  assert.equal((await response.json()).persona, null);
 });
 
 test('segundos viajes: editar DT y placas conserva la fila; duplicados y registros ajenos no se escriben', async () => {

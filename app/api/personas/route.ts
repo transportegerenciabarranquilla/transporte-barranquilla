@@ -45,19 +45,25 @@ export async function GET(request: Request) {
     }
 
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
-    if (session && !session.isAdmin && !session.isPeople) contractor = session.contractor;
+    if (session && !session.isAdmin && !session.isPeople) {
+      if (contractor && !sameContractor(contractor, session.contractor)) {
+        return NextResponse.json({
+          error: `Tu sesión corresponde a ${contractorLabel(session.contractor)}, pero seleccionaste ${contractorLabel(contractor)}. Selecciona el contratista de tu cuenta o inicia sesión con la cuenta correspondiente.`,
+        }, { status: 403 });
+      }
+      contractor = session.contractor;
+    }
     if (session?.isSiteAdmin && (!contractor || !canAccessContractor(session, contractor))) {
       return NextResponse.json({ error: "Contratista no autorizado." }, { status: 403 });
     }
     const params = new URLSearchParams({
       select: session ? PEOPLE_SELECT : PUBLIC_PERSON_SELECT,
       CC: `eq.${cc}`,
-      limit: "1",
+      limit: "20",
     });
     // Una misma contratista puede venir de la tabla maestra con variantes
     // históricas (por ejemplo, "HL Logistica" y "HL Logisticos"). Buscar por
     // cédula y comparar el nombre canónico evita rechazar a la persona.
-    params.set("limit", "20");
     const rows = await readPersonas(params, true);
     const persona = contractor
       ? rows.find((row) => sameContractor(row.CONTRATISTA, contractor))
