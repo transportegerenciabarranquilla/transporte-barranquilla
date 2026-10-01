@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import RangeWeekdayChart from "./RangeWeekdayChart";
 import { contractorLabel } from "../../lib/contractors";
 import { recordedRangeTime, rangeHour } from "../../lib/rangeHours";
 import { countRangeVehicles, RANGE_VEHICLE_WINDOWS, RANGE_VEHICLE_EVENING_WINDOWS, type RangeVehicleRow } from "../../lib/rangeVehicleCount";
@@ -28,7 +29,8 @@ export default function RangeVehiclesChart({ rows }: { rows: Array<RangeVehicleR
   const missingPlates = values.some(window => window.groups.some(group => (!contractor || group.contractor === contractor) && group.missingPlate > 0));
   const columns = eveningExpanded ? "grid-cols-9" : expanded ? "grid-cols-6" : "grid-cols-4 sm:grid-cols-6";
 
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="range-vehicles-title">
+  return <>
+  <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="range-vehicles-title">
     <header className="border-b border-slate-200 bg-sky-50/50 px-4 py-4 sm:px-5">
       <p className="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Distribución por horario</p>
       <h3 id="range-vehicles-title" className="mt-1 text-lg font-semibold text-[#10223d]">Vehículos fuera de rango</h3>
@@ -89,5 +91,7 @@ export default function RangeVehiclesChart({ rows }: { rows: Array<RangeVehicleR
         </div>
       </>}
     </div>
-  </section>;
+  </section>
+  <RangeWeekdayChart rows={visibleRows} contractor={contractor} contractors={contractors} onContractorChange={setSelected} />
+  </>;
 }

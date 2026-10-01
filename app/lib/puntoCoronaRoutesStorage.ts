@@ -87,6 +87,7 @@ export type PuntoCoronaRouteReport = {
   uploadedAt: string;
   closedAt?: string;
   rows: PuntoCoronaRouteRow[];
+  supersededRangeRows?: PuntoCoronaRouteRow[];
   summary: PuntoCoronaRouteSummary;
 };
 

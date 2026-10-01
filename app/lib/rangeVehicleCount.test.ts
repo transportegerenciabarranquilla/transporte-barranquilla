@@ -1,8 +1,45 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countRangeVehicles, RANGE_VEHICLE_WINDOWS, RANGE_VEHICLE_EVENING_WINDOWS, type RangeVehicleRow } from "./rangeVehicleCount.ts";
+import { countRangeVehiclesByWeekday, countRangeVehicles, RANGE_VEHICLE_WINDOWS, RANGE_VEHICLE_EVENING_WINDOWS, type RangeVehicleRow } from "./rangeVehicleCount.ts";
 
 const row = (overrides: Partial<RangeVehicleRow> = {}): RangeVehicleRow => ({ contractor: "Logisticos", date: "2026-09-29", status: "CONCLUDED", withinRadius: false, truckLicensePlate: "ABC123", outOfRadiusTime: "08:30", ...overrides });
+
+test("suma 20 y 30 vehículos de dos martes para mostrar exactamente 50", () => {
+  const rows = ["2026-09-29", "2026-10-06"].flatMap((date, index) =>
+    Array.from({ length: index === 0 ? 20 : 30 }, (_, plate) => row({ date, truckLicensePlate: `ABC${String(plate).padStart(3, "0")}` })));
+  assert.equal(countRangeVehiclesByWeekday(rows)[1].total, 50);
+});
+
+test("suma los conteos por fechas del mismo día, deduplica placas e incluye fechas con cero", () => {
+  const result = countRangeVehiclesByWeekday([
+    row(), row({ truckLicensePlate: "COABC123" }), row({ truckLicensePlate: "abc-123" }),
+    row({ truckLicensePlate: "XYZ999", outOfRadiusTime: undefined }),
+    row({ date: "2026-10-06", withinRadius: true }),
+    row({ date: "2026-10-13", status: "NOT_STARTED" }),
+  ]);
+  assert.deepEqual(result[1], { label: "Martes", days: 2, total: 2 });
+  assert.deepEqual(result[0], { label: "Lunes", days: 0, total: 0 });
+});
+
+test("el total general suma por contratista y el filtro usa sus propias fechas", () => {
+  const rows = [row(), row({ contractor: "Surti Cervezas" }),
+    row({ contractor: "Surti Cervezas", date: "2026-10-06", withinRadius: true }),
+    row({ contractor: "Punto Corona", date: "2026-10-13" })];
+  assert.deepEqual(countRangeVehiclesByWeekday(rows)[1], { label: "Martes", days: 2, total: 2 });
+  assert.deepEqual(countRangeVehiclesByWeekday(rows, "Logisticos")[1], { label: "Martes", days: 1, total: 1 });
+});
+
+test("excluye fechas inválidas y placas ausentes y devuelve conteos enteros", () => {
+  const result = countRangeVehiclesByWeekday([
+    row(), row({ date: "2026-10-06", truckLicensePlate: "Sin placa" }),
+    row({ date: "2026-10-06", truckLicensePlate: "" }),
+    row({ date: "2026-02-30" }), row({ date: "" }),
+  ]);
+  assert.equal(result[1].total, 1);
+  assert.ok(result.every(day => Number.isInteger(day.total)));
+  assert.equal(result.reduce((sum, day) => sum + day.days, 0), 2);
+  assert.ok(countRangeVehiclesByWeekday([]).every(day => day.days === 0));
+});
 
 test("desglosa la tarde sin solapar límites y deduplica por franja", () => {
   const rows = ["15:59", "16:00", "17:59", "18:00", "19:59", "20:00", "21:59", "22:00", "23:59", "00:00"]

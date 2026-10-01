@@ -8,6 +8,7 @@ import {
 } from "../lib/puntoCoronaRoutesStorage";
 import { normalizeContractorName } from "../lib/contractors";
 import { rangeTime } from "../lib/rangeHours";
+import { reconcileRangeVisits } from "../lib/rangeVisitReconciliation";
 import { getLocalDateKey, normalizeDt, normalizeDtVariants } from "../lib/modulacionStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { normalizeCajasValue } from "../seguimiento/utils";
@@ -43,9 +44,10 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
     const current = latestDateByDt.get(routeDt) || "";
     if (routeRow.tourDate > current) latestDateByDt.set(routeDt, routeRow.tourDate);
   });
-  const rows = matchedRows
+  const reconciled = reconcileRangeVisits(matchedRows
     .filter(({ routeDt, routeRow }) => !routeRow.tourDate || routeRow.tourDate === latestDateByDt.get(routeDt))
-    .map(({ routeRow, routeDt, vehicle }) => mergeRouteWithSeguimiento(routeRow, vehicle, routeDt));
+    .map(({ routeRow, routeDt, vehicle }) => mergeRouteWithSeguimiento(routeRow, vehicle, routeDt)));
+  const rows = reconciled.rows;
   if (!rows.length) {
     throw new Error(`El archivo no tiene DT que coincidan con el seguimiento de ${contractor}.`);
   }
@@ -62,6 +64,7 @@ export async function parsePuntoCoronaRouteFile(file: File, seguimientoVehicles:
     fileName: file.name,
     uploadedAt,
     rows,
+    supersededRangeRows: reconciled.superseded,
     summary,
   } satisfies PuntoCoronaRouteReport;
 }
@@ -80,12 +83,15 @@ export function mergePuntoCoronaRouteReports(
       ? { manualOutOfRadiusReason: rowsById.get(row.id)!.manualOutOfRadiusReason }
       : {}),
   }));
-  const rows = Array.from(rowsById.values());
+  const reconciled = reconcileRangeVisits(Array.from(rowsById.values()));
+  const rows = reconciled.rows;
+  const history = new Map([...(existing.supersededRangeRows || []), ...(incoming.supersededRangeRows || []), ...reconciled.superseded].map(row => [row.id, row]));
   const matchedDts = new Set(rows.map((row) => normalizeDt(row.dt)).filter(Boolean)).size;
 
   return {
     ...incoming,
     rows,
+    supersededRangeRows: [...history.values()],
     summary: summarizeRows(
       rows,
       Math.max(existing.summary.seguimientoDts, incoming.summary.seguimientoDts),
@@ -272,7 +278,7 @@ function getVehicleCrewName(vehicle: Vehiculo) {
   return vehicle.nombreResponsable || vehicle.responsable || "";
 }
 
-function summarizeRows(
+export function summarizeRows(
   rows: PuntoCoronaRouteRow[],
   seguimientoDtsCount: number,
   matchedDtsCount: number,
