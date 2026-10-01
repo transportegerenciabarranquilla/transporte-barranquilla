@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ExternalLink, FileSpreadsheet, FileText, Filter, LoaderCircle, MessageSquareWarning, Paperclip, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { BarChart3 } from "lucide-react";
 import { type ComplaintRecord } from "../lib/complaints";
 import { CONTRACTORS, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../lib/contractors";
 
@@ -172,6 +174,7 @@ export default function ComplaintsPage() {
         <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
           <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Gestion de novedades</p><h2 className="mt-1 text-2xl font-black text-[#10223d]">Quejas</h2><p className="mt-1 text-sm text-slate-500">{isAdminSession ? "Consulta el cumplimiento de cierre de las contratistas de ambas sedes." : canUploadComplaints ? (isArenosaSession ? "Administra las quejas de Logisticos Arenosa y Punto Corona Arenosa. Se asignan por transportista o por el cruce del DT." : "Añade quejas de Logisticos, Punto Corona y Surti Cervezas con cruce por DT y código del cliente.") : "Consulta las quejas asignadas a tu operacion y gestiona su evidencia."}</p></div>
           <div className="flex flex-wrap gap-2">
+            <Link href="/quejas/graficas" className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800"><BarChart3 size={16} />Ver gráficas</Link>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("excel")} type="button">{exporting === "excel" ? <LoaderCircle className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}Exportar Excel</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50" disabled={Boolean(exporting) || !visible.length} onClick={() => void exportComplaints("pdf")} type="button">{exporting === "pdf" ? <LoaderCircle className="animate-spin" size={16} /> : <FileText size={16} />}Exportar PDF</button>
             {canUploadComplaints ? <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-bold text-white hover:bg-red-800" onClick={() => setAdding(true)} type="button"><Plus size={16} />Añadir queja</button> : null}
