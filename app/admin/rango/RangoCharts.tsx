@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import BeesOutsideCharts from "./BeesOutsideCharts";
+import { contractorLabel } from "../../lib/contractors";
 import { uniqueBeesClients as uniqueClients } from "../../lib/beesRangeCharts";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../lib/puntoCoronaRoutesStorage";
 import { assignContractors, mapRows, suggestMapping, type FileRow, type FoxtrotRow } from "./foxtrot";
@@ -12,7 +13,8 @@ type Group = { key: string; rr: string; clients: BeeRow[]; contractor?: string; 
 type RangeStats = { total: number; inside: number };
 type ContractorComparisonRow = { contractor: string; bees: RangeStats; foxtrot: RangeStats };
 
-export default function RangoCharts({ reports, contractor, from, to, dt, onContractorChange }: { reports: Report[]; contractor: string; from: string; to: string; dt: string; onContractorChange: (value: string) => void }) {
+export default function RangoCharts({ reports: allReports, contractor, from, to, dt, onContractorChange }: { reports: Report[]; contractor: string; from: string; to: string; dt: string; onContractorChange: (value: string) => void }) {
+  const reports = allReports.filter(report => contractorLabel(report.contractor) !== "Punto Corona");
   const [foxtrot, setFoxtrot] = useState<FoxtrotRow[] | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
@@ -31,7 +33,7 @@ export default function RangoCharts({ reports, contractor, from, to, dt, onContr
   const rrs = buildRrs(clients);
   const percent = clients.length ? (inside.length / clients.length) * 100 : 0;
   const bees = { total: clients.length, inside: inside.length };
-  const foxtrotRows = (foxtrot ? assignContractors(foxtrot, reports) : []).filter(row => (contractor === "Todas" || row.contractor === contractor) && (!from || row.date >= from) && (!to || row.date <= to) && (!targetDt || normalizeDt(row.dt).includes(targetDt)) && row.inRange !== null);
+  const foxtrotRows = (foxtrot ? assignContractors(foxtrot, allReports) : []).filter(row => contractorLabel(row.contractor) !== "Punto Corona" && (contractor === "Todas" || row.contractor === contractor) && (!from || row.date >= from) && (!to || row.date <= to) && (!targetDt || normalizeDt(row.dt).includes(targetDt)) && row.inRange !== null);
   const foxtrotStats = { total: foxtrotRows.length, inside: foxtrotRows.filter(row => row.inRange).length };
   const contractorComparison = buildContractorComparison(clients, foxtrotRows);
 

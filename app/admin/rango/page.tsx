@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, Download, History, LoaderCircle, MapPinCheck, Search, Table2, Truck, X, XCircle } from "lucide-react";
-import { CONTRACTORS } from "../../lib/contractors";
+import { CONTRACTORS, contractorLabel } from "../../lib/contractors";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 import RangoCharts from "./RangoCharts";
 
@@ -142,7 +142,7 @@ export default function AdminRangoPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-          <button type="button" aria-expanded={showCharts} onClick={() => setShowCharts(!showCharts)} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold shadow-sm transition ${showCharts ? "border border-slate-200 bg-white text-[#10223d] hover:bg-slate-50" : "bg-[#0f7c58] text-white hover:bg-[#0b684a]"}`}>
+          <button type="button" aria-expanded={showCharts} onClick={() => { if (!showCharts && contractorLabel(contractor) === "Punto Corona") setContractor("Todas"); setShowCharts(!showCharts); }} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold shadow-sm transition ${showCharts ? "border border-slate-200 bg-white text-[#10223d] hover:bg-slate-50" : "bg-[#0f7c58] text-white hover:bg-[#0b684a]"}`}>
             {showCharts ? <ArrowLeft size={16} /> : <BarChart3 size={16} />}
             {showCharts ? "Volver al rango" : "Gráficas"}
           </button>
@@ -222,7 +222,7 @@ export default function AdminRangoPage() {
             </button>}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {["Todas", ...contractors].map((item) => (
+            {["Todas", ...contractors.filter(item => !showCharts || contractorLabel(item) !== "Punto Corona")].map((item) => (
               <button
                 className={`h-9 rounded-md px-3 text-xs font-semibold transition ${
                   contractor === item ? "bg-[#10223d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
