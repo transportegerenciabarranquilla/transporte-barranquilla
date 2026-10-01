@@ -20,11 +20,13 @@ import { useStorageSnapshot } from "../lib/storageEvents";
 import { startVisiblePolling } from "../lib/visiblePolling";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
+import ModulacionComparison from "./components/ModulacionComparison";
 import type { Vehiculo } from "../seguimiento/types";
 
 const MODULACION_REFRESH_MS = 30_000;
 
 export default function ModulacionPage() {
+  const [showCharts, setShowCharts] = useState(false);
   const router = useRouter();
   const registros = useStorageSnapshot<ModulacionRegistro[]>([MODULACION_STORAGE_KEY], readModulacionRegistros, []);
   const seguimientoVehiculos = useStorageSnapshot<Vehiculo[]>([SEGUIMIENTO_STORAGE_KEY], readSeguimientoVehiculos, []);
@@ -310,12 +312,16 @@ export default function ModulacionPage() {
             </p>
           </div>
 
+          <button type="button" aria-expanded={showCharts} onClick={() => setShowCharts(value => !value)} className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700">
+            <BarChart3 size={18} />{showCharts ? "Ocultar gráficas" : "Ver gráficas"}
+          </button>
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">Registros visibles</p>
             <p className="mt-0.5 text-xl font-semibold text-[#10223d]">{registrosFiltrados.length}</p>
           </div>
         </div>
 
+        {showCharts && <ModulacionComparison contractor={selectedContractor} />}
         {Object.entries(saveStates).filter(([, state]) => state !== "Guardando…" && state !== "Guardado").map(([id, error]) => (
           <div key={id} role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             <span>No se guardó la gestión del cliente {registros.find((record) => record.id === id)?.codigoCliente}: {error}</span>

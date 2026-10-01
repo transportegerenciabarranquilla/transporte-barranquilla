@@ -1,4 +1,5 @@
 import "server-only";
+import { createRoutePerformanceHistory } from "./routePerformanceHistory";
 import { parseRoutePerformanceRows, type RoutePerformanceRow } from "./routePerformanceImport";
 import { supabaseAdminHeaders, supabaseError, supabaseRest } from "./supabaseServer";
 
@@ -6,6 +7,7 @@ export async function readRoutePerformanceFile() {
   const headers = supabaseAdminHeaders();
   if (!headers) throw new Error("Falta configurar la clave de servidor de Supabase para consultar el Excel.");
   const rows: RoutePerformanceRow[] = [];
+  const history = createRoutePerformanceHistory();
   const files: Array<{ id: string; fileName: string; uploadedAt: string; rowCount: number }> = [];
   // Read bounded pages of original files, including uploads made before this change.
   // Continue until an empty page, even when the server imposes a smaller page size.
@@ -16,9 +18,11 @@ export async function readRoutePerformanceFile() {
     const stored = (await response.json()) as Array<{ id: string; file_name: string; file_base64: string; created_at: string }>;
     if (!stored.length) break;
     for (const file of stored) {
+      if (!history.acceptFile(file.file_name)) continue;
       const parsed = await parseRoutePerformanceFile(Buffer.from(file.file_base64, "base64"));
-      for (const row of parsed) rows.push(row);
-      files.push({ id: file.id, fileName: file.file_name, uploadedAt: file.created_at, rowCount: parsed.length });
+      const unique = history.addRows(parsed);
+      rows.push(...unique);
+      if (unique.length) files.push({ id: file.id, fileName: file.file_name, uploadedAt: file.created_at, rowCount: unique.length });
     }
     offset += stored.length;
   }

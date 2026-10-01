@@ -29,7 +29,7 @@ function excel(day) {
   return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
 }
 
-test("two uploads preserve both files and trips after reloading, including paginated history", async () => {
+test("latest file replaces its previous version in paginated history without duplicate trips", async () => {
   const stored = [];
   let authorized = true;
   let failReads = false;
@@ -69,10 +69,10 @@ test("two uploads preserve both files and trips after reloading, including pagin
     assert.equal((await upload(1)).body.rows.length, 1);
     const second = await upload(2);
     assert.equal(second.status, 200);
-    assert.deepEqual(second.body.rows.map((row) => row.date), ["2026-07-02", "2026-07-01"]);
-    assert.equal(second.body.files.length, 2);
-    assert.equal((await route.GET()).body.rows.length, 2);
-    assert.equal(stored.length, 2); // Same filename must not replace the original.
+    assert.deepEqual(second.body.rows.map((row) => row.date), ["2026-07-02"]);
+    assert.equal(second.body.files.length, 1);
+    assert.equal((await route.GET()).body.rows.length, 1);
+    assert.equal(stored.length, 2); // Original versions remain as backups only.
     authorized = false;
     assert.equal((await route.GET()).status, 403);
     assert.equal((await upload(3)).status, 403);
@@ -83,7 +83,8 @@ test("two uploads preserve both files and trips after reloading, including pagin
     assert.equal(savedButUnread.status, 500);
     assert.match(savedButUnread.body.error, /no necesitas subirlo otra vez/);
     failReads = false;
-    assert.equal((await route.GET()).body.rows.length, 3);
+    assert.equal((await route.GET()).body.rows.length, 1);
+    assert.equal((await route.GET()).body.rows[0].date, "2026-07-03");
   } finally {
     globalThis.fetch = originalFetch;
   }
