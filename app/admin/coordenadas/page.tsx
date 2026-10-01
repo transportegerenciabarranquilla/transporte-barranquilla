@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Download, MapPinned, Maximize, Minimize, RefreshCw, Search, Trash2, Users, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { coordinatesCsv, filterCoordinateRecords, readCoordinateRecord, type CoordinateRecord } from "../../lib/coordinateRecords";
+import { coordinateDay, filterCoordinateRecords, readCoordinateRecord, type CoordinateRecord } from "../../lib/coordinateRecords";
 import CoordinateHeatMap from "./CoordinateHeatMap";
 import CoordinateCharts from "./CoordinateCharts";
 
@@ -15,6 +15,7 @@ export default function AdminCoordinatesPage() {
   const router = useRouter();
   const [rows, setRows] = useState<CoordinateRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [search, setSearch] = useState("");
@@ -101,13 +102,25 @@ export default function AdminCoordinatesPage() {
   const contractors = new Set(filtered.map((row) => row.contratista).filter(Boolean)).size;
   const clients = new Set(filtered.map((row) => row.codigoCliente || row.ruta)).size;
 
-  function downloadRecords() {
-    const url = URL.createObjectURL(new Blob([coordinatesCsv(filtered)], { type: "text/csv;charset=utf-8;" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ubicaciones-${from || "inicio"}-${to || "hasta-hoy"}.csv`;
-    document.body.appendChild(link); link.click(); link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  async function downloadRecords() {
+    if (exporting || !filtered.length || invalidRange) return;
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const sheet = XLSX.utils.aoa_to_sheet([
+        ["ID", "Fecha (Bogotá)", "Contratista", "RR", "Cédula RR", "Código de cliente", "Cliente", "Latitud", "Longitud"],
+        ...filtered.map(row => [row.id, coordinateDay(row.createdAt), row.contratista, row.nombreRr, row.tipo, row.codigoCliente, row.ruta, row.latitud, row.longitud]),
+      ]);
+      sheet["!cols"] = [10, 18, 24, 30, 18, 20, 40, 18, 18].map(wch => ({ wch }));
+      sheet["!autofilter"] = { ref: sheet["!ref"]! };
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, "Ubicaciones");
+      XLSX.writeFile(workbook, `ubicaciones-${from || "inicio"}-${to || "hasta-hoy"}.xlsx`, { bookType: "xlsx", compression: true });
+    } catch {
+      setError("No se pudo generar el archivo Excel. Intenta descargarlo de nuevo.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   return <main className="min-h-dvh bg-[radial-gradient(ellipse_at_top_right,#e0e7ff,transparent_50%),linear-gradient(135deg,#f8fafc,#eef4f8)] pb-14 text-[#10213b]">
@@ -116,7 +129,7 @@ export default function AdminCoordinatesPage() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-2 hidden text-right text-[10px] text-slate-500 2xl:block">Actualización cada 10 s<strong className="block text-sm text-slate-700">{updated || "Pendiente"}</strong></span>
         <button type="button" aria-expanded={showDates} aria-controls="coordinate-date-filters" onClick={() => setShowDates((current) => !current)} className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold ${from || to ? "border-violet-300 bg-violet-50 text-violet-700" : "border-slate-200 bg-white"}`}><CalendarDays size={16} />Filtrar fechas{from || to ? " · Activo" : ""}</button>
-        <button type="button" onClick={downloadRecords} disabled={!filtered.length || invalidRange} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#10213b] px-3 text-xs font-bold text-white disabled:opacity-40"><Download size={16} />Descargar registros</button>
+        <button type="button" onClick={() => void downloadRecords()} disabled={exporting || !filtered.length || invalidRange} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#10213b] px-3 text-xs font-bold text-white disabled:opacity-40"><Download size={16} />{exporting ? "Generando Excel..." : "Descargar Excel (.xlsx)"}</button>
         <button aria-label="Actualizar registros" title="Actualizar registros" onClick={() => void loadCoordinates()} disabled={loading} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-violet-700 disabled:opacity-50" type="button"><RefreshCw size={17} className={loading ? "animate-spin" : ""} /></button>
         <button aria-label={fullscreen ? "Salir de pantalla completa" : "Expandir pantalla"} title="Pantalla completa" onClick={() => void toggleFullscreen()} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-violet-700" type="button">{fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}</button>
       </div>
@@ -161,7 +174,7 @@ export default function AdminCoordinatesPage() {
         <CoordinateHeatMap rows={filtered} selectedId={selectedId} focusRequest={focusRequest} />
       </div>
       <CoordinateCharts rows={filtered} loading={loading && !rows.length} />
-      <p className="text-[10px] text-slate-500">La descarga CSV incluye todos los resultados filtrados y se puede abrir en Excel. Los registros antiguos pueden no tener código de cliente.</p>
+      <p className="text-[10px] text-slate-500">La descarga Excel (.xlsx) incluye todos los resultados filtrados. Los registros antiguos pueden no tener código de cliente.</p>
     </section>
   </main>;
 }
