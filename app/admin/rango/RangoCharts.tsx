@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import RangeReasonsChart from "./RangeReasonsChart";
+import BeesOutsideCharts from "./BeesOutsideCharts";
+import { uniqueBeesClients as uniqueClients } from "../../lib/beesRangeCharts";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../lib/puntoCoronaRoutesStorage";
 import { assignContractors, mapRows, suggestMapping, type FileRow, type FoxtrotRow } from "./foxtrot";
 
@@ -11,7 +12,7 @@ type Group = { key: string; rr: string; clients: BeeRow[]; contractor?: string; 
 type RangeStats = { total: number; inside: number };
 type ContractorComparisonRow = { contractor: string; bees: RangeStats; foxtrot: RangeStats };
 
-export default function RangoCharts({ reports, contractor, from, to, dt }: { reports: Report[]; contractor: string; from: string; to: string; dt: string }) {
+export default function RangoCharts({ reports, contractor, from, to, dt, onContractorChange }: { reports: Report[]; contractor: string; from: string; to: string; dt: string; onContractorChange: (value: string) => void }) {
   const [foxtrot, setFoxtrot] = useState<FoxtrotRow[] | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
@@ -26,8 +27,8 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
   const inside = clients.filter(row => row.withinRadius === true);
   const outside = clients.filter(row => row.withinRadius === false);
   const unvalidated = clients.filter(row => row.withinRadius === null);
-  const crews = buildCrews(rows);
-  const rrs = buildRrs(rows);
+  const crews = buildCrews(clients);
+  const rrs = buildRrs(clients);
   const percent = clients.length ? (inside.length / clients.length) * 100 : 0;
   const bees = { total: clients.length, inside: inside.length };
   const foxtrotRows = (foxtrot ? assignContractors(foxtrot, reports) : []).filter(row => (contractor === "Todas" || row.contractor === contractor) && (!from || row.date >= from) && (!to || row.date <= to) && (!targetDt || normalizeDt(row.dt).includes(targetDt)) && row.inRange !== null);
@@ -56,7 +57,7 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
     <ContractorComparison loaded={foxtrot !== null} rows={contractorComparison} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Clientes BEES" value={clients.length} tone="slate" /><Metric label="En rango" value={inside.length} tone="green" /><Metric label="Fuera de rango" value={outside.length} tone="red" /><Metric label="% en rango" value={`${percent.toFixed(2)}%`} tone="green" /></div>
     <Distribution inside={inside.length} outside={outside.length} unvalidated={unvalidated.length} />
-    <RangeReasonsChart rows={clients} />
+    <BeesOutsideCharts rows={clients} contractor={contractor} contractors={[...new Set(reports.map(report => report.contractor))].sort()} onContractorChange={onContractorChange} />
     <BeesTable title="Detalle por tripulación" subtitle="Clientes BEES agrupados por fecha, DT y RR." groups={crews} showDate />
     <BeesTable title="Resumen por RR" subtitle="Clientes BEES agrupados por responsable de ruta." groups={rrs} />
   </section>;
@@ -65,7 +66,6 @@ export default function RangoCharts({ reports, contractor, from, to, dt }: { rep
 function buildCrews(rows: BeeRow[]) { return group(rows, row => `${row.contractor}:${row.date}:${normalizeDt(row.dt)}:${normalize(row.driverName)}`, (key, values) => ({ key, contractor: values[0].contractor, date: values[0].date, dt: values[0].dt, rr: values[0].driverName || "Sin RR", clients: uniqueClients(values) })); }
 function buildRrs(rows: BeeRow[]) { return group(rows, row => normalize(row.driverName) || "sin-rr", (key, values) => ({ key, rr: values[0].driverName || "Sin RR", clients: uniqueClients(values), contractors: [...new Set(values.map(row => row.contractor))] })); }
 function group(rows: BeeRow[], keyFor: (row: BeeRow) => string, map: (key: string, values: BeeRow[]) => Group) { const buckets = new Map<string, BeeRow[]>(); rows.forEach(row => { const key = keyFor(row); buckets.set(key, [...(buckets.get(key) || []), row]); }); return [...buckets.entries()].map(([key, values]) => map(key, values)).sort((a, b) => ratio(a.clients) - ratio(b.clients) || a.rr.localeCompare(b.rr)); }
-function uniqueClients(rows: BeeRow[]) { const seen = new Map<string, BeeRow>(); rows.forEach(row => { const key = `${row.contractor}:${row.date}:${normalizeDt(row.dt)}:${row.pocExternalId || row.id}`; if (!seen.has(key)) seen.set(key, row); }); return [...seen.values()]; }
 function ratio(rows: BeeRow[]) { const valid = rows.filter(row => row.withinRadius !== null); return valid.length ? valid.filter(row => row.withinRadius).length / valid.length : 0; }
 function normalize(value: unknown) { return String(value || "").trim().toLocaleLowerCase("es-CO"); }
 function normalizeDt(value: unknown) { return String(value || "").replace(/^DT-?/i, "").replace(/\D/g, ""); }

@@ -238,7 +238,7 @@ export default function AdminRangoPage() {
         </section>
 
         <div hidden={!showCharts}>
-          <RangoCharts reports={historyReports} contractor={contractor} from={dateRange.from} to={dateRange.to} dt={dtSearch} />
+          <RangoCharts reports={historyReports} contractor={contractor} from={dateRange.from} to={dateRange.to} dt={dtSearch} onContractorChange={setContractor} />
         </div>
         <div hidden={showCharts}>
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
