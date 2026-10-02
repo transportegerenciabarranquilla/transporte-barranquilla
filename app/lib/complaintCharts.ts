@@ -1,42 +1,118 @@
-export type ComplaintChartRow = { contractor: string; date: string; status: string; issue: string; count: number };
-export type ComplaintChartMapping = Record<"contractor" | "date" | "status" | "issue" | "count", string>;
+export type ComplaintChartRow = { contractor: string; date: string; status: string; issue: string; count: number; openedAt?: string; closedAt?: string; dt?: string; rr?: string; rrId?: string; client?: string; clientCode?: string; complaintId?: string };
+export type ComplaintChartMapping = Record<"contractor" | "date" | "status" | "issue" | "count", string> & { closedDate?: string; dt?: string; client?: string; clientCode?: string; complaintId?: string };
 export type ComplaintExcelRow = Record<string, string>;
+export type ComplaintDateOrder = "dmy" | "mdy";
 
 const key = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export function suggestComplaintChartMapping(headers: string[]): ComplaintChartMapping {
   const aliases = {
     contractor: ["transportista", "contratista", "contractor"],
-    date: ["fechacreacion", "fechadecreacion", "fecha", "createddate"],
-    status: ["estado", "status"],
+    date: ["fechacreacion", "fechadecreacion", "fechadeingresodelanovedad", "fechaingresodelanovedad", "fecha", "createddate"],
+    status: ["estado", "estatus", "status"],
     issue: ["novedad", "motivo", "tipodequeja", "issue"],
     count: ["cantidad", "total", "quejas", "numerodequejas", "count"],
   };
-  return Object.fromEntries(Object.entries(aliases).map(([field, names]) => [field, headers.find(header => names.includes(key(header))) || ""])) as ComplaintChartMapping;
+  const mapping = Object.fromEntries(Object.entries(aliases).map(([field, names]) => [field, headers.find(header => names.includes(key(header))) || ""])) as ComplaintChartMapping;
+  const closedDate = headers.find(header => ["fechadecierredelanovedad", "fechacierredelanovedad", "fechadecierre", "fechacierre", "closedat", "closeddate"].includes(key(header)));
+  if (closedDate) mapping.closedDate = closedDate;
+  const dt = headers.find(header => ["dt", "transporte", "numerodt", "numerodetransporte"].includes(key(header)));
+  if (dt) mapping.dt = dt;
+  const detailAliases = {
+    client: ["nombredecliente", "nombrecliente", "cliente", "establecimiento", "establishment"],
+    clientCode: ["codigo", "codigocliente", "codigodecliente", "codcliente", "code"],
+    complaintId: ["ticket", "id", "idqueja", "numeroqueja"],
+  };
+  for (const [field, names] of Object.entries(detailAliases)) {
+    const header = headers.find(header => names.includes(key(header)));
+    if (header) mapping[field as keyof typeof detailAliases] = header;
+  }
+  return mapping;
 }
 
-export function chartDate(value: string) {
+export function chartDate(value: string, order: ComplaintDateOrder = "dmy") {
   const text = value.trim();
   const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/);
   const local = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:$|\s)/);
-  const result = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : local ? `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}` : "";
+  // Only infer order when one component cannot be a month. Ambiguous text
+  // follows the user's selected order; Excel calendar dates arrive as ISO.
+  const monthFirst = local && (Number(local[2]) > 12 || (Number(local[1]) <= 12 && order === "mdy"));
+  const result = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : local ? `${local[3]}-${local[monthFirst ? 1 : 2].padStart(2, "0")}-${local[monthFirst ? 2 : 1].padStart(2, "0")}` : "";
   const parsed = new Date(`${result}T00:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === result ? result : "";
 }
 
-export function parseComplaintChartRows(rows: ComplaintExcelRow[], mapping: ComplaintChartMapping): ComplaintChartRow[] {
+export function parseComplaintChartRows(rows: ComplaintExcelRow[], mapping: ComplaintChartMapping, order: ComplaintDateOrder = "dmy"): ComplaintChartRow[] {
   if (![mapping.contractor, mapping.date, mapping.status, mapping.issue].some(Boolean)) throw new Error("Selecciona al menos una columna de transportista, fecha, estado o novedad.");
   const result: ComplaintChartRow[] = [];
   rows.forEach((row, index) => {
-    const read = (field: keyof ComplaintChartMapping) => String(row[mapping[field]] ?? "").trim();
+    const read = (field: keyof ComplaintChartMapping) => String(row[mapping[field] || ""] ?? "").trim();
     if (!Object.keys(mapping).some(field => read(field as keyof ComplaintChartMapping))) return;
     const count = mapping.count ? Number(read("count")) : 1;
     if ((mapping.count && !read("count")) || !Number.isSafeInteger(count) || count < 0) throw new Error(`Fila ${index + 2}: la cantidad debe ser un entero mayor o igual a cero, sin separadores de miles.`);
-    const date = chartDate(read("date"));
-    if (read("date") && !date) throw new Error(`Fila ${index + 2}: fecha inválida. Usa dd/mm/aaaa o aaaa-mm-dd.`);
-    result.push({ contractor: read("contractor") || "Sin transportista", date, status: read("status") || "Sin estado", issue: read("issue") || "Sin novedad", count });
+    const date = chartDate(read("date"), order);
+    if (read("date") && !date) throw new Error(`Fila ${index + 2}: fecha inválida «${read("date") }» en ${mapping.date}. Usa dd/mm/aaaa, mm/dd/aaaa o aaaa-mm-dd.`);
+    result.push({ contractor: read("contractor") || "Sin transportista", date, status: complaintChartStatus(read("status")), issue: read("issue") || "Sin novedad", count,
+      ...(mapping.closedDate ? { openedAt: complaintClosureDate(read("date"), order), closedAt: complaintClosureDate(read("closedDate"), order) } : {}),
+      ...(mapping.dt ? { dt: read("dt") } : {}),
+      ...(mapping.client ? { client: read("client") } : {}),
+      ...(mapping.clientCode ? { clientCode: read("clientCode") } : {}),
+      ...(mapping.complaintId ? { complaintId: read("complaintId") } : {}),
+    });
   });
   if (!result.length) throw new Error("La hoja no contiene filas para graficar.");
+  return result;
+}
+
+export function complaintChartStatus(value: string) {
+  if (["cerrado", "cerrada", "cerrdado", "cerrdao", "cerraddo"].includes(key(value))) return "Cerrada";
+  if (["abierto", "abierta"].includes(key(value))) return "Abierta";
+  return value || "Sin estado";
+}
+
+export function complaintStatusTotals(rows: ComplaintChartRow[]) {
+  const result = { total: 0, closed: 0, open: 0, unknown: 0 };
+  for (const row of rows) {
+    result.total += row.count;
+    const status = complaintChartStatus(row.status);
+    if (status === "Cerrada") result.closed += row.count;
+    else if (status === "Abierta") result.open += row.count;
+    else result.unknown += row.count;
+  }
+  return result;
+}
+
+// Preserve clock precision for the closure metric. Local times use Colombia.
+export function complaintClosureDate(value: string, order: ComplaintDateOrder = "dmy") {
+  const date = chartDate(value, order);
+  if (!date) return "";
+  const suffix = value.trim().replace(/^(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/, "");
+  if (!suffix) return date;
+  const clock = suffix.match(/^[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/i);
+  if (!clock || Number(clock[1]) > 23 || Number(clock[2]) > 59 || Number(clock[3] || 0) > 59) return "";
+  const stamp = `${date}T${clock[1].padStart(2, "0")}:${clock[2]}:${clock[3] || "00"}${clock[4] || ""}${clock[5] || "-05:00"}`;
+  return Number.isFinite(Date.parse(stamp)) ? stamp : "";
+}
+
+export function complaintClosureTotals(rows: ComplaintChartRow[]) {
+  const result = { within48: 0, after48: 0, missing: 0, estimated: 0, evaluated: 0, percentage: 0 };
+  for (const row of rows) {
+    if (complaintChartStatus(row.status) !== "Cerrada") continue;
+    const opened = complaintClosureDate(row.openedAt ?? row.date);
+    const closed = complaintClosureDate(row.closedAt || "");
+    if (!opened || !closed) { result.missing += row.count; continue; }
+    const estimated = opened.length === 10 || closed.length === 10;
+    // Without both clocks, compare calendar days instead of inventing hours.
+    const start = estimated ? Date.parse(`${opened.slice(0, 10)}T00:00:00Z`) : Date.parse(opened);
+    const end = estimated ? Date.parse(`${closed.slice(0, 10)}T00:00:00Z`) : Date.parse(closed);
+    const elapsed = end - start;
+    if (elapsed < 0) { result.missing += row.count; continue; }
+    result.evaluated += row.count;
+    if (estimated) result.estimated += row.count;
+    if (elapsed <= 48 * 3_600_000) result.within48 += row.count;
+    else result.after48 += row.count;
+  }
+  result.percentage = result.evaluated ? result.within48 / result.evaluated * 100 : 0;
   return result;
 }
 

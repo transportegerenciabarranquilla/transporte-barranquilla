@@ -75,6 +75,8 @@ export default function PuntoCoronaPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
   const [selectedRangeDetail, setSelectedRangeDetail] = useState<RangeDetail | null>(null);
+  const [plateSearch, setPlateSearch] = useState("");
+  const [outsideOnly, setOutsideOnly] = useState(false);
   const [selectedModulationDetail, setSelectedModulationDetail] = useState<ModulationDetail | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [contractor, setContractor] = useState("");
@@ -159,6 +161,8 @@ export default function PuntoCoronaPage() {
   useEffect(() => {
     setSelectedRangeDetail(null);
     setSelectedModulationDetail(null);
+    setPlateSearch("");
+    setOutsideOnly(false);
   }, [activeDate, visibleReport?.id]);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -428,13 +432,26 @@ export default function PuntoCoronaPage() {
               selectedModulation={selectedModulationDetail}
               selectedRange={selectedRangeDetail}
             />
+      {isLogisticosContractor(visibleReport.contractor) && <div className="flex flex-wrap items-end gap-3 mb-5 rounded-lg border border-slate-200 bg-white shadow-sm px-4 py-3">
+        <label className="w-full text-xs font-semibold text-slate-600 sm:w-64">Filtrar por placa
+          <input type="search" value={plateSearch} placeholder="Escribe una placa o parte de ella"
+            className="mt-1 block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            onChange={event => { setPlateSearch(event.target.value); if (event.target.value.trim()) { setSelectedRangeDetail("outOfRange"); setSelectedModulationDetail(null); } }} />
+        </label>
+        <label className="flex h-10 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+          <input type="checkbox" checked={outsideOnly} className="h-4 w-4 accent-red-600" onChange={event => { setOutsideOnly(event.target.checked); if (event.target.checked) { setSelectedRangeDetail("outOfRange"); setSelectedModulationDetail(null); } }} />
+          Solo con clientes fuera de rango
+        </label>
+        {(plateSearch || outsideOnly) && <button type="button" className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+          onClick={() => { setPlateSearch(""); setOutsideOnly(false); }}>Limpiar filtros</button>}
+      </div>}
             {selectedRangeDetail ? (
-              <RangeClientDetail onClose={() => setSelectedRangeDetail(null)} range={selectedRangeDetail} report={visibleReport} />
+              <RangeClientDetail plateSearch={isLogisticosContractor(visibleReport.contractor) ? plateSearch : ""} onClose={() => setSelectedRangeDetail(null)} range={selectedRangeDetail} report={visibleReport} />
             ) : null}
             {selectedModulationDetail ? (
               <ModulationClientDetail detail={selectedModulationDetail} modulaciones={modulaciones} onClose={() => setSelectedModulationDetail(null)} report={visibleReport} />
             ) : null}
-            <CrewTable key={visibleReport.id} modulaciones={modulaciones} report={visibleReport} />
+            <CrewTable key={visibleReport.id} modulaciones={modulaciones} report={visibleReport} plateSearch={plateSearch} outsideOnly={outsideOnly} />
           </>
         ) : (
           <EmptyState onUpload={() => fileInputRef.current?.click()} />
@@ -814,8 +831,9 @@ function StackedChart({
   );
 }
 
-function RangeClientDetail({ crew, onClose, range, report }: { crew?: PuntoCoronaCrewSummary; onClose: () => void; range: RangeDetail; report: PuntoCoronaRouteReport }) {
-  const rows = getRowsForRange(report, range).filter((row) => !crew || (
+function RangeClientDetail({ crew, onClose, range, report, plateSearch = "" }: { crew?: PuntoCoronaCrewSummary; onClose: () => void; range: RangeDetail; report: PuntoCoronaRouteReport; plateSearch?: string }) {
+  const plateQuery = plateSearch.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const rows = getRowsForRange(report, range).filter(row => row.truckLicensePlate.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(plateQuery)).filter((row) => !crew || (
     normalizeDt(row.dt) === normalizeDt(crew.dt) &&
     row.driverName === crew.driverName &&
     row.truckLicensePlate === crew.truckLicensePlate
@@ -1008,10 +1026,8 @@ function Charts({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; 
   );
 }
 
-function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport }) {
+function CrewTable({ modulaciones, report, plateSearch, outsideOnly }: { modulaciones: ModulacionRegistro[]; report: PuntoCoronaRouteReport; plateSearch: string; outsideOnly: boolean }) {
   const crews = report.summary.crews;
-  const [plateSearch, setPlateSearch] = useState("");
-  const [outsideOnly, setOutsideOnly] = useState(false);
   const canFilterPlates = isLogisticosContractor(report.contractor);
   const [selectedCrewKey, setSelectedCrewKey] = useState<string | null>(null);
   const [sort, setSort] = useState<{ column: "delivery" | "modulation"; order: "asc" | "desc" } | null>(null);
@@ -1046,19 +1062,6 @@ function CrewTable({ modulaciones, report }: { modulaciones: ModulacionRegistro[
         </div>
         <span role="status" className="shrink-0 rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-[#07556b]">{rows.length === crews.length ? crews.length : `${rows.length} de ${crews.length}`} registros</span>
       </div>
-      {canFilterPlates && <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3">
-        <label className="w-full text-xs font-semibold text-slate-600 sm:w-64">Filtrar por placa
-          <input type="search" value={plateSearch} placeholder="Escribe una placa o parte de ella"
-            className="mt-1 block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
-            onChange={event => { setPlateSearch(event.target.value); setSelectedCrewKey(null); }} />
-        </label>
-        <label className="flex h-10 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
-          <input type="checkbox" checked={outsideOnly} className="h-4 w-4 accent-red-600" onChange={event => { setOutsideOnly(event.target.checked); setSelectedCrewKey(null); }} />
-          Solo con clientes fuera de rango
-        </label>
-        {(plateSearch || outsideOnly) && <button type="button" className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-          onClick={() => { setPlateSearch(""); setOutsideOnly(false); setSelectedCrewKey(null); }}>Limpiar filtros</button>}
-      </div>}
       <div className="max-h-[620px] overflow-auto">
         <table className="data-table w-full min-w-[980px] table-fixed text-[10px]">
           <thead className="sticky top-0 z-10 text-[9px] uppercase tracking-[0.08em]">

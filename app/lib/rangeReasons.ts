@@ -3,6 +3,9 @@ export const RANGE_REASONS = [
   "Reubicación",
   "Cambio de Coordenadas",
   "Reconstrucción",
+  "Multiparada",
+  "Segunda Visita",
+  "Mala practicas",
 ] as const;
 
 export function isRangeReason(value: unknown): value is (typeof RANGE_REASONS)[number] {
