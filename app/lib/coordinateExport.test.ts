@@ -10,12 +10,16 @@ const row: CoordinateRecord = {
   latitud: 10.4900236, longitud: -75.1305434, createdAt: "2026-10-02T18:57:00Z",
 };
 
-test("Excel preserves GPS precision and identifiers while displaying the same six decimals as the screen", () => {
+test("Excel exports coordinates as text with decimal points and keeps original precision in the map link", () => {
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, coordinateExportSheet([row], XLSX), "Ubicaciones");
   const result = XLSX.read(XLSX.write(book, {type: "buffer", bookType: "xlsx"}), {type: "buffer", cellNF: true}).Sheets.Ubicaciones;
-  assert.equal(result.H2.v, 10.4900236);
-  assert.equal(result.I2.v, -75.1305434);
+  assert.equal(result.H2.t, "s");
+  assert.equal(result.I2.t, "s");
+  assert.equal(result.H2.z, "@");
+  assert.equal(result.I2.z, "@");
+  assert.equal(result.H2.v, "10.490024");
+  assert.equal(result.I2.v, "-75.130543");
   assert.equal(result.H2.w, "10.490024");
   assert.equal(result.I2.w, "-75.130543");
   assert.equal(result.E2.v, "001234");

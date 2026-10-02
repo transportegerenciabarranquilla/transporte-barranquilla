@@ -14,14 +14,14 @@ export function coordinateExportSheet(rows: readonly CoordinateRecord[], xlsx: t
       // A native Excel date avoids interpreting day/month using the PC locale.
       const excelDate = date ? (Date.parse(`${date}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86400000 : "";
       return [row.id, excelDate, row.contratista, row.nombreRr, row.tipo, row.codigoCliente, row.ruta,
-        row.latitud, row.longitud, date ? timeFormat.format(new Date(row.createdAt)) : "", coordinates, "Ver ubicación"];
+        row.latitud.toFixed(6), row.longitud.toFixed(6), date ? timeFormat.format(new Date(row.createdAt)) : "", coordinates, "Ver ubicación"];
     }),
   ]);
   rows.forEach((row, index) => {
     sheet[`B${index + 2}`].z = "dd/mm/yyyy";
-    // Keep the original numeric precision; only the display matches the table.
-    sheet[`H${index + 2}`].z = "0.000000";
-    sheet[`I${index + 2}`].z = "0.000000";
+    // Text keeps the decimal point when copied, regardless of Excel's locale.
+    sheet[`H${index + 2}`].z = "@";
+    sheet[`I${index + 2}`].z = "@";
     sheet[`L${index + 2}`].l = {
       Target: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${row.latitud},${row.longitud}`)}`,
       Tooltip: "Abrir las coordenadas originales en Google Maps",
