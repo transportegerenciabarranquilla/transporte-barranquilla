@@ -21,6 +21,19 @@ export function beesRangeTotals(rows: BeesRangeRow[]) {
   return { clients, total: clients.length, inside, outside, unvalidated: clients.length - inside - outside };
 }
 
+export function beesRangeByDate(rows: BeesRangeRow[]) {
+  const days = new Map<string, { date: string; inside: number; outside: number; unvalidated: number; total: number }>();
+  for (const row of uniqueBeesClients(rows)) {
+    const day = days.get(row.date) ?? { date: row.date, inside: 0, outside: 0, unvalidated: 0, total: 0 };
+    day.total++;
+    if (row.withinRadius === true) day.inside++;
+    else if (row.withinRadius === false) day.outside++;
+    else day.unvalidated++;
+    days.set(row.date, day);
+  }
+  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function beesOutsideByContractor(rows: BeesRangeRow[]) {
   const groups = new Map<string, BeesRangeRow[]>();
   for (const row of uniqueBeesClients(rows)) {

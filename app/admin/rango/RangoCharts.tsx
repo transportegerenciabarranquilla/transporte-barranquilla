@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import BeesOutsideCharts from "./BeesOutsideCharts";
+import BeesDailyRangeChart from "./BeesDailyRangeChart";
 import { contractorLabel } from "../../lib/contractors";
 import { uniqueBeesClients as uniqueClients } from "../../lib/beesRangeCharts";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../lib/puntoCoronaRoutesStorage";
@@ -28,7 +29,6 @@ export default function RangoCharts({ reports: allReports, contractor, from, to,
   const clients = uniqueClients(rows);
   const inside = clients.filter(row => row.withinRadius === true);
   const outside = clients.filter(row => row.withinRadius === false);
-  const unvalidated = clients.filter(row => row.withinRadius === null);
   const crews = buildCrews(clients);
   const rrs = buildRrs(clients);
   const percent = clients.length ? (inside.length / clients.length) * 100 : 0;
@@ -58,7 +58,7 @@ export default function RangoCharts({ reports: allReports, contractor, from, to,
     <Comparison bees={bees} foxtrot={foxtrotStats} loaded={foxtrot !== null} />
     <ContractorComparison loaded={foxtrot !== null} rows={contractorComparison} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Clientes BEES" value={clients.length} tone="slate" /><Metric label="En rango" value={inside.length} tone="green" /><Metric label="Fuera de rango" value={outside.length} tone="red" /><Metric label="% en rango" value={`${percent.toFixed(2)}%`} tone="green" /></div>
-    <Distribution inside={inside.length} outside={outside.length} unvalidated={unvalidated.length} />
+    <BeesDailyRangeChart rows={clients} />
     <BeesOutsideCharts rows={clients} contractor={contractor} contractors={[...new Set(reports.map(report => report.contractor))].sort()} onContractorChange={onContractorChange} />
     <BeesTable title="Detalle por tripulación" subtitle="Clientes BEES agrupados por fecha, DT y RR." groups={crews} showDate />
     <BeesTable title="Resumen por RR" subtitle="Clientes BEES agrupados por responsable de ruta." groups={rrs} />
@@ -95,11 +95,6 @@ function ContractorComparison({ rows, loaded }: { rows: ContractorComparisonRow[
 function RangeCell({ stats, color, available = true }: { stats: RangeStats; color: string; available?: boolean }) { const percent = percentage(stats); const hasData = available && stats.total > 0; return <div className="w-44"><div className="flex items-baseline justify-between gap-2"><strong className="text-lg font-bold tracking-tight tabular-nums" style={{ color }}>{hasData ? `${percent.toFixed(2)}%` : "—"}</strong><span className="text-[11px] font-medium text-slate-500">{hasData ? `${stats.inside.toLocaleString("es-CO")} / ${stats.total.toLocaleString("es-CO")}` : "Pendiente"}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full transition-all" style={{ backgroundColor: color, width: `${hasData ? percent : 0}%` }} /></div></div>; }
 
 function Metric({ label, value, tone }: { label: string; value: string | number; tone: "slate" | "green" | "red" }) { const color = { slate: "text-[#10223d]", green: "text-emerald-700", red: "text-red-700" }[tone]; return <article className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p><p className={`mt-1 text-2xl font-bold tabular-nums ${color}`}>{typeof value === "number" ? value.toLocaleString("es-CO") : value}</p></article>; }
-function Distribution({ inside, outside, unvalidated }: { inside: number; outside: number; unvalidated: number }) {
-  const values = [{ label: "En rango", value: inside, color: "bg-emerald-500", text: "text-emerald-700" }, { label: "Fuera de rango", value: outside, color: "bg-red-500", text: "text-red-700" }, { label: "Sin validar", value: unvalidated, color: "bg-amber-400", text: "text-amber-700" }];
-  const highest = Math.max(1, ...values.map(item => item.value));
-  return <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><h3 className="text-sm font-semibold text-slate-900">Distribución de clientes BEES</h3><div className="mt-4 grid grid-cols-3 gap-5 sm:gap-10">{values.map(item => <div key={item.label} className="text-center"><div className="flex h-36 items-end justify-center border-b border-slate-300"><div aria-label={`${item.label}: ${item.value} clientes`} className={`relative w-full max-w-28 rounded-t-md ${item.color}`} role="img" style={{ height: `${item.value ? Math.max(8, item.value / highest * 100) : 2}%` }}><span className={`absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm font-bold tabular-nums ${item.text}`}>{item.value.toLocaleString("es-CO")}</span></div></div><p className={`mt-2 text-xs font-semibold ${item.text}`}>{item.label}</p></div>)}</div></section>;
-}
 function BeesTable({ title, subtitle, groups, showDate = false }: { title: string; subtitle: string; groups: Group[]; showDate?: boolean }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const columns = showDate ? 7 : 6;
