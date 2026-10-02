@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Download, MapPinned, Maximize, Minimize, RefreshCw, Search, Trash2, Users, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { coordinateDay, filterCoordinateRecords, readCoordinateRecord, type CoordinateRecord } from "../../lib/coordinateRecords";
+import { filterCoordinateRecords, readCoordinateRecord, type CoordinateRecord } from "../../lib/coordinateRecords";
+import { coordinateExportSheet } from "../../lib/coordinateExport";
 import CoordinateHeatMap from "./CoordinateHeatMap";
 import CoordinateCharts from "./CoordinateCharts";
 
@@ -107,12 +108,7 @@ export default function AdminCoordinatesPage() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const sheet = XLSX.utils.aoa_to_sheet([
-        ["ID", "Fecha (Bogotá)", "Contratista", "RR", "Cédula RR", "Código de cliente", "Cliente", "Latitud", "Longitud"],
-        ...filtered.map(row => [row.id, coordinateDay(row.createdAt), row.contratista, row.nombreRr, row.tipo, row.codigoCliente, row.ruta, row.latitud, row.longitud]),
-      ]);
-      sheet["!cols"] = [10, 18, 24, 30, 18, 20, 40, 18, 18].map(wch => ({ wch }));
-      sheet["!autofilter"] = { ref: sheet["!ref"]! };
+      const sheet = coordinateExportSheet(filtered, XLSX);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, "Ubicaciones");
       XLSX.writeFile(workbook, `ubicaciones-${from || "inicio"}-${to || "hasta-hoy"}.xlsx`, { bookType: "xlsx", compression: true });
