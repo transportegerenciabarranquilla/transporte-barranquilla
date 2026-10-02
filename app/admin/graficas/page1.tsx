@@ -5,6 +5,7 @@ import { Download, Table2, Upload } from "lucide-react";
 import { matchRoutePerformance, type PerformanceVehicle, type RoutePerformanceRow, type MatchedRoutePerformance } from "../../lib/routePerformanceImport";
 import { ROUTE_PERFORMANCE_CONTRACTORS, routePerformanceContractor } from "../../lib/routePerformanceContractors";
 import { buildDriverOffenders } from "../../lib/routePerformanceOffenders";
+import { averagePerformance, deliveryPerformance, totalPerformanceMinutes, formatPerformanceDuration, latestPerformanceDate } from "../../lib/routePerformanceMetrics";
 import RoutePerformanceCharts from "./RoutePerformanceCharts";
 import RoutePerformanceTable from "./RoutePerformanceTable";
 
@@ -32,7 +33,11 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "No se pudo cargar el Excel guardado.");
         if (controller.signal.aborted) return;
-        setRows(Array.isArray(body.rows) ? body.rows : []);
+        const loadedRows: RoutePerformanceRow[] = Array.isArray(body.rows) ? body.rows : [];
+        setRows(loadedRows);
+        const latestDate = latestPerformanceDate(loadedRows);
+        setDateFrom(latestDate);
+        setDateTo(latestDate);
         if (contractorOnly) setServerMatchedRows(Array.isArray(body.rows) ? body.rows : []);
         setFileName(String(body.fileName || ""));
         setUploadedAt(String(body.uploadedAt || ""));
@@ -75,15 +80,17 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
       const response = await fetch("/api/admin/graficas/route-performance", { method: "POST", body: form });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo guardar el Excel en Supabase.");
-      setRows(Array.isArray(body.rows) ? body.rows : []);
+      const loadedRows: RoutePerformanceRow[] = Array.isArray(body.rows) ? body.rows : [];
+      setRows(loadedRows);
       setFileName(String(body.fileName || file.name));
       setUploadedAt(String(body.uploadedAt || ""));
       setFiles(Array.isArray(body.files) ? body.files : []);
       setSearch("");
       setMatchFilter("all");
       setContractorFilter("all");
-      setDateFrom("");
-      setDateTo("");
+      const latestDate = latestPerformanceDate(loadedRows);
+      setDateFrom(latestDate);
+      setDateTo(latestDate);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo leer el Excel.");
     } finally {
@@ -103,19 +110,24 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         ...(contractorOnly ? [contractorOnly] : ROUTE_PERFORMANCE_CONTRACTORS).map((name) => ({ name, trips: filtered.filter((row) => routePerformanceContractor(row.contractor) === name) })),
       ];
       const summarySheet = XLSX.utils.json_to_sheet(summaries.map(({ name, trips }) => {
-        const withRange = trips.filter((row) => row.rangePercent !== null);
-        const withAdherence = trips.filter((row) => row.adherenceKmPercent !== null);
+        const range = deliveryPerformance(trips);
         return {
           Contratista: name,
           Viajes: trips.length,
           "Plan km": trips.reduce((sum, row) => sum + row.plannedKm, 0),
           "Ejecutado km": trips.reduce((sum, row) => sum + row.executedKm, 0),
           "Diferencia acumulada km": trips.reduce((sum, row) => sum + Math.abs(row.differenceKm), 0),
-          "Entrega en rango MyGeotab promedio %": withRange.length ? withRange.reduce((sum, row) => sum + (row.rangePercent ?? 0), 0) / withRange.length : "",
-          "Adherencia km promedio %": withAdherence.length ? withAdherence.reduce((sum, row) => sum + (row.adherenceKmPercent ?? 0), 0) / withAdherence.length : "",
+          "Entrega en rango MyGeotab %": range.value ?? "",
+          "Adherencia km promedio %": averagePerformance(trips, "adherenceKmPercent").value ?? "",
+          "Clientes planeados": range.missing ? "" : range.planned,
+          "Clientes visitados": range.missing ? "" : range.visited,
+          "Viajes sin datos de clientes": range.missing,
+          "Horas planeadas": formatPerformanceDuration(totalPerformanceMinutes(trips, "plannedMinutes")),
+          "Horas ejecutadas": formatPerformanceDuration(totalPerformanceMinutes(trips, "executedMinutes")),
+          "Adherencia horas promedio %": averagePerformance(trips, "adherenceHoursPercent").value ?? "",
         };
       }));
-      summarySheet["!cols"] = [24, 12, 18, 18, 28, 30, 30].map((wch) => ({ wch }));
+      summarySheet["!cols"] = [24, 12, 18, 18, 28, 30, 30, 22, 22, 28, 22, 22, 30].map((wch) => ({ wch }));
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumen");
 
       const offendersSheet = XLSX.utils.json_to_sheet(buildDriverOffenders(filtered).map((item, index) => ({
@@ -144,12 +156,24 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         "Plan km": row.plannedKm,
         "Ejecutado km": row.executedKm,
         "Diferencia km": row.differenceKm,
-        "Adherencia km %": row.adherenceKmPercent ?? "",
-        "Entrega en rango MyGeotab %": row.rangePercent ?? "",
-        "Fuera de rango %": row.outsidePercent ?? "",
+        "Adherencia km %": row.adherenceKmPercent == null ? "" : row.adherenceKmPercent / 100,
+        "Entrega en rango MyGeotab %": row.rangePercent == null ? "" : row.rangePercent / 100,
+        "Fuera de rango %": row.outsidePercent == null ? "" : row.outsidePercent / 100,
+        "Clientes planeados": row.plannedClients ?? "",
+        "Clientes visitados": row.visitedClients ?? "",
+        "Horas planeadas": formatPerformanceDuration(row.plannedMinutes),
+        "Horas ejecutadas": formatPerformanceDuration(row.executedMinutes),
+        "Adherencia horas %": row.adherenceHoursPercent == null ? "" : row.adherenceHoursPercent / 100,
         Cruce: row.match === "matched" ? row.matchSource === "archivo" ? "Coincide en archivo" : "Coincide" : row.match === "ambiguous" ? "Varias coincidencias" : "Sin coincidencia",
       })));
-      detailSheet["!cols"] = [12, 14, 14, 18, 12, 14, 24, 28, 28, 16, 18, 18, 22, 22, 22, 22].map((wch) => ({ wch }));
+      detailSheet["!cols"] = [12, 14, 14, 18, 12, 14, 24, 28, 28, 16, 18, 18, 22, 22, 22, 22, 22, 22, 22, 22, 22].map((wch) => ({ wch }));
+      // Native percentage cells preserve values below 1% when imported again.
+      for (let row = 1; row <= filtered.length; row++) {
+        for (const col of [12, 13, 14, 19]) {
+          const cell = detailSheet[XLSX.utils.encode_cell({ r: row, c: col })];
+          if (cell?.t === "n") cell.z = "0.00%";
+        }
+      }
       XLSX.utils.book_append_sheet(workbook, detailSheet, "Viajes");
       XLSX.writeFile(workbook, `kilometros-y-rango-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
     } catch (caught) {
@@ -166,7 +190,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         {!contractorOnly && <input aria-label="Archivo Excel de viajes" className="sr-only" ref={inputRef} type="file" accept=".xlsx,.xls" disabled={loading || loadingStored} onChange={uploadExcel} />}
         {!contractorOnly && <button className="flex items-center gap-2 rounded-md bg-[#10223d] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" disabled={loading || loadingStored} onClick={() => inputRef.current?.click()} type="button"><Upload size={15} /> {loading ? "Guardando Excel…" : "Subir y guardar Excel"}</button>}
         {rows.length > 0 && <button className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50" disabled={loading || exporting || recordsLoading || !filtered.length} onClick={exportExcel} type="button"><Download size={15} /> {exporting ? "Exportando…" : "Exportar Excel"}</button>}
-        {rows.length > 0 && <button className="rounded-md border px-3 py-2 text-xs text-slate-600 disabled:opacity-50" disabled={loading} onClick={() => { setSearch(""); setMatchFilter("all"); setContractorFilter("all"); setDateFrom(""); setDateTo(""); }} type="button">Quitar filtros</button>}
+        {rows.length > 0 && <button className="rounded-md border px-3 py-2 text-xs text-slate-600 disabled:opacity-50" disabled={loading} onClick={() => { setSearch(""); setMatchFilter("all"); setContractorFilter("all"); setDateFrom(dateBounds.max); setDateTo(dateBounds.max); }} type="button">Volver al último día</button>}
       </div>
     </header>
     <div className="space-y-4 p-4">
@@ -186,9 +210,13 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
           {!contractorOnly && <label className="text-xs font-semibold text-slate-600">Contratista<select className="mt-1 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" value={contractorFilter} onChange={(event) => { setContractorFilter(event.target.value); }}><option value="all">Todos</option>{ROUTE_PERFORMANCE_CONTRACTORS.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
           <label className="text-xs font-semibold text-slate-600">Desde<input className="mt-1 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" type="date" min={dateBounds.min} max={dateTo || dateBounds.max} value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); }} /></label>
           <label className="text-xs font-semibold text-slate-600">Hasta<input className="mt-1 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" type="date" min={dateFrom || dateBounds.min} max={dateBounds.max} value={dateTo} onChange={(event) => { setDateTo(event.target.value); }} /></label>
-          {(dateFrom || dateTo) && <button className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => { setDateFrom(""); setDateTo(""); }} type="button">Quitar fechas</button>}
+          {(dateFrom || dateTo) && <button className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => { setDateFrom(""); setDateTo(""); }} type="button">Ver todas las fechas</button>}
         </div>
         <p className="text-[11px] text-slate-500">Fechas de viaje disponibles: {dateBounds.min.split("-").reverse().join("/")} al {dateBounds.max.split("-").reverse().join("/")}. El rango incluye ambos días.</p>
+        <div role="status" aria-label="Período de los indicadores" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">
+          <p className="font-bold">{dateFrom && dateFrom === dateTo ? `Indicadores del ${dateFrom.split("-").reverse().join("/")}` : !dateFrom && !dateTo ? "Indicadores acumulados de todas las fechas" : `Indicadores del ${(dateFrom || dateBounds.min).split("-").reverse().join("/")} al ${(dateTo || dateBounds.max).split("-").reverse().join("/")}`}</p>
+          <p className="mt-1 text-xs">{filtered.length.toLocaleString("es-CO")} viajes seleccionados de {rows.length.toLocaleString("es-CO")} guardados. Todos los indicadores y la exportación usan esta selección.</p>
+        </div>
         <RoutePerformanceCharts rows={filtered} contractorOnly={contractorOnly} />
         <RoutePerformanceTable rows={filtered} pending={recordsLoading} error={Boolean(recordsError)} />
       </>}

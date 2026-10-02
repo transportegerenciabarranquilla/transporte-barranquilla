@@ -1,8 +1,9 @@
 "use client";
 
-import { MapPinned, Route, Target } from "lucide-react";
+import { Clock, MapPinned, Route, Target } from "lucide-react";
 import { ROUTE_PERFORMANCE_CONTRACTORS, routePerformanceContractor } from "../../lib/routePerformanceContractors";
 import type { MatchedRoutePerformance } from "../../lib/routePerformanceImport";
+import { averagePerformance, deliveryPerformance, totalPerformanceMinutes, formatPerformanceDuration } from "../../lib/routePerformanceMetrics";
 import RoutePerformanceTrend from "./RoutePerformanceTrend";
 
 const format = (value: number) => value.toLocaleString("es-CO", { maximumFractionDigits: 2 });
@@ -15,11 +16,6 @@ function totals(rows: MatchedRoutePerformance[]) {
     executed: sum.executed + row.executedKm,
     difference: sum.difference + Math.abs(row.differenceKm),
   }), { planned: 0, executed: 0, difference: 0 });
-}
-
-function average(rows: MatchedRoutePerformance[], field: "rangePercent" | "adherenceKmPercent") {
-  const values = rows.flatMap((row) => row[field] === null ? [] : [row[field] as number]);
-  return { count: values.length, value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null };
 }
 
 function KilometerRing({ rows, small = false, dark = false }: { rows: MatchedRoutePerformance[]; small?: boolean; dark?: boolean }) {
@@ -46,8 +42,8 @@ function PercentageRing({ value, label, small = false, tone = "range" }: { value
 }
 
 function ContractorCard({ name, rows, position }: { name: string; rows: MatchedRoutePerformance[]; position: number }) {
-  const adherence = average(rows, "adherenceKmPercent");
-  const range = average(rows, "rangePercent");
+  const adherence = averagePerformance(rows, "adherenceKmPercent");
+  const range = deliveryPerformance(rows);
   const initials = name.split(" ").map((word) => word[0]).join("").slice(0, 2);
   return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
     <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5">
@@ -63,7 +59,7 @@ function ContractorCard({ name, rows, position }: { name: string; rows: MatchedR
       <div className="flex flex-col items-center gap-1 pt-4 sm:pt-0 sm:pl-2">
         <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Rango MyGeotab</p>
         <PercentageRing value={range.value} label={`Entrega en rango MyGeotab de ${name}`} small />
-        <p className="text-center text-[11px] text-slate-600">{range.count.toLocaleString("es-CO")} viajes con dato</p>
+        <p className="text-center text-[11px] text-slate-600">{range.missing ? `Faltan clientes en ${range.missing} viajes` : `${format(range.visited)} / ${format(range.planned)} clientes`}</p>
       </div>
     </div>
   </article>;
@@ -71,8 +67,11 @@ function ContractorCard({ name, rows, position }: { name: string; rows: MatchedR
 
 export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { rows: MatchedRoutePerformance[]; contractorOnly?: string }) {
   const summary = totals(rows);
-  const range = average(rows, "rangePercent");
-  const adherence = average(rows, "adherenceKmPercent");
+  const hours = averagePerformance(rows, "adherenceHoursPercent");
+  const plannedHours = formatPerformanceDuration(totalPerformanceMinutes(rows, "plannedMinutes"));
+  const executedHours = formatPerformanceDuration(totalPerformanceMinutes(rows, "executedMinutes"));
+  const range = deliveryPerformance(rows);
+  const adherence = averagePerformance(rows, "adherenceKmPercent");
   const byContractor = (contractorOnly ? [contractorOnly] : ROUTE_PERFORMANCE_CONTRACTORS).map((name) => ({ name, rows: rows.filter((row) => routePerformanceContractor(row.contractor) === name) }));
   const identifiedTrips = byContractor.reduce((count, group) => count + group.rows.length, 0);
   return <div className="space-y-5">
@@ -85,10 +84,18 @@ export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { 
         <p className="relative border-t border-white/10 pt-3 text-[11px] text-slate-300">Suma de la diferencia reportada en cada viaje del Excel.</p>
       </section>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-        <section aria-label="Entrega en rango MyGeotab general" className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-[#f3fbf7] p-4 shadow-sm sm:p-5"><div className="min-w-0"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><MapPinned size={19} /></div><h3 className="text-sm font-bold text-slate-900">Entrega en rango MyGeotab</h3><p className="mt-1 text-xs text-slate-600">Promedio de {range.count.toLocaleString("es-CO")} viajes ? Columna ENTREGA RANGO del Excel</p><p className="mt-3 text-xs font-semibold text-emerald-700">En rango {range.value === null ? "Sin dato" : `${format(range.value)} %`} <span className="font-normal text-slate-500">· Fuera {range.value === null ? "Sin dato" : `${format(100 - range.value)} %`}</span></p></div><PercentageRing value={range.value} label="Entrega en rango MyGeotab general" /></section>
-        <section aria-label="Adherencia a kilómetros general" className="flex items-center justify-between gap-3 rounded-2xl border border-violet-100 bg-[#f8f5ff] p-4 shadow-sm sm:p-5"><div className="min-w-0"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><Target size={19} /></div><h3 className="text-sm font-bold text-slate-900">Adherencia a kilómetros</h3><p className="mt-1 text-xs text-slate-600">Promedio de {adherence.count.toLocaleString("es-CO")} viajes</p><p className="mt-3 text-xs font-semibold text-violet-700">Columna ADH_KM del Excel</p></div><PercentageRing value={adherence.value} label="Adherencia a kilómetros general" tone="adherence" /></section>
+        <section aria-label="Entrega en rango MyGeotab general" className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-[#f3fbf7] p-4 shadow-sm sm:p-5"><div className="min-w-0"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><MapPinned size={19} /></div><h3 className="text-sm font-bold text-slate-900">Entrega en rango MyGeotab</h3><p className="mt-1 text-xs text-slate-600">Clientes visitados / clientes planeados x 100</p><p className="mt-2 text-xs text-slate-600">{range.missing ? `Faltan CLIPLAN / CLIVISITADOS en ${range.missing} viajes. Carga el Excel original para calcular el total.` : `Clientes planeados: ${format(range.planned)} - Visitados: ${format(range.visited)}`}</p><p className="mt-3 text-xs font-semibold text-emerald-700">En rango {range.value === null ? "Sin dato" : `${format(range.value)} %`} <span className="font-normal text-slate-500">· Fuera {range.value === null ? "Sin dato" : `${format(100 - range.value)} %`}</span></p></div><PercentageRing value={range.value} label="Entrega en rango MyGeotab general" /></section>
+        <section aria-label="Adherencia a kilómetros general" className="flex items-center justify-between gap-3 rounded-2xl border border-violet-100 bg-[#f8f5ff] p-4 shadow-sm sm:p-5"><div className="min-w-0"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><Target size={19} /></div><h3 className="text-sm font-bold text-slate-900">Adherencia a kilómetros</h3><p className="mt-1 text-xs text-slate-600">Promedio de {adherence.count.toLocaleString("es-CO")} viajes</p><p className="mt-3 text-xs font-semibold text-violet-700">Promedio de ADH_KM del Excel</p></div><PercentageRing value={adherence.value} label="Adherencia a kilómetros general" tone="adherence" /></section>
       </div>
     </div>
+    <section aria-label="Adherencia a horas general" className="flex items-center justify-between gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-4 shadow-sm sm:p-5">
+      <div><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><Clock size={19} /></div>
+        <h3 className="text-sm font-bold text-slate-900">Adherencia a horas</h3>
+        <p className="mt-1 text-xs text-slate-600">Promedio de ADH_HRS · {hours.count} viajes con dato</p>
+        <p className="mt-3 text-xs font-semibold text-sky-700">Horas plan: {plannedHours || "Sin dato"} · Ejecutadas: {executedHours || "Sin dato"}</p>
+      </div>
+      <PercentageRing value={hours.value} label="Adherencia a horas general" tone="adherence" />
+    </section>
     <RoutePerformanceTrend rows={rows} />
     <section aria-label="Indicadores por contratista" className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Adherencia a kilómetros y entrega en rango MyGeotab, con los filtros actuales.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>

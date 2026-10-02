@@ -110,17 +110,17 @@ test("reads the MyGeotab range column from a newly exported workbook", () => {
   assert.equal(rows[0].rangePercent, 49.1);
 });
 
-test("charts average per trip and exclude unmatched or missing percentage rows", () => {
-  const rows = parseRoutePerformanceRows([headers,
-    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "50 %"],
-    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "100 %"],
-    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, ""],
-    ["1/07/2026", "ABC123", "", 1, 1, 1, 0, 0],
+test("crew delivery uses client totals and excludes unmatched rows", () => {
+  const rows = parseRoutePerformanceRows([[...headers, "CLIPLAN", "CLIVISITADOS"],
+    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "50 %", 10, 5],
+    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "100 %", 90, 90],
+    ["1/07/2026", "XMB964", "", 1, 1, 1, 0, "", 0, 0],
+    ["1/07/2026", "ABC123", "", 1, 1, 1, 0, 0, 50, 0],
   ]);
   const crews = summarizePerformanceCrews(matchRoutePerformance(rows, [vehicle()]));
   assert.equal(crews.length, 1);
-  assert.equal(crews[0].trips, 2);
-  assert.equal(crews[0].rangePercent, 75);
+  assert.equal(crews[0].trips, 3);
+  assert.equal(crews[0].rangePercent, 95);
   const unidentified = matchRoutePerformance(rows, [vehicle({ nombreResponsable: "Sin identificar", responsable: "Sin responsable", nombreAuxiliar1: "Sin identificar" })]);
   assert.equal(summarizePerformanceCrews(unidentified).length, 0);
 });

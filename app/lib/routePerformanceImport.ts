@@ -1,4 +1,5 @@
 import type { Vehiculo } from "../seguimiento/types";
+import { deliveryPerformance } from "./routePerformanceMetrics";
 
 export type RoutePerformanceRow = {
   fila: number;
@@ -15,6 +16,11 @@ export type RoutePerformanceRow = {
   executedKm: number;
   differenceKm: number;
   adherenceKmPercent: number | null;
+  plannedClients?: number | null;
+  visitedClients?: number | null;
+  plannedMinutes?: number | null;
+  executedMinutes?: number | null;
+  adherenceHoursPercent?: number | null;
   rangePercent: number | null;
   outsidePercent: number | null;
 };
@@ -80,6 +86,11 @@ export function parseRoutePerformanceRows(data: unknown[][]): RoutePerformanceRo
     DIFERENCIAKM: ["Diferencia km"],
     "ENTREGA RANGO": ["Entrega en rango %", "Entrega en rango MyGeotab %"],
     ADH_KM: ["Adherencia km %"],
+    CLIPLAN: ["Clientes planeados"],
+    CLIVISITADOS: ["Clientes visitados"],
+    PLAN_HR: ["Horas planeadas"],
+    EJECUTADO_HR: ["Horas ejecutadas"],
+    ADH_HRS: ["Adherencia horas %"],
   };
   const columnIndex = (label: string) => [label, ...(aliases[label] || [])].map(headerKey).map((key) => headers.indexOf(key)).find((index) => index >= 0) ?? -1;
   for (const label of required) {
@@ -91,6 +102,9 @@ export function parseRoutePerformanceRows(data: unknown[][]): RoutePerformanceRo
   const rows: RoutePerformanceRow[] = [];
   data.slice(1).forEach((cells, index) => {
     if (cells.every((value) => value == null || String(value).trim() === "")) return;
+    // Power BI appends a single text cell describing the export filters.
+    // Only skip that precise footer; malformed trip rows must still fail.
+    if (/^Filtros aplicados\s*:/i.test(String(cells[0] ?? "").trim()) && cells.slice(1).every((value) => value == null || String(value).trim() === "")) return;
     const fila = index + 2;
     const read = (label: string) => cells[columnIndex(label)];
     const date = performanceDate(read("fecha_viaje2"));
@@ -102,17 +116,40 @@ export function parseRoutePerformanceRows(data: unknown[][]): RoutePerformanceRo
     const executedKm = numericCell(read("EJE_KM"));
     const differenceKm = numericCell(read("DIFERENCIAKM"));
     if (plannedKm === null || plannedKm < 0 || executedKm === null || executedKm < 0 || differenceKm === null) throw new Error(`Fila ${fila}: revisa PLAN_KM, EJE_KM y DIFERENCIAKM; deben ser números.`);
-    const rangePercent = parsePerformancePercent(read("ENTREGA RANGO"), fila);
+    const readCount = (label: string) => {
+      const raw = read(label);
+      if (raw == null || String(raw).trim() === "") return null;
+      const count = numericCell(raw);
+      if (count === null || count < 0 || !Number.isInteger(count)) throw new Error(`Fila ${fila}: ${label} debe ser un entero no negativo.`);
+      return count;
+    };
+    const plannedClients = readCount("CLIPLAN");
+    const visitedClients = readCount("CLIVISITADOS");
+    if (plannedClients !== null && visitedClients !== null && visitedClients > plannedClients) throw new Error(`Fila ${fila}: CLIVISITADOS no puede superar CLIPLAN.`);
+    const reportedRange = parsePerformancePercent(read("ENTREGA RANGO"), fila);
+    const rangePercent = plannedClients !== null && visitedClients !== null ? (plannedClients > 0 ? visitedClients / plannedClients * 100 : null) : reportedRange;
+    const plannedMinutes = parsePerformanceMinutes(read("PLAN_HR"), fila, "PLAN_HR");
+    const executedMinutes = parsePerformanceMinutes(read("EJECUTADO_HR"), fila, "EJECUTADO_HR");
+    const adherenceHoursPercent = parsePerformancePercent(read("ADH_HRS"), fila, "ADH_HRS");
     const adherenceKmPercent = columnIndex("ADH_KM") >= 0 ? parsePerformancePercent(read("ADH_KM"), fila, "ADH_KM") : null;
     const excelContractor = String((headers.includes(headerKey("CONTRATISTA")) ? read("CONTRATISTA") : undefined) || (headers.includes(headerKey("TRANSPORTISTA")) ? read("TRANSPORTISTA") : undefined) || "").trim();
     const excelRr = String(read("RR") ?? "").trim();
     const excelDriver = String(read("Conductor") ?? "").trim();
     const excelDt = String(read("DT") ?? "").trim();
     const excelMatch = String(read("Cruce") ?? "").trim();
-    rows.push({ fila, date, plate, originalPlate, trip: String(read("Viaje") ?? "").trim(), excelContractor, excelRr, excelDriver, excelDt, excelMatch, plannedKm, executedKm, differenceKm, adherenceKmPercent, rangePercent, outsidePercent: rangePercent === null ? null : 100 - rangePercent });
+    rows.push({ fila, date, plate, originalPlate, trip: String(read("Viaje") ?? "").trim(), excelContractor, excelRr, excelDriver, excelDt, excelMatch, plannedKm, executedKm, differenceKm, adherenceKmPercent, plannedClients, visitedClients, plannedMinutes, executedMinutes, adherenceHoursPercent, rangePercent, outsidePercent: rangePercent === null ? null : 100 - rangePercent });
   });
   if (!rows.length) throw new Error("La primera hoja no contiene viajes para comparar.");
   return rows;
+}
+
+export function parsePerformanceMinutes(value: unknown, fila: number, label: string): number | null {
+  if (value == null || String(value).trim() === "") return null;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.round(value * 1440);
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getHours() * 60 + value.getMinutes();
+  const match = String(value).trim().match(/^(\d+):([0-5]\d)(?::([0-5]\d))?$/);
+  if (!match) throw new Error(`Fila ${fila}: ${label} debe tener formato horas:minutos.`);
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function tripKey(value: string): string {
@@ -166,15 +203,15 @@ export function matchRoutePerformance(rows: RoutePerformanceRow[], vehicles: Per
 }
 
 export function summarizePerformanceCrews(rows: MatchedRoutePerformance[]) {
-  const groups = new Map<string, { key: string; rr: string; driver: string; contractor: string; trips: number; rangeSum: number }>();
+  const groups = new Map<string, { key: string; rr: string; driver: string; contractor: string; trips: number; rows: MatchedRoutePerformance[] }>();
   for (const row of rows) {
-    if (row.match !== "matched" || row.rangePercent === null || (!row.rr && !row.driver)) continue;
+    if (row.match !== "matched" || (!row.rr && !row.driver)) continue;
     const key = JSON.stringify([row.contractor, row.rr, row.driver].map((value) => value.trim().toLocaleLowerCase("es")));
-    const group = groups.get(key) ?? { key, rr: row.rr, driver: row.driver, contractor: row.contractor, trips: 0, rangeSum: 0 };
+    const group = groups.get(key) ?? { key, rr: row.rr, driver: row.driver, contractor: row.contractor, trips: 0, rows: [] };
     group.trips += 1;
-    group.rangeSum += row.rangePercent;
+    group.rows.push(row);
     groups.set(key, group);
   }
-  return [...groups.values()].map((group) => ({ ...group, rangePercent: group.rangeSum / group.trips }))
-    .sort((a, b) => a.rangePercent - b.rangePercent || a.rr.localeCompare(b.rr, "es"));
+  return [...groups.values()].map(({ rows: trips, ...group }) => ({ ...group, rangePercent: deliveryPerformance(trips).value }))
+    .sort((a, b) => (a.rangePercent ?? Infinity) - (b.rangePercent ?? Infinity) || a.rr.localeCompare(b.rr, "es"));
 }
