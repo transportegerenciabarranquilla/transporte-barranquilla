@@ -13,6 +13,36 @@ const modulation = (changes: Partial<ModulacionRegistro> = {}): ModulacionRegist
   createdAt: "2026-09-30T17:00:00Z", ...changes,
 });
 
+test("completa el RR por DT y contratista sin inventar una modulación", () => {
+  const [row] = compareModulaciones([checkin()], [], [
+    { transporte: "DT-123", transportista: "Logisticos", nombreResponsable: "Carlos", fechaDespacho: "2026-10-01" },
+    { transporte: "123", transportista: "Surti Cervezas", nombreResponsable: "Otra persona" },
+  ]);
+  assert.equal(row.people, "Carlos");
+  assert.equal(row.assignedPerson, true);
+  assert.equal(row.missing, true);
+  assert.equal(row.count, 0);
+  assert.equal(row.modulated, 0);
+});
+
+test("prefiere la asignación del día y conserva la persona que moduló", () => {
+  const assignments = [
+    { transporte: "123", transportista: "Logisticos", nombreResponsable: "Anterior", fechaDespacho: "2026-09-30" },
+    { transporte: "123", transportista: "Logisticos", nombreResponsable: "Actual", fechaDespacho: "2026-10-01" },
+  ];
+  assert.equal(compareModulaciones([checkin()], [], assignments)[0].people, "Actual");
+  const [row] = compareModulaciones([checkin()], [modulation()], assignments);
+  assert.equal(row.people, "Ana");
+  assert.equal(row.assignedPerson, false);
+});
+
+test("admite check-in al día siguiente solo con un RR inequívoco", () => {
+  const assignment = { transporte: "123", transportista: "Logisticos", responsable: "RR Carlos", fechaDespacho: "2026-09-30" };
+  assert.equal(compareModulaciones([checkin()], [], [assignment])[0].people, "Carlos");
+  assert.equal(compareModulaciones([checkin()], [], [assignment, { ...assignment, responsable: "Otra persona" }])[0].people, "");
+  assert.equal(compareModulaciones([checkin()], [], [{ ...assignment, responsable: "Sin responsable" }])[0].people, "");
+});
+
 test("cruza por DT y contratista, suma modulaciones sin confundir otras contratistas", () => {
   const rows = compareModulaciones([checkin(), checkin({ id: "2", contratista: "Surti Cervezas" })],
     [modulation(), modulation({ id: "m2", totalCajas: "5" })]);
