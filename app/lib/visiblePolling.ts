@@ -3,7 +3,7 @@ export function startVisiblePolling(task: () => void | Promise<unknown>, interva
   let stopped = false;
   let running = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const isVisible = () => document.visibilityState !== "hidden";
+  const isVisible = () => document.visibilityState !== "hidden" && (typeof navigator === "undefined" || navigator.onLine !== false);
 
   const clearTimer = () => {
     if (timer !== undefined) clearTimeout(timer);
@@ -27,10 +27,14 @@ export function startVisiblePolling(task: () => void | Promise<unknown>, interva
     if (isVisible()) void run();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
+  window.addEventListener("online", onVisibilityChange);
+  window.addEventListener("offline", onVisibilityChange);
   void run();
   return () => {
     stopped = true;
     clearTimer();
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.removeEventListener("online", onVisibilityChange);
+    window.removeEventListener("offline", onVisibilityChange);
   };
 }

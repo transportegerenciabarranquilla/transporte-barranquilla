@@ -20,7 +20,8 @@ import { useStorageSnapshot } from "../lib/storageEvents";
 import { startVisiblePolling } from "../lib/visiblePolling";
 import { getVehiculosSeguimiento } from "./utils";
 import { ModulacionHeader } from "./components/ModulacionHeader";
-import ModulacionComparison from "./components/ModulacionComparison";
+import dynamic from "next/dynamic";
+const ModulacionComparison = dynamic(() => import("./components/ModulacionComparison"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando comparación...</p> });
 import type { Vehiculo } from "../seguimiento/types";
 
 const MODULACION_REFRESH_MS = 30_000;

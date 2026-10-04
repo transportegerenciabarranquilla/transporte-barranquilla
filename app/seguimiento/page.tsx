@@ -30,6 +30,10 @@ import { useStorageSnapshot } from "../lib/storageEvents";
 import { useContractorBrand } from "../lib/contractorBranding";
 import { refreshRemoteRecords } from "../lib/remoteStore";
 import { startVisiblePolling } from "../lib/visiblePolling";
+import { useStableCallback } from "../lib/useStableCallback";
+import { apiQuery } from "../lib/apiQuery";
+import { shareRecordsByKey } from "../lib/structuralSharing";
+import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY } from "../lib/adminSettings";
 import {
   formatCurrentTime,
@@ -68,6 +72,7 @@ export default function SeguimientoPage() {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [statusFilters, setStatusFilters] = useState<string[]>(["Activos"]);
   const [fechaDesdeFilter, setFechaDesdeFilter] = useState("");
   const [fechaHastaFilter, setFechaHastaFilter] = useState("");
@@ -83,6 +88,9 @@ export default function SeguimientoPage() {
   const pendingLocalSaveRef = useRef(0);
   const saveVersionRef = useRef(0);
   const vehiclesRef = useRef<Vehiculo[]>([]);
+  const selectVehicle = useStableCallback(seleccionarVehiculo);
+  const updateVehicle = useStableCallback(actualizarVehiculo);
+  const updateVisited = useStableCallback(actualizarVisitados);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -133,7 +141,7 @@ export default function SeguimientoPage() {
   const matchingVehicles = useMemo(() => {
     return vehiculos.filter((item) => {
       const searchable = `${item.vehiculo} ${item.transporte} ${item.responsable} ${item.territorio} ${item.moduladores?.join(" ")}`;
-      const matchesSearch = searchable.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = searchable.toLowerCase().includes(debouncedSearch.toLowerCase());
       const dispatchDate = toDateKey(item.fechaDespacho);
       const matchesFrom = !fechaDesdeFilter || dispatchDate >= fechaDesdeFilter;
       const matchesTo = !fechaHastaFilter || dispatchDate <= fechaHastaFilter;
@@ -141,7 +149,7 @@ export default function SeguimientoPage() {
 
       return matchesSearch && matchesFrom && matchesTo && matchesResponsible;
     });
-  }, [fechaDesdeFilter, fechaHastaFilter, onlyWithoutResponsible, search, vehiculos]);
+  }, [fechaDesdeFilter, fechaHastaFilter, onlyWithoutResponsible, debouncedSearch, vehiculos]);
 
   const filteredVehicles = useMemo(() => {
     return matchingVehicles.filter((item) =>
@@ -192,27 +200,27 @@ export default function SeguimientoPage() {
     return vehiculos.find((item) => getVehicleUiKey(item) === selectedKey) ?? vehiculoSeleccionado;
   }, [vehiculoSeleccionado, vehiculoSeleccionadoKey, vehiculos]);
 
+  async function loadComplaints() {
+    const body = await apiQuery<{ records?: ComplaintRecord[] }>("/api/complaints");
+    const records = Array.isArray(body.records) ? body.records as ComplaintRecord[] : [];
+    setComplaints(previous => shareRecordsByKey(previous, records.filter((complaint) => !isClosedComplaint(complaint.status)), complaint => complaint.id));
+  }
+
+
   useEffect(() => {
     return startVisiblePolling(() => setNow(new Date()), 15_000);
   }, []);
 
   useEffect(() => {
     return startVisiblePolling(() => Promise.allSettled([
-      refreshRemoteRecords("/api/seguimiento", { force: true }),
+      refreshRemoteRecords("/api/seguimiento", { force: true, incremental: true }),
       refreshRemoteRecords("/api/asistencias", { force: true, requestUrl: "/api/asistencias?live=1" }),
-      refreshRemoteRecords("/api/modulaciones"),
-      refreshRemoteRecords("/api/checkins"),
+      refreshRemoteRecords("/api/modulaciones", { force: true }),
+      refreshRemoteRecords("/api/checkins", { force: true }),
       loadComplaints(),
     ]), DATA_REFRESH_MS);
   }, []);
 
-  async function loadComplaints() {
-    const response = await fetch("/api/complaints", { cache: "no-store" });
-    if (!response.ok) return;
-    const body = await response.json().catch(() => ({}));
-    const records = Array.isArray(body.records) ? body.records as ComplaintRecord[] : [];
-    setComplaints(records.filter((complaint) => !isClosedComplaint(complaint.status)));
-  }
 
   useEffect(() => { setComplaintsDismissed(false); }, [complaints.length]);
 
@@ -612,9 +620,9 @@ export default function SeguimientoPage() {
           vehicles={filteredVehicles}
           operationalDate=""
           now={now}
-          onSelectVehicle={seleccionarVehiculo}
-          onUpdateVehicle={actualizarVehiculo}
-          onUpdateVisited={actualizarVisitados}
+          onSelectVehicle={selectVehicle}
+          onUpdateVehicle={updateVehicle}
+          onUpdateVisited={updateVisited}
         />
 
         {selectedVehicle ? (

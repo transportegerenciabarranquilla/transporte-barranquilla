@@ -8,7 +8,8 @@ import { BarChart3 } from "lucide-react";
 import { type ComplaintRecord } from "../lib/complaints";
 import { CONTRACTORS, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../lib/contractors";
 
-import AddComplaintModal from "./AddComplaintModal";
+import dynamic from "next/dynamic";
+const AddComplaintModal = dynamic(() => import("./AddComplaintModal"));
 
 type Access = "checking" | "allowed" | "denied";
 

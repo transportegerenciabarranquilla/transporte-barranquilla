@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, CheckCircle2, ClipboardCheck, LoaderCircle, Search, UserRound } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ClipboardCheck, Download, LoaderCircle, Search, UserRound } from "lucide-react";
 import { PEOPLE_ROUTE_QUESTIONS } from "../../lib/peopleRouteQuestions";
 import type { EvaluationAnswer, EvaluationPerson, EvaluationResult } from "../../lib/peopleRouteEvaluation";
+import dynamic from "next/dynamic";
+const RouteEvaluationCharts = dynamic(() => import("./RouteEvaluationCharts"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando gráficas...</p> });
+const RouteEvaluationHistory = dynamic(() => import("./RouteEvaluationHistory"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando registros...</p> });
 
 const choices: Array<{ value: EvaluationAnswer; label: string; active: string }> = [
   { value: "si", label: "Sí", active: "border-emerald-600 bg-emerald-50 text-emerald-800" },
@@ -14,12 +17,17 @@ const choices: Array<{ value: EvaluationAnswer; label: string; active: string }>
 
 export default function RouteEvaluationPage() {
   const [access, setAccess] = useState<"checking" | "allowed" | "denied" | "error">("checking");
+  const [view, setView] = useState<"evaluate" | "charts" | "history">("evaluate");
+  const [editingHistory, setEditingHistory] = useState(false);
   const [cc, setCc] = useState("");
   const [people, setPeople] = useState<EvaluationPerson[]>([]);
   const [person, setPerson] = useState<EvaluationPerson | null>(null);
   const [answers, setAnswers] = useState<Record<string, EvaluationAnswer>>({});
   const [busy, setBusy] = useState<"lookup" | "save" | null>(null);
   const busyRef = useRef(false);
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
+  const [exportError, setExportError] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const submissionId = useRef("");
@@ -68,6 +76,25 @@ export default function RouteEvaluationPage() {
 
   function reset() { setCc(""); setPerson(null); setPeople([]); setAnswers({}); setResult(null); setError(""); submissionId.current = ""; }
 
+  async function exportExcel() {
+    if (exportingRef.current || busyRef.current) return;
+    exportingRef.current = true; setExporting(true); setExportError("");
+    try {
+      const response = await fetch("/api/people/evaluaciones-ruta?export=excel", { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "No se pudo exportar el Excel.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = "evaluaciones-en-ruta.xlsx";
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) {
+      setExportError(caught instanceof Error ? caught.message : "No se pudo exportar el Excel.");
+    } finally { exportingRef.current = false; setExporting(false); }
+  }
+
   const questionnaire = person?.role ? PEOPLE_ROUTE_QUESTIONS[person.role] : null;
   const answered = questionnaire?.questions.filter(question => answers[question.id]).length || 0;
   const total = questionnaire?.questions.length || 0;
@@ -82,7 +109,21 @@ export default function RouteEvaluationPage() {
       <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold"><ArrowLeft size={18} />Volver a People</Link>
       <span className="inline-flex items-center gap-2 font-bold"><ClipboardCheck size={20} />Evaluación en ruta</span>
     </div></header>
-    <div className="mx-auto max-w-5xl px-4 pt-6 sm:px-6">
+    <div className={`mx-auto px-4 pt-6 sm:px-6 ${view === "charts" ? "max-w-7xl" : "max-w-5xl"}`}>
+      <nav aria-label="Secciones de evaluación" className="mb-5 flex w-fit max-w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        {([{ id: "evaluate", label: "Evaluar" }, { id: "charts", label: "Gráficas" }, { id: "history", label: "Registros" }] as const).map(tab => <button key={tab.id} type="button" aria-current={view === tab.id ? "page" : undefined} disabled={busy !== null || editingHistory} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2.5 text-sm font-bold transition-colors disabled:opacity-50 ${view === tab.id ? "bg-[#10213b] text-white" : "text-slate-500 hover:bg-slate-50"}`}>{tab.label}</button>)}
+      </nav>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Descarga todas las evaluaciones guardadas.</p>
+        <button type="button" onClick={() => void exportExcel()} disabled={exporting || busy !== null} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">
+          {exporting ? <LoaderCircle size={18} className="animate-spin" /> : <Download size={18} />}
+          {exporting ? "Generando Excel..." : "Exportar Excel"}
+        </button>
+      </div>
+      {exportError && <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{exportError}</p>}
+      {view === "charts" && <RouteEvaluationCharts />}
+      {view === "history" && <RouteEvaluationHistory onEditingChange={setEditingHistory} />}
+      <div hidden={view !== "evaluate"}>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <section className="border-b border-slate-200 p-5 sm:p-7">
         <p className="text-xs font-bold uppercase tracking-widest text-violet-700">People · Verificación operativa</p>
@@ -112,6 +153,7 @@ export default function RouteEvaluationPage() {
         </fieldset>)}
         {!result && <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-50/70 p-5 sm:px-7"><p className="text-sm text-slate-500">{answered === total ? "Todas las preguntas están respondidas. Puedes guardar la evaluación." : `Faltan ${total - answered} preguntas por responder.`}</p><button type="submit" disabled={busy !== null || answered !== total} className="inline-flex items-center gap-2 rounded-lg bg-violet-700 px-6 py-3 font-bold text-white disabled:opacity-50">{busy === "save" && <LoaderCircle size={18} className="animate-spin" />}{busy === "save" ? "Guardando…" : "Guardar evaluación"}</button></div>}
       </form>}
+      </div>
       </div>
     </div>
   </main>;

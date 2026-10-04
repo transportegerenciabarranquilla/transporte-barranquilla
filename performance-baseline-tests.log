@@ -1,0 +1,886 @@
+(node:22896) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/modo-tv/refusal-com/ring.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ mantiene visible el color del anillo aunque el porcentaje sea muy bajo (1.6155ms)
+(node:32216) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/modo-tv/refusal-com/ring.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\admin\modo-tv\refusal-com\ring' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\admin\modo-tv\refusal-com\ring.test.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/modo-tv/refusal-com/ring'
+}
+
+Node.js v24.18.0
+✖ app\admin\modo-tv\refusal-com\ring.test.ts (237.5738ms)
+(node:16396) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/rango/foxtrot.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ uses the dispatch crew even when attendance was created on another day (3.806ms)
+✔ does not borrow a vehicle RR from another date or contractor (0.4525ms)
+✔ conflicting vehicle assignments remain unresolved (0.2814ms)
+✔ distance bands use actual distance and keep 50 meters inside range (1.4061ms)
+(node:29428) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/rango/foxtrot.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ agrupa por RR sin separar sus DT (2.4576ms)
+✔ resume visitas y porcentaje de entrega por tripulación (0.9655ms)
+✔ cruza DT normalizados, prioriza fecha y conserva los casos sin asignación (2.1488ms)
+✖ intervalos sin duplicar los límites ni perder distancias decimales (3.1214ms)
+✔ distancias y estados desconocidos no se convierten en cero ni en fuera de rango (0.5934ms)
+✔ mapea columnas y conserva código, DT, RR y fecha (2.7424ms)
+✔ Foxtrot clasifica con límite inclusivo de 50 metros y reconoce sus encabezados (0.8479ms)
+✔ rechaza consultas y escrituras sin sesión o sin rol People/admin (361.661ms)
+✔ devuelve todos los registros de una cédula para elegir contratista (41.5807ms)
+✔ no guarda respuestas incompletas ni una identidad alterada (60.9712ms)
+✔ guarda datos confirmados del padrón y las preguntas con sus respuestas (30.137ms)
+✔ confirma un reintento ya guardado y comunica la tabla pendiente sin simular éxito (66.8282ms)
+✔ app\api\seguimiento\route.test.ts (207.727ms)
+(node:23908) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/components/portalModules.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Route Tracking tiene módulo propio solo para administradores (7.2849ms)
+✔ HL Logisticos recibe los módulos de Surti y Refusal con identidad independiente (2.06ms)
+✔ Logisticos Arenosa recibe los mismos módulos que Galapa y su seguimiento propio (0.5606ms)
+✔ Punto Corona Arenosa tiene SIC Gráficas sin recibir los módulos exclusivos de Logísticos (0.4426ms)
+✔ cumplimiento de entregas no está disponible para HL, Logísticos ni Surti (0.5893ms)
+✔ correos no asignados siguen sin acceso a una contratista (0.2388ms)
+✔ Logísticos administra quejas solo de su sede y Corona solo las propias (0.2898ms)
+✔ plantillas de Arenosa resuelven nombres de contratistas en su sede (0.2851ms)
+✖ endpoints no adaptados rechazan admin Arenosa por defecto (288.3777ms)
+✖ seguimiento admin consulta únicamente las dos contratistas del CD (220.7272ms)
+✔ auditoría conserva el límite regional incluso al pedir Galapa por URL (67.1562ms)
+(node:2664) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ administrador Arenosa tiene las dos contratistas, sin acceso global ni de seguridad (3.2892ms)
+✔ un parámetro de URL no amplía los permisos de la sesión (2.2293ms)
+✔ administrador global mantiene su alcance y contratistas no ganan privilegios (0.2583ms)
+✖ mismo menú admin para Arenosa y NPS retirado de People (1.7275ms)
+✔ graficas de Arenosa conservan sus nombres y no agregan Galapa (3.1142ms)
+✔ administrador global no mezcla ambas sedes (2.0214ms)
+(node:12056) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/authResponse.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ temporary authentication failures are not treated as invalid credentials (2.3487ms)
+✔ parallel refreshes share one request, without reusing completed credentials (0.645ms)
+✔ different sessions stay separate and failed refreshes can retry (0.7999ms)
+(node:32388) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/barcodePeople.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ la cuenta de ingreso solo recibe descanso y no permisos People o Admin (2.9558ms)
+✔ Excel conserva ceros, normaliza separadores y elimina duplicados (1.2325ms)
+✔ rechaza valores ambiguos o incompletos y detecta columnas faltantes (0.959ms)
+(node:31624) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/beesRangeCharts.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\rangeHours' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\beesRangeCharts.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rangeHours'
+}
+
+Node.js v24.18.0
+✖ app\lib\beesRangeCharts.test.ts (295.1654ms)
+(node:25884) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/clientRangeComparison.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ detecta automáticamente hoja y encabezados después de un título (4.2742ms)
+✔ salta hojas vacías y da instrucciones claras para códigos ausentes o ambiguos (3.9353ms)
+✔ sugiere columnas, preserva ceros, agrupa duplicados y cuenta códigos vacíos (4.4707ms)
+✔ el mismo código en varias contratistas conserva indicadores independientes (0.519ms)
+✔ contratista opcional restringe coincidencias y admite normalización central (0.5954ms)
+✔ rechaza mapeos incompletos o repetidos y listas sin códigos (0.4018ms)
+(node:20228) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/clientRangeImport.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ calcula distancia geográfica y valida coordenadas sin convertir vacíos en cero (1.631ms)
+✔ reconoce columnas, rechaza fechas imposibles y coordenadas incompletas (3.9284ms)
+✔ Foxtrot incluye 50 m, calcula exceso y no duplica cargas repetidas (20.4094ms)
+(node:28588) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/clientRangeSummary.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ prioriza cierre, evita visitas duplicadas y conserva las visitas de distintos días (24.924ms)
+✔ separa contratistas y filtra fecha operativa y DT en ambas fuentes (0.8812ms)
+✔ cuenta atenciones y refusal del cierre con fechas inclusivas y sin duplicados (1.1806ms)
+✔ una modulación sin visita no crea una atención ni un rechazo (0.4072ms)
+✔ historial conserva causal y comentario y separa contratistas y DT (0.4785ms)
+(node:7852) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/complaintChartExcel.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ conserva horas de Excel para distinguir un cierre que excede 48 horas (7.4625ms)
+✔ genera datos automáticamente desde la primera hoja de quejas y omite portadas (7.1921ms)
+✔ importa fechas Excel con formato de año corto o personalizado, conservando identificadores (49.5669ms)
+✔ respeta el calendario 1904 y conserva fechas de texto para validación (0.4948ms)
+(node:1816) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/complaintChartRr.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ cruza el DT del archivo con RR, contratista y fecha, conservando quejas sin cruce (8.6379ms)
+✔ no asigna RR arbitrario si un DT tiene dos responsables para la misma fecha (0.5588ms)
+✔ conserva clientes y quejas de todos los DT del RR sin mostrar la cédula (0.7653ms)
+(node:26480) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/complaintCharts.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ cierre en 48 horas incluye el límite, pondera cantidades y excluye datos inválidos (6.2963ms)
+✔ importa fecha de cierre y declara estimación si no hay horas (2.848ms)
+✔ el resumen reconcilia cerradas, abiertas y estados desconocidos por cantidad (0.6585ms)
+✔ acumula en orden de fecha, suma cantidades y excluye fechas inválidas del porcentaje (20.3139ms)
+✔ los últimos tres días incluyen hoy, ceros y cambio de mes, excluyendo fechas futuras (2.2169ms)
+✔ la fecha actual usa Colombia incluso cerca de medianoche UTC (15.5429ms)
+✔ reconoce encabezados del Excel y cuenta una queja por fila (0.8821ms)
+✔ reconoce el reporte de novedades y usa ingreso, sin contar ticket ni código como cantidad (1.3891ms)
+✔ acepta fechas mixtas inequívocas y permite elegir el orden de las ambiguas (1.8533ms)
+✔ suma cantidades enteras sin promediar y omite filas vacías (1.3094ms)
+✔ valida fechas y exige columnas útiles (0.7879ms)
+(node:23888) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/complaints.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ normaliza DT con prefijos y separadores (1.8435ms)
+✔ detecta IDs duplicados aunque cambien separadores o mayusculas (0.4945ms)
+✔ el cierre vence exactamente 48 horas despues de cargar (2.9524ms)
+✔ normaliza fecha de creacion de la plantilla (0.7513ms)
+✔ IDs equivalentes tienen una sola clave y los IDs distintos se conservan (0.401ms)
+(node:2164) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/coordinateExport.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\coordinateRecords' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\coordinateExport.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/coordinateRecords'
+}
+
+Node.js v24.18.0
+✖ app\lib\coordinateExport.test.ts (288.3931ms)
+✔ app\lib\coordinateRecords.test.ts (223.3456ms)
+(node:15200) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/deliveryRangeImport.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ reads XLSX and XLS deliveries and keeps separate drivers for the same RR (74.3253ms)
+✔ uses manually selected columns and preserves Excel row numbers around blank rows (1.8733ms)
+✔ rejects missing or duplicate mappings and incomplete identities (2.7055ms)
+✔ does not interpret percentages, distances or unknown statuses as range flags (1.1455ms)
+✖ la sesión verificada de honor requiere permiso explícito en el servidor (174.7089ms)
+✔ el endpoint rechaza People y Admin y consulta solo una persona para honor (72.0476ms)
+✔ ZXing lee exactamente los códigos CODE128 generados, incluidos ceros iniciales (10.1153ms)
+(node:13964) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/modulacionComparison.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\modulacionComparison' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\modulacionComparison.test.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/modulacionComparison'
+}
+
+Node.js v24.18.0
+✖ app\lib\modulacionComparison.test.ts (241.1833ms)
+(node:30612) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/modulacionPending.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ el detalle descuenta las cajas reubicadas cuando no hay check-in (1.7382ms)
+✔ el check-in sigue siendo el valor final cuando está registrado (0.3907ms)
+(node:32636) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/peopleRouteEvaluation.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\rrRole' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\peopleRouteEvaluation.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rrRole'
+}
+
+Node.js v24.18.0
+✖ app\lib\peopleRouteEvaluation.test.ts (2271.9462ms)
+(node:7872) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rangeHours.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\contractors' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\rangeReasonSummary.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/contractors'
+}
+
+Node.js v24.18.0
+✖ app\lib\rangeHours.test.ts (256.733ms)
+✔ PUT guarda la primera hora del servidor y la conserva al cerrar; rechaza sin sesión (373.8254ms)
+(node:25356) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rangeRecordedTime.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\contractors' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\rangeRecordedTime.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/contractors'
+}
+
+Node.js v24.18.0
+✖ app\lib\rangeRecordedTime.test.ts (300.4328ms)
+(node:1612) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rangeVehicleCount.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\contractors' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\rangeVehicleCount.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/contractors'
+}
+
+Node.js v24.18.0
+✖ app\lib\rangeVehicleCount.test.ts (300.4605ms)
+(node:22140) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/rangeVisitReconciliation.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\puntoCoronaRoutesStorage' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\punto-corona\routeReportService.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/puntoCoronaRoutesStorage'
+}
+
+Node.js v24.18.0
+✖ app\lib\rangeVisitReconciliation.test.ts (320.7359ms)
+✔ pagina check-ins sin perder el filtro (199.3646ms)
+✖ cierres de Logisticos y Surti, check-in cero y sin check-in (29.3388ms)
+✖ administracion conserva el DT mas reciente sin sumar duplicados (54.7767ms)
+✖ modulaciones sin fecha siguen perteneciendo al dia si el DT existe en ese rango (24.1418ms)
+✖ el check-in solo aplica cuando corresponde al mismo dia y contratista (27.7427ms)
+✖ la pernocta lleva al nuevo dia las modulaciones con fecha anterior del mismo DT (20.488ms)
+✖ la pernocta no conserva una copia del DT en la fecha anterior (43.6385ms)
+✔ la pernocta traslada las cajas check-in a la nueva fecha del despacho (16.5499ms)
+✖ los vehiculos con fechaDt tambien cuentan dentro del rango de hoy (19.0832ms)
+✖ cierre completo aunque la base limite cada respuesta a menos filas (39.8314ms)
+✔ latest file replaces its previous version in paginated history without duplicate trips (423.2799ms)
+(node:10188) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceHistory.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceHistory' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceHistory.test.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceHistory'
+}
+
+Node.js v24.18.0
+✖ app\lib\routePerformanceHistory.test.ts (275.7133ms)
+(node:17160) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceImport.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceMetrics' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceImport.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceMetrics'
+}
+
+Node.js v24.18.0
+✖ app\lib\routePerformanceImport.test.ts (386.1137ms)
+(node:4712) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceMetrics.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceMetrics' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceImport.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceMetrics'
+}
+
+Node.js v24.18.0
+✖ app\lib\routePerformanceMetrics.test.ts (293.0172ms)
+(node:20812) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceOffenders.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceImport' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceOffenders.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceImport'
+}
+
+Node.js v24.18.0
+✖ app\lib\routePerformanceOffenders.test.ts (2278.4987ms)
+(node:24148) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceTrend.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceMetrics' imported from C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\routePerformanceTrend.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:865:10)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:701:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)
+    at #resolve (node:internal/modules/esm/loader:683:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/routePerformanceMetrics'
+}
+
+Node.js v24.18.0
+✖ app\lib\routePerformanceTrend.test.ts (269.6142ms)
+(node:15020) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/seguimientoUpsert.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ deduplica rows que comparten el mismo record_id dentro del mismo lote (2.4851ms)
+(node:27312) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/personas/rti/rtiCalculation.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ divide la suma de retornos por la suma de salidas (7.5968ms)
+✔ la diferencia convierte envases a cajas de 30 (0.455ms)
+✔ convierte cajas de producto lleno de RACOCIMI2 en envases retornados (0.3543ms)
+✔ no multiplica una fila que ya corresponde al material de envase (0.4085ms)
+✔ agrupa implícitamente varias filas de la misma llave sin cambiar la razón de totales (0.2391ms)
+✔ conserva una llave solo salida (0.2157ms)
+✔ conserva una llave solo retorno sin dividir por cero (0.2219ms)
+✔ DT repetidos en fechas distintas aportan ambas cantidades (0.1983ms)
+✔ responsables distintos conservan sus aportes al total (0.2812ms)
+✔ un subconjunto que representa julio de 2026 se resume de forma independiente (0.3458ms)
+✔ una exclusión DAX se representa filtrando exactamente antes de resumir (0.2594ms)
+✔ AVERAGEX por DT está disponible como operación distinta (0.3476ms)
+✔ demuestra que división de totales y AVERAGEX por DT no son equivalentes (0.1847ms)
+✔ mapea material de producto hacia envase (0.4438ms)
+✔ corrige Flint 330R para cruzar 22613 con el envase 3500213 (0.2331ms)
+✔ permite que varios materiales apunten al mismo envase (0.2314ms)
+✔ no selecciona arbitrariamente un material con envases conflictivos (1.3775ms)
+✔ reporta materiales sin envase (0.3133ms)
+✔ una llave solo salida no pertenece al escenario matchingKeysOnly (0.5124ms)
+✔ una llave solo retorno no pertenece al escenario matchingKeysOnly (0.2708ms)
+✔ el universo SKU conserva un envase catalogado aunque exista en un solo lado (0.1765ms)
+✔ el universo SKU excluye materiales que no son envases del catÃ¡logo (0.1432ms)
+✔ el total por responsables coincide con summary (0.3466ms)
+✔ el total por referencias coincide con summary (0.1676ms)
+✔ el total por transportistas coincide con summary (0.1678ms)
+✔ el RTI general coincide con la agregación visible (0.1249ms)
+✔ los filtros se aplican antes de recalcular las coincidencias (0.1639ms)
+(node:17416) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/personas/zki/adherence.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ cruza el VH real por DT aunque seguimiento tenga otra fecha (4.6861ms)
+✔ prefiere el registro del DT correspondiente a la fecha auditada (2.5869ms)
+✔ unifica el cambio de VH como VH salido con otro conductor (0.7174ms)
+✔ informa cuando el VH planeado salió con otro conductor (0.5339ms)
+✔ marca cumplimiento si seguimiento confirma conductor y VH aunque falte la fila de asistencia (0.6105ms)
+✔ calcula adherencia separada de conductor, RR, auxiliar y tripulación completa (0.52ms)
+✔ cumple si el conductor planeado aparece como RR en el VH asignado (0.4811ms)
+✔ cumple la tripulación aunque conductor y RR intercambien roles (0.4382ms)
+✔ cruza cada persona contra el VH planeado aunque el conductor tenga asistencia en otro DT (1.061ms)
+✔ cruza por cédula aunque el nombre del conductor esté escrito diferente (0.5956ms)
+(node:17800) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/personas/zki/zkiEngine.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ no asigna como conductor a un responsable de otra ruta y busca reemplazo (7.2083ms)
+✔ controla responsable-conductor-auxiliar por cédula aunque el nombre cambie (1.7592ms)
+✔ no repite auxiliares con la misma cédula y variantes de nombre (0.7616ms)
+✔ un conductor con dos placas solo se usa una vez y se elige otro conductor libre (1.0104ms)
+✔ el control final reconoce la misma cédula con distinto nombre y conserva la ruta pendiente (0.9812ms)
+✔ sin cédula detecta el conductor con nombres reordenados y no elimina rutas pendientes (2.0618ms)
+✔ recupera el ZKI del auxiliar aunque no haya RR con historial en el territorio (1.408ms)
+✔ asigna el auxiliar con historial al total cero antes de aumentar una ruta positiva (1.0317ms)
+✔ cruza códigos numéricos de Excel y reconoce RR y líder de ruta (2.1245ms)
+✔ prioriza cubrir todas las rutas con conocimiento aunque varias bajen del umbral (0.9655ms)
+✔ interpreta las columnas operativas del Excel ZKI (0.518ms)
+✔ mantiene el conductor y cambia a un VH que sí soporte el peso (23.1161ms)
+✔ conserva el VH fijo del conductor aunque el viaje traiga otra placa (0.6293ms)
+✔ cambia el VH y conserva el conductor cuando su vehículo histórico está indisponible (0.5056ms)
+✔ bloquea si el VH habitual está indisponible y no existe reemplazo con capacidad (0.3657ms)
+✔ usa placas alternativas distintas cuando el VH habitual no está habilitado (0.6163ms)
+✔ completa todas las rutas con parejas conductor y carro diferentes (0.906ms)
+✔ si el VH fijo no esta disponible toma otro VH disponible con su conductor (0.4991ms)
+✔ si faltan carros prioriza la ruta viable y deja la de ZKI cero sin placa (0.6939ms)
+✔ si faltan parejas prioriza el mayor ZKI del RR aunque su ruta pese menos (0.6114ms)
+✔ no interpreta el catálogo territorio-cliente como viajes (0.9695ms)
+✔ solo conserva primeros viajes y excluye viaje 11 y segundos viajes (0.5278ms)
+✔ reconoce encabezados alternativos y solo calcula el primer viaje (0.2811ms)
+✔ interpreta Codigo y Nombre de la tabla histórica ZKI (0.1781ms)
+✔ calcula frecuencia y profundidad desde el histórico compactado (0.788ms)
+✔ omite cargos distintos de Responsable en el histórico ZKI (0.1565ms)
+✔ no usa el vehículo histórico de seguimiento para completar la combinación (0.3523ms)
+✔ un ZKI de 11 por ciento nunca es viable (0.4313ms)
+✔ normaliza frecuencia al tope configurado y nunca supera cien (1.6387ms)
+✔ conserva el nombre del RR proveniente de ZKI aunque seguimiento lo ordene distinto (0.9644ms)
+✔ frecuencia usa clientes únicos atendidos y no todos los del territorio (2.1554ms)
+✔ profundidad se calcula sobre clientes únicos atendidos (1.3136ms)
+✔ reproduce el ZKI 90,05 de la matriz SKI para territorio 2 (8.4444ms)
+✔ no incorpora responsables provenientes únicamente de seguimiento (0.4666ms)
+✔ asigna cada RR a un solo territorio maximizando el resultado global (0.2799ms)
+✔ mueve la pareja RR-conductor al territorio de mejor ZKI y redistribuye la desplazada (1.1999ms)
+✔ cuando cambia conductor también cambia al RR asociado a esa pareja (0.3182ms)
+✔ con parejas escasas cubre globalmente territorios con ZKI positivo antes que ZKI cero (0.3693ms)
+✔ conserva un RR único cuando se agotan las parejas conductor vehículo (0.5613ms)
+✔ usa una pareja conductor-placa libre para completar una ruta aunque no sea la habitual del RR (0.5425ms)
+✔ considera viable un ZKI combinado de 80 cuando el umbral es 80 (0.3679ms)
+✔ el respaldo ZKI cero no sobrescribe al mismo RR con historial positivo (0.2598ms)
+✔ no asigna el mismo auxiliar a dos viajes (0.8453ms)
+✔ usa el siguiente auxiliar disponible antes de dejar el viaje sin auxiliar (0.4961ms)
+✔ distribuye auxiliares globalmente para evitar ZKI cero cuando existe una alternativa (0.4211ms)
+✔ balancea RR bajo con auxiliar alto y RR alto con auxiliar bajo (0.3674ms)
+✔ no concentra un auxiliar 100 en un RR 100 cuando uno menor completa el objetivo (0.3108ms)
+✔ la selección de RR no descarta rutas por compartir conductor histórico (0.2306ms)
+✔ usa como reserva un auxiliar ZKI aunque no haya visitado el territorio (0.4834ms)
+✔ RR libre conserva mejor ZKI aunque su conductor habitual no pueda cargar el viaje (0.3586ms)
+(node:11644) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/seguimiento/secondTripRouting.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ una ruta marcada con recargue aparece en segundos viajes sin cambiar su viaje (1.7417ms)
+✔ los viajes 11 existentes siguen apareciendo y las marcas pendientes no cuentan (0.3723ms)
+ℹ tests 204
+ℹ suites 0
+ℹ pass 177
+ℹ fail 27
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3253.1246
+
+✖ failing tests:
+
+test at app\admin\modo-tv\refusal-com\ring.test.ts:1:1
+✖ app\admin\modo-tv\refusal-com\ring.test.ts (237.5738ms)
+  'test failed'
+
+test at app\admin\rango\foxtrot.test.ts:50:1
+✖ intervalos sin duplicar los límites ni perder distancias decimales (3.1214ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   1
+  -   0
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/admin/rango/foxtrot.test.ts:54:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 1 ],
+    expected: [ 0 ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at app\lib\adminScope.integration.test.mjs:22:1
+✖ endpoints no adaptados rechazan admin Arenosa por defecto (288.3777ms)
+  TypeError: (0 , headers_1.headers) is not a function
+      at Object.getAuthenticatedSession (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.integration.test.mjs:12:3), <anonymous>:55:189)
+      at async TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.integration.test.mjs:32:21)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at app\lib\adminScope.integration.test.mjs:38:1
+✖ seguimiento admin consulta únicamente las dos contratistas del CD (220.7272ms)
+  Error: Cannot find module 'server-only'
+  Require stack:
+  - C:\Users\saul8\AppData\Local\Temp\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\app\lib\adminScope.integration.test.mjs
+      at Module._resolveFilename (node:internal/modules/cjs/loader:1517:15)
+      at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)
+      at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1095:10)
+      at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1122:12)
+      at Module._load (node:internal/modules/cjs/loader:1294:5)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+      at Module.require (node:internal/modules/cjs/loader:1617:12)
+      at require (node:internal/modules/helpers:153:16)
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.integration.test.mjs:15:12
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.integration.test.mjs:12:3), <anonymous>:13:1) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [ 'C:\\Users\\saul8\\AppData\\Local\\Temp\\tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e\\app\\lib\\adminScope.integration.test.mjs' ]
+  }
+
+test at app\lib\adminScope.test.ts:33:1
+✖ mismo menú admin para Arenosa y NPS retirado de People (1.7275ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  7 !== 6
+  
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/adminScope.test.ts:37:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 7,
+    expected: 6,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at app\lib\beesRangeCharts.test.ts:1:1
+✖ app\lib\beesRangeCharts.test.ts (295.1654ms)
+  'test failed'
+
+test at app\lib\coordinateExport.test.ts:1:1
+✖ app\lib\coordinateExport.test.ts (288.3931ms)
+  'test failed'
+
+test at app\lib\effectiveRestAccess.test.mjs:22:1
+✖ la sesión verificada de honor requiere permiso explícito en el servidor (174.7089ms)
+  TypeError: (0 , headers_1.headers) is not a function
+      at Object.getAuthenticatedSession (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/effectiveRestAccess.test.mjs:14:3), <anonymous>:55:189)
+      at async TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/effectiveRestAccess.test.mjs:33:21)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at app\lib\modulacionComparison.test.ts:1:1
+✖ app\lib\modulacionComparison.test.ts (241.1833ms)
+  'test failed'
+
+test at app\lib\peopleRouteEvaluation.test.ts:1:1
+✖ app\lib\peopleRouteEvaluation.test.ts (2271.9462ms)
+  'test failed'
+
+test at app\lib\rangeHours.test.ts:1:1
+✖ app\lib\rangeHours.test.ts (256.733ms)
+  'test failed'
+
+test at app\lib\rangeRecordedTime.test.ts:1:1
+✖ app\lib\rangeRecordedTime.test.ts (300.4328ms)
+  'test failed'
+
+test at app\lib\rangeVehicleCount.test.ts:1:1
+✖ app\lib\rangeVehicleCount.test.ts (300.4605ms)
+  'test failed'
+
+test at app\lib\rangeVisitReconciliation.test.ts:1:1
+✖ app\lib\rangeVisitReconciliation.test.ts (320.7359ms)
+  'test failed'
+
+test at app\lib\refusalConsistency.test.mjs:31:1
+✖ cierres de Logisticos y Surti, check-in cero y sin check-in (29.3388ms)
+  Error: ./batchedRecordUpdates
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:23:32)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:32:37)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at app\lib\refusalConsistency.test.mjs:47:1
+✖ administracion conserva el DT mas reciente sin sumar duplicados (54.7767ms)
+  Error: ../../../lib/adminTvRows
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:10:23)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:49:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:67:1
+✖ modulaciones sin fecha siguen perteneciendo al dia si el DT existe en ese rango (24.1418ms)
+  Error: ./batchedRecordUpdates
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:23:32)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:68:65)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:80:1
+✖ el check-in solo aplica cuando corresponde al mismo dia y contratista (27.7427ms)
+  Error: ./batchedRecordUpdates
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:23:32)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:81:37)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:92:1
+✖ la pernocta lleva al nuevo dia las modulaciones con fecha anterior del mismo DT (20.488ms)
+  Error: ./batchedRecordUpdates
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:23:32)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:93:65)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:102:1
+✖ la pernocta no conserva una copia del DT en la fecha anterior (43.6385ms)
+  Error: ../../lib/seguimientoPersistence
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:12:34)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:103:39)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:125:1
+✖ los vehiculos con fechaDt tambien cuentan dentro del rango de hoy (19.0832ms)
+  Error: ./batchedRecordUpdates
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:23:32)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:126:41)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\refusalConsistency.test.mjs:136:1
+✖ cierre completo aunque la base limite cada respuesta a menos filas (39.8314ms)
+  Error: ../../../lib/adminTvRows
+      at file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:112
+      at eval (eval at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:2), <anonymous>:10:23)
+      at compile (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:8:54)
+      at TestContext.<anonymous> (file:///C:/Users/saul8/AppData/Local/Temp/tb-performance-baseline-77ed8540c38549c69304f1de6d4eee5e/app/lib/refusalConsistency.test.mjs:139:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at app\lib\routePerformanceHistory.test.ts:1:1
+✖ app\lib\routePerformanceHistory.test.ts (275.7133ms)
+  'test failed'
+
+test at app\lib\routePerformanceImport.test.ts:1:1
+✖ app\lib\routePerformanceImport.test.ts (386.1137ms)
+  'test failed'
+
+test at app\lib\routePerformanceMetrics.test.ts:1:1
+✖ app\lib\routePerformanceMetrics.test.ts (293.0172ms)
+  'test failed'
+
+test at app\lib\routePerformanceOffenders.test.ts:1:1
+✖ app\lib\routePerformanceOffenders.test.ts (2278.4987ms)
+  'test failed'
+
+test at app\lib\routePerformanceTrend.test.ts:1:1
+✖ app\lib\routePerformanceTrend.test.ts (269.6142ms)
+  'test failed'
+

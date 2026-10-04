@@ -8,13 +8,13 @@ const require = createRequire(import.meta.url);
 function compile(relative, overrides = {}) {
   const path = new URL(relative, import.meta.url);
   const source = ts.transpileModule(fs.readFileSync(path, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   new Function("require", "module", "exports", source)((name) => {
     if (name in overrides) return overrides[name];
     if (name.startsWith(".")) return compile(new URL(`${name.replace(/\.ts$/, "")}.ts`, path).href, overrides);
     return require(name);
-  }, module, module.exports);
-  return module.exports;
+  }, loadedModule, loadedModule.exports);
+  return loadedModule.exports;
 }
 const site = { email: "adminare@gmail.com", contractor: "Admin Arenosa", isAdmin: true, isSiteAdmin: true, accessToken: "test", userId: "site-user" };
 const responseStub = { NextResponse: { json: (body, init) => ({ body, status: init?.status || 200 }) } };

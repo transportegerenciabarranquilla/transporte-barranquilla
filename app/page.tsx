@@ -25,6 +25,7 @@ export default function Home() {
         const response = await fetch("/api/session/session", { cache: "no-store", signal: controller.signal });
         if (response.status === 401) {
           if (disposed) return;
+          clearRemoteCache();
           setSession(null);
           setIsLoggedIn(false);
           cacheContractor("");

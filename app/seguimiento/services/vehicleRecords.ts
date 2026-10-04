@@ -4,12 +4,14 @@ import { getCheckinByDt, readCheckinCajasRegistros } from "../../lib/checkinStor
 import {
   getLocalDateKey,
   getModulacionesByDt,
+  normalizeDt as normalizeModulationDt,
   readModulacionRegistros,
   summarizeModulaciones,
 } from "../../lib/modulacionStorage";
 import { readSeguimientoVehiculos, saveSeguimientoVehiculos } from "../../lib/seguimientoStorage";
 import type { Vehiculo } from "../types";
 import { getVehicleRecordKey, hasTimeValue, normalizeCajasValue, normalizeHlValue } from "../utils";
+import { shareRecordsByKey } from "../../lib/structuralSharing";
 
 export function loadSeguimientoVehiculos() {
   if (typeof window === "undefined") return [];
@@ -112,10 +114,13 @@ function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehic
 
 export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones: ReturnType<typeof readModulacionRegistros>) {
   const checkins = readCheckinCajasRegistros();
+  const modulationsByDt = groupByDt(modulaciones);
+  const checkinsByDt = groupByDt(checkins);
 
-  return vehiculos.map((vehiculo) => {
-    const registrosDt = getModulacionesByDt(modulaciones, vehiculo.transporte);
-    const checkin = getCheckinByDt(checkins, vehiculo.transporte);
+  return shareRecordsByKey(vehiculos, vehiculos.map((vehiculo) => {
+    const key = normalizeModulationDt(vehiculo.transporte);
+    const registrosDt = getModulacionesByDt(modulationsByDt.get(key) || [], vehiculo.transporte);
+    const checkin = getCheckinByDt(checkinsByDt.get(key) || [], vehiculo.transporte);
     const resumen = summarizeModulaciones(registrosDt, vehiculo.cajas, checkin?.totalCajas);
 
     return {
@@ -130,7 +135,18 @@ export function enrichVehiclesWithModulacion(vehiculos: Vehiculo[], modulaciones
       moduladores: resumen.moduladores,
       causalesModulacion: resumen.causales,
     };
-  });
+  }), vehicle => vehicle.recordId || getVehicleRecordKey(vehicle));
+}
+
+function groupByDt<T extends { dt: string }>(records: T[]) {
+  const grouped = new Map<string, T[]>();
+  for (const record of records) {
+    const key = normalizeModulationDt(record.dt);
+    const bucket = grouped.get(key);
+    if (bucket) bucket.push(record);
+    else grouped.set(key, [record]);
+  }
+  return grouped;
 }
 
 function prepareVehicles(records: Vehiculo[]) {

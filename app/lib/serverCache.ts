@@ -18,11 +18,14 @@ export function readServerCache<T>(key: string, ttlMs: number, load: () => Promi
 
   const promise = load()
     .then((value) => {
-      serverCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      // An invalidated request may finish after a write or a newer request.
+      if (serverCache.get(key)?.promise === promise) {
+        serverCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      }
       return value;
     })
     .catch((error) => {
-      serverCache.delete(key);
+      if (serverCache.get(key)?.promise === promise) serverCache.delete(key);
       throw error;
     });
 

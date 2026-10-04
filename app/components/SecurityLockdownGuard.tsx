@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { LockKeyhole, ShieldAlert, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
-import SecurityIpControls from "./SecurityIpControls";
+import dynamic from "next/dynamic";
+import { startVisiblePolling } from "../lib/visiblePolling";
+import { apiQuery } from "../lib/apiQuery";
+import { shareJsonValue } from "../lib/structuralSharing";
+const SecurityIpControls = dynamic(() => import("./SecurityIpControls"));
 
 type Status = {
   state: { active: boolean; reason: string; activatedAt: string };
@@ -20,26 +24,17 @@ export function SecurityLockdownGuard() {
   const [expanded, setExpanded] = useState(false);
 
   const refresh = useCallback(async () => {
-    const response = await fetch("/api/security/lockdown", { cache: "no-store" });
-    if (!response.ok) return;
-    const next = await response.json() as Status;
-    setStatus(next);
+    const next = await apiQuery<Status>("/api/security/lockdown");
+    setStatus(previous => previous ? shareJsonValue(previous, next) : next);
     if ((next.state.active || next.ipBlocked) && !next.canControl) {
       await fetch("/api/session/logout", { method: "POST" }).catch(() => undefined);
     }
   }, []);
 
   useEffect(() => {
-    const poll = () => {
-      void refresh().catch(() => {
-        // Keep the last confirmed security state during a temporary network failure.
-        // The next poll retries; server-side access checks remain authoritative.
-        console.warn("No se pudo consultar la seguridad global. Se reintentará automáticamente.");
-      });
-    };
-    poll();
-    const timer = window.setInterval(poll, 10_000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(() => refresh().catch(pollError => {
+      console.warn("No se pudo consultar la seguridad global.", pollError instanceof Error ? pollError.message : "Error de conexión");
+    }), 10_000);
   }, [refresh]);
 
   async function changeLockdown(active: boolean) {

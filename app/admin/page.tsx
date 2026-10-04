@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BarChart3, Boxes, CalendarDays, FileSpreadsheet, FileText, History, MapPinCheck, PackageCheck, Search, ShieldAlert, Truck, Users, WalletCards, X, Maximize } from "lucide-react";
 import type { Vehiculo } from "../seguimiento/types";
@@ -9,9 +9,17 @@ import { isManualResponsibleEditEnabled, MANUAL_RESPONSABLE_EDIT_ENABLED_KEY, se
 import type { CheckinCajasRegistro } from "../lib/checkinStorage";
 import { calculateRefusalTotals, normalizeDt, type ModulacionRegistro } from "../lib/modulacionStorage";
 import { useStorageSnapshot } from "../lib/storageEvents";
-import FueraDeRangoCharts from "./FueraDeRangoCharts";
+import dynamic from "next/dynamic";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiQuery } from "../lib/apiQuery";
+import { SkinetAssistant } from "../components/SkinetAssistant";
+import { answerSkinet, skinetOperationReport } from "../lib/skinetAnswers";
+import { understandSkinet, isSkinetIdentityQuestion, SKINET_IDENTITY_REPLY, type SkinetContext } from "../lib/skinetUnderstanding";
+import { bogotaToday } from "../lib/adminDateFilter";
+const FueraDeRangoCharts = dynamic(() => import("./FueraDeRangoCharts"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando gráficas...</p> });
 
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
+type AdminResponse = { summaries?: Summary[]; records?: Vehiculo[]; modulationRacocimi2?: ModulationRacocimi2Row[]; modulations?: ModulacionRegistro[]; checkins?: AdminCheckinRecord[] };
 
 type Summary = {
   contractor: string;
@@ -77,21 +85,19 @@ type ModulacionExportPeriod = "today" | "month" | "history";
 
 export default function AdminPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const skinetConversation = useRef<{ context: SkinetContext; at: number } | undefined>(undefined);
   const canEditResponsibleManual = useStorageSnapshot<boolean>(
     [MANUAL_RESPONSABLE_EDIT_ENABLED_KEY],
     isManualResponsibleEditEnabled,
     false,
   );
-  const [summaries, setSummaries] = useState<Summary[]>([]);
-  const [records, setRecords] = useState<Vehiculo[]>([]);
-  const [peopleGroups, setPeopleGroups] = useState<PeopleGroup[]>([]);
-  const [modulationRacocimi2, setModulationRacocimi2] = useState<ModulationRacocimi2Row[]>([]);
-  const [modulationRecords, setModulationRecords] = useState<ModulacionRegistro[]>([]);
-  const [checkinRecords, setCheckinRecords] = useState<AdminCheckinRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<Vehiculo | null>(null);
   const [selectedContractor, setSelectedContractor] = useState("Todas");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [initialDates] = useState(() => ({ from: bogotaToday(), to: bogotaToday() }));
+  const [datesReady, setDatesReady] = useState(false);
+  const [dateFrom, setDateFrom] = useState(initialDates.from);
+  const [dateTo, setDateTo] = useState(initialDates.to);
   const [dtSearch, setDtSearch] = useState("");
   const [activeTab, setActiveTab] = useState<AdminTab>("resumen");
   const [activeIssueFilter, setActiveIssueFilter] = useState<AdminIssueKind | "">("");
@@ -104,8 +110,52 @@ export default function AdminPage() {
   const [exportingSeguimiento, setExportingSeguimiento] = useState("");
   const [exportingRefusal, setExportingRefusal] = useState("");
   const [exportError, setExportError] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [skinetListening, setSkinetListening] = useState(false);
+  const [rtiComparisonEnabled, setRtiComparisonEnabled] = useState(false);
+  const assistantPolling = { refetchInterval: skinetListening ? 45_000 : false as const, refetchOnWindowFocus: skinetListening };
+  const rangeParams = new URLSearchParams({ details: "1" });
+  if (dateFrom) rangeParams.set("desde", dateFrom);
+  if (dateTo) rangeParams.set("hasta", dateTo);
+  const adminQuery = useQuery({ ...assistantPolling, enabled: datesReady, queryKey: ["admin", "seguimiento", "details", dateFrom, dateTo], queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${rangeParams}`, signal) });
+  const rtiParams = new URLSearchParams();
+  if (dateFrom) rtiParams.set("from", dateFrom);
+  if (dateTo) rtiParams.set("to", dateTo);
+  const rtiQuery = useQuery({ enabled: rtiComparisonEnabled, queryKey: ["admin", "rti", dateFrom, dateTo], queryFn: ({ signal }) => apiQuery<{ records?: Parameters<typeof attachRacocimi2Boxes>[1] }>(`/api/people/rti?${rtiParams}`, signal) });
+  const peopleQuery = useQuery({ queryKey: ["admin", "people-summary"], enabled: Boolean(selectedRecord), queryFn: ({ signal }) => apiQuery<{ contractors?: PeopleGroup[] }>("/api/people/summary", signal) });
+  const summaries = useMemo(() => adminQuery.data?.summaries || [], [adminQuery.data]);
+  const records = useMemo(() => adminQuery.data?.records || [], [adminQuery.data]);
+  const peopleGroups = useMemo(() => peopleQuery.data?.contractors || [], [peopleQuery.data]);
+  const modulationRecords = useMemo(() => adminQuery.data?.modulations || [], [adminQuery.data]);
+  const checkinRecords = useMemo(() => adminQuery.data?.checkins || [], [adminQuery.data]);
+  const modulationRacocimi2 = useMemo(() => attachRacocimi2Boxes(adminQuery.data?.modulationRacocimi2 || [], rtiQuery.data?.records || []), [adminQuery.data, rtiQuery.data]);
+  const loading = adminQuery.isPending;
+  const error = Array.from(new Set([adminQuery.error, rtiQuery.error].filter(Boolean).map(err => err?.message))).join(" · ");
+  async function askSkinet(input: string) {
+    if (isSkinetIdentityQuestion(input)) return SKINET_IDENTITY_REPLY;
+    const previous = skinetConversation.current;
+    const understood = understandSkinet(input, bogotaToday(), previous && Date.now() - previous.at < 10 * 60_000 ? previous.context : undefined);
+    const { context } = understood;
+    if (understood.prompt) {
+      skinetConversation.current = { context, at: Date.now() };
+      return understood.prompt;
+    }
+    const day = context.day;
+    const data = await queryClient.fetchQuery({
+      queryKey: ["admin", "seguimiento", "details", day, day], staleTime: 0,
+      queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
+    });
+    const result = answerSkinet(input, data, day, context);
+    skinetConversation.current = { context, at: Date.now() };
+    return result.answer;
+  }
+  async function reportSkinetOperation() {
+    const day = bogotaToday();
+    const data = await queryClient.fetchQuery({
+      queryKey: ["admin", "seguimiento", "details", day, day], staleTime: 0,
+      queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
+    });
+    return skinetOperationReport(data, day);
+  }
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -117,59 +167,24 @@ export default function AdminPage() {
     const contractor = searchParams.get("contratista") || "";
     const issue = searchParams.get("alerta") || "";
 
-    if (!tab && !from && !to && !dt && !contractor && !issue) return;
-
     const timeout = window.setTimeout(() => {
       if (isAdminTab(tab)) setActiveTab(tab);
-      if (from) setDateFrom(from);
-      if (to) setDateTo(to);
+      if (from || to) {
+        setDateFrom(from || to);
+        setDateTo(to || from);
+      }
       if (dt) setDtSearch(dt);
       if (contractor) setSelectedContractor(contractor);
       if (isAdminIssueKind(issue)) {
         setActiveIssueFilter(issue);
         setActiveTab("errores");
       }
+      setDatesReady(true);
     }, 0);
 
     return () => window.clearTimeout(timeout);
   }, []);
 
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/admin/seguimiento", { cache: "no-store" }),
-      fetch("/api/people/summary", { cache: "no-store" }),
-      fetch("/api/people/rti", { cache: "no-store" }),
-      fetch("/api/modulaciones", { cache: "no-store" }),
-      fetch("/api/checkins", { cache: "no-store" }),
-    ])
-      .then(async ([adminResponse, peopleResponse, rtiResponse, modulationResponse, checkinResponse]) => {
-        const adminBody = await adminResponse.json().catch(() => ({}));
-        if (!adminResponse.ok) throw new Error(adminBody.error || "No se pudo cargar el panel admin.");
-        setSummaries(adminBody.summaries || []);
-        setRecords(adminBody.records || []);
-
-        if (peopleResponse.ok) {
-          const peopleBody = await peopleResponse.json().catch(() => ({}));
-          setPeopleGroups(peopleBody.contractors || []);
-        }
-        if (rtiResponse.ok) {
-          const rtiBody = await rtiResponse.json().catch(() => ({}));
-          setModulationRacocimi2(attachRacocimi2Boxes(adminBody.modulationRacocimi2 || [], rtiBody.records || []));
-        } else {
-          setModulationRacocimi2(adminBody.modulationRacocimi2 || []);
-        }
-        if (modulationResponse.ok) {
-          const modulationBody = await modulationResponse.json().catch(() => ({}));
-          setModulationRecords(modulationBody.records || []);
-        }
-        if (checkinResponse.ok) {
-          const checkinBody = await checkinResponse.json().catch(() => ({}));
-          setCheckinRecords(checkinBody.records || []);
-        }
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el panel admin."))
-      .finally(() => setLoading(false));
-  }, []);
 
   const dateRecords = useMemo(() => {
     const targetDt = normalizeDt(dtSearch);
@@ -415,6 +430,7 @@ export default function AdminPage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10">
+        <SkinetAssistant onAsk={askSkinet} onReport={reportSkinetOperation} onListeningChange={setSkinetListening} />
         <section className="mb-5 overflow-hidden rounded-lg bg-[#091525] text-white shadow-[0_28px_90px_rgba(9,21,37,0.24)]">
           <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_420px] lg:items-end">
             <div>
@@ -567,8 +583,8 @@ export default function AdminPage() {
             className="flex h-11 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={!dateFrom && !dateTo && !dtSearch && selectedContractor === "Todas" && !activeIssueFilter}
             onClick={() => {
-              setDateFrom("");
-              setDateTo("");
+              setDateFrom(bogotaToday());
+              setDateTo(bogotaToday());
               setDtSearch("");
               setSelectedContractor("Todas");
               setActiveIssueFilter("");
@@ -664,7 +680,10 @@ export default function AdminPage() {
             </button>
           ))}
         </div>
-        <ModulationRacocimi2Chart rows={visibleModulationRacocimi2} />
+        {!rtiComparisonEnabled ? <button type="button" onClick={() => setRtiComparisonEnabled(true)} className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Cargar comparación de modulaciones con RTI</button> : <>
+          {rtiQuery.isPending ? <p role="status" className="mb-3 text-sm text-slate-500">Actualizando comparación con RTI...</p> : null}
+          {rtiQuery.isSuccess ? <ModulationRacocimi2Chart rows={visibleModulationRacocimi2} /> : null}
+        </>}
           </>
         ) : null}
 
@@ -848,6 +867,8 @@ export default function AdminPage() {
       {selectedRecord ? (
         <VehiclePeopleModal
           onClose={() => setSelectedRecord(null)}
+          loading={peopleQuery.isPending}
+          error={peopleQuery.error?.message || ""}
           people={selectedVehiclePeople}
           vehicle={selectedRecord}
         />
@@ -1230,7 +1251,7 @@ function Metric({ icon, label, tone = "blue", value }: { icon: ReactNode; label:
   );
 }
 
-function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; people: VehiclePerson[]; onClose: () => void }) {
+function VehiclePeopleModal({ vehicle, people, onClose, loading, error }: { vehicle: Vehiculo; people: VehiclePerson[]; onClose: () => void; loading: boolean; error: string }) {
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10223d]/45 px-4 py-6 backdrop-blur-sm">
       <section className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-lg border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.26)]">
@@ -1303,7 +1324,7 @@ function VehiclePeopleModal({ vehicle, people, onClose }: { vehicle: Vehiculo; p
             </div>
           ) : (
             <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-              No se encontraron personas cruzadas por cedula o nombre para este carro.
+              {loading ? "Cargando personas del carro..." : error || "No se encontraron personas cruzadas por cedula o nombre para este carro."}
             </p>
           )}
         </div>

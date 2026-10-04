@@ -1,6 +1,9 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiQuery } from "../lib/apiQuery";
+import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Download, Search, Trash2, Upload, UserPlus } from "lucide-react";
 
@@ -10,31 +13,26 @@ const emptyDraft: Draft = { cc: "", nombre: "", cargo: "", celular: "", correo: 
 
 export default function PersonalPage() {
   const router = useRouter();
-  const [contractor, setContractor] = useState("");
-  const [people, setPeople] = useState<Person[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
+  const search = useDebouncedValue(query);
+  const [pagination, setPagination] = useState({ search: "", page: 1 });
+  const page = pagination.search === search ? pagination.page : 1;
+  const client = useQueryClient();
+  const list = useQuery({
+    queryKey: ["personnel", search, page],
+    queryFn: ({ signal }) => apiQuery<{ contractor: string; people: Person[]; total: number | null; hasMore: boolean }>(`/api/people/personnel?${new URLSearchParams({ q: search, page: String(page), pageSize: "50" })}`, signal),
+    placeholderData: keepPreviousData,
+  });
+  const contractor = list.data?.contractor || "";
+  const people = list.data?.people || [];
+  const loading = list.isPending;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const refresh = useCallback(async () => {
-    const response = await fetch("/api/people/personnel", { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "No se pudo consultar el personal.");
-    setContractor(body.contractor || "");
-    setPeople(body.people || []);
-  }, []);
-
-  useEffect(() => {
-    void refresh().catch((caught) => setError(caught instanceof Error ? caught.message : "No se pudo cargar el personal.")).finally(() => setLoading(false));
-  }, [refresh]);
-
-  const visible = useMemo(() => {
-    const needle = normalize(query);
-    return needle ? people.filter((person) => normalize(`${person.CC} ${person.NOMBRE} ${person.CARGO}`).includes(needle)) : people;
-  }, [people, query]);
+  async function refresh() { await client.invalidateQueries({ queryKey: ["personnel"] }); }
+  const visible = people;
 
   async function saveBatch(rows: Array<Draft & { contratista: string }>) {
     let created = 0;
@@ -141,13 +139,14 @@ export default function PersonalPage() {
       <div className="mx-auto max-w-6xl">
         <button className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#10223d]" onClick={() => router.push("/")} type="button"><ArrowLeft size={17} /> Volver al portal</button>
         <div className="rounded-2xl bg-[#10223d] p-6 text-white"><p className="text-xs font-semibold uppercase tracking-[.16em] text-cyan-200">{contractor || "Personal"}</p><h1 className="mt-2 text-3xl font-bold">Personal de mi contratista</h1><p className="mt-2 text-sm text-slate-200">Agrega, actualiza e importa las personas que podrán registrar asistencia.</p></div>
-        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p> : null}
+        {error || list.error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error || list.error?.message}<button type="button" onClick={() => void list.refetch()} className="ml-3 underline">Reintentar consulta</button></p> : null}
         {message ? <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{message}</p> : null}
         {loading ? <p className="mt-6 text-sm text-slate-500">Cargando personal...</p> : contractor ? (
           <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_350px]">
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Equipo registrado</h2><p className="text-sm text-slate-500">{people.length} personas</p></div><label className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input className="h-10 rounded-lg border border-slate-200 pl-9 pr-3 text-sm" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, cédula o cargo" value={query} /></label></div>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Equipo registrado</h2><p className="text-sm text-slate-500">{list.data?.total ?? people.length} personas {list.isFetching && <span role="status">· Actualizando...</span>}</p></div><label className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input className="h-10 rounded-lg border border-slate-200 pl-9 pr-3 text-sm" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, cédula o cargo" value={query} /></label></div>
               <div className="max-h-[720px] divide-y overflow-y-auto rounded-lg border border-slate-200">{visible.map((person) => <div className="flex items-center gap-3 p-3" key={`${person.CONTRATISTA}:${person.CC}`}><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{person.NOMBRE}</p><p className="text-xs text-slate-500">CC {person.CC} · {person.CARGO || "Sin cargo"}</p></div><button className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50" disabled={busy} onClick={() => setDraft({ cc: person.CC, nombre: person.NOMBRE, cargo: person.CARGO || "", celular: person.CELULAR || "", correo: person.CORREO || "" })} type="button">Editar</button><button aria-label={`Eliminar a ${person.NOMBRE}`} className="rounded-md p-2 text-red-600 hover:bg-red-50 disabled:opacity-50" disabled={busy} onClick={() => void removePerson(person)} type="button"><Trash2 size={16} /></button></div>)}{!visible.length ? <p className="p-5 text-center text-sm text-slate-500">No hay personas para esta búsqueda.</p> : null}</div>
+              <div className="mt-4 flex items-center justify-between gap-3 text-sm"><button type="button" disabled={page === 1 || list.isFetching} onClick={() => setPagination({ search, page: page - 1 })} className="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Anterior</button><span className="text-xs text-slate-500">Página {page} · hasta 50 personas</span><button type="button" disabled={!list.data?.hasMore || list.isFetching} onClick={() => setPagination({ search, page: page + 1 })} className="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Siguiente</button></div>
             </section>
             <aside className="space-y-4">
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="flex items-center gap-2 text-lg font-semibold"><UserPlus size={19} /> {draft.cc ? "Agregar o actualizar" : "Nueva persona"}</h2><form className="mt-4 space-y-3" onSubmit={submitPerson}><input className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" inputMode="numeric" onChange={(event) => setDraft({ ...draft, cc: event.target.value.replace(/\D/g, "") })} placeholder="Cédula" required value={draft.cc} /><input className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" onChange={(event) => setDraft({ ...draft, nombre: event.target.value })} placeholder="Nombre completo" required value={draft.nombre} /><input className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" onChange={(event) => setDraft({ ...draft, cargo: event.target.value })} placeholder="Cargo" value={draft.cargo} /><input className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" onChange={(event) => setDraft({ ...draft, celular: event.target.value })} placeholder="Celular (opcional)" value={draft.celular} /><input className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" onChange={(event) => setDraft({ ...draft, correo: event.target.value })} placeholder="Correo (opcional)" type="email" value={draft.correo} /><button className="h-10 w-full rounded-lg bg-[#10223d] text-sm font-semibold text-white disabled:opacity-50" disabled={busy} type="submit">{busy ? "Guardando..." : "Guardar persona"}</button></form></section>

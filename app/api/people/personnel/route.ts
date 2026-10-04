@@ -3,28 +3,32 @@ import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel, isOperationalContractor, normalizeContractorName } from "../../../lib/contractors";
 import { clearServerCache } from "../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
+import { readListPage, scopedPersonnelParams } from "../../../lib/listQuery";
 
 const TABLE = "transporte_barranquilla";
 type InputPerson = { cc?: unknown; nombre?: unknown; cargo?: unknown; contratista?: unknown; celular?: unknown; correo?: unknown };
 type Person = { cc: string; nombre: string; cargo: string; contratista: string; celular: string; correo: string };
 type ExistingRow = { CC: string; CONTRATISTA: string };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!isOperationalContractor(session.contractor)) return NextResponse.json({ error: "Módulo exclusivo de contratistas." }, { status: 403 });
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-    const rows: Array<ExistingRow & { NOMBRE: string; CARGO: string; CELULAR?: string; CORREO?: string }> = [];
-    for (let offset = 0; ; offset += 1000) {
-      const params = new URLSearchParams({ select: "CC,NOMBRE,CARGO,CONTRATISTA,CELULAR,CORREO", order: "NOMBRE.asc", limit: "1000", offset: String(offset) });
-      const response = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
-      if (!response.ok) throw new Error(await supabaseError(response));
-      const page = (await response.json()) as typeof rows;
-      rows.push(...page.filter((row) => normalizeContractorName(contractorLabel(row.CONTRATISTA)) === normalizeContractorName(session.contractor)));
-      if (page.length < 1000) break;
-    }
-    return NextResponse.json({ contractor: session.contractor, people: rows });
+    const searchParams = new URL(request.url).searchParams;
+    let pagination;
+    try { pagination = readListPage(searchParams); }
+    catch { return NextResponse.json({ error: "Revisa la página solicitada." }, { status: 400 }); }
+    const { page, pageSize } = pagination;
+    const params = scopedPersonnelParams(session.contractor, searchParams.get("q") || "", page, pageSize);
+    const response = await fetch(supabaseRest(TABLE, `?${params}`), { headers: { ...headers, Prefer: "count=exact" }, cache: "no-store" });
+    if (!response.ok) throw new Error(await supabaseError(response));
+    const rows = (await response.json()) as Array<ExistingRow & { NOMBRE: string; CARGO: string; CELULAR?: string; CORREO?: string }>;
+    const people = rows.filter(row => normalizeContractorName(contractorLabel(row.CONTRATISTA)) === normalizeContractorName(session.contractor));
+    const rawTotal = response.headers.get("content-range")?.split("/")[1];
+    const total = rawTotal && rawTotal !== "*" ? Number(rawTotal) : null;
+    return NextResponse.json({ contractor: session.contractor, people, page, pageSize, total, hasMore: total === null ? rows.length === pageSize : page * pageSize < total });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo cargar el personal." }, { status: 500 });
   }

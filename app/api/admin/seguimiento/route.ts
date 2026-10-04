@@ -9,6 +9,7 @@ import type { CheckinCajasRegistro } from "../../../lib/checkinStorage";
 import type { ModulacionRegistro } from "../../../lib/modulacionStorage";
 import type { Vehiculo } from "../../../seguimiento/types";
 import { normalizeCajasTotal, normalizeCajasValue } from "../../../seguimiento/utils";
+import { adminDateRange, applyAdminDateFilter, type AdminDateRange } from "../../../lib/adminDateFilter";
 
 type Row = { data: Vehiculo | null; contractor?: string };
 type CheckinRow = { data: CheckinCajasRegistro | null; contractor?: string };
@@ -44,18 +45,22 @@ export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-    const tv = new URL(request.url).searchParams.get("tv") === "1";
+    const search = new URL(request.url).searchParams;
+    const tv = search.get("tv") === "1";
+    let range: AdminDateRange;
+    try { range = adminDateRange(search); }
+    catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
+    const includeDetails = search.get("details") === "1";
+    const inRange = (date: string) => (!range.from || date >= range.from) && (!range.to || date <= range.to);
 
     const adminHeaders = supabaseAdminHeaders();
     const sessionHeaders = adminHeaders || supabaseUserHeaders(session.accessToken);
     const requestedContractors = allowedContractors(session);
-    const [rows, modulacionesRows, checkinRows, puntoCoronaRows] = await Promise.all([
+    const [rawRows, puntoCoronaRows] = await Promise.all([
       // Usar la misma sesión autenticada del módulo de Seguimiento. Las
       // políticas de lectura públicas no incluyen necesariamente las rutas
       // de una contratista nueva, como HL Logísticos.
-      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors),
-      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, requestedContractors),
-      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors).catch(() => []),
+      fetchAdminRowsByContractor<Row>("seguimiento_vehiculos", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors, undefined, range),
       fetchAdminRowsByContractor<PuntoCoronaReportRow>(
         "punto_corona_route_reports",
         PUNTO_CORONA_REPORT_SELECT,
@@ -64,7 +69,15 @@ export async function GET(request: Request) {
         sessionHeaders,
         requestedContractors.filter(isPuntoCoronaContractor),
         tv ? bogotaDateKey() : undefined,
+        range,
       ).catch(() => []),
+    ]);
+    const rows = rawRows.filter(row => row.data && inRange(getVehicleDate(row.data)));
+    const routeDts = rows.flatMap(row => row.data ? [normalizeDt(row.data.transporte)] : []);
+    puntoCoronaRows.forEach(row => row.data?.rows?.forEach(record => routeDts.push(normalizeDt(record.dt))));
+    const [modulacionesRows, checkinRows] = await Promise.all([
+      fetchAdminRowsByContractor<ModulacionListRow>("modulaciones_ruta", MODULACION_LIST_SELECT, "updated_at.desc", 2500, sessionHeaders, requestedContractors, undefined, range, routeDts),
+      fetchAdminRowsByContractor<CheckinRow>("checkins_cajas", "contractor,data", "updated_at.desc", 2500, sessionHeaders, requestedContractors, undefined, range, routeDts),
     ]);
     const modulaciones = modulacionesRows.map((row) => {
       const record = fromModulacionListRow(row);
@@ -110,7 +123,7 @@ export async function GET(request: Request) {
       seenRoutes.add(key);
       return true;
     });
-    const records = appendPuntoCoronaReportRecords(uniqueSeguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex);
+    const records = appendPuntoCoronaReportRecords(uniqueSeguimientoRecords, puntoCoronaRows, modulacionesIndex, checkinsIndex).filter(record => inRange(getVehicleDate(record)));
     const refusalByComRows = buildRefusalByComRows(modulaciones);
     const summaries = allowedContractors(session).map((contractor) => {
       const contractorRecords = records.filter((record) => record.transportista === contractor);
@@ -142,6 +155,10 @@ export async function GET(request: Request) {
     const visibleCajas = normalizeCajasTotal(visibleTotals.cajas);
 
     return NextResponse.json({
+      ...(includeDetails ? {
+        modulations: modulaciones.filter(record => session.isAdmin || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor)),
+        checkins: checkins.filter(record => session.isAdmin || normalizeContractorName(record.contratista) === normalizeContractorName(session.contractor)),
+      } : {}),
       today: bogotaDateKey(),
       now: new Date().toISOString(),
       summaries: session.isAdmin ? summaries : summaries.filter((summary) => normalizeContractorName(summary.contractor) === normalizeContractorName(session.contractor)),
@@ -182,6 +199,8 @@ async function fetchAdminRowsByContractor<T>(
   headers: Record<string, string>,
   contractors: readonly string[],
   operationalDate?: string,
+  range?: AdminDateRange,
+  routeDts: string[] = [],
 ) {
   if (!contractors.length) return [] as T[];
   const values = Array.from(new Set(contractors.flatMap(contractorQueryValues)))
@@ -198,6 +217,16 @@ async function fetchAdminRowsByContractor<T>(
   // TV muestra los reportes de Punto Corona del día; el historial completo
   // sigue disponible en el panel administrativo y en las exportaciones.
   if (operationalDate) params.set("operational_date", `eq.${operationalDate}`);
+  if (range) {
+    if (table === "punto_corona_route_reports") {
+      if (range.from) params.append("operational_date", `gte.${range.from}`);
+      if (range.to) params.append("operational_date", `lte.${range.to}`);
+    } else {
+      const fields = table === "seguimiento_vehiculos" ? ["fechaDespacho", "fechaDt", "date", "createdAt"]
+        : table === "modulaciones_ruta" ? ["fechaDespacho", "fechaDt", "createdAt"] : ["createdAt"];
+      applyAdminDateFilter(params, fields, range, routeDts);
+    }
+  }
   if (table === "seguimiento_vehiculos" || table === "modulaciones_ruta" || table === "checkins_cajas") {
     const dataField = table === "seguimiento_vehiculos" ? "transportista" : "contratista";
     params.delete("contractor");

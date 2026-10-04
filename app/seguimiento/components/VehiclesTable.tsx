@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Clock3, SearchX, Truck } from "lucide-react";
 import type { Vehiculo } from "../types";
 import { ROUTE_STATUSES, calculateRouteTime, getPlannedProgress, getPlannedTimeInputValue, getProgress, getStatus, getVehicleRecordKey, getVehicleUiKey, parseDurationToSeconds, progressColor, toDateKey } from "../utils";
@@ -162,11 +162,36 @@ export function VehiclesTable({
           </thead>
 
           <tbody>
-            {sortedVehicles.map((item) => {
+            {sortedVehicles.map(item => <VehicleRow key={getVehicleUiKey(item)} item={item} now={now} isDuplicatedDt={duplicatedDt.has(getVehicleRecordKey(item))} onSelectVehicle={onSelectVehicle} onUpdateVehicle={onUpdateVehicle} onUpdateVisited={onUpdateVisited} />)}
+          </tbody>
+        </table>
+      </div>
+      ) : (
+        <div className="grid min-h-56 place-items-center px-4 py-10 text-center">
+          <div>
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
+              <SearchX size={22} />
+            </span>
+            <h3 className="mt-3 text-base font-semibold text-[#10223d]">Sin rutas para mostrar</h3>
+            <p className="mt-1 max-w-sm text-sm leading-6 text-slate-500">Ajusta los filtros o carga el seguimiento diario para ver la tabla operativa.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+const VehicleRow = memo(function VehicleRow({ item, now, isDuplicatedDt, onSelectVehicle, onUpdateVehicle, onUpdateVisited }: {
+  item: Vehiculo; now: Date; isDuplicatedDt: boolean;
+  onSelectVehicle: (vehicle: Vehiculo) => void;
+  onUpdateVehicle: (key: string, changes: Partial<Vehiculo>) => void;
+  onUpdateVisited: (key: string, visited: number) => void;
+}) {
               const progress = getProgress(item);
               const status = getStatus(progress, item);
               const recordKey = getVehicleUiKey(item);
-              const isDuplicatedDt = duplicatedDt.has(getVehicleRecordKey(item));
+
               const plannedProgress = getPlannedProgress(item, now);
               const isBehindPlan = plannedProgress.isBehind;
               const plannedTimeValue = getPlannedTimeInputValue(item.tiempoPlaneado);
@@ -250,24 +275,8 @@ export function VehiclesTable({
                   </td>
                 </tr>
               );
-            })}
-          </tbody>
-        </table>
-      </div>
-      ) : (
-        <div className="grid min-h-56 place-items-center px-4 py-10 text-center">
-          <div>
-            <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
-              <SearchX size={22} />
-            </span>
-            <h3 className="mt-3 text-base font-semibold text-[#10223d]">Sin rutas para mostrar</h3>
-            <p className="mt-1 max-w-sm text-sm leading-6 text-slate-500">Ajusta los filtros o carga el seguimiento diario para ver la tabla operativa.</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+
+});
 
 function StatusSelect({ status, onChange }: { status: string; onChange: (status: string) => void }) {
   return (

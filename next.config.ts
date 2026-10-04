@@ -20,6 +20,12 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Cache-Control", value: "private, no-store" }],
       },
       {
+        source: "/admin/:path*",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(self)" },
+        ],
+      },
+      {
         source: "/descanso-efectivo",
         headers: [
           { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=(self)" },

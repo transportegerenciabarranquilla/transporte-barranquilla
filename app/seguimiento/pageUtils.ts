@@ -2,6 +2,7 @@ import { getLocalDateKey, type ModulacionRegistro } from "../lib/modulacionStora
 import type { Vehiculo } from "./types";
 import { getVehicleUiKey } from "./utils";
 import { isOlderSeguimientoRecord } from "../lib/seguimientoPersistence";
+import { shareRecordsByKey } from "../lib/structuralSharing";
 
 export function getModulacionDateKey(registro: ModulacionRegistro) {
   return toDateKey(registro.fechaDespacho || registro.fechaDt || registro.createdAt);
@@ -23,7 +24,7 @@ export function mergeStoredVehiclesPreservingProgress(currentVehicles: Vehiculo[
     if (!currentByKey.has(getVehicleUiKey(storedVehicle))) mergedVehicles.push(storedVehicle);
   });
 
-  return mergedVehicles;
+  return shareRecordsByKey(currentVehicles, mergedVehicles, getVehicleUiKey);
 }
 
 export function getVehicleDateKey(vehicle: Vehiculo) {

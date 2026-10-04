@@ -1,0 +1,229 @@
+Transport Barranquilla — revisión de rendimiento, 3 de octubre de 2026
+
+Resultado: se aplicaron mejoras graduales verificables. No se completó la
+paginación de todos los módulos ni se activó Supabase Realtime. Esos cambios
+requieren separar cálculos globales y comprobar permisos desplegados; las
+propuestas y los criterios para implementarlos aparecen abajo. No se modificó
+.env.local, no se ejecutó SQL y no se desplegó la aplicación.
+
+ARCHIVO | PROBLEMA | CAMBIO REALIZADO | BENEFICIO | RIESGO
+app/api/people/personnel/route.ts; app/lib/listQuery.ts | Descarga del padrón y filtro posterior en JavaScript | Filtro SQL de contratista y búsqueda literal, proyección de seis campos, paginación 25/50, total exacto y orden estable | Máximo 50 personas por lectura | Regex de propietarios históricos y count=exact aún pueden ser costosos; validar índices y EXPLAIN.
+app/personal/page.tsx; app/personal/layout.tsx | Listado completo y peticiones repetidas al volver | Páginas de 50, búsqueda con debounce 400 ms, datos previos durante actualización y caché TanStack Query | Menos transferencia y consultas al regresar | Caché vigente hasta 60 s; las modificaciones invalidan el listado.
+app/api/seguimiento/route.ts | Relectura de todas las rutas cada sondeo | Cursor since validado, rango de updated_at, checkpoint y listado de IDs del mismo alcance | Devuelve datos completos solamente de las rutas cambiadas en lecturas incrementales | Sigue siendo polling; el listado de IDs crece con las rutas y las consultas de datos relacionados continúan.
+app/lib/remoteStore.ts | Cada respuesta reemplazaba referencias de objetos cambiando toda la colección | Fusión incremental, conservación por ID, protección de versiones, detección de eliminaciones, timeout de lectura 25 s y limpieza al cambiar sesión | Menos procesamiento/render; conserva datos confirmados ante fallos de red | Reconciliación completa cada 5 min; transacciones tardías y cambios de capacidad/asistencia requieren esa reconciliación.
+app/seguimiento/components/VehiclesTable.tsx; app/lib/useStableCallback.ts | Cambiar una fila podía recrear las demás | VehicleRow con React.memo y callbacks de identidad estable | Las filas con datos y reloj iguales pueden omitir renders | El reloj de 15 s aún actualiza las filas que reciben now; no se midieron renders mediante React Profiler.
+app/seguimiento/pageUtils.ts; app/lib/structuralSharing.ts | Normalización y fusión recreaban registros idénticos | Reutiliza referencias de objetos y campos JSON sin cambios, por clave | Evita recalcular vistas dependientes de datos iguales | Se utiliza exclusivamente con estructuras JSON.
+app/seguimiento/services/vehicleRecords.ts | Por vehículo se recorrían todas las modulaciones y check-ins | Agrupación previa por DT normalizado y reutilización de las funciones existentes | Cruces recorren el grupo del DT en lugar de toda la colección | Mantiene reglas actuales de DT/fecha/contratista; no las modifica.
+app/seguimiento/page.tsx | Filtrado por cada tecla y lecturas completas de Seguimiento | Debounce 400 ms, petición incremental y callbacks estables | Menos trabajo durante escritura y menor payload periódico de rutas | Modulación, check-ins y asistencia mantienen su frecuencia operativa anterior; paginarlos requiere separar sus indicadores.
+app/admin/page.tsx; app/admin/layout.tsx | Cinco peticiones retrasaban juntas el panel; People se descargaba sin abrir el modal | Cuatro consultas iniciales independientes y cacheadas; People se solicita al abrir el detalle; RTI no bloquea el panel principal | Una consulta inicial menos, carga progresiva, reutilización al volver | El detalle y los cálculos todavía usan historiales completos; no se afirma que Admin esté paginado.
+app/components/QueryProvider.tsx; app/lib/sessionCacheRevision.ts; app/lib/apiQuery.ts | Relecturas y conexiones lentas; caché potencialmente ajena tras cambiar usuario | Proveedor solo en Admin/Personal, caché compartida del navegador por sesión, timeout/cancelación y navegación cliente al expirar sesión | Caché sin cargar TanStack en todos los módulos; aislamiento entre sesiones | Personal incorpora JavaScript adicional; datos cacheados solo en memoria.
+app/lib/visiblePolling.ts; app/components/SecurityLockdownGuard.tsx | Sondeos ocultos/desconectados y posibles solicitudes superpuestas | Pausa con pestaña oculta u offline, continúa al reconectar y espera cada respuesta; estado de seguridad idéntico conserva referencia | Menos consultas y renders cuando no se usa la pantalla | Los controles de seguridad del servidor siguen validando cada petición; no se relajaron permisos.
+app/lib/serverCache.ts | Una lectura iniciada antes de una invalidación podía restaurar datos viejos | Solo confirma/elimina entradas si la promesa sigue siendo la actual | Evita resucitar caché invalidada después de una escritura | La caché continúa siendo local a una instancia de Vercel.
+app/modulacion/page.tsx; app/quejas/page.tsx; app/personas/evaluaciones-ruta/page.tsx; app/components/SecurityLockdownGuard.tsx | Componentes secundarios importados al inicio | Importación dinámica de comparación, modal de queja, gráficas/historial de evaluaciones y controles IP | Carga componentes al abrirlos | Primera apertura muestra un estado de carga; no cambia funciones.
+app/api/people/evaluaciones-ruta/route.ts; app/personas/evaluaciones-ruta/RouteEvaluationHistory.tsx | Historial de 20 filas | Página de 25 más una fila para detectar siguiente página | Tamaño coherente con el requisito 25–50 | La exportación continúa leyendo todas las evaluaciones deliberadamente.
+app/lib/peopleRouteAnalytics.ts | Creaba un formateador de fecha por registro | Reutiliza Intl.DateTimeFormat de Bogotá | Menos creación de objetos al agrupar evaluaciones | Conserva los filtros y fechas de Colombia.
+app/globals.css | Animaciones/transiciones sin regla global para movimiento reducido | Respeta prefers-reduced-motion en animaciones y transiciones CSS | Menor trabajo visual cuando el usuario lo solicita | No desactiva toda la estética ni pretende controlar animaciones JavaScript.
+app/page.tsx | Una verificación fallida podía dejar cachés anteriores en memoria | Limpia caché remota al confirmar sesión inválida | Evita reutilización entre sesiones | Conserva login/logout actuales.
+app/lib/adminScope.integration.test.mjs; app/lib/effectiveRestAccess.test.mjs; app/lib/refusalConsistency.test.mjs; scripts/test-seguimiento-visitados.cjs | Errores de lint en arneses de pruebas | Renombra variable module y declara CommonJS en el script de prueba | ESLint sin errores | No cambia lógica de negocio ni corrige automáticamente expectativas anteriores.
+
+AUDITORÍA POR PRIORIDAD
+
+Crítica: listados completos de Personal y sondeo de rutas de Seguimiento.
+Se aplicaron paginación y deltas respectivamente. Admin/Asistencia/Modulación
+todavía combinan listados con indicadores calculados usando el historial.
+
+Alta: paginación restante, filtros servidor de vehículo/DT/estado/fecha/
+territorio/responsable, resumen de quejas, búsqueda global y People.
+Requieren contratos de listado separados de agregados/exportación. Actualmente
+hay límites en algunos endpoints que también deben verificarse con históricos
+grandes para evitar totals incompletos. No se añadieron nuevos límites que
+truncaran esos cálculos.
+
+Alta: consultas select=* en capacidad-carga, RTI, atrasos, relays, ZKI y
+status-liq. Algunas procesan columnas variables de archivos importados o
+tablas históricas; reemplazarlas sin validar el esquema desplegado rompería
+funciones. Mantenerlas temporalmente y crear proyecciones por consumidor.
+
+Media: componentes grandes. VehiclesTable ahora separa la fila memoizada;
+Seguimiento y Admin siguen siendo páginas extensas. Seguir extrayendo filtros,
+indicadores y modales con contratos claros. useStorageSnapshot ya contiene
+revisiones por clave: se conserva para evitar invalidaciones globales nuevas.
+
+Media: sondeos de Control diario/Gerencia/Ruta SIP/Quejas y agregados costosos.
+No se cambió indiscriminadamente su frecuencia. startVisiblePolling mejora los
+consumidores que ya lo utilizan; los setInterval restantes se documentan como
+candidatos, incluyendo relojes que no representan peticiones de red.
+
+Baja: librerías, mapas, iconos y efectos. Excel/PDF y VehicleDrawer ya tenían
+carga dinámica en varios flujos. Se conservaron las librerías funcionales.
+Se redujo carga inicial de componentes secundarios y se midieron bundles.
+La navegación habitual ya usa router/Link. Descanso efectivo conserva su
+navegación de documento por la política de cámara descrita en su código; las
+redirecciones de sesión del almacén remoto siguen siendo deliberadas.
+
+OPTIMIZACIONES IMPLEMENTADAS
+
+Paginación/filtros/búsqueda SQL de Personal; historial de evaluaciones de 25;
+deltas de Seguimiento con IDs para eliminaciones; conservación de referencias;
+fila memoizada/callbacks estables; agrupación por DT; debounce; caché por sesión
+de Admin y Personal; invalidación de Personal tras cambios; consultas diferidas
+de People; estados de carga; timeout de lecturas; polling visible/online sin
+superposición; lazy loading; movimiento reducido; protección de caché servidor.
+
+Configuración TanStack Query: staleTime 60 s, gcTime 5 min, refetch al foco
+desactivado, refetch al reconectar activado y máximo un reintento para fallos
+distintos de 4xx, con espera de 2 s. Los datos previos permanecen durante
+actualización. No se pusieron timeouts nuevos a escrituras: cancelar una
+escritura no demostraría que el servidor dejó de guardarla.
+
+MEDICIONES Y VALIDACIÓN
+
+Personal: consultas reales de solo lectura a PostgREST usando helpers del
+servidor, sin imprimir credenciales ni datos personales. Logísticos: página
+1 devolvió 50/191, búsqueda de conductor 50/72; HL devolvió 18/18; página 2
+de Punto Corona Arenosa devolvió 1/51. Propietarios válidos en las cuatro.
+Duraciones puntuales 396/96/94/99 ms: no son p95 ni comparación antes/después.
+Los metadatos están en performance-live-queries.json.
+
+Admin: 5 GET iniciales de datos pasan a 4; People se carga al abrir el modal.
+El panel principal deja de esperar People y RTI. No se incluyen verificaciones
+de sesión/seguridad ni solicitudes de assets en esta cuenta derivada del código.
+
+Seguimiento: cada ciclo conserva el intervalo anterior (30 s más duración de
+la tarea), pero las lecturas incrementales transfieren registros cambiados e
+IDs. La carga inicial y una reconciliación cada 5 min continúan siendo completas.
+Se comprobó actualización, inserción concurrente, eliminación, datos obsoletos,
+fallos de red y respuesta tardía de una sesión anterior. La prueba de 40 rutas
+conserva 39 referencias al cambiar una: demuestra estabilidad de objetos,
+no mide directamente commits de React ni tiempos en computadores antiguos.
+
+Bundle: performance-before.json y performance-after.json contienen scripts
+iniciales del HTML de producción y gzip individual por archivo. No incluyen
+CSS, fuentes, chunks abiertos después, caché HTTP ni tiempos del navegador.
+scripts/measure-performance.mjs permite repetir la medición tras npm run build.
+Las reducciones son modestas; Personal aumenta por la nueva caché. No se afirma
+que todo el JavaScript haya disminuido ni se inventan tiempos de carga.
+
+JavaScript inicial gzip (bytes antes -> después):
+Seguimiento: 220845 -> 221191; Personal: 197533 -> 210006;
+Modulación: 215683 -> 214114; Quejas: 209394 -> 207831;
+Evaluaciones: 210555 -> 204917.
+
+TypeScript: npx tsc --noEmit pasa. Build: npm run build pasa.
+Lint: npm run lint pasa con 0 errores y 3 advertencias anteriores en rutas-criticas.
+RTI: npm run test:rti pasa sus 27 pruebas.
+Pruebas de cambios/evaluaciones: 14 pasan, 0 fallos.
+Suite amplia: 218 pruebas, 191 pasan, 27 fallan. La misma ejecución en una
+copia temporal de HEAD produjo 204 pruebas, 177 pasan y los mismos 27 fallos;
+no aparecen nombres de pruebas fallidas nuevos. Los fallos anteriores incluyen
+resolución de imports TS, mocks incompletos de next/headers y expectativas de
+Foxtrot. Evidencia: performance-tests.log y performance-baseline-tests.log.
+El script adicional scripts/test-seguimiento-visitados.cjs también falla por
+un mock ausente de seguimientoPersistence; se reprodujo el mismo fallo en HEAD.
+Comprobación visual: evaluación e historial cargaron en navegador con datos
+existentes. No se guardaron cambios en respuestas de personas para probar UI.
+
+ÍNDICES RECOMENDADOS, MIGRACIONES Y PASOS MANUALES
+
+No hay migración obligatoria para estas optimizaciones. No se ejecutaron
+CREATE INDEX, ALTER TABLE, cambios de RLS, grants ni publication Realtime.
+
+supabase/performance_indexes.sql recomienda, sujetos a catálogo y EXPLAIN:
+- transporte_barranquilla(CC, CONTRATISTA): consulta/importación por cédula.
+- transporte_barranquilla(NOMBRE, CC, CONTRATISTA): orden estable de paginación;
+  no soluciona por sí solo el costo del regex de propietario ni count=exact.
+- asistencias_ruta(contractor, updated_at DESC): listado por propietario.
+- people_route_evaluations(created_at DESC, id DESC): historial general.
+- people_route_evaluations(cc, created_at DESC, id DESC): historial por cédula
+  entre varios contratistas, si su frecuencia justifica el índice adicional.
+Reutilizar las recomendaciones existentes de supabase/seguimiento_indexes.sql
+para (contractor, updated_at), (contractor, record_id), updated_at y fecha JSON.
+
+Antes de ejecutar SQL: consultar pg_indexes, identificar equivalentes con otros
+nombres, medir planes con datos representativos en staging y elegir únicamente
+los índices útiles. Ejecutar cada CREATE INDEX CONCURRENTLY por separado, fuera
+de una transacción. IF NOT EXISTS comprueba nombres, no equivalencia.
+No crear índices trigram a ciegas: las expresiones de acentos/separadores usadas
+por los propietarios históricos pueden impedir obtener trigramas útiles.
+
+Después de revisar el código: instalación normal con npm ci y despliegue habitual.
+No se requieren nuevas variables de entorno. Validar navegación ida/vuelta,
+búsqueda/páginas y mutaciones de Personal; logout/login con otra contratista;
+actualización/eliminación de rutas desde otra sesión; reconexión y red lenta.
+Comprobar que los índices elegidos se encuentran válidos y recoger métricas
+reales de Supabase/Vercel. Este trabajo no desplegó cambios.
+
+DEPENDENCIAS
+
+Agregada: @tanstack/react-query ^5.104.1, junto a su dependencia query-core.
+Eliminadas: ninguna. package.json y package-lock.json se actualizaron.
+No se añadieron TanStack Virtual, IndexedDB ni Web Workers.
+
+PROPUESTAS SEPARADAS / LO QUE NO SE IMPLEMENTÓ
+
+1. Paginación general: crear contratos de listado de 50 filas con filtros,
+   búsqueda y orden en PostgreSQL, separados de resúmenes y exportaciones.
+   Mantener cálculos de refusal/On Time/SIF/RTI/HL/cajas sobre el universo
+   filtrado completo, no sobre una página. Empezar por Admin/Asistencia/
+   Modulación/People/quejas; validar variantes de DT, sitios y responsables.
+   Esta separación modifica contratos de negocio y se documentó antes de
+   aplicarla para evitar totales incompletos en producción.
+2. Realtime: primero ejecutar supabase/security_audit_readonly.sql en el
+   proyecto desplegado y verificar JWT, RLS, grants y publicaciones. Los
+   archivos locales no prueban qué políticas están desplegadas. La sesión usa
+   cookies personalizadas y supabaseReadHeaders puede usar credenciales
+   privilegiadas en el servidor; no se trasladan al navegador.
+   Probar INSERT/UPDATE/DELETE con cada contratista, People, admin y Arenosa,
+   incluyendo propietarios históricos NULL. Diseñar el puente de sesión
+   autenticada, canales privados o señales de invalidación y obtener cada
+   registro mediante API autorizada. No confiar en filtros de canales como
+   sustituto de RLS, y no transmitir filas eliminadas completas entre tenants.
+   Solo entonces cambiar los deltas periódicos por eventos y conservar una
+   reconciliación al reconectar. Hoy el módulo NO utiliza Supabase Realtime.
+3. Búsquedas canónicas: vista/RPC o campos normalizados indexables que respeten
+   los alias HL/Corona y Arenosa. Evitar regex costosos conservando aislamiento;
+   definir el esquema y migración con pruebas antes de cambiar la API.
+4. Virtualización: no se añadió a listados de 25–50. Medir la tabla operativa
+   con cientos de filas y conservar edición, foco, accesibilidad y orden antes
+   de considerar TanStack Virtual.
+5. Web Workers: no hay perfil que demuestre bloqueo suficiente para justificar
+   serialización y coordinación nuevas. Primero medir importaciones/cálculos.
+6. IndexedDB/PWA: no se introdujo persistencia nueva. La app ya tiene funciones
+   PWA; una caché offline de personas/rutas requeriría expiración, limpieza por
+   usuario, aislamiento y reglas de resolución de conflictos. Propuesta futura.
+7. Infraestructura: recopilar tiempos p50/p95, filas, bytes, egress, CPU y planes
+   de consultas. Medir con equipos de pocos recursos y Wi-Fi real. La caché
+   servidor no se comparte entre instancias de Vercel; no subir TTL operativos
+   ni declarar capacidad de usuarios simultáneos sin prueba de carga.
+
+ARCHIVOS DE ESTA OPTIMIZACIÓN
+
+Modificados:
+app/admin/layout.tsx; app/admin/page.tsx;
+app/api/people/personnel/route.ts; app/api/seguimiento/route.ts;
+app/api/people/evaluaciones-ruta/route.ts (historial 25);
+app/components/SecurityLockdownGuard.tsx; app/globals.css;
+app/lib/remoteStore.ts; app/lib/serverCache.ts; app/lib/visiblePolling.ts;
+app/lib/peopleRouteAnalytics.ts (formateador);
+app/lib/peopleRouteAnalytics.test.mjs (historial 25);
+app/lib/adminScope.integration.test.mjs; app/lib/effectiveRestAccess.test.mjs;
+app/lib/refusalConsistency.test.mjs; app/modulacion/page.tsx; app/page.tsx;
+app/personal/page.tsx; app/personas/evaluaciones-ruta/page.tsx;
+app/personas/evaluaciones-ruta/RouteEvaluationHistory.tsx (página 25);
+app/quejas/page.tsx; app/seguimiento/components/VehiclesTable.tsx;
+app/seguimiento/page.tsx; app/seguimiento/pageUtils.ts;
+app/seguimiento/services/vehicleRecords.ts;
+package.json; package-lock.json; scripts/test-seguimiento-visitados.cjs.
+
+Añadidos:
+app/components/QueryProvider.tsx; app/personal/layout.tsx;
+app/lib/apiQuery.ts; app/lib/listQuery.ts; app/lib/performance.test.mjs;
+app/lib/sessionCacheRevision.ts; app/lib/structuralSharing.ts;
+app/lib/useDebouncedValue.ts; app/lib/useStableCallback.ts;
+scripts/measure-performance.mjs; supabase/performance_indexes.sql;
+performance-before.json; performance-after.json; performance-live-queries.json;
+performance-tests.log; performance-baseline-tests.log; REPORTE_RENDIMIENTO.txt.
+
+Los cambios anteriores de Excel, gráficas y edición de evaluaciones permanecen
+en el checkout. No son todos cambios nuevos de esta optimización. Su SQL
+supabase/people_route_evaluations_edit.sql tampoco fue ejecutado en este trabajo.

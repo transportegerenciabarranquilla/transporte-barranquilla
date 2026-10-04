@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS test harness for compiled route handlers. */
 // Prueba del handler real con sesión y Supabase simulados; no toca datos reales.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

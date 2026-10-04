@@ -36,6 +36,11 @@ export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     const searchParams = new URL(request.url).searchParams;
+    const checkpoint = new Date().toISOString();
+    const since = searchParams.get("since");
+    if (since && (!session || !Number.isFinite(Date.parse(since)) || Date.parse(since) > Date.parse(checkpoint))) {
+      return NextResponse.json({ error: "El cursor de actualización no es válido." }, { status: session ? 400 : 401 });
+    }
     const requestedContractor = searchParams.get("contratista");
     const requestedDt = normalizeDt(searchParams.get("dt") || "");
     const requestedDate = searchParams.get("fecha") || searchParams.get("date") || "";
@@ -68,19 +73,23 @@ export async function GET(request: Request) {
       params.set("or", contractorOwnerFilter(contractor, "transportista"));
     }
     if (session) scopeQuery(params, session);
-    // El campo puede estar guardado como "DT-123" o con espacios/separadores.
-    // La coincidencia normalizada se confirma abajo para no aceptar parciales.
-    // El formulario público debe encontrar también DT históricos con prefijos/separadores.
-    // Una búsqueda textual parcial puede devolver una ruta antigua y omitir otra del mismo DT.
+    const identityParams = new URLSearchParams(params);
+    identityParams.set("select", "record_id");
+    identityParams.set("data", "not.is.null");
+    if (since) params.append("and", `(updated_at.gte.${new Date(since).toISOString()},updated_at.lte.${checkpoint})`);
     if (requestedDt && session) params.set("data->>transporte", `ilike.*${requestedDt}*`);
     if (requestedDate) params.set("data->>fechaDespacho", `eq.${requestedDate}`);
-    let rows = await readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null; updated_at?: string }>(
+    if (requestedDate) identityParams.set("data->>fechaDespacho", `eq.${requestedDate}`);
+    if (requestedDt && session) identityParams.set("data->>transporte", `ilike.*${requestedDt}*`);
+    const identities = since ? readPagedRows<{ record_id: string }>(TABLE, identityParams, readHeaders) : null;
+    const [initialRows, identityRows] = await Promise.all([readPagedRowsCached<{ record_id: string; contractor?: string; data: Vehiculo | null; updated_at?: string }>(
       TABLE,
       params,
       `supabase:${TABLE}:list:${readScope}:${contractor || "all"}:dt:${requestedDt || "all"}`,
       listTtl,
       readHeaders,
-    );
+    ), identities]);
+    let rows = initialRows;
     const filterRows = (sourceRows: typeof rows) => sourceRows
         .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
         .filter((row) => !requestedDt || normalizeDt(String(row.data?.transporte ?? "")) === requestedDt)
@@ -94,7 +103,7 @@ export async function GET(request: Request) {
     // Algunas cargas guardan el DT en un formato que PostgREST no encuentra
     // con el filtro JSON ilike. Reintenta por contratista y compara el DT
     // normalizado aquí antes de declarar que la ruta no tiene placa.
-    if (!matchedRows.length && requestedDt && params.has("data->>transporte")) {
+    if (!since && !matchedRows.length && requestedDt && params.has("data->>transporte")) {
       const broadParams = new URLSearchParams(params);
       broadParams.delete("data->>transporte");
       broadParams.delete("data->>fechaDespacho");
@@ -110,7 +119,7 @@ export async function GET(request: Request) {
     const records = removeDuplicateDtRecords(matchedRows);
     const withCapacities = session ? await applyDatabaseCapacities(records, session.accessToken) : records;
     const enriched = await applyAttendanceToVehicles(withCapacities, session?.accessToken, isGlobalAdminQuery ? undefined : contractor);
-    return NextResponse.json({ records: session ? enriched : enriched.map((record) => ({
+    return NextResponse.json({ ...(session ? { checkpoint, partial: Boolean(since), ...(identityRows ? { recordIds: identityRows.map(row => row.record_id) } : {}) } : {}), records: session ? enriched : enriched.map((record) => ({
       transporte: record.transporte,
       transportista: record.transportista,
       vehiculo: record.vehiculo,

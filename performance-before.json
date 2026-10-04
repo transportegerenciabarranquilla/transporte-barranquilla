@@ -1,0 +1,35 @@
+{
+  "method": "Emitted initial script tags, separate gzip per file; not browser transfer measurements.",
+  "measurements": [
+    {
+      "page": "seguimiento",
+      "scripts": 12,
+      "rawBytes": 736407,
+      "gzipBytes": 220845
+    },
+    {
+      "page": "personal",
+      "scripts": 11,
+      "rawBytes": 656844,
+      "gzipBytes": 197533
+    },
+    {
+      "page": "modulacion",
+      "scripts": 12,
+      "rawBytes": 721670,
+      "gzipBytes": 215683
+    },
+    {
+      "page": "quejas",
+      "scripts": 12,
+      "rawBytes": 697643,
+      "gzipBytes": 209394
+    },
+    {
+      "page": "personas/evaluaciones-ruta",
+      "scripts": 12,
+      "rawBytes": 705564,
+      "gzipBytes": 210555
+    }
+  ]
+}

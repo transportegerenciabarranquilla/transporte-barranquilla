@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import ts from 'typescript';
 function compile(path, mocks) {
  const source = ts.transpileModule(fs.readFileSync(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
- const module = { exports: {} };
- new Function('require', 'module', 'exports', source)((name) => { if (name in mocks) return mocks[name]; throw Error(name); }, module, module.exports);
- return module.exports;
+ const loadedModule = { exports: {} };
+ new Function('require', 'module', 'exports', source)((name) => { if (name in mocks) return mocks[name]; throw Error(name); }, loadedModule, loadedModule.exports);
+ return loadedModule.exports;
 }
 test('pagina check-ins sin perder el filtro', async () => {
  const calls = [];

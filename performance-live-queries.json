@@ -1,0 +1,42 @@
+[
+  {
+    "contractor": "Logisticos",
+    "search": "none",
+    "page": 1,
+    "status": 206,
+    "rows": 50,
+    "range": "0-49/191",
+    "ownersValid": true,
+    "elapsedMs": 396
+  },
+  {
+    "contractor": "Logisticos",
+    "search": "role",
+    "page": 1,
+    "status": 206,
+    "rows": 50,
+    "range": "0-49/72",
+    "ownersValid": true,
+    "elapsedMs": 96
+  },
+  {
+    "contractor": "HL Logisticos",
+    "search": "none",
+    "page": 1,
+    "status": 200,
+    "rows": 18,
+    "range": "0-17/18",
+    "ownersValid": true,
+    "elapsedMs": 94
+  },
+  {
+    "contractor": "Punto Corona Arenosa",
+    "search": "none",
+    "page": 2,
+    "status": 206,
+    "rows": 1,
+    "range": "50-50/51",
+    "ownersValid": true,
+    "elapsedMs": 99
+  }
+]

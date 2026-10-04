@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getAuthenticatedSession } from "../lib/authServer";
+import QueryProvider from "../components/QueryProvider";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getAuthenticatedSession({ allowSiteAdmin: true, refreshSession: false });
   if (!session?.isAdmin) redirect("/");
-  return children;
+  return <QueryProvider>{children}</QueryProvider>;
 }

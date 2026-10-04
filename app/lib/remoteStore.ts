@@ -3,6 +3,8 @@
 import { notifyStorageChange } from "./storageEvents";
 import { mergeSeguimientoVersions } from "./seguimientoPersistence";
 import type { Vehiculo } from "../seguimiento/types";
+import { shareJsonValue, shareRecordsByKey } from "./structuralSharing";
+import { advanceSessionCacheRevision } from "./sessionCacheRevision";
 
 const cache = new Map<string, unknown[]>();
 const loading = new Map<string, Promise<void>>();
@@ -10,6 +12,8 @@ const fetchedAt = new Map<string, number>();
 const saveQueues = new Map<string, Promise<void>>();
 const mutationVersions = new Map<string, number>();
 const preserveAfterWriteUntil = new Map<string, number>();
+const checkpoints = new Map<string, string>();
+const reconciledAt = new Map<string, number>();
 let cacheGeneration = 0;
 const REMOTE_CACHE_TTL_MS = 120_000;
 const PUBLIC_ROUTES = ["/asistencia", "/registro-modulacion"];
@@ -30,14 +34,18 @@ function shouldRedirectOnUnauthorized() {
 }
 
 export function clearRemoteCache() {
+  advanceSessionCacheRevision();
   cacheGeneration += 1;
   cache.clear();
   loading.clear();
   fetchedAt.clear();
+  preserveAfterWriteUntil.clear();
+  checkpoints.clear(); reconciledAt.clear();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("bavaria-session-reset"));
   notifyStorageChange();
 }
 
-export function refreshRemoteRecords(endpoint: string, options: { force?: boolean; requestUrl?: string } = {}) {
+export function refreshRemoteRecords(endpoint: string, options: { force?: boolean; requestUrl?: string; incremental?: boolean } = {}) {
   // No leer una versión anterior mientras hay escrituras en curso.
   if (saveQueues.has(endpoint)) return saveQueues.get(endpoint);
   const lastFetch = fetchedAt.get(endpoint) || 0;
@@ -48,7 +56,12 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
 
   const mutationVersion = mutationVersions.get(endpoint) || 0;
   const generation = cacheGeneration;
-  const request = fetch(options.requestUrl || endpoint, { cache: "no-store" })
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  const canIncrement = options.incremental && endpoint === "/api/seguimiento" && !options.requestUrl && checkpoints.has(endpoint)
+    && Date.now() - (reconciledAt.get(endpoint) || 0) < 5 * 60_000;
+  const requestUrl = canIncrement ? `${endpoint}?${new URLSearchParams({ since: checkpoints.get(endpoint)! })}` : options.requestUrl || endpoint;
+  const request = fetch(requestUrl, { cache: "no-store", signal: controller.signal })
     .then(async (response) => {
       const body = await response.json().catch(() => ({}));
 
@@ -63,25 +76,35 @@ export function refreshRemoteRecords(endpoint: string, options: { force?: boolea
       if (generation !== cacheGeneration || (mutationVersions.get(endpoint) || 0) !== mutationVersion) return;
       const incomingRecords = Array.isArray(data) ? data : data ? [data] : [];
       const cachedRecords = cache.get(endpoint) ?? [];
+      const partial = endpoint === "/api/seguimiento" && canIncrement && body.partial === true;
       // Supabase puede responder una lista anterior justo despues del PUT
       // (por replica, cache o una politica RLS que aun se esta propagando).
       // No dejamos que esa respuesta reduzca la lista optimista recien
       // guardada; el siguiente refresco normal la confirmara.
       const preserveOptimisticRecords =
-        (preserveAfterWriteUntil.get(endpoint) ?? 0) > Date.now()
+        !partial && (preserveAfterWriteUntil.get(endpoint) ?? 0) > Date.now()
         && incomingRecords.length < cachedRecords.length;
       if (preserveOptimisticRecords) return;
+      const liveIds = partial && Array.isArray(body.recordIds) ? new Set(body.recordIds as string[]) : null;
+      // The ID snapshot and changes query can straddle an insertion. Keep
+      // returned changes even if the ID snapshot was taken just before them.
+      const changedIds = new Set((incomingRecords as Vehiculo[]).map(record => record.recordId));
+      const completeRecords = partial ? mergeCachedRecords(cachedRecords as Vehiculo[], incomingRecords as Vehiculo[], record => record.recordId || "").filter(record => !liveIds || liveIds.has(record.recordId || "") || changedIds.has(record.recordId)) : incomingRecords;
       const nextRecords = endpoint === "/api/seguimiento"
-        ? mergeSeguimientoVersions(cachedRecords as Vehiculo[], incomingRecords as Vehiculo[])
-        : incomingRecords;
-      const changed = !cache.has(endpoint) || !sameJsonValue(cachedRecords, nextRecords);
+        ? shareRecordsByKey(cachedRecords as Vehiculo[], mergeSeguimientoVersions(cachedRecords as Vehiculo[], completeRecords as Vehiculo[]), record => record.recordId || "")
+        : shareJsonValue(cachedRecords, completeRecords);
+      const changed = !cache.has(endpoint) || cachedRecords !== nextRecords;
       if (changed) cache.set(endpoint, nextRecords);
       if (endpoint === MODULACIONES_ENDPOINT) removeConfirmedModulaciones(incomingRecords);
       fetchedAt.set(endpoint, Date.now());
+      if (endpoint === "/api/seguimiento" && typeof body.checkpoint === "string" && Number.isFinite(Date.parse(body.checkpoint))) {
+        checkpoints.set(endpoint, body.checkpoint);
+        if (!partial) reconciledAt.set(endpoint, Date.now());
+      }
       if (changed) notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
     })
     .catch(() => undefined)
-    .finally(() => loading.delete(endpoint));
+    .finally(() => { clearTimeout(timeout); if (loading.get(endpoint) === request) loading.delete(endpoint); });
 
   loading.set(endpoint, request);
   return request;
@@ -279,20 +302,4 @@ function recordId(record: unknown) {
   return typeof record === "object" && record !== null && "id" in record
     ? String((record as { id?: unknown }).id || "")
     : "";
-}
-
-// Las respuestas JSON idénticas no deben invalidar todos los cálculos y tablas.
-// Comparamos también campos anidados; una marca de fecha sola no es suficiente.
-function sameJsonValue(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
-  if (Array.isArray(left)) {
-    return Array.isArray(right) && left.length === right.length && left.every((value, index) => sameJsonValue(value, right[index]));
-  }
-  if (Array.isArray(right)) return false;
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const keys = Object.keys(leftRecord);
-  return keys.length === Object.keys(rightRecord).length && keys.every((key) =>
-    Object.prototype.hasOwnProperty.call(rightRecord, key) && sameJsonValue(leftRecord[key], rightRecord[key]));
 }
