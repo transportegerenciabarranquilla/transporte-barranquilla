@@ -21,7 +21,7 @@ export function skinetWake(text: string) {
 export function isSkinetQuestion(text: string) {
   if (isSkinetIdentityQuestion(text)) return true;
   const normalized = normalizeSkinet(text);
-  return (skinetMetrics(normalized).length > 0 && /\b(cuant[oa]s?|como|cuales?|quien|quienes|dime|muestrame|que|hl|logisticos|corona|surti|rango|placa)\b/.test(normalized))
+  return (skinetMetrics(normalized).length > 0 && /\b(cuant[oa]s?|como|cuales?|quien|quienes|dime|muestrame|que|seguimiento|operacion|hl|logisticos|corona|surti|rango|placa)\b/.test(normalized))
     || /^(?:y\s+)?(?:hl|logisticos|corona|surti|galapa|arenosa|ayer|anteayer|hoy)[\s.!?]*$/.test(normalized.trim())
     || (normalized.length < 90 && /^\s*y\b/.test(normalized) && /\b(hl|logisticos|corona|surti|galapa|arenosa|ayer|anteayer|hoy|reubicadas|moduladas)\b/.test(normalized));
 }

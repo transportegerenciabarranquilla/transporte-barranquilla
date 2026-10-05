@@ -125,7 +125,7 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
     const missing = contractors.filter(contractor => ["logisticos", "surticervezas", "hllogisticos", "logisticosarenosa"].includes(normalizeContractorName(contractor)) && !range.reports.some(report => normalizeContractorName(report.contractor) === normalizeContractorName(contractor)));
     return { answer: skinetRangeVehicleAnswer(range, context, label) + (range.reports.length && missing.length ? ` Conteo parcial: faltan reportes de ${missing.join(", ")}.` : "") };
   }
-  if (metrics.has("range") || metrics.has("summary")) {
+  if (metrics.has("range")) {
     if (!named && !dt && !context.plate && !context.rr) {
       const rangeContractors = contractors.filter(contractor =>
         ["surticervezas", "logisticos", "hllogisticos", "logisticosarenosa"].includes(normalizeContractorName(contractor))
@@ -168,6 +168,11 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
 
   }
   if (metrics.has("status") && !dt && !context.plate && !context.rr) return { answer: "Indica el número del DT o la placa para consultar el estado y los datos de la ruta.", clarify: true };
-  if (metrics.has("summary")) messages.push(`${refusal} Hay ${records.length} rutas y ${modulations.length} modulaciones.`);
+  if (metrics.has("summary")) {
+    const clients = records.reduce((sum, record) => sum + number(record.clientes), 0);
+    const visited = records.reduce((sum, record) => sum + number(record.visitados), 0);
+    const progress = clients ? ` Avance de visitas: ${format(visited)} de ${format(clients)} clientes, ${format(visited / clients * 100)} por ciento.` : "";
+    messages.push(`Seguimiento de ${label} ${period}: ${records.length} rutas registradas.${progress} ${refusal} Hay ${modulations.length} modulaciones.`);
+  }
   return { answer: messages.join(" ") || "Puedo consultar entrega en rango, motivos fuera de rango, refusal, cajas, modulaciones, clientes y detalles de rutas por DT o placa." };
 }

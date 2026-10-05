@@ -48,7 +48,7 @@ export function skinetMetrics(text: string): SkinetMetric[] {
   if (/\bcajas\b|carga total/.test(value) && !metrics.length) metrics.push("boxes");
   if (/\brutas\b|vehiculos|camiones|carros/.test(value) && !metrics.length) metrics.push("routes");
   if (/estado|placa|responsable|conductor|tripulacion|auxiliar|hora|detalle|informacion|\bdt\b|\bruta\s+(?:numero\s*)?\d/.test(value) && !metrics.length) metrics.push("status");
-  if (/resumen|balance|reporte|como (?:va|vamos|esta)/.test(value) && !metrics.length) metrics.push("summary");
+  if (/resumen|balance|reporte|seguimiento|operacion|avance general|como (?:va|vamos|esta)/.test(value) && !metrics.length) metrics.push("summary");
   return metrics;
 }
 
