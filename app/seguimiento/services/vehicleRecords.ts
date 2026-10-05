@@ -52,7 +52,7 @@ export function removeDuplicateDtRecords(records: Vehiculo[]) {
 export async function parseSeguimientoFile(file: File, currentVehicles: Vehiculo[]) {
   const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const firstSheet = workbook.SheetNames[0];
   const sheet = workbook.Sheets[firstSheet];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
@@ -78,6 +78,13 @@ export function mergeVehiclesByDt(current: Vehiculo[], imported: Vehiculo[]) {
   });
 
   return Array.from(records.values());
+}
+
+export function prepareSeguimientoImport(current: Vehiculo[], imported: Vehiculo[]) {
+  const importedKeys = new Set(imported.map(getVehicleRecordKey));
+  const matchingCurrent = current.filter((vehicle) => importedKeys.has(getVehicleRecordKey(vehicle)));
+  // El PUT conserva el historial; solo necesita las rutas de esta plantilla.
+  return prepareSeguimientoVehicles(mergeVehiclesByDt(matchingCurrent, imported));
 }
 
 function mergeImportedVehicle(currentRecord: Vehiculo | undefined, importedVehicle: Vehiculo, fixedCapacity: number) {
@@ -327,7 +334,7 @@ function mapExcelRowToVehicle(row: Record<string, unknown>, capacityByPlate: Map
 
   // Fecha operativa: siempre priorizar despacho sobre cualquier otra fecha.
   const fechaDespacho =
-    dateValue(value(["fecha despacho", "fecha de despacho", "f despacho", "despacho", "dia despacho"])) ||
+    dateValue(value(["fecha despacho", "fecha de despacho", "f despacho", "despacho", "dia despacho", "salida"])) ||
     dateValue(value(["fecha"])) ||
     dateValue(value(["dia"])) ||
     getLocalDateKey();
@@ -529,13 +536,18 @@ function dateValue(value: unknown) {
   const text = stringValue(value);
   if (!text) return "";
 
-  const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) return getLocalDateKey(parsed);
-
+  // Las fechas de la plantilla son dia/mes/año. Date interpreta 4/10 como
+  // abril 10 y las fechas ISO sin hora como UTC (el dia anterior en Colombia).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (!match) return "";
+  if (match) {
+    const [, day, month, year] = match;
+    const fullYear = year.length === 2 ? `20${year}` : year;
+    const parsed = new Date(Number(fullYear), Number(month) - 1, Number(day));
+    if (parsed.getFullYear() !== Number(fullYear) || parsed.getMonth() !== Number(month) - 1 || parsed.getDate() !== Number(day)) return "";
+    return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
 
-  const [, day, month, year] = match;
-  const fullYear = year.length === 2 ? `20${year}` : year;
-  return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : getLocalDateKey(parsed);
 }

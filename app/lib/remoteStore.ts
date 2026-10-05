@@ -163,7 +163,11 @@ export function saveRemoteRecords<T>(
       if (!response.ok) {
         if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
         throw new Error(
-          body.error || "No se pudieron guardar los datos en Supabase."
+          body.error || (response.status === 413
+            ? "La carga supera el tamaño permitido. Divide la plantilla en archivos más pequeños."
+            : response.status === 504
+              ? "El servidor agotó el tiempo de guardado. Recarga para comprobar qué rutas se guardaron antes de reintentar."
+              : `No se pudieron guardar los datos en Supabase (HTTP ${response.status}).`)
         );
       }
 

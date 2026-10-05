@@ -15,9 +15,8 @@ import { VehiclesTable } from "./components/VehiclesTable";
 import {
   enrichVehiclesWithModulacion,
   loadSeguimientoVehiculos,
-  mergeVehiclesByDt,
+  prepareSeguimientoImport,
   parseSeguimientoFile,
-  prepareSeguimientoVehicles,
 } from "./services/vehicleRecords";
 import type { Vehiculo } from "./types";
 import { calculateRouteTime, getVehicleUiKey, hasTimeValue, matchesRouteStatusFilter, isRouteClockBlockedStatus, normalizeCajasTotal, normalizeHlTotal, normalizeHlValue } from "./utils";
@@ -395,8 +394,9 @@ export default function SeguimientoPage() {
 
       setImportMessage("Guardando seguimiento en Supabase...");
 
-      const prepared = prepareSeguimientoVehicles(mergeVehiclesByDt(currentVehicles, imported));
-      const savedRecords = await saveSeguimientoVehiculos(prepared);
+      const prepared = prepareSeguimientoImport(currentVehicles, imported);
+      await saveSeguimientoVehiculos(prepared);
+      const savedRecords = loadSeguimientoVehiculos();
 
       vehiclesRef.current = savedRecords;
       setVehiculos(savedRecords);
