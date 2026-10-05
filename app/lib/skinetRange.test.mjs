@@ -18,6 +18,33 @@ const day = "2026-10-05";
 const row = { id: "a", dt: "123", truckLicensePlate: "ABC123", driverName: "Ana", status: "CONCLUDED", withinRadius: true, pocExternalId: "1", pocName: "Tienda Uno" };
 const report = { contractor: "Logisticos", operationalDate: day, kind: "current", uploadedAt: `${day}T12:00:00Z`, rows: [row, { ...row, id: "b", pocExternalId: "2", withinRadius: false, manualOutOfRadiusReason: "Reubicación" }] };
 const data = { summaries: [{ contractor: "Logisticos" }], rangeReports: [report], records: [{ transportista: "Logisticos", transporte: "123", vehiculo: "ABC123", nombreResponsable: "Ana", status: "En ruta", clientes: 10, visitados: 5, cajas: 20, horaSalida: "08:00" }] };
+test("interpreta los temas solicitados y no confunde seguimiento de un DT con estado", () => {
+  for (const spelling of ["seguimiento", "seguimineto", "segumiento", "segimiento", "seguimieto"]) {
+    const question = `cómo va el ${spelling} del DT 123`;
+    assert.deepEqual(understandSkinet(question, day).context.metrics, ["tracking"]);
+    const answer = answerSkinet(question, data, day).answer;
+    assert.match(answer, /Seguimiento de el DT 123/);
+    assert.match(answer, /5 de 10 clientes, 50 por ciento/);
+    assert.doesNotMatch(answer, /Entrega en rango|Estado:/);
+  }
+  const complete = { ...data, records: [{ ...data.records[0], cajasRefusalFinal: 2 }] };
+  const combined = answerSkinet("dime seguimiento, entrega en rango y refusal de hoy", complete, day).answer;
+  assert.match(combined, /Entrega en rango.*50 por ciento/);
+  assert.match(combined, /refusal.*10 por ciento/);
+  assert.match(combined, /Seguimiento.*5 de 10 clientes/);
+  const prior = understandSkinet("refusal de HL", day).context;
+  assert.match(understandSkinet("cuál es el clima de HL hoy", day, prior).prompt, /No capté/);
+});
+
+test("los datos ausentes no se anuncian como refusal cero ni avance completo", () => {
+  assert.match(answerSkinet("refusal", data, day).answer, /Faltan datos de refusal/);
+  assert.doesNotMatch(answerSkinet("refusal", data, day).answer, /0 por ciento/);
+  assert.match(answerSkinet("seguimiento", { ...data, records: [] }, day).answer, /No hay rutas de Seguimiento/);
+  const missingVisits = { ...data, records: [{ ...data.records[0], visitados: undefined }] };
+  assert.match(answerSkinet("seguimiento", missingVisits, day).answer, /no puedo calcular el avance completo/);
+  const knownZero = { ...data, records: [{ ...data.records[0], cajasRefusalFinal: 0 }] };
+  assert.match(answerSkinet("refusal", knownZero, day).answer, /0 por ciento/);
+});
 test("busca personas en responsables y auxiliares y pide aclaración de nombres repetidos", () => {
   const crew = { ...data, records: [{ ...data.records[0], nombreAuxiliar1: "Juan Pérez", cedulaAuxiliar1: "123456" }] };
   for (const question of ["busca a Juan Pérez", "dónde va Juan Pérez", "busca la persona Juan Pérez", "persona cédula 123456"]) {
@@ -105,7 +132,8 @@ test("porcentaje ponderado, sin duplicar cierre, fechas anteriores ni cuentas aj
   const closure = { ...report, kind: "closure", rows: [...report.rows, { ...row, id: "c", withinRadius: null }, { ...row, id: "d", status: "NOT_STARTED" }] };
   const answer = answerSkinet("entrega en rango de Logísticos", { ...data, rangeReports: [current, closure, { ...report, operationalDate: "2026-10-04" }, { ...report, contractor: "HL Logisticos" }] }, day).answer;
   assert.match(answer, /33,33 por ciento/);
-  assert.equal(answer, "Entrega en rango de Logisticos hoy: 33,33 por ciento.");
+  assert.match(answer, /Entrega en rango de Logisticos hoy: 33,33 por ciento\./);
+  assert.match(answer, /1 visitas en rango, 1 fuera de rango y 1 sin dato de rango, de 3 visitas iniciadas/);
 });
 test("detalle fuera de rango incluye DT, placa, cliente y motivo manual", () => {
   const answer = answerSkinet("cuáles clientes están fuera de rango de Logísticos", data, day).answer;
@@ -126,12 +154,16 @@ test("general borra la contratista anterior y responde porcentajes separados", (
     { ...report, contractor: "HL Logisticos", operationalDate: context.day, rows: [{ ...row, withinRadius: false }] },
   ] };
   const answer = answerSkinet("entrega en rango general", allData, context.day, context).answer;
-  assert.equal(answer, "Entrega en rango de Logisticos el 2026-10-03: 50 por ciento. Entrega en rango de Surti Cervezas el 2026-10-03: 100 por ciento. Entrega en rango de HL Logisticos el 2026-10-03: 0 por ciento.");
+  assert.match(answer, /Entrega en rango de Logisticos el 2026-10-03: 50 por ciento\./);
+  assert.match(answer, /Entrega en rango de Surti Cervezas el 2026-10-03: 100 por ciento\./);
+  assert.match(answer, /Entrega en rango de HL Logisticos el 2026-10-03: 0 por ciento\./);
+  assert.match(answer, /Entrega en rango de la operación el 2026-10-03: 50 por ciento\./);
   const restricted = answerSkinet("entrega en rango general", { ...allData, summaries: data.summaries }, context.day, context).answer;
   assert.doesNotMatch(restricted, /Surti|HL/);
   const missing = answerSkinet("entrega en rango general", { ...allData, rangeReports: allData.rangeReports.slice(0, 1) }, context.day, context).answer;
   assert.match(missing, /No hay un reporte.*Surti Cervezas/);
   assert.match(missing, /No hay un reporte.*HL Logisticos/);
+  assert.match(missing, /Resultado parcial: faltan reportes/);
 });
 
 test("permite pedir las tres contratistas por nombre", () => {

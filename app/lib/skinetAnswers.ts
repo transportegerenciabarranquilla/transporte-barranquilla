@@ -18,6 +18,11 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function format(value: number) { return value.toLocaleString("es-CO", { maximumFractionDigits: 2 }); }
+function hasNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return false;
+  const raw = String(value).trim().replace(/\s/g, "");
+  return Number.isFinite(Number(/^-?\d{1,3}(\.\d{3})+$/.test(raw) ? raw.replace(/\./g, "") : raw.replace(",", ".")));
+}
 function modulationDay(record: ModulacionRegistro) {
   const date = record.fechaDespacho || record.fechaDt || record.createdAt || "";
   const legacy = date.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -117,7 +122,9 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   const label = `${dt ? `el DT ${dt} de ` : context.plate ? `la placa ${context.plate} de ` : context.rr ? `${context.person ? "la persona" : "el RR"} ${personName} de ` : ""}${contractorLabel}`;
   const boxes = records.reduce((sum, record) => sum + number(record.cajas), 0);
   const pending = records.reduce((sum, record) => sum + number(record.cajasRefusalFinal), 0);
-  const refusal = boxes ? `El refusal de ${label} ${period} va en ${format(pending / boxes * 100)} por ciento. Son ${format(pending)} cajas pendientes de ${format(boxes)} cajas de salida.`
+  const missingRefusal = records.filter(record => !hasNumber(record.cajasRefusalFinal) || !hasNumber(record.cajas)).length;
+  const refusal = missingRefusal ? `Faltan datos de refusal o cajas de salida en ${missingRefusal} rutas de ${label} ${period}. No puedo calcular un porcentaje completo.`
+    : boxes ? `El refusal de ${label} ${period} va en ${format(pending / boxes * 100)} por ciento. Son ${format(pending)} cajas pendientes de ${format(boxes)} cajas de salida.`
     : `${label} no tiene cajas de salida registradas para ${period}. Todavía no puedo calcular su refusal.`;
   const messages: string[] = [];
   const metrics = new Set(context.metrics);
@@ -137,6 +144,11 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
       const rangeContractors = contractors.filter(contractor =>
         ["surticervezas", "logisticos", "hllogisticos", "logisticosarenosa"].includes(normalizeContractorName(contractor))
         || range.reports.some(report => normalizeContractorName(report.contractor) === normalizeContractorName(contractor)));
+      if (rangeContractors.length > 1) {
+        const missing = rangeContractors.filter(contractor => !range.reports.some(report => normalizeContractorName(report.contractor) === normalizeContractorName(contractor)));
+        messages.push(skinetRangeAnswer(range, context, label)
+          + (missing.length ? ` Resultado parcial: faltan reportes de ${missing.join(", ")}.` : ""));
+      }
       messages.push(...rangeContractors.map(contractor => skinetRangeAnswer(
         skinetRangeRows(data.rangeReports || [], new Set([normalizeContractorName(contractor)]), day, context), context, contractor)));
       if (!rangeContractors.length) messages.push(skinetRangeAnswer(range, context, label));
@@ -158,7 +170,9 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if (metrics.has("progress")) {
     const clients = records.reduce((sum, record) => sum + number(record.clientes), 0);
     const visited = records.reduce((sum, record) => sum + number(record.visitados), 0);
-    messages.push(`${label} lleva ${format(visited)} de ${format(clients)} clientes visitados ${period}${clients ? `: ${format(visited / clients * 100)} por ciento de avance` : ""}.`);
+    const missing = records.filter(record => !hasNumber(record.clientes) || !hasNumber(record.visitados)).length;
+    messages.push(missing ? `Faltan datos de clientes o visitas en ${missing} rutas de ${label} ${period}. No puedo calcular el avance completo.`
+      : `${label} lleva ${format(visited)} de ${format(clients)} clientes visitados ${period}${clients ? `: ${format(visited / clients * 100)} por ciento de avance` : "; sin clientes registrados para calcular el porcentaje"}.`);
   }
   if (metrics.has("routes")) messages.push(`${label} tiene ${records.length} rutas registradas para ${period}.`);
   if (metrics.has("departures")) {
@@ -176,10 +190,16 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   }
   if (metrics.has("status") && !dt && !context.plate && !context.rr) return { answer: "Indica el número del DT o la placa para consultar el estado y los datos de la ruta.", clarify: true };
   if (metrics.has("summary") || metrics.has("tracking")) {
+    if (!records.length) {
+      messages.push(`No hay rutas de Seguimiento registradas para ${label} ${period} dentro del alcance consultado.`);
+      return { answer: messages.join(" ") };
+    }
     const clients = records.reduce((sum, record) => sum + number(record.clientes), 0);
     const visited = records.reduce((sum, record) => sum + number(record.visitados), 0);
-    const progress = clients ? ` Avance de visitas: ${format(visited)} de ${format(clients)} clientes, ${format(visited / clients * 100)} por ciento. Faltan ${format(Math.max(0, clients - visited))} clientes por visitar.` : " No hay clientes registrados para calcular el avance.";
-    messages.push(`Seguimiento de ${label} ${period}: ${records.length} rutas registradas.${progress} ${refusal} Hay ${modulations.length} modulaciones.`);
+    const missing = records.filter(record => !hasNumber(record.clientes) || !hasNumber(record.visitados)).length;
+    const progress = missing ? ` Faltan datos de clientes o visitas en ${missing} rutas; no puedo calcular el avance completo.`
+      : clients ? ` Avance de visitas: ${format(visited)} de ${format(clients)} clientes, ${format(visited / clients * 100)} por ciento. Faltan ${format(Math.max(0, clients - visited))} clientes por visitar.` : " No hay clientes registrados para calcular el avance.";
+    messages.push(`Seguimiento de ${label} ${period}: ${records.length} rutas registradas.${progress}${metrics.has("refusal") ? "" : ` ${refusal}`} Hay ${modulations.length} modulaciones.`);
   }
   return { answer: messages.join(" ") || "Puedo consultar entrega en rango, motivos fuera de rango, refusal, cajas, modulaciones, clientes y detalles de rutas por DT o placa." };
 }

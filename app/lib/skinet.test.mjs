@@ -192,10 +192,10 @@ test("conserva el DT para nuevas métricas y lo elimina al cambiar de contratist
   assert.equal(understandSkinet("123", day, status).context.dt, "123");
 });
 
-test("no transforma preguntas ajenas ni contratistas múltiples en cifras supuestas", () => {
+test("no transforma preguntas ajenas en cifras y reconoce varias contratistas", () => {
   const previous = understandSkinet("refusal de HL", day).context;
   assert.match(understandSkinet("cuál es el clima", day, previous).prompt, /No capté/);
-  assert.match(understandSkinet("refusal de HL y Logísticos", day).prompt, /una contratista a la vez/);
+  assert.deepEqual(understandSkinet("refusal de HL y Logísticos", day).context.contractors, ["hl", "logisticos"]);
   assert.match(understandSkinet("otra pregunta", day, previous).prompt, /No capté/);
   assert.equal(isSkinetQuestion("dime el refiusal de hache ele"), true);
   assert.equal(isSkinetQuestion("y HL"), true);

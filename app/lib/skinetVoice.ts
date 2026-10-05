@@ -14,7 +14,7 @@ export interface SkinetRecognition {
 }
 
 export function skinetWake(text: string) {
-  const match = /\b(?:hola\s+)?(?:skai\s?net|skinet|sky\s?net|ski\s?net)\b/i.exec(text);
+  const match = /\b(?:hola\s+)?(?:skai\s?net|skinet|skinte|sky\s?net|ski\s?net)\b/i.exec(text);
   return match ? { question: text.slice(match.index + match[0].length).replace(/^[\s,.:;!?¿¡]+/, "").trim() } : null;
 }
 
@@ -135,7 +135,8 @@ export class SkinetVoice {
     });
   }
   private clearQuestion() {
-    clearTimeout(this.questionDebounce);
+    if (this.questionDebounce !== undefined) clearTimeout(this.questionDebounce);
+    this.questionDebounce = undefined;
     this.pendingQuestion = "";
   }
   private queueQuestion(text: string) {
@@ -143,10 +144,12 @@ export class SkinetVoice {
     this.scheduleQuestion();
   }
   private scheduleQuestion() {
-    clearTimeout(this.questionDebounce);
+    if (this.questionDebounce !== undefined) clearTimeout(this.questionDebounce);
+    this.questionDebounce = undefined;
     const submit = () => {
       const text = this.pendingQuestion;
       this.pendingQuestion = "";
+      this.questionDebounce = undefined;
       if (!text || !this.active || !["wake", "question"].includes(this.state)) return;
       if (this.state === "question" || isSkinetQuestion(text)) void this.ask(text);
     };

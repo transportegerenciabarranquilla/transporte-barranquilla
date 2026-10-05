@@ -31,8 +31,8 @@ export function skinetRangeAnswer(selection: ReturnType<typeof skinetRangeRows>,
   const outside = started.filter(row => row.withinRadius === false).length;
   const percentage = started.length ? `${(inside / started.length * 100).toLocaleString("es-CO", { maximumFractionDigits: 2 })} por ciento` : "sin visitas iniciadas para calcular el porcentaje";
   let answer = `Entrega en rango de ${label} ${context.period}: ${percentage}.`;
+  answer += ` ${inside} visitas en rango, ${outside} fuera de rango y ${started.length - inside - outside} sin dato de rango, de ${started.length} visitas iniciadas. ${selection.rows.length - started.length} sin iniciar.`;
   if (context.metrics.includes("rangeDetails")) {
-    answer += ` ${inside} visitas en rango, ${outside} fuera de rango y ${started.length - inside - outside} sin dato de rango, de ${started.length} visitas iniciadas. ${selection.rows.length - started.length} sin iniciar.`;
     const details = started.filter(row => context.outsideRange === undefined || row.withinRadius === !context.outsideRange);
     answer += details.length ? ` Detalle de ${Math.min(12, details.length)} de ${details.length} visitas: ` + details.slice(0, 12).map(row =>
       `${row.contractor}, DT ${row.dt}, placa ${row.truckLicensePlate || "no registrada"}, cliente ${row.pocName || row.pocExternalId || "no registrado"}: ${row.withinRadius === true ? "en rango" : row.withinRadius === false ? "fuera de rango" : "sin dato de rango"}${row.withinRadius === false ? `; motivo: ${row.manualOutOfRadiusReason || row.outOfRadiusReason || "no registrado"}` : ""}.`).join(" ")

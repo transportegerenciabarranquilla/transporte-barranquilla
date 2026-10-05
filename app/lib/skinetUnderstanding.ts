@@ -19,6 +19,7 @@ export function isSkinetIdentityQuestion(question: string) {
 }
 export function normalizeSkinet(text: string) {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b(?:seguimineto|segumiento|segimiento|seguimieto|seg[u]?imiento)\b/g, "seguimiento")
     .replace(/\b(?:erre\s+erre|r\s+r)\b/g, "rr")
     .replace(/\b(?:re\s*f[uio]\s*[sz]\s*[ao]l|refiusal|refuzal|refus[ao]l|refus[a-z]*)\b/g, "refusal")
     .replace(/\b(?:hache\s*ele|ache\s*ele|h\s*[.-]?\s*l)\b/g, "hl")
@@ -31,6 +32,7 @@ export function normalizeSkinet(text: string) {
 export function skinetMetrics(text: string): SkinetMetric[] {
   const value = normalizeSkinet(text);
   const metrics: SkinetMetric[] = [];
+  if (/\bseguimiento\b/.test(value)) metrics.push("tracking");
   if (/\bcajas\b/.test(value) && /mas cajas|mayor (?:cantidad|numero|carga)|mas (?:cantidad|numero) de cajas/.test(value)) return ["maxBoxes"];
   if (/(?:rango|radio)/.test(value) && /vehiculos|camiones|carros|placas/.test(value) && /cuantos|cuantas|cantidad|numero|total/.test(value)) return ["range", "rangeVehicles"];
   if (/\brr\b|\bresponsable\b/.test(value)) metrics.push("status");
@@ -49,7 +51,6 @@ export function skinetMetrics(text: string): SkinetMetric[] {
   if (/\bcajas\b|carga total/.test(value) && !metrics.length) metrics.push("boxes");
   if (/\brutas\b|vehiculos|camiones|carros/.test(value) && !metrics.length) metrics.push("routes");
   if (/estado|placa|responsable|conductor|tripulacion|auxiliar|\bpersona\b|hora|detalle|informacion|\bdt\b|\bruta\s+(?:numero\s*)?\d/.test(value) && !metrics.length) metrics.push("status");
-  if (/\bseguimiento\b/.test(value) && !metrics.length) metrics.push("tracking");
   if (/resumen|balance|reporte|seguimiento|operacion|avance general|como (?:va|vamos|esta)/.test(value) && !metrics.length) metrics.push("summary");
   return metrics;
 }
@@ -121,7 +122,8 @@ export function understandSkinet(question: string, today: string, previous?: Ski
   if (rrSearch && !metrics.length) metrics.push("status");
   const aggregate = metrics.includes("maxBoxes") || metrics.includes("rangeVehicles");
   const topicChanged = Boolean(previous?.metrics.length && metrics.length && metrics[0] !== previous.metrics[0]
-    && !/\b(?:ese|esa|mismo|misma|anterior|tambien|también)\b/.test(text));
+    && /\b(?:como|seguimiento|entrega|refusal|resumen|general|global|operacion|dime)\b/.test(text)
+    && !/\b(?:ese|esa|mismo|misma|anterior|tambien)\b/.test(text));
   if (plate && !metrics.length) metrics.push("status");
   const date = skinetDate(text, today);
   const changedContractor = all || Boolean(families[0] && families[0] !== previous?.contractor);
@@ -140,6 +142,10 @@ export function understandSkinet(question: string, today: string, previous?: Ski
     period: date?.period || (previous?.day && previous.day !== today ? `el ${previous.day}` : "hoy"),
   };
   if (/\b(mes|semana|historico|historial)\b/.test(text)) return { context, prompt: "Por ahora consulto un día a la vez. Dime hoy, ayer o la fecha que quieres revisar." };
+  if (!metrics.length && !rrSearch && !dt && !plate && /\b(?:cual|cuales|quien|que|como|dime|muestrame)\b/.test(text)
+    && !/\b(?:cuanto|cuanta|cuantos|cuantas|lo mismo|repite|otra vez)\b/.test(text)) {
+    return { context, prompt: "No capté el dato que quieres consultar. Dime seguimiento, entrega en rango, refusal, modulación, cajas, clientes, DT, placa o persona." };
+  }
   if (!metrics.length && !families.length && !site && !dt && !plate && !rrSearch && !date && !all
     && !/\b(cuant[oa]s?|lo mismo|repite|otra vez)\b/.test(text)) {
     return { context, prompt: "No capté qué dato necesitas. Puedes preguntar por entrega en rango, refusal, modulación, cajas, clientes, DT o placa." };
