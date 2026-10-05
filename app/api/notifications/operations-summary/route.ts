@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { normalizeContractorName } from "../../../lib/contractors";
 import { normalizeDt } from "../../../lib/modulacionStorage";
-import { dateKey, loadDailySummary, type DailyContractorSummary } from "../../../lib/n8nDailySummary";
+import { amount, dateKey, loadDailySummary, type DailyContractorSummary } from "../../../lib/n8nDailySummary";
 import { escapeHtml } from "../../../lib/n8nWebhook";
 
 export async function POST(request: Request) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     if (!record || dateKey(record.fechaDespacho || record.fechaDt || record.createdAt) !== date) continue;
     const person = String(record.personaNombre || record.persona || "").trim();
     if (!person) continue;
-    const boxes = Number(String(record.totalCajas || 0).replace(/\./g, "").replace(",", "."));
+    const boxes = amount(record.totalCajas);
     const key = `${normalizeContractorName(row.contractor)}:${person.toLowerCase()}`;
     const current = byPerson.get(key) || { name: person, boxes: 0, contractor: row.contractor, dt: record.dt, vehicle: "" };
     current.boxes += Number.isFinite(boxes) ? boxes : 0;

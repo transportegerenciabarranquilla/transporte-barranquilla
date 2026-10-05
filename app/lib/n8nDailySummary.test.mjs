@@ -9,9 +9,10 @@ new Function("require", "module", "exports", source)(name => {
   if (name === "./contractors") return { normalizeContractorName: value => String(value || "").toLowerCase().replace(/[^a-z]/g, "") };
   if (name === "./modulacionStorage") return { calculateRefusalTotals: vehicles => ({ cajasSeguimiento: vehicles.reduce((sum, item) => sum + item.cajas, 0), pendientes: vehicles.reduce((sum, item) => sum + item.cajasRefusalFinal, 0) }) };
   if (name === "./supabaseServer") return {};
+  if (name === "../seguimiento/utils") return { normalizeCajasValue: value => value, normalizeCajasTotal: value => Math.round(value) };
   throw new Error(name);
 }, loaded, loaded.exports);
-const { calculateDailySummary, dateKey } = loaded.exports;
+const { amount, calculateDailySummary, dateKey } = loaded.exports;
 const day = "2026-10-05";
 
 test("resume seguimiento, refusal y rango por contratista y pondera los totales", () => {
@@ -31,4 +32,10 @@ test("resume seguimiento, refusal y rango por contratista y pondera los totales"
   assert.deepEqual(result.total.range, { percentage: 66.67, inRange: 2, started: 3, outside: 1 });
   assert.equal(result.contractors[2].range, null);
   assert.equal(dateKey("5/10/2026"), day);
+});
+
+test("conserva decimales numéricos sin multiplicar las cajas por mil", () => {
+  assert.equal(amount(6434.598), 6434.598);
+  assert.equal(amount("6.434,598"), 6434.598);
+  assert.equal(amount("6434.598"), 6434.598);
 });

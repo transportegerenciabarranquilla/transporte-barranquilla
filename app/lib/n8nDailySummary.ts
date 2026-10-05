@@ -3,6 +3,7 @@ import type { PuntoCoronaRouteReport } from "./puntoCoronaRoutesStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { calculateRefusalTotals, type ModulacionRegistro } from "./modulacionStorage";
 import { supabaseAdminHeaders, supabaseRest } from "./supabaseServer";
+import { normalizeCajasTotal, normalizeCajasValue } from "../seguimiento/utils";
 
 const CONTRACTORS = ["Logisticos", "Surti Cervezas", "HL Logisticos"] as const;
 type DbRow<T> = { contractor: string; data: T | null; updated_at: string };
@@ -20,7 +21,15 @@ export function dateKey(value: unknown) {
   const legacy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   return legacy ? `${legacy[3].length === 2 ? `20${legacy[3]}` : legacy[3]}-${legacy[2].padStart(2, "0")}-${legacy[1].padStart(2, "0")}` : "";
 }
-function amount(value: unknown) { const parsed = Number(String(value ?? 0).replace(/\./g, "").replace(",", ".")); return Number.isFinite(parsed) ? parsed : 0; }
+export function amount(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const raw = String(value ?? "").trim().replace(/\s/g, "");
+  if (!raw) return 0;
+  const decimalSeparator = raw.lastIndexOf(",") > raw.lastIndexOf(".") ? "," : ".";
+  const normalized = decimalSeparator === "," ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 function percent(part: number, total: number) { return total ? Number((part / total * 100).toFixed(2)) : 0; }
 
 export function calculateDailySummary(
@@ -44,12 +53,12 @@ export function calculateDailySummary(
     const routeValues = [...routes.values()];
     const clients = routeValues.reduce((sum, route) => sum + amount(route.clientes), 0);
     const visited = routeValues.reduce((sum, route) => sum + amount(route.visitados), 0);
-    const refusal = calculateRefusalTotals(routeValues.map(route => ({ ...route, cajas: amount(route.cajas) })), modulations, checkins, {
+    const refusal = calculateRefusalTotals(routeValues.map(route => ({ ...route, cajas: normalizeCajasValue(amount(route.cajas)) })), modulations, checkins, {
       getVehicleDate: route => dateKey((route as Vehiculo).fechaDespacho || (route as Vehiculo).fechaDt || (route as Vehiculo).date || (route as Vehiculo).createdAt),
       getModulationDate: record => dateKey(record.fechaDespacho || record.fechaDt || record.createdAt),
     });
-    const boxes = refusal.cajasSeguimiento;
-    const pending = refusal.pendientes;
+    const boxes = normalizeCajasTotal(refusal.cajasSeguimiento);
+    const pending = normalizeCajasTotal(refusal.pendientes);
     const reports = rangeRows.filter(row => normalizeContractorName(row.contractor) === key && row.data?.operationalDate === day);
     const latest = reports.find(row => row.data?.kind === "closure") || reports[0];
     const started = latest?.data?.rows.filter(row => row.status !== "NOT_STARTED") || [];
