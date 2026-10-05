@@ -10,5 +10,5 @@ export function skinetRouteAnswer(record: Vehiculo, context: SkinetContext) {
   const departure = `Salida: ${record.horaSalida || "sin registrar"}`;
   const arrival = `Llegada: ${record.horaLlegada || "sin registrar"}`;
   const fields = { rr, plate, status, crew, departure, arrival };
-  return `${label}. ${context.routeField ? fields[context.routeField] : `${rr}. ${plate}. ${status}. ${departure}. ${arrival}`}.`;
+  return `${label}. ${context.routeField ? fields[context.routeField] : `${rr}. ${crew}. ${plate}. ${status}. ${departure}. ${arrival}`}.`;
 }

@@ -18,6 +18,23 @@ const day = "2026-10-05";
 const row = { id: "a", dt: "123", truckLicensePlate: "ABC123", driverName: "Ana", status: "CONCLUDED", withinRadius: true, pocExternalId: "1", pocName: "Tienda Uno" };
 const report = { contractor: "Logisticos", operationalDate: day, kind: "current", uploadedAt: `${day}T12:00:00Z`, rows: [row, { ...row, id: "b", pocExternalId: "2", withinRadius: false, manualOutOfRadiusReason: "Reubicación" }] };
 const data = { summaries: [{ contractor: "Logisticos" }], rangeReports: [report], records: [{ transportista: "Logisticos", transporte: "123", vehiculo: "ABC123", nombreResponsable: "Ana", status: "En ruta", clientes: 10, visitados: 5, cajas: 20, horaSalida: "08:00" }] };
+test("busca personas en responsables y auxiliares y pide aclaración de nombres repetidos", () => {
+  const crew = { ...data, records: [{ ...data.records[0], nombreAuxiliar1: "Juan Pérez", cedulaAuxiliar1: "123456" }] };
+  for (const question of ["busca a Juan Pérez", "dónde va Juan Pérez", "busca la persona Juan Pérez", "persona cédula 123456"]) {
+    const context = understandSkinet(question, day).context;
+    assert.equal(context.person, true);
+    assert.equal(understandSkinet(question, day).prompt, undefined);
+    assert.match(answerSkinet(question, crew, day).answer, /DT 123/);
+  }
+  assert.match(answerSkinet("persona Juan Pérez", crew, day).answer, /Juan Pérez/);
+  assert.match(answerSkinet("persona Pedro", crew, day).answer, /No encontré rutas de esa persona/);
+  const repeated = { ...crew, records: [...crew.records, { ...crew.records[0], transporte: "999", nombreAuxiliar1: "Juan Gómez", cedulaAuxiliar1: "987654" }] };
+  assert.equal(answerSkinet("busca a Juan", repeated, day).clarify, true);
+  assert.match(answerSkinet("busca a Juan Pérez", repeated, day).answer, /DT 123/);
+  assert.doesNotMatch(answerSkinet("busca a Juan Pérez", repeated, day).answer, /DT 999/);
+  assert.match(answerSkinet("busca el DT-123", crew, day).answer, /DT 123/);
+  assert.equal(isSkinetQuestion("busca el DT 123"), true);
+});
 test("preguntar por seguimiento reemplaza rango y lee el avance real", () => {
   const previous = understandSkinet("entrega en rango de Logisticos", day).context;
   for (const question of ["cómo va el seguimiento", "como el seguimiento", "pilla mijo dime el seguimiento"]) {

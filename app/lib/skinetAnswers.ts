@@ -70,15 +70,29 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if (!contractors.length) return { answer: "No tengo datos de esa contratista dentro del alcance de tu sesión." };
   const permitted = new Set(contractors.map(normalizeContractorName));
   let records = (data.records || []).filter(record => permitted.has(normalizeContractorName(record.transportista)));
+  let personName = context.rr || "";
   if (context.rr) {
     const query = normalizeSkinet(context.rr);
-    records = records.filter(record => /^\d+$/.test(query)
-      ? String(record.cedulaResponsable || "").replace(/\D/g, "") === query
-      : normalizeSkinet(record.nombreResponsable || record.responsable || "").split(/\s+/).filter(Boolean).length > 0
-        && query.split(/\s+/).every(word => normalizeSkinet(record.nombreResponsable || record.responsable || "").split(/\s+/).includes(word)));
-    const matches = new Set(records.map(record => `${normalizeContractorName(record.transportista)}:${record.cedulaResponsable || normalizeSkinet(record.nombreResponsable || record.responsable || "")}`));
-    if (matches.size > 1) return { answer: "Encontré varios RR con ese nombre. Indica el nombre completo, la cédula o la contratista.", clarify: true };
-    if (!records.length) return { answer: `No encontré rutas de ese RR ${context.period} dentro del alcance de tu sesión.` };
+    const people = (record: Vehiculo) => [
+      { name: record.nombreResponsable || record.responsable || "", id: record.cedulaResponsable },
+      ...(context.person ? [
+        { name: record.nombreAuxiliar1 || "", id: record.cedulaAuxiliar1 },
+        { name: record.nombreAuxiliar2 || "", id: record.cedulaAuxiliar2 },
+        { name: record.nombreAuxiliar3 || "", id: record.cedulaAuxiliar3 },
+      ] : []),
+    ];
+    const matchesQuery = (person: ReturnType<typeof people>[number]) => /^\d+$/.test(query)
+      ? String(person.id || "").replace(/\D/g, "") === query
+      : Boolean(person.name) && query.split(/\s+/).every(word => normalizeSkinet(person.name).split(/\s+/).includes(word));
+    const matches = new Map<string, string>();
+    records = records.filter(record => {
+      const found = people(record).filter(matchesQuery);
+      for (const person of found) matches.set(`${normalizeContractorName(record.transportista)}:${person.id || normalizeSkinet(person.name)}`, person.name);
+      return found.length > 0;
+    });
+    if (matches.size > 1) return { answer: `Encontré ${context.person ? "varias personas" : "varios RR"} con ese nombre: ${[...matches.values()].slice(0, 5).join(", ")}. Indica el nombre completo, la cédula o la contratista.`, clarify: true };
+    if (!records.length) return { answer: `No encontré rutas de ${context.person ? "esa persona" : "ese RR"} ${context.period} dentro del alcance de tu sesión.` };
+    personName = [...matches.values()][0] || personName;
   }
   let modulations = (data.modulations || []).filter(record => permitted.has(normalizeContractorName(record.contratista))
     && modulationDay(record) === day);
@@ -100,7 +114,7 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if ((dt || context.plate) && !named && new Set([...records.map(row => normalizeContractorName(row.transportista)), ...range.rows.map(row => normalizeContractorName(row.contractor))]).size > 1) return { answer: "Ese DT o placa aparece en varias contratistas. Indica la contratista y sede que quieres consultar.", clarify: true };
   const contractorLabel = named ? contractors[0] === "HL Logisticos" ? "HL" : contractors[0] : site ? `la operación de ${site}` : "la operación";
   const period = context.period;
-  const label = `${dt ? `el DT ${dt} de ` : context.plate ? `la placa ${context.plate} de ` : context.rr ? `el RR ${records[0]?.nombreResponsable || records[0]?.responsable || context.rr} de ` : ""}${contractorLabel}`;
+  const label = `${dt ? `el DT ${dt} de ` : context.plate ? `la placa ${context.plate} de ` : context.rr ? `${context.person ? "la persona" : "el RR"} ${personName} de ` : ""}${contractorLabel}`;
   const boxes = records.reduce((sum, record) => sum + number(record.cajas), 0);
   const pending = records.reduce((sum, record) => sum + number(record.cajasRefusalFinal), 0);
   const refusal = boxes ? `El refusal de ${label} ${period} va en ${format(pending / boxes * 100)} por ciento. Son ${format(pending)} cajas pendientes de ${format(boxes)} cajas de salida.`

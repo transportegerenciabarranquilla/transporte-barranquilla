@@ -7,6 +7,7 @@ export type SkinetContext = {
   dt?: string;
   plate?: string;
   rr?: string;
+  person?: boolean;
   routeField?: "rr" | "plate" | "crew" | "departure" | "arrival" | "status";
   outsideRange?: boolean;
   day: string;
@@ -47,7 +48,7 @@ export function skinetMetrics(text: string): SkinetMetric[] {
   if (/\bsali[do][a-z]*\b|salieron|despachad[a-z]*|pendientes por salir/.test(value) && !/\bcajas\b|hora|cuando/.test(value)) metrics.push("departures");
   if (/\bcajas\b|carga total/.test(value) && !metrics.length) metrics.push("boxes");
   if (/\brutas\b|vehiculos|camiones|carros/.test(value) && !metrics.length) metrics.push("routes");
-  if (/estado|placa|responsable|conductor|tripulacion|auxiliar|hora|detalle|informacion|\bdt\b|\bruta\s+(?:numero\s*)?\d/.test(value) && !metrics.length) metrics.push("status");
+  if (/estado|placa|responsable|conductor|tripulacion|auxiliar|\bpersona\b|hora|detalle|informacion|\bdt\b|\bruta\s+(?:numero\s*)?\d/.test(value) && !metrics.length) metrics.push("status");
   if (/\bseguimiento\b/.test(value) && !metrics.length) metrics.push("tracking");
   if (/resumen|balance|reporte|seguimiento|operacion|avance general|como (?:va|vamos|esta)/.test(value) && !metrics.length) metrics.push("summary");
   return metrics;
@@ -97,7 +98,7 @@ export function understandSkinet(question: string, today: string, previous?: Ski
   if (/\bsurti\b/.test(text)) families.push("surti");
   const site = /arenosa|barranquilla/.test(text) ? "Arenosa" : /galapa/.test(text) ? "Galapa" : undefined;
   const all = /tod[oa]s (?:l[oa]s )?(?:contratistas|sedes|empresas)|\bgeneral\b|\bglobal\b|toda la operacion|^(?:y\s+)?(?:de\s+)?tod[oa]s[\s.!?]*$/.test(text);
-  const route = text.match(/\b(?:dt|ruta|transporte)\s*(?:numero\s*)?([\d][\d\s]*)/);
+  const route = text.match(/\b(?:dt|ruta|transporte)\s*[-:]?\s*(?:numero\s*)?([\d][\d\s]*)/);
   const bareRoute = previous?.metrics.includes("status") ? text.match(/^\s*(?:el\s+|numero\s+)?(\d[\d\s]*)[.!?]*$/)?.[1] : undefined;
   const spokenDigits = text.match(/\b(?:dt|ruta|transporte)\s+(?:numero\s+)?((?:(?:cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\s*)+)\b/)?.[1];
   const digits = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"];
@@ -107,13 +108,17 @@ export function understandSkinet(question: string, today: string, previous?: Ski
   const plate = plateMatch?.slice(1).join("").toUpperCase();
   const rr = text.match(/\b(?:rr|responsable)\s+(?:con\s+cedula\s+|cedula\s+)?(\d+|[a-z]+(?:\s+[a-z]+)*)/)?.[1]
     ?.split(/\s+(?:de|del|hoy|ayer|dia|en|para|tiene|lleva|esta)\b/)[0].trim();
-  const rrSearch = rr && !/^(?:de|del|que|es|tiene|esta|hoy|ayer)\b/.test(rr) ? rr : undefined;
+  const personQuery = text.match(/\b(?:persona|conductor|auxiliar|busca(?:me)?\s+a|donde\s+(?:va|esta)|como\s+va)\s+(?:(?:el|la)\s+)?(?:con\s+cedula\s+|cedula\s+)?(\d+|[a-z]+(?:\s+[a-z]+)*)/)?.[1]
+    ?.split(/\s+(?:de|del|hoy|ayer|dia|en|para|tiene|lleva|esta)\b/)[0].trim();
+  const validPerson = personQuery && !/^(?:el|la|de|del|que|es|tiene|esta|hoy|ayer|seguimiento|entrega|rango|refusal|modulacion|operacion|avance|dt|ruta|placa|hl|logisticos|corona|surti)\b/.test(personQuery) ? personQuery : undefined;
+  const rrSearch = rr && !/^(?:de|del|que|es|tiene|esta|hoy|ayer)\b/.test(rr) ? rr : validPerson;
   const routeField = /\brr\b|responsable/.test(text) ? "rr"
     : /placa/.test(text) ? "plate" : /auxiliar|tripulacion/.test(text) ? "crew"
     : /hora.*sali|cuando salio/.test(text) ? "departure"
     : /hora.*llega|cuando llego/.test(text) ? "arrival"
     : /\bestado\b/.test(text) ? "status" : undefined;
   const metrics = skinetMetrics(text);
+  if (rrSearch && !metrics.length) metrics.push("status");
   const aggregate = metrics.includes("maxBoxes") || metrics.includes("rangeVehicles");
   const topicChanged = Boolean(previous?.metrics.length && metrics.length && metrics[0] !== previous.metrics[0]
     && !/\b(?:ese|esa|mismo|misma|anterior|tambien|también)\b/.test(text));
@@ -128,13 +133,14 @@ export function understandSkinet(question: string, today: string, previous?: Ski
     dt: dt || (topicChanged || aggregate || rrSearch || plate || all || changedContractor || (site && site !== previous?.site) ? undefined : previous?.dt),
     plate: plate || (topicChanged || aggregate || rrSearch || dt || all || changedContractor || (site && site !== previous?.site) ? undefined : previous?.plate),
     rr: rrSearch || (topicChanged || aggregate || dt || plate || all || changedContractor ? undefined : previous?.rr),
+    person: rrSearch ? Boolean(validPerson && !rr) : topicChanged || aggregate || dt || plate || all || changedContractor ? undefined : previous?.person,
     routeField,
     outsideRange: /fuera (?:de|del) (?:rango|radio)/.test(text) ? true : /(?:en|dentro del?) rango/.test(text) ? false : metrics.includes("range") ? undefined : previous?.outsideRange,
     day: date?.day || previous?.day || today,
     period: date?.period || (previous?.day && previous.day !== today ? `el ${previous.day}` : "hoy"),
   };
   if (/\b(mes|semana|historico|historial)\b/.test(text)) return { context, prompt: "Por ahora consulto un día a la vez. Dime hoy, ayer o la fecha que quieres revisar." };
-  if (!metrics.length && !families.length && !site && !dt && !plate && !date && !all
+  if (!metrics.length && !families.length && !site && !dt && !plate && !rrSearch && !date && !all
     && !/\b(cuant[oa]s?|lo mismo|repite|otra vez)\b/.test(text)) {
     return { context, prompt: "No capté qué dato necesitas. Puedes preguntar por entrega en rango, refusal, modulación, cajas, clientes, DT o placa." };
   }
