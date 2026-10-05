@@ -72,6 +72,7 @@ export default function PuntoCoronaPage() {
   const [message, setMessage] = useState("");
   const [downloadError, setDownloadError] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [importStage, setImportStage] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
   const [selectedRangeDetail, setSelectedRangeDetail] = useState<RangeDetail | null>(null);
@@ -168,16 +169,19 @@ export default function PuntoCoronaPage() {
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || isImporting) return;
 
     setIsImporting(true);
     setMessage("");
 
     try {
+      setImportStage("Verificando sesión…");
+      await getRangoSession(contractor);
       // Algunas filas historicas tienen desalineadas la columna tecnica
       // contractor y data.transportista. Se conserva el seguimiento visible
       // y se combina con la respuesta fresca para no perder DT validos.
       const visibleSeguimiento = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
+      setImportStage("Consultando seguimiento…");
       await refreshRemoteRecords("/api/seguimiento", { force: true });
       const refreshedSeguimiento = filterVehiclesByContractor(loadSeguimientoVehiculos(), contractor);
       const seguimientoByDt = new Map<string, Vehiculo>();
@@ -186,6 +190,7 @@ export default function PuntoCoronaPage() {
         if (dt) seguimientoByDt.set(dt, vehicle);
       });
       const seguimientoContratista = Array.from(seguimientoByDt.values());
+      setImportStage("Leyendo archivo…");
       const parsedReport = await parsePuntoCoronaRouteFile(file, seguimientoContratista, contractor);
       const existingReport =
         reports.find((item) =>
@@ -194,9 +199,18 @@ export default function PuntoCoronaPage() {
           item.kind === "current"
         ) ?? null;
       const report = mergePuntoCoronaRouteReports(existingReport, parsedReport);
+      setImportStage("Guardando reporte…");
       const [savedReport = report] = await savePuntoCoronaRouteReports([report]);
-      const clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, savedReport);
       setSelectedDate(savedReport.operationalDate);
+      setImportStage("Sincronizando clientes…");
+      setMessage("El reporte de rango ya quedó guardado. Sincronizando los clientes de Seguimiento…");
+      let clientSync: { updated: number };
+      try {
+        clientSync = await updateSeguimientoClientsFromBees(seguimientoContratista, savedReport);
+      } catch (error) {
+        setMessage(`Archivo cargado y guardado. No se pudo sincronizar Seguimiento: ${error instanceof Error ? error.message : "Intenta actualizar Seguimiento nuevamente."}`);
+        return;
+      }
       const syncMessage = seguimientoContratista.length
         ? `Se cruzaron ${savedReport.summary.matchedDts} DT del seguimiento actual y se actualizaron clientes en ${clientSync.updated} DT.`
         : "No habia seguimiento cargado; se guardo el reporte sin cruce de clientes.";
@@ -205,6 +219,7 @@ export default function PuntoCoronaPage() {
       setMessage(error instanceof Error ? error.message : "No se pudo cargar el archivo.");
     } finally {
       setIsImporting(false);
+      setImportStage("");
     }
   }
 
@@ -354,7 +369,7 @@ export default function PuntoCoronaPage() {
               type="button"
             >
               <Upload className="h-4 w-4" />
-              {isImporting ? "Cargando" : "Subir archivo"}
+              {isImporting ? importStage || "Preparando carga…" : "Subir archivo"}
             </button>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
@@ -1500,16 +1515,19 @@ async function updateSeguimientoClientsFromBees(vehicles: Vehiculo[], report: Pu
 
     const clientes = Math.max(Number(vehicle.clientes || 0), stats.clientes);
     const visitados = Math.max(Number(vehicle.visitados || 0), stats.visitados);
+    const nextVisitados = Math.min(visitados, clientes || visitados);
+    if (clientes === Number(vehicle.clientes || 0) && nextVisitados === Number(vehicle.visitados || 0)) return vehicle;
     updated += 1;
     return {
       ...vehicle,
       clientes,
-      visitados: Math.min(visitados, clientes || visitados),
+      visitados: nextVisitados,
     };
   });
 
   if (updated) {
-    await saveSeguimientoVehiculos(prepareSeguimientoVehicles(nextVehicles));
+    const changedVehicles = nextVehicles.filter((vehicle, index) => vehicle !== vehicles[index]);
+    await saveSeguimientoVehiculos(prepareSeguimientoVehicles(changedVehicles));
   }
 
   return { updated };

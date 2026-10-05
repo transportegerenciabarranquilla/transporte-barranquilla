@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./portal.module.css";
 import { Truck, PackageCheck, Clock3, Users, Route, CalendarCheck, Timer, BriefcaseBusiness, Star, ChartColumn, ClipboardCheck, Phone, MapPinned, MessageSquareWarning, ReceiptText, BedDouble, LayoutGrid, Sun, Moon, type LucideIcon } from "lucide-react";
 import { Icon } from "./Icon";
@@ -27,7 +27,12 @@ export function PortalDashboard({
   contractor?: string;
 }) {
   const router = useRouter();
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
+  useEffect(() => {
+    const resetTheme = () => setDarkMode(false);
+    window.addEventListener("pageshow", resetTheme);
+    return () => window.removeEventListener("pageshow", resetTheme);
+  }, []);
   const visibleModules = getVisiblePortalModules({ contractor, isAdmin, isPeople });
   const sessionLabel = getPortalSessionLabel({ contractor, isAdmin, isPeople });
   const reportsModule = visibleModules.find(module => [19, 10].includes(module.id));
@@ -51,6 +56,7 @@ export function PortalDashboard({
         aria-label={"Abrir " + module.title}
         key={module.id}
         onClick={() => {
+          setDarkMode(false);
           // Load a new document to receive the camera or microphone policy.
           if (module.href === "/descanso-efectivo" || module.href === "/admin" || module.href.startsWith("/admin/")) window.location.assign(module.href);
           else router.push(module.href);
@@ -88,7 +94,9 @@ export function PortalDashboard({
   }
 
   return (
-    <main className={styles.portal} data-theme={darkMode ? "dark" : "light"}>
+    <main className={styles.portal} data-theme={darkMode ? "dark" : "light"} onClickCapture={event => {
+      if ((event.target as Element).closest('a[href^="/"]')) setDarkMode(false);
+    }}>
       <aside className={styles.rail} aria-label="Navegación del portal">
         <a className={styles.railMenu} href="#portal-operation" aria-label="Ir al inicio"><LayoutGrid size={17} /></a>
         <nav>

@@ -1,8 +1,18 @@
 import { CONTRACTORS, normalizeContractorName } from "./contractors";
 
 export async function getRangoSession(expectedContractor?: string) {
-  const response = await fetch("/api/session/session", { cache: "no-store" });
-  const body = await response.json().catch(() => ({}));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  let body;
+  try {
+    response = await fetch("/api/session/session", { cache: "no-store", signal: controller.signal });
+    body = await response.json().catch(() => ({}));
+    if (controller.signal.aborted) throw new Error("Tiempo agotado.");
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("La verificación de sesión tardó demasiado. Revisa la conexión e intenta nuevamente.");
+    throw error;
+  } finally { clearTimeout(timeout); }
   if (!response.ok) {
     throw new Error(response.status === 401
       ? "La sesión terminó. Vuelve al portal e inicia sesión con tu contratista."

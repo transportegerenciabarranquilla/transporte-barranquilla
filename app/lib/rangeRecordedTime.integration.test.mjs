@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
 import { createRequire } from "node:module";
+import { gzipSync, gunzipSync } from "node:zlib";
 const require = createRequire(import.meta.url);
 function compile(relative, overrides) {
   const path = new URL(relative, import.meta.url);
@@ -39,7 +40,10 @@ test("PUT guarda la primera hora del servidor y la conserva al cerrar; rechaza s
   globalThis.fetch = async (url, options) => {
     assert.equal(options.cache, "no-store");
     const parsed = new URL(url);
-    if (parsed.pathname === "/seguimiento_vehiculos") return Response.json([{ contractor: session.contractor, data: { transporte: "123" } }]);
+    if (parsed.pathname === "/seguimiento_vehiculos") {
+      assert.equal(parsed.searchParams.get("select"), "contractor,transporte:data->>transporte,transportista:data->>transportista");
+      return Response.json([{ contractor: session.contractor, transporte: "123" }]);
+    }
     assert.equal(parsed.searchParams.get("contractor"), `eq.${session.contractor}`);
     return Response.json([...stored.values()].slice(Number(parsed.searchParams.get("offset"))));
   };
@@ -56,6 +60,15 @@ test("PUT guarda la primera hora del servidor y la conserva al cerrar; rechaza s
     assert.ok(Date.parse(stamp) <= Date.now());
     assert.equal(first.body.records[0].rows[0].outOfRadiusRecordedSource, "system");
     assert.equal((await put(report)).body.records[0].rows[0].outOfRadiusRecordedAt, stamp);
+    const compressed = await route.PUT(new Request("https://test.local", {
+      method: "PUT", headers: { "Content-Type": "application/gzip" },
+      body: gzipSync(JSON.stringify({ records: [report] })),
+    }));
+    assert.equal(compressed.status, 200);
+    assert.equal(compressed.headers.get("Content-Encoding"), "gzip");
+    const confirmed = JSON.parse(gunzipSync(Buffer.from(await compressed.arrayBuffer())).toString());
+    assert.equal(confirmed.records[0].contractor, "Surti Cervezas");
+    assert.equal(confirmed.records[0].rows[0].outOfRadiusRecordedAt, stamp);
     const closure = await put({ ...report, id: "closure", kind: "closure" });
     assert.equal(closure.body.records[0].rows[0].outOfRadiusRecordedAt, stamp);
     session = null;

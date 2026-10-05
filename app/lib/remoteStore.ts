@@ -137,7 +137,7 @@ export function waitForRemoteSaves(endpoint: string) {
 export function saveRemoteRecords<T>(
   endpoint: string,
   records: T[],
-  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH"; prepareRecords?: (current: T[]) => T[] } = {},
+  options: { extraBody?: Record<string, unknown>; mergeByKey?: (record: T) => string; method?: "PUT" | "PATCH"; prepareRecords?: (current: T[]) => T[]; encodeBody?: (json: string) => Promise<{ body: BodyInit; contentType: string }> } = {},
 ) {
   const mutationVersion = (mutationVersions.get(endpoint) || 0) + 1;
   const generation = cacheGeneration;
@@ -150,15 +150,23 @@ export function saveRemoteRecords<T>(
     cache.set(endpoint, options.mergeByKey ? mergeCachedRecords(previousRecords as T[] | undefined, records, options.mergeByKey) : records);
     notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
 
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      const json = JSON.stringify(options.method === "PATCH" ? options.extraBody : { records, ...options.extraBody });
+      const payload = options.encodeBody ? await options.encodeBody(json) : { body: json, contentType: "application/json" };
+      if (generation !== cacheGeneration) throw new Error("La sesión cambió. Recarga antes de guardar.");
+      timeout = setTimeout(() => controller.abort(), 60_000);
       const response = await fetch(endpoint, {
         method: options.method || "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(options.method === "PATCH" ? options.extraBody : { records, ...options.extraBody }),
+        headers: { "Content-Type": payload.contentType },
+        body: payload.body,
         cache: "no-store",
+        signal: controller.signal,
       });
 
       const body = await response.json().catch(() => ({}));
+      if (controller.signal.aborted) throw new Error("Tiempo de guardado agotado.");
 
       if (!response.ok) {
         if (response.status === 401 && shouldRedirectOnUnauthorized()) window.location.assign("/");
@@ -200,7 +208,12 @@ export function saveRemoteRecords<T>(
         notifyStorageChange(ENDPOINT_STORAGE_KEYS[endpoint]);
       }
 
+      if (controller.signal.aborted) {
+        throw new Error("El servidor no confirmó el guardado en 60 segundos. Recarga y comprueba si el reporte quedó guardado antes de volver a subirlo.");
+      }
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   });
 

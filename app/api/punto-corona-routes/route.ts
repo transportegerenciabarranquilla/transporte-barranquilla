@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readRangeUpload, rangeUploadResponse } from "../../lib/rangeUploadServer";
 import { scopedWrite } from "../../lib/scopedWrite";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
@@ -45,7 +46,10 @@ export async function PUT(request: Request) {
     if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
     if (!canUseRangoModule(session)) return NextResponse.json({ error: "Modulo exclusivo para contratistas." }, { status: 403 });
 
-    const { records: submittedRecords } = (await request.json()) as { records: PuntoCoronaRouteReport[] };
+    let payload;
+    try { payload = await readRangeUpload(request); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Archivo inválido." }, { status: 400 }); }
+    const { records: submittedRecords } = (payload || {}) as { records: PuntoCoronaRouteReport[] };
     if (!Array.isArray(submittedRecords)) return NextResponse.json({ error: "records debe ser una lista." }, { status: 400 });
     const currentRecords = submittedRecords.filter((record) => record.kind !== "closure");
     const closureRecords = submittedRecords.filter((record) => record.kind === "closure");
@@ -73,6 +77,7 @@ export async function PUT(request: Request) {
         if (!batch.length) break;
         persisted.push(...batch);
         offset += batch.length;
+        if (batch.length < 100) break;
       }
     }
     const savedAt = new Date().toISOString();
@@ -115,7 +120,10 @@ export async function PUT(request: Request) {
       });
     }
 
-    return NextResponse.json({ records: rows.map((row) => row.data), ignoredDts });
+    const result = { records: rows.map((row) => row.data), ignoredDts };
+    return request.headers.get("Content-Type")?.split(";")[0] === "application/gzip"
+      ? rangeUploadResponse(result, request)
+      : NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error guardando reportes de rango." }, { status: 500 });
   }
@@ -228,7 +236,8 @@ async function fetchSeguimientoDts(contractor: string, accessToken: string) {
 
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const params = new URLSearchParams({
-      select: "contractor,data",
+      select: "contractor,transporte:data->>transporte,transportista:data->>transportista",
+      order: "record_id.asc",
       limit: String(PAGE_SIZE),
       offset: String(offset),
     });
@@ -238,14 +247,14 @@ async function fetchSeguimientoDts(contractor: string, accessToken: string) {
     });
     if (!response.ok) throw new Error(await supabaseError(response));
 
-    const rows = (await response.json()) as Array<{ contractor?: string; data?: { transporte?: string | number; transportista?: string } }>;
+    const rows = (await response.json()) as Array<{ contractor?: string; transporte?: string | number; transportista?: string }>;
     rows.forEach((row) => {
       // Hay filas historicas en las que solo uno de los dos campos conserva
       // la contratista correcta. Cualquiera de ellos puede acreditar que el
       // DT pertenece a la operacion de la sesion.
-      const contractorKeys = [row.data?.transportista, row.contractor].map(normalizeContractorName);
+      const contractorKeys = [row.transportista, row.contractor].map(normalizeContractorName);
       if (!contractorKeys.includes(contractorKey)) return;
-      const dt = normalizeDt(row.data?.transporte);
+      const dt = normalizeDt(row.transporte);
       if (dt) dts.add(dt);
     });
     if (rows.length < PAGE_SIZE) break;

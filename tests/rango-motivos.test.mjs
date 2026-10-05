@@ -12,7 +12,9 @@ function compile(path, mocks = {}) {
   const mod = { exports: {} };
   new Function('require', 'module', 'exports', code)((name) => {
     if (name in mocks) return mocks[name];
-    if (name === 'react/jsx-runtime') return require(name);
+    if (name === 'react/jsx-runtime' || name === 'node:zlib') return require(name);
+    if (name.endsWith('/rangeUploadServer')) return compile('../app/lib/rangeUploadServer.ts');
+    if (name.endsWith('/rangeUpload')) return compile('../app/lib/rangeUpload.ts');
     throw Error(`Import sin mock: ${name}`);
   }, mod, mod.exports);
   return mod.exports;

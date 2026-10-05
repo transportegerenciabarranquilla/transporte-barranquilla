@@ -1,5 +1,6 @@
 import { readRemoteRecords, saveRemoteRecords } from "./remoteStore";
 import { getRangoSession } from "./rangoSession";
+import { encodeRangeUpload } from "./rangeUpload";
 
 export const PUNTO_CORONA_ROUTES_STORAGE_KEY = "bavaria.punto-corona.routes";
 export const PUNTO_CORONA_CONTRACTOR = "Punto Corona";
@@ -97,7 +98,7 @@ export function readPuntoCoronaRouteReports() {
 }
 
 export function savePuntoCoronaRouteReports(records: PuntoCoronaRouteReport[]) {
-  return saveRemoteRecords("/api/punto-corona-routes", records, { mergeByKey: (record) => record.id });
+  return saveRemoteRecords("/api/punto-corona-routes", records, { mergeByKey: (record) => record.id, encodeBody: encodeRangeUpload });
 }
 
 export async function savePuntoCoronaRangeReason(reportId: string, rowId: string, reason: string, contractor: string) {
