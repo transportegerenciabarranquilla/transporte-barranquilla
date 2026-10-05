@@ -3,7 +3,6 @@ import { scopedWrite } from "../../lib/scopedWrite";
 import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
-import { escapeHtml, notifyN8n } from "../../lib/n8nWebhook";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
@@ -199,20 +198,6 @@ export async function PUT(request: Request) {
       request,
       session,
     });
-
-    const totalBoxes = records.reduce((sum, record) => sum + Number(record.totalCajas || 0), 0);
-    const byPerson = new Map<string, number>(); const byVehicle = new Map<string, number>();
-    for (const record of records) {
-      const person = String(record.personaNombre || record.persona || "Sin persona registrada").trim();
-      const vehicle = String((record as unknown as Record<string, unknown>).vehiculo || (record as unknown as Record<string, unknown>).placa || `DT ${record.dt}`).trim();
-      byPerson.set(person, (byPerson.get(person) || 0) + Number(record.totalCajas || 0));
-      byVehicle.set(vehicle, (byVehicle.get(vehicle) || 0) + Number(record.totalCajas || 0));
-    }
-    const top = (values: Map<string, number>) => [...values.entries()].sort((a, b) => b[1] - a[1])[0] || ["Sin dato", 0] as [string, number];
-    const [topPerson, topPersonBoxes] = top(byPerson); const [topVehicle, topVehicleBoxes] = top(byVehicle);
-    const date = String(records[0]?.fechaDespacho || records[0]?.fechaDt || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const emailHtml = `<div style="font-family:Arial,sans-serif;max-width:620px;color:#10213b"><div style="background:#0b2a4a;color:#fff;padding:22px 24px;border-radius:14px 14px 0 0"><div style="font-size:12px;letter-spacing:2px;color:#8ee8ff">TORRE CONTROL</div><h2 style="margin:8px 0 0">Resumen de modulación</h2><div style="margin-top:6px;color:#cfe8f5">${escapeHtml(contractor)} · ${escapeHtml(date)}</div></div><div style="padding:22px 24px;border:1px solid #dbe7ef;border-top:0;border-radius:0 0 14px 14px"><p>Se registraron <strong>${records.length}</strong> modulaciones y <strong>${totalBoxes.toLocaleString("es-CO")}</strong> cajas.</p><div style="padding:14px;background:#f0fdf4;border-radius:10px"><strong>Mayor afectación por persona</strong><br>${escapeHtml(topPerson)} · ${topPersonBoxes.toLocaleString("es-CO")} cajas</div><div style="margin-top:10px;padding:14px;background:#eff6ff;border-radius:10px"><strong>VH con mayor afectación</strong><br>${escapeHtml(topVehicle)} · ${topVehicleBoxes.toLocaleString("es-CO")} cajas</div><p style="color:#64748b;font-size:12px">Aviso automático de Seguimiento.</p></div></div>`;
-    await notifyN8n({ event: "modulacion_guardada", date, contractor: String(contractor), records: records.map(record => ({ dt: record.dt, person: record.personaNombre || record.persona, vehicle: (record as unknown as Record<string, unknown>).vehiculo || (record as unknown as Record<string, unknown>).placa || `DT ${record.dt}`, boxes: record.totalCajas })), summary: { totalModulations: records.length, totalBoxes, topPerson, topPersonBoxes, topVehicle, topVehicleBoxes }, emailHtml });
 
     if (isPublicSubmission || !session) return NextResponse.json({ records: rows.map((row) => toListRecord(row.data)) });
 
