@@ -45,7 +45,18 @@ export function skinetQuestionDate(question: string, today: string) {
 export function answerSkinet(question: string, data: SkinetData, day: string, resolvedContext?: SkinetContext): { answer: string; clarify?: boolean } {
   const understood = understandSkinet(question, day);
   if (!resolvedContext && understood.prompt) return { answer: understood.prompt };
-  const context = resolvedContext || understood.context;
+  // Una pregunta nueva de entrega en rango debe reemplazar el tema anterior.
+  // Esto evita que una conversación que venía hablando de refusal arrastre
+  // ese dato a la respuesta de rango.
+  const normalizedQuestion = normalizeSkinet(question);
+  const asksRange = /\b(?:entrega\s+en\s+rango|en\s+rango|dentro\s+del\s+rango|fuera\s+de\s+rango)\b/.test(normalizedQuestion);
+  const asksRefusal = /\brefusal\b|rechaz|devoluc/.test(normalizedQuestion);
+  const baseContext = resolvedContext || understood.context;
+  const context = asksRange && !asksRefusal
+    ? { ...baseContext, metrics: baseContext.metrics.filter(metric => metric !== "refusal" && metric !== "summary").includes("range")
+      ? baseContext.metrics.filter(metric => metric !== "refusal" && metric !== "summary")
+      : ["range" as const] }
+    : baseContext;
   const authorized = data.summaries?.map(summary => summary.contractor) || [];
   let contractors = authorized;
   const named = Boolean(context.contractor);
