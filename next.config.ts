@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["mespeak"],
+  outputFileTracingIncludes: {
+    "/api/admin/skinet-audio": ["./node_modules/mespeak/**/*"],
+  },
   async headers() {
     return [
       {

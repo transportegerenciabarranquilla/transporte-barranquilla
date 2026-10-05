@@ -10,6 +10,7 @@
     "test:rti": "node --experimental-strip-types --test app/personas/rti/rtiCalculation.test.ts"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@supabase/supabase-js": "^2.110.6",
     "@tanstack/react-query": "^5.104.1",
     "@types/leaflet": "^1.9.22",
@@ -26,6 +27,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^1.17.0",
     "maplibre-gl": "^6.0.0",
+    "mespeak": "^2.0.2",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",

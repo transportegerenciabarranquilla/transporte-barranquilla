@@ -5,168 +5,124 @@ import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { createModulationTracker, modulationAnnouncement } from "../../lib/skinetModulations";
 
 const AUDIO_SETTING_KEY = "tv-skainet-audio-enabled";
+const TEST_MESSAGE = "Skainet. El sonido del televisor está funcionando. Avisos de nuevas modulaciones activados.";
 
 export function TvModulationAnnouncements({ records, ready }: { records: ModulacionRegistro[]; ready: boolean }) {
   const tracker = useRef<ReturnType<typeof createModulationTracker> | null>(null);
-  const utterances = useRef(new Set<SpeechSynthesisUtterance>());
+  const audio = useRef<HTMLAudioElement | null>(null);
   const queue = useRef<string[]>([]);
-  const speaking = useRef(false);
-  const speakNextRef = useRef<() => void>(() => {});
+  const current = useRef("");
   const mutedRef = useRef(false);
-  const audioEnabledRef = useRef(true);
-  const userUnlockedRef = useRef(false);
-  const startTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [unsupported, setUnsupported] = useState(false);
+  const unlocked = useRef(false);
+  const generation = useRef(0);
+  const nextRef = useRef<() => void>(() => {});
   const [muted, setMuted] = useState(false);
-  const [blocked, setBlocked] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [message, setMessage] = useState("Audio MP3 de Skainet · No requiere micrófono");
 
-  const speakNext = useCallback(() => {
-    if (speaking.current || mutedRef.current || !audioEnabledRef.current) return;
-    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
-      setUnsupported(true);
-      return;
-    }
+  const playNext = useCallback(() => {
+    const player = audio.current;
+    if (!player || current.current || mutedRef.current) return;
     const text = queue.current.shift();
     if (!text) return;
-
-    speaking.current = true;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "es-CO";
-    utterance.volume = 1;
-    utterance.rate = 0.95;
-    const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find(voice => /^es[-_]CO$/i.test(voice.lang)) || voices.find(voice => /^es\b/i.test(voice.lang)) || null;
-    utterances.current.add(utterance);
-    utterance.onend = () => {
-      clearTimeout(startTimer.current);
-      utterances.current.delete(utterance);
-      speaking.current = false;
-      speakNextRef.current();
+    const version = ++generation.current;
+    current.current = text;
+    player.src = `/api/admin/skinet-audio?${new URLSearchParams({ text: text.slice(0, 700) })}`;
+    player.volume = 1;
+    const fail = (error: unknown) => {
+      if (generation.current !== version || !current.current) return;
+      queue.current.unshift(current.current);
+      current.current = "";
+      setMessage(error instanceof Error && error.name === "NotAllowedError"
+        ? "Pulsa Probar voz con el control remoto para activar el sonido."
+        : "No se pudo reproducir el MP3. Comprueba la conexión y pulsa Probar voz.");
     };
-    utterance.onstart = () => { clearTimeout(startTimer.current); setBlocked(false); };
-    utterance.onerror = event => {
-      clearTimeout(startTimer.current);
-      utterances.current.delete(utterance);
-      speaking.current = false;
-      if (event.error !== "canceled" && event.error !== "interrupted") {
-        queue.current.unshift(text);
-        setBlocked(true);
-      }
+    player.onerror = () => fail(new Error("Audio no disponible"));
+    player.onplaying = () => { if (generation.current === version) setMessage("Skainet está hablando · Audio del televisor activo"); };
+    player.onended = () => {
+      if (generation.current !== version) return;
+      current.current = "";
+      setMessage("Audio listo · Esperando nuevas modulaciones");
+      nextRef.current();
     };
-    window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-    startTimer.current = setTimeout(() => {
-      // Algunos televisores no emiten onerror cuando bloquean la voz.
-      utterance.onend = null;
-      utterance.onerror = null;
-      utterance.onstart = null;
-      window.speechSynthesis.cancel();
-      utterances.current.delete(utterance);
-      speaking.current = false;
-      queue.current.unshift(text);
-      setBlocked(true);
-    }, 5000);
+    // Comienza en el gesto del control remoto, sin esperar un fetch.
+    try {
+      const promise = player.play();
+      if (promise) void promise.catch(fail);
+    } catch (error) { fail(error); }
   }, []);
 
-  useEffect(() => {
-    speakNextRef.current = speakNext;
-  }, [speakNext]);
+  useEffect(() => { nextRef.current = playNext; }, [playNext]);
 
-  const enqueueSpeech = useCallback((texts: string[]) => {
-    if (!texts.length || mutedRef.current || !audioEnabledRef.current) return;
-    queue.current.push(...texts);
-    speakNext();
-  }, [speakNext]);
-
-  const enableAudio = useCallback((announce = false) => {
+  const testAudio = useCallback(() => {
+    unlocked.current = true;
     mutedRef.current = false;
-    audioEnabledRef.current = true;
-    setBlocked(false);
     setMuted(false);
-    setAudioEnabled(true);
-    try { window.localStorage.setItem(AUDIO_SETTING_KEY, "1"); } catch { /* Storage can be unavailable in private TV browsers. */ }
-    if (announce) enqueueSpeech(["Skainet. Avisos de nuevas modulaciones activados."]);
-    else speakNext();
-  }, [enqueueSpeech, speakNext]);
+    generation.current++;
+    audio.current?.pause();
+    if (current.current) queue.current.unshift(current.current);
+    current.current = "";
+    queue.current.unshift(TEST_MESSAGE);
+    try { localStorage.setItem(AUDIO_SETTING_KEY, "1"); } catch { /* El TV puede bloquear almacenamiento. */ }
+    playNext();
+  }, [playNext]);
 
   useEffect(() => {
-    const loadVoices = () => { window.speechSynthesis?.getVoices(); };
-    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
-    loadVoices();
-    return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
-  }, []);
-
-  useEffect(() => {
-    let stored = "";
-    try { stored = window.localStorage.getItem(AUDIO_SETTING_KEY) || ""; } catch { /* Ignore storage failures. */ }
-    if (stored !== "0") enableAudio(false);
-    else {
-      mutedRef.current = true;
-      setMuted(true);
-    }
-  }, [enableAudio]);
-
-  useEffect(() => {
-    mutedRef.current = muted;
-  }, [muted]);
-
-  useEffect(() => {
-    audioEnabledRef.current = audioEnabled;
-  }, [audioEnabled]);
-
-  useEffect(() => {
-    // Los navegadores de Smart TV suelen bloquear speechSynthesis hasta una
-    // interacción. Usamos la primera tecla o toque del control remoto para
-    // desbloquearlo y hacemos una prueba hablada en ese mismo gesto.
+    let disabled = false;
+    try { disabled = localStorage.getItem(AUDIO_SETTING_KEY) === "0"; } catch { /* Sin almacenamiento. */ }
+    mutedRef.current = disabled;
+    setMuted(disabled);
     const unlock = (event: Event) => {
-      if (mutedRef.current || (event.target instanceof Element && event.target.closest("[data-skainet-audio]"))) return;
-      if (userUnlockedRef.current) return;
-      userUnlockedRef.current = true;
-      enableAudio(true);
+      if (unlocked.current || mutedRef.current || (event.target instanceof Element && event.target.closest("[data-skainet-audio]"))) return;
+      testAudio();
     };
-    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("click", unlock);
     window.addEventListener("keydown", unlock);
     return () => {
-      clearTimeout(startTimer.current);
-      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("click", unlock);
       window.removeEventListener("keydown", unlock);
     };
-  }, [enableAudio]);
+  }, [testAudio]);
 
   useEffect(() => {
     if (!ready) return;
     tracker.current ??= createModulationTracker();
     const fresh = tracker.current(records);
-    enqueueSpeech(fresh.map(record => modulationAnnouncement(record)));
-  }, [records, ready, enqueueSpeech]);
+    if (mutedRef.current || !fresh.length) return;
+    queue.current.push(...fresh.map(modulationAnnouncement));
+    playNext();
+  }, [records, ready, playNext]);
 
   useEffect(() => {
-    const active = utterances.current;
+    const player = audio.current;
+    const playbackGeneration = generation;
     return () => {
-      clearTimeout(startTimer.current);
+      playbackGeneration.current++;
       queue.current = [];
-      speaking.current = false;
-      active.forEach(utterance => { utterance.onend = null; utterance.onerror = null; });
-      active.clear();
-      window.speechSynthesis?.cancel();
+      current.current = "";
+      if (player) {
+        player.onended = null;
+        player.onerror = null;
+        player.onplaying = null;
+        player.pause();
+        player.removeAttribute("src");
+        player.load();
+      }
     };
   }, []);
 
   return <div data-skainet-audio className="fixed bottom-2 right-3 z-50 max-w-sm rounded-lg border border-cyan-200 bg-white p-3 text-xs text-slate-800 shadow">
-    <p role="status" className="mb-2">{unsupported ? "Este navegador del televisor no admite voz. Abre el modo TV desde Chrome en un equipo conectado por HDMI." : blocked ? "El televisor bloqueó la voz. Pulsa Probar voz con el control remoto." : "Alertas de Skainet · No requieren micrófono"}</p>
-    <button type="button" className="mr-2 rounded border border-cyan-200 px-3 py-2 font-semibold" onClick={() => enableAudio(true)}>Probar voz</button>
+    <p role="status" className="mb-2">{muted ? "Avisos de Skainet silenciados" : message}</p>
+    <audio ref={audio} preload="none" aria-label="Audio de alertas de Skainet" />
+    <button type="button" className="mr-2 rounded border border-cyan-200 px-3 py-2 font-semibold" onClick={testAudio}>Probar voz</button>
     <button type="button" className="rounded border border-cyan-200 px-3 py-2 font-semibold" onClick={() => {
-    if (blocked || muted || !audioEnabled) {
-      enableAudio(true);
-    } else {
+      if (muted) { testAudio(); return; }
       mutedRef.current = true;
       setMuted(true);
-      try { window.localStorage.setItem(AUDIO_SETTING_KEY, "0"); } catch { /* Ignore storage failures. */ }
+      generation.current++;
       queue.current = [];
-      clearTimeout(startTimer.current);
-      speaking.current = false;
-      window.speechSynthesis?.cancel();
-    }
-  }}>{blocked ? "Desbloquear audio de Skainet" : !audioEnabled || muted ? "Activar avisos de Skainet" : "Silenciar avisos de Skainet"}</button></div>;
+      current.current = "";
+      audio.current?.pause();
+      try { localStorage.setItem(AUDIO_SETTING_KEY, "0"); } catch { /* Sin almacenamiento. */ }
+    }}>{muted ? "Activar avisos" : "Silenciar avisos"}</button>
+  </div>;
 }
