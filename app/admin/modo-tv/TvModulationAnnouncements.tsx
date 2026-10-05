@@ -14,6 +14,7 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
   const speakNextRef = useRef<() => void>(() => {});
   const mutedRef = useRef(false);
   const audioEnabledRef = useRef(true);
+  const userUnlockedRef = useRef(false);
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -92,7 +93,14 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
   }, [audioEnabled]);
 
   useEffect(() => {
-    const unlock = () => enableAudio(false);
+    // Los navegadores de Smart TV suelen bloquear speechSynthesis hasta una
+    // interacción. Usamos la primera tecla o toque del control remoto para
+    // desbloquearlo y hacemos una prueba hablada en ese mismo gesto.
+    const unlock = () => {
+      if (userUnlockedRef.current) return;
+      userUnlockedRef.current = true;
+      enableAudio(true);
+    };
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("keydown", unlock);
     return () => {
