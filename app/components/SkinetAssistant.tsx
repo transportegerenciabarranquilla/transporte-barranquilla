@@ -231,7 +231,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
     {reply && <p aria-live="polite" className="mt-2 whitespace-pre-line rounded-lg bg-cyan-50 p-3 text-sm leading-6 text-slate-800"><b>Skainet:</b> {reply}</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     <form onSubmit={submit} className="mt-3 flex gap-2">
-      <input aria-label="Pregunta para Skainet" maxLength={500} value={input} onChange={event => setInput(event.target.value)} placeholder="¿Cómo va el refusal de hoy?" className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800" />
+      <input aria-label="Pregunta para Skainet" maxLength={500} value={input} onChange={event => setInput(event.target.value)} placeholder="¿Cómo va la entrega en rango de Logísticos Galapa?" className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800" />
       <button type="submit" aria-label="Enviar pregunta" disabled={!input.trim() || status === "thinking"} className="rounded-md bg-cyan-700 px-3 py-2 text-white disabled:opacity-50"><Send size={18} /></button>
     </form>
   </section>;

@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, ShieldCheck, X } from "lucide-react";
+import { Moon, Sun, ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, ShieldCheck, X } from "lucide-react";
 import { Icon } from "./Icon";
+import { LoginGalaxy } from "./LoginGalaxy";
+import styles from "./loginGalaxy.module.css";
 
 type LoginForm = {
   email: string;
@@ -49,6 +51,7 @@ function validate(form: LoginForm) {
 }
 
 export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: LoginForm) => Promise<void>; sessionError?: string }) {
+  const [galaxyMode, setGalaxyMode] = useState(true);
   const [form, setForm] = useState<LoginForm>(initialForm);
   const [errors, setErrors] = useState<LoginErrors>({});
   const [showPassword, setShowPassword] = useState(false);
@@ -219,9 +222,22 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
   }
 
   return (
-    <main className="min-h-screen text-slate-900">
-      <section className="grid min-h-screen lg:grid-cols-[1.02fr_0.98fr]">
-        <aside className="relative hidden overflow-hidden bg-[#091525] text-white lg:block">
+    <main className={galaxyMode ? styles.login : "min-h-screen text-slate-900"}>
+      <button type="button" aria-label={galaxyMode ? "Activar modo claro" : "Activar modo galaxia"} aria-pressed={!galaxyMode} onClick={() => setGalaxyMode(value => !value)} className={`fixed right-4 top-3 z-40 inline-flex h-9 items-center gap-2 rounded-full border px-4 text-xs font-semibold shadow-lg backdrop-blur transition focus-visible:outline-2 focus-visible:outline-offset-4 ${galaxyMode ? "border-indigo-200/25 bg-slate-900/90 text-indigo-100 hover:bg-slate-800" : "border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50"}`}>{galaxyMode ? <Sun size={15} /> : <Moon size={15} />}{galaxyMode ? "Modo claro" : "Modo galaxia"}</button>
+      {galaxyMode && <LoginGalaxy />}
+      <section className={galaxyMode ? styles.layout : "grid min-h-screen lg:grid-cols-[1.02fr_0.98fr]"}>
+        {galaxyMode ? (<aside className={styles.story}>
+          <div className={styles.brand}>
+            <div className={styles.brandIcon}><Icon name="building" /></div>
+            <div><p className={styles.brandName}>TRANSPORT BARRANQUILLA</p><p className={styles.brandSub}>Torre de control</p></div>
+          </div>
+          <div className={styles.hero}>
+            <div className={styles.eyebrow}><i /> Una operación. Todas las conexiones.</div>
+            <h1>Tu operación,<br />en un mismo<span>universo.</span></h1>
+            <p>Cada ruta, cada entrega, cada decisión. Conecta con tu operación y mantén el control desde un solo lugar.</p>
+          </div>
+          <div className={styles.coordinates}><div><b>Barranquilla</b>10.98° N / 74.78° O</div><div><b>Seguimiento</b>Rutas conectadas</div><div><b>Control</b>Visión integral</div></div>
+        </aside>) : (<aside className="relative hidden overflow-hidden bg-[#091525] text-white lg:block">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(0,184,217,0.32),transparent_30%),radial-gradient(circle_at_78%_22%,rgba(245,189,25,0.24),transparent_26%)]" />
           <div className="relative flex h-full flex-col justify-between p-12 xl:p-16">
             <div className="flex items-center gap-3">
@@ -255,11 +271,10 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
               ))}
             </div>
           </div>
-        </aside>
-
-        <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8">
-          <div className="w-full max-w-[460px]">
-            <div className="mb-8 flex items-center gap-3 lg:hidden">
+        </aside>)}
+        <section className={galaxyMode ? styles.formSide : "flex min-h-screen items-center justify-center px-5 py-10 sm:px-8"} aria-label="Acceso al portal">
+          <div className={galaxyMode ? styles.formWrap : "w-full max-w-[460px]"}>
+            {!galaxyMode && (<div className="mb-8 flex items-center gap-3 lg:hidden">
               <div className="grid h-11 w-11 place-items-center rounded-md bg-gradient-to-br from-[#f5bd19] to-[#00b8d9] text-[#10223d]">
                 <Icon name="building" />
               </div>
@@ -267,15 +282,14 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                 <p className="text-base font-semibold uppercase tracking-[0.16em] text-[#10223d]">Transport</p>
                 <p className="text-sm text-slate-500">Torre Control</p>
               </div>
-            </div>
-
-            <div className="glass-panel rounded-lg p-6 sm:p-8">
+            </div>)}
+            <div className={`${styles.hoverPanel} ${galaxyMode ? styles.panel : `${styles.lightPanel} glass-panel rounded-lg p-6 sm:p-8`}`}>
               <div className="mb-8">
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-md bg-gradient-to-br from-[#10223d] to-[#1264ff] text-white shadow-lg shadow-blue-500/20">
                   <ShieldCheck size={20} />
                 </div>
-                <h2 className="text-3xl font-semibold text-[#10223d]">Iniciar sesion</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">Entra con tus datos corporativos.</p>
+                <h2 className="text-3xl font-semibold text-[#10223d]">Iniciar sesión</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-500">{galaxyMode ? "Tu centro de operaciones te espera." : "Entra con tus datos corporativos."}</p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <a className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-cyan-100 bg-cyan-50 px-2.5 py-2 text-center text-xs font-semibold text-[#07556b] transition hover:border-[#00b8d9] hover:bg-white" href="/asistencia">
                     Asistencia RR
@@ -373,14 +387,14 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
               </form>
             </div>
 
-            <p className="mt-6 text-center text-xs leading-5 text-slate-500">Transport S.A.</p>
+            <p className={galaxyMode ? styles.footer : "mt-6 text-center text-xs leading-5 text-slate-500"}>{galaxyMode ? "TRANSPORT S.A. · CONECTAMOS POSIBILIDADES" : "Transport S.A."}</p>
           </div>
         </section>
       </section>
 
       {isCoordinateModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+          <div style={{ colorScheme: "light" }} className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="grid h-10 w-10 place-items-center rounded-xl bg-violet-100 text-violet-700">

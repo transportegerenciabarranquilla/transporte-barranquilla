@@ -13,7 +13,7 @@ import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQuery } from "../lib/apiQuery";
 import { SkinetAssistant } from "../components/SkinetAssistant";
-import { answerSkinet, skinetOperationReport } from "../lib/skinetAnswers";
+import { answerSkinet, skinetOperationReport, type SkinetData } from "../lib/skinetAnswers";
 import { understandSkinet, isSkinetIdentityQuestion, SKINET_IDENTITY_REPLY, type SkinetContext } from "../lib/skinetUnderstanding";
 import { bogotaToday } from "../lib/adminDateFilter";
 const FueraDeRangoCharts = dynamic(() => import("./FueraDeRangoCharts"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando gráficas...</p> });
@@ -140,11 +140,19 @@ export default function AdminPage() {
       return understood.prompt;
     }
     const day = context.day;
-    const data = await queryClient.fetchQuery({
+    const data: SkinetData = await queryClient.fetchQuery({
       queryKey: ["admin", "seguimiento", "details", day, day], staleTime: 0,
       queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
     });
-    const result = answerSkinet(input, data, day, context);
+    let rangeReports: SkinetData["rangeReports"];
+    if (context.metrics.some(metric => ["range", "rangeDetails", "status", "summary"].includes(metric)) || context.plate) {
+      const rangeData = await queryClient.fetchQuery({
+        queryKey: ["admin", "rango", "skinet", day], staleTime: 0,
+        queryFn: ({ signal }) => apiQuery<{ reports: NonNullable<SkinetData["rangeReports"]> }>(`/api/admin/rango?${new URLSearchParams({ desde: day, hasta: day })}`, signal),
+      });
+      rangeReports = rangeData.reports;
+    }
+    const result = answerSkinet(input, { ...data, rangeReports }, day, context);
     skinetConversation.current = { context, at: Date.now() };
     return result.answer;
   }

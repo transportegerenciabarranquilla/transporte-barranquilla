@@ -1,12 +1,15 @@
 import { contractorSiteName, normalizeContractorName } from "./contractors";
 import type { Vehiculo } from "../seguimiento/types";
 import type { ModulacionRegistro } from "./modulacionStorage";
-import { skinetDate, understandSkinet, type SkinetContext } from "./skinetUnderstanding";
+import { skinetDate, understandSkinet, normalizeSkinet, type SkinetContext } from "./skinetUnderstanding";
+import { skinetRouteAnswer } from "./skinetRouteAnswer";
+import { skinetDt, skinetPlate, skinetRangeRows, skinetRangeAnswer, skinetRangeVehicleAnswer, type SkinetRangeReport } from "./skinetRange";
 
 export type SkinetData = {
   summaries?: { contractor: string }[];
   records?: Vehiculo[];
   modulations?: ModulacionRegistro[];
+  rangeReports?: SkinetRangeReport[];
 };
 function number(value: unknown) {
   const raw = typeof value === "string" ? value.trim().replace(/\s/g, "") : value;
@@ -46,6 +49,13 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   const authorized = data.summaries?.map(summary => summary.contractor) || [];
   let contractors = authorized;
   const named = Boolean(context.contractor);
+  if (context.contractors?.length) contractors = authorized.filter(value => {
+    const normalized = normalizeContractorName(value);
+    return context.contractors!.some(family => family === "hl" ? normalized === "hllogisticos"
+      : family === "surti" ? normalized === "surticervezas"
+      : family === "logisticos" ? ["logisticos", "logisticosarenosa"].includes(normalized)
+      : /^(punto)?corona(arenosa)?$/.test(normalized));
+  });
   if (context.contractor === "hl") contractors = authorized.filter(value => normalizeContractorName(value) === "hllogisticos");
   else if (context.contractor === "logisticos") contractors = authorized.filter(value => ["logisticos", "logisticosarenosa"].includes(normalizeContractorName(value)));
   else if (context.contractor === "corona") contractors = authorized.filter(value => /^(punto)?corona(arenosa)?$/.test(normalizeContractorName(value)));
@@ -56,23 +66,64 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if (!contractors.length) return { answer: "No tengo datos de esa contratista dentro del alcance de tu sesión." };
   const permitted = new Set(contractors.map(normalizeContractorName));
   let records = (data.records || []).filter(record => permitted.has(normalizeContractorName(record.transportista)));
+  if (context.rr) {
+    const query = normalizeSkinet(context.rr);
+    records = records.filter(record => /^\d+$/.test(query)
+      ? String(record.cedulaResponsable || "").replace(/\D/g, "") === query
+      : normalizeSkinet(record.nombreResponsable || record.responsable || "").split(/\s+/).filter(Boolean).length > 0
+        && query.split(/\s+/).every(word => normalizeSkinet(record.nombreResponsable || record.responsable || "").split(/\s+/).includes(word)));
+    const matches = new Set(records.map(record => `${normalizeContractorName(record.transportista)}:${record.cedulaResponsable || normalizeSkinet(record.nombreResponsable || record.responsable || "")}`));
+    if (matches.size > 1) return { answer: "Encontré varios RR con ese nombre. Indica el nombre completo, la cédula o la contratista.", clarify: true };
+    if (!records.length) return { answer: `No encontré rutas de ese RR ${context.period} dentro del alcance de tu sesión.` };
+  }
   let modulations = (data.modulations || []).filter(record => permitted.has(normalizeContractorName(record.contratista))
     && modulationDay(record) === day);
   const dt = context.dt;
+  const rrRoutes = new Set(records.map(record => `${normalizeContractorName(record.transportista)}:${skinetDt(record.transporte)}`));
+  if (context.rr) modulations = modulations.filter(record => rrRoutes.has(`${normalizeContractorName(record.contratista)}:${skinetDt(record.dt)}`));
+  const rangeReports = context.rr ? (data.rangeReports || []).map(report => ({ ...report, rows: report.rows.filter(row => rrRoutes.has(`${normalizeContractorName(report.contractor)}:${skinetDt(row.dt)}`)) })) : data.rangeReports || [];
+  const range = skinetRangeRows(rangeReports, permitted, day, context);
+  if (context.plate) {
+    records = records.filter(record => skinetPlate(record.vehiculo) === context.plate);
+    const plateDts = new Set([...records.map(record => skinetDt(record.transporte)), ...range.rows.map(row => skinetDt(row.dt))]);
+    modulations = modulations.filter(record => plateDts.has(skinetDt(record.dt)));
+  }
   if (dt) {
-    records = records.filter(record => String(record.transporte).replace(/\D/g, "") === dt);
-    modulations = modulations.filter(record => String(record.dt).replace(/\D/g, "") === dt);
+    records = records.filter(record => skinetDt(record.transporte) === skinetDt(dt));
+    modulations = modulations.filter(record => skinetDt(record.dt) === skinetDt(dt));
     if (records.length > 1 && new Set(records.map(record => record.transportista)).size > 1 && !named) return { answer: "Ese DT aparece en varias contratistas. Dime cuál quieres consultar.", clarify: true };
   }
+  if ((dt || context.plate) && !named && new Set([...records.map(row => normalizeContractorName(row.transportista)), ...range.rows.map(row => normalizeContractorName(row.contractor))]).size > 1) return { answer: "Ese DT o placa aparece en varias contratistas. Indica la contratista y sede que quieres consultar.", clarify: true };
   const contractorLabel = named ? contractors[0] === "HL Logisticos" ? "HL" : contractors[0] : site ? `la operación de ${site}` : "la operación";
   const period = context.period;
-  const label = `${dt ? `el DT ${dt} de ` : ""}${contractorLabel}`;
+  const label = `${dt ? `el DT ${dt} de ` : context.plate ? `la placa ${context.plate} de ` : context.rr ? `el RR ${records[0]?.nombreResponsable || records[0]?.responsable || context.rr} de ` : ""}${contractorLabel}`;
   const boxes = records.reduce((sum, record) => sum + number(record.cajas), 0);
   const pending = records.reduce((sum, record) => sum + number(record.cajasRefusalFinal), 0);
   const refusal = boxes ? `El refusal de ${label} ${period} va en ${format(pending / boxes * 100)} por ciento. Son ${format(pending)} cajas pendientes de ${format(boxes)} cajas de salida.`
     : `${label} no tiene cajas de salida registradas para ${period}. Todavía no puedo calcular su refusal.`;
   const messages: string[] = [];
   const metrics = new Set(context.metrics);
+  if (metrics.has("maxBoxes")) {
+    const candidates = records.filter(record => record.cajas !== null && record.cajas !== undefined && String(record.cajas).trim() !== "" && Number.isFinite(Number(String(record.cajas).replace(/\./g, "").replace(",", "."))));
+    if (!candidates.length) return { answer: `No hay rutas con cajas registradas de ${contractorLabel} ${period}.` };
+    const maximum = Math.max(...candidates.map(record => number(record.cajas)));
+    const winners = candidates.filter(record => number(record.cajas) === maximum);
+    return { answer: `${winners.length > 1 ? "Empate en la mayor cantidad de cajas. " : ""}${winners.map(record => `DT ${record.transporte} de ${record.transportista} ${period}: ${format(maximum)} cajas. Responsable: ${record.nombreResponsable || record.responsable || "sin registrar"}.`).join(" ")}` };
+  }
+  if (metrics.has("rangeVehicles")) {
+    const missing = contractors.filter(contractor => ["logisticos", "surticervezas", "hllogisticos", "logisticosarenosa"].includes(normalizeContractorName(contractor)) && !range.reports.some(report => normalizeContractorName(report.contractor) === normalizeContractorName(contractor)));
+    return { answer: skinetRangeVehicleAnswer(range, context, label) + (range.reports.length && missing.length ? ` Conteo parcial: faltan reportes de ${missing.join(", ")}.` : "") };
+  }
+  if (metrics.has("range") || metrics.has("summary")) {
+    if (!named && !dt && !context.plate && !context.rr) {
+      const rangeContractors = contractors.filter(contractor =>
+        ["surticervezas", "logisticos", "hllogisticos", "logisticosarenosa"].includes(normalizeContractorName(contractor))
+        || range.reports.some(report => normalizeContractorName(report.contractor) === normalizeContractorName(contractor)));
+      messages.push(...rangeContractors.map(contractor => skinetRangeAnswer(
+        skinetRangeRows(data.rangeReports || [], new Set([normalizeContractorName(contractor)]), day, context), context, contractor)));
+      if (!rangeContractors.length) messages.push(skinetRangeAnswer(range, context, label));
+    } else messages.push(skinetRangeAnswer(range, context, label));
+  }
   if (metrics.has("refusal")) messages.push(refusal);
   if (metrics.has("modulated") || metrics.has("modulations") || metrics.has("relocated")) {
     const modulated = modulations.reduce((sum, record) => sum + number(record.totalCajas), 0);
@@ -96,12 +147,16 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
     const departed = records.filter(record => /^\d{1,2}:\d{2}(?::\d{2})?$/.test(String(record.horaSalida || "").trim())).length;
     messages.push(`${label} tiene ${departed} rutas con hora de salida registrada y ${records.length - departed} sin salida registrada para ${period}.`);
   }
-  if (dt && metrics.has("status")) {
-    const record = records[0];
-    messages.push(record ? `El DT ${dt} de ${record.transportista}, ${period}, está ${record.status || "sin estado registrado"}. Placa ${record.vehiculo || "sin placa"}. Responsable ${record.responsable || "sin responsable registrado"}.`
-      : `No encontré el DT ${dt} para ${day} dentro del alcance consultado.`);
+  if ((dt || context.plate || context.rr) && metrics.has("status")) {
+    for (const record of records.slice(0, 10)) messages.push(skinetRouteAnswer(record, context));
+    if (records.length > 10) messages.push(`Hay ${records.length} rutas coincidentes. Consulta un DT para acotar el resultado.`);
+    if (!records.length) {
+      const row = range.rows[0];
+      messages.push(row ? `En entrega en rango: DT ${row.dt}, contratista ${row.contractor}, placa ${row.truckLicensePlate || "sin placa"}, conductor ${row.driverName || "sin dato"}. No hay una ruta de Seguimiento disponible para completar los demás datos.` : `No encontré ese DT o placa para ${day} dentro del alcance consultado.`);
+    }
+
   }
-  if (metrics.has("status") && !dt) return { answer: "Indica el número del DT para consultar su estado, placa y responsable.", clarify: true };
+  if (metrics.has("status") && !dt && !context.plate && !context.rr) return { answer: "Indica el número del DT o la placa para consultar el estado y los datos de la ruta.", clarify: true };
   if (metrics.has("summary")) messages.push(`${refusal} Hay ${records.length} rutas y ${modulations.length} modulaciones.`);
-  return { answer: messages.join(" ") || "Puedo consultar refusal, cajas, modulaciones, rutas y avance de clientes. Por ejemplo: ¿cuánto va el refusal de Logísticos Galapa?" };
+  return { answer: messages.join(" ") || "Puedo consultar entrega en rango, motivos fuera de rango, refusal, cajas, modulaciones, clientes y detalles de rutas por DT o placa." };
 }

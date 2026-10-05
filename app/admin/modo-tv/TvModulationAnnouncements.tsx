@@ -9,6 +9,7 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
   const utterances = useRef(new Set<SpeechSynthesisUtterance>());
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
 
   function speak(text: string) {
     if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
@@ -32,8 +33,8 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
     if (!ready) return;
     tracker.current ??= createModulationTracker();
     const fresh = tracker.current(records);
-    if (!muted) fresh.forEach(record => speak(modulationAnnouncement(record)));
-  }, [records, ready, muted]);
+    if (audioEnabled && !muted) fresh.forEach(record => speak(modulationAnnouncement(record)));
+  }, [records, ready, muted, audioEnabled]);
 
   useEffect(() => {
     const active = utterances.current;
@@ -45,13 +46,14 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
   }, []);
 
   return <button type="button" className="fixed bottom-2 right-3 z-50 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow" onClick={() => {
-    if (blocked || muted) {
+    if (blocked || muted || !audioEnabled) {
       setBlocked(false);
       setMuted(false);
+      setAudioEnabled(true);
       speak("Skainet. Avisos de nuevas modulaciones activados.");
     } else {
       setMuted(true);
       window.speechSynthesis?.cancel();
     }
-  }}>{blocked ? "Activar audio de Skainet" : muted ? "Activar avisos de Skainet" : "Silenciar avisos de Skainet"}</button>;
+  }}>{blocked || !audioEnabled ? "Activar audio de Skainet" : muted ? "Activar avisos de Skainet" : "Silenciar avisos de Skainet"}</button>;
 }

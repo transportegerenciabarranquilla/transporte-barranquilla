@@ -1,4 +1,5 @@
 import { scopeQuery } from "../../../lib/adminScope";
+import { adminDateRange } from "../../../lib/adminDateFilter";
 import { addHistoricalRangeTimes } from "../../../lib/rangeRecordedTime";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
@@ -29,7 +30,11 @@ export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-    const tv = new URL(request.url).searchParams.get("tv") === "1";
+    const search = new URL(request.url).searchParams;
+    const tv = search.get("tv") === "1";
+    let range;
+    try { range = adminDateRange(search); }
+    catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
 
     const headers = supabaseAdminHeaders() || supabaseUserHeaders(session.accessToken);
     const params = new URLSearchParams({
@@ -38,6 +43,8 @@ export async function GET(request: Request) {
       limit: "5000",
     });
     if (!session.isAdmin) params.set("contractor", `eq.${session.contractor}`);
+    if (range.from) params.append("operational_date", `gte.${range.from}`);
+    if (range.to) params.append("operational_date", `lte.${range.to}`);
     scopeQuery(params, session);
     const url = supabaseRest(TABLE, `?${params.toString()}`);
     const rows = await cachedJsonFetch<TvReportRow[]>(`supabase:admin-rango:${session.contractor}:${url}`, LIST_CACHE_TTL_MS, url, { headers });
