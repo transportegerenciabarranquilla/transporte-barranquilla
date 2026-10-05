@@ -32,7 +32,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
   const controller = useRef<SkinetVoice | null>(null);
   const activeUtterance = useRef<SpeechSynthesisUtterance | null>(null);
   const requestVersion = useRef(0);
-  const automaticListening = useRef(true);
+  const automaticListening = useRef(false);
   const callbacks = useRef({ onAsk, onReport, onListeningChange });
   useEffect(() => { callbacks.current = { onAsk, onReport, onListeningChange }; }, [onAsk, onReport, onListeningChange]);
   const updateStatus = useCallback((value: SkinetStatus) => { statusRef.current = value; setStatus(value); }, []);
@@ -192,9 +192,18 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
     updateStatus("thinking");
     try {
       const answer = await callbacks.current.onAsk(text);
-      if (version === requestVersion.current) setReply(answer);
-    } catch { if (version === requestVersion.current) setError("No pude consultar los datos. Intenta nuevamente."); }
-    finally { if (version === requestVersion.current) updateStatus("off"); }
+      if (version === requestVersion.current) {
+        setReply(answer);
+        window.speechSynthesis?.cancel();
+        updateStatus("speaking");
+        speak(answer, () => { if (version === requestVersion.current) updateStatus("off"); });
+      }
+    } catch {
+      if (version === requestVersion.current) {
+        setError("No pude consultar los datos. Intenta nuevamente.");
+        updateStatus("off");
+      }
+    }
   }
 
   return <section aria-label="Asistente Skainet" className="mb-5 rounded-xl border border-cyan-200 bg-white p-4 shadow-sm">
@@ -208,7 +217,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
       </button>
     </div>
     <p role="status" className="mt-3 text-sm font-medium text-cyan-800">{statusLabels[status]}</p>
-    <p className="mt-1 text-sm text-slate-500">Skainet escucha automáticamente al entrar. Di «Skainet» o pregunta directamente «¿cuántas cajas le han modulado a HL?». Si el navegador pide permiso para el micrófono, pulsa Permitir. También puedes escribir.</p>
+    <p className="mt-1 text-sm text-slate-500">Pulsa Reanudar escucha para preguntar por voz y di «hola Skainet». El micrófono solo se utiliza para escuchar preguntas. Puedes escribir y escuchar respuestas sin activar el micrófono.</p>
     <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
       <label className="flex items-center gap-2">Voz
         <select value={voiceUri} onChange={event => { selectedVoice.current = event.target.value; setVoiceUri(event.target.value); }} className="max-w-64 rounded-md border border-slate-200 bg-white px-2 py-1">

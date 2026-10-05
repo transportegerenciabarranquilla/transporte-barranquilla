@@ -18,6 +18,21 @@ const day = "2026-10-05";
 const row = { id: "a", dt: "123", truckLicensePlate: "ABC123", driverName: "Ana", status: "CONCLUDED", withinRadius: true, pocExternalId: "1", pocName: "Tienda Uno" };
 const report = { contractor: "Logisticos", operationalDate: day, kind: "current", uploadedAt: `${day}T12:00:00Z`, rows: [row, { ...row, id: "b", pocExternalId: "2", withinRadius: false, manualOutOfRadiusReason: "Reubicación" }] };
 const data = { summaries: [{ contractor: "Logisticos" }], rangeReports: [report], records: [{ transportista: "Logisticos", transporte: "123", vehiculo: "ABC123", nombreResponsable: "Ana", status: "En ruta", clientes: 10, visitados: 5, cajas: 20, horaSalida: "08:00" }] };
+test("preguntar por seguimiento reemplaza rango y lee el avance real", () => {
+  const previous = understandSkinet("entrega en rango de Logisticos", day).context;
+  for (const question of ["cómo va el seguimiento", "como el seguimiento", "pilla mijo dime el seguimiento"]) {
+    const context = understandSkinet(question, day, previous).context;
+    assert.deepEqual(context.metrics, ["tracking"]);
+    assert.equal(isSkinetQuestion(question), true);
+    // Incluso una métrica antigua enviada por el cliente debe ceder ante la pregunta.
+    const answer = answerSkinet(question, data, day, previous).answer;
+    assert.match(answer, /Seguimiento.*5 de 10 clientes, 50 por ciento/);
+    assert.doesNotMatch(answer, /Entrega en rango/);
+  }
+  const next = understandSkinet("entrega en rango", day, understandSkinet("seguimiento", day).context);
+  assert.deepEqual(next.context.metrics, ["range"]);
+  assert.match(answerSkinet("entrega en rango", data, day, next.context).answer, /Entrega en rango/);
+});
 test("identifica el DT con más cajas, responsable, empates y alcance", () => {
   const ranked = { ...data, records: [...data.records, { ...data.records[0], transporte: "456", cajas: "1.200", nombreResponsable: "Luis" }, { ...data.records[0], transportista: "HL Logisticos", cajas: 9000 }] };
   assert.equal(answerSkinet("cual dt lleva mas cajas", ranked, day).answer, "DT 456 de Logisticos hoy: 1.200 cajas. Responsable: Luis.");

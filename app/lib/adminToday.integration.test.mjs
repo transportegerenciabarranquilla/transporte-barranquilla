@@ -76,7 +76,7 @@ test("Skinet permite activar el micrófono y escribir preguntas", () => {
   assert.doesNotMatch(activation.match(/^<button[^>]*>/)[0], /\sdisabled(?:=|\s|>)/);
   assert.match(html, /Pregunta para Skainet/);
   assert.match(html, /Probar voz/);
-  assert.match(html, /escucha automáticamente al entrar/);
+  assert.match(html, /Puedes escribir y escuchar respuestas sin activar el micrófono/);
   assert.doesNotMatch(html, /Activar Skinet/);
 });
 
@@ -118,7 +118,7 @@ test("Skainet reproduce al máximo y respeta la voz elegida", () => {
   } finally { globalThis.window = realWindow; globalThis.SpeechSynthesisUtterance = realUtterance; }
 });
 
-test("Skinet inicia solo al montar y vuelve a escuchar al regresar a la pestaña", () => {
+test("Skinet no solicita micrófono al montar ni al regresar a la pestaña", () => {
   const effects = [];
   const listeners = new Map();
   const tasks = [];
@@ -150,15 +150,15 @@ test("Skinet inicia solo al montar y vuelve a escuchar al regresar a la pestaña
     effects.forEach(fn => { const result = fn(); if (result) cleanup = result; });
     assert.equal(starts, 0);
     tasks[0]();
-    assert.equal(starts, 1);
-    assert.equal(enabled.at(-1), true);
+    assert.equal(starts, 0);
+    assert.equal(enabled.includes(true), false);
     document.visibilityState = "hidden";
     listeners.get("visibilitychange")();
     assert.equal(enabled.at(-1), false);
     document.visibilityState = "visible";
     listeners.get("visibilitychange")();
-    assert.equal(starts, 2);
-    assert.equal(enabled.at(-1), true);
+    assert.equal(starts, 0);
+    assert.equal(enabled.includes(true), false);
   } finally {
     cleanup?.();
     globalThis.window = realWindow;

@@ -1,7 +1,7 @@
 import { contractorSiteName, normalizeContractorName } from "./contractors";
 import type { Vehiculo } from "../seguimiento/types";
 import type { ModulacionRegistro } from "./modulacionStorage";
-import { skinetDate, understandSkinet, normalizeSkinet, type SkinetContext } from "./skinetUnderstanding";
+import { skinetDate, skinetMetrics, understandSkinet, normalizeSkinet, type SkinetContext } from "./skinetUnderstanding";
 import { skinetRouteAnswer } from "./skinetRouteAnswer";
 import { skinetDt, skinetPlate, skinetRangeRows, skinetRangeAnswer, skinetRangeVehicleAnswer, type SkinetRangeReport } from "./skinetRange";
 
@@ -45,18 +45,11 @@ export function skinetQuestionDate(question: string, today: string) {
 export function answerSkinet(question: string, data: SkinetData, day: string, resolvedContext?: SkinetContext): { answer: string; clarify?: boolean } {
   const understood = understandSkinet(question, day);
   if (!resolvedContext && understood.prompt) return { answer: understood.prompt };
-  // Una pregunta nueva de entrega en rango debe reemplazar el tema anterior.
-  // Esto evita que una conversación que venía hablando de refusal arrastre
-  // ese dato a la respuesta de rango.
-  const normalizedQuestion = normalizeSkinet(question);
-  const asksRange = /\b(?:entrega\s+en\s+rango|en\s+rango|dentro\s+del\s+rango|fuera\s+de\s+rango)\b/.test(normalizedQuestion);
-  const asksRefusal = /\brefusal\b|rechaz|devoluc/.test(normalizedQuestion);
+  // El tema explícito de la pregunta tiene prioridad sobre el de la conversación.
+  // Solo frases de continuación como «y HL» heredan la métrica anterior.
+  const questionMetrics = skinetMetrics(question);
   const baseContext = resolvedContext || understood.context;
-  const context = asksRange && !asksRefusal
-    ? { ...baseContext, metrics: baseContext.metrics.filter(metric => metric !== "refusal" && metric !== "summary").includes("range")
-      ? baseContext.metrics.filter(metric => metric !== "refusal" && metric !== "summary")
-      : ["range" as const] }
-    : baseContext;
+  const context = questionMetrics.length ? { ...baseContext, metrics: questionMetrics } : baseContext;
   const authorized = data.summaries?.map(summary => summary.contractor) || [];
   let contractors = authorized;
   const named = Boolean(context.contractor);
@@ -168,10 +161,10 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
 
   }
   if (metrics.has("status") && !dt && !context.plate && !context.rr) return { answer: "Indica el número del DT o la placa para consultar el estado y los datos de la ruta.", clarify: true };
-  if (metrics.has("summary")) {
+  if (metrics.has("summary") || metrics.has("tracking")) {
     const clients = records.reduce((sum, record) => sum + number(record.clientes), 0);
     const visited = records.reduce((sum, record) => sum + number(record.visitados), 0);
-    const progress = clients ? ` Avance de visitas: ${format(visited)} de ${format(clients)} clientes, ${format(visited / clients * 100)} por ciento.` : "";
+    const progress = clients ? ` Avance de visitas: ${format(visited)} de ${format(clients)} clientes, ${format(visited / clients * 100)} por ciento. Faltan ${format(Math.max(0, clients - visited))} clientes por visitar.` : " No hay clientes registrados para calcular el avance.";
     messages.push(`Seguimiento de ${label} ${period}: ${records.length} rutas registradas.${progress} ${refusal} Hay ${modulations.length} modulaciones.`);
   }
   return { answer: messages.join(" ") || "Puedo consultar entrega en rango, motivos fuera de rango, refusal, cajas, modulaciones, clientes y detalles de rutas por DT o placa." };
