@@ -13,6 +13,7 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
 
   function speak(text: string) {
     if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "es-CO";
     utterance.volume = 1;
@@ -21,6 +22,7 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
     utterance.voice = voices.find(voice => /^es[-_]CO$/i.test(voice.lang)) || voices.find(voice => /^es\b/i.test(voice.lang)) || null;
     utterances.current.add(utterance);
     utterance.onend = () => utterances.current.delete(utterance);
+    utterance.onstart = () => setBlocked(false);
     utterance.onerror = event => {
       utterances.current.delete(utterance);
       if (event.error !== "canceled" && event.error !== "interrupted") setBlocked(true);
@@ -28,6 +30,13 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
   }
+
+  useEffect(() => {
+    const loadVoices = () => { window.speechSynthesis?.getVoices(); };
+    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
+    loadVoices();
+    return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
+  }, []);
 
   useEffect(() => {
     if (!ready) return;
