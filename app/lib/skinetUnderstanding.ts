@@ -38,7 +38,7 @@ export function skinetMetrics(text: string): SkinetMetric[] {
 }
 
 function validDate(date: string) {
-  if (!Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error("Mijo, revisa esa fecha; no es una fecha válida.");
+  if (!Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error("Revisa esa fecha; no es una fecha válida.");
   return date;
 }
 export function skinetDate(text: string, today: string): { day: string; period: string } | undefined {
@@ -94,11 +94,11 @@ export function understandSkinet(question: string, today: string, previous?: Ski
     period: date?.period || (previous?.day && previous.day !== today ? `el ${previous.day}` : "hoy"),
   };
   if (/\b(mes|semana|historico|historial)\b/.test(text)) return { context, prompt: "Por ahora consulto un día a la vez. Dime hoy, ayer o la fecha que quieres revisar." };
-  if (families.length > 1) return { context, prompt: "Mijo, consultemos una contratista a la vez. ¿Cuál quieres revisar primero?" };
+  if (families.length > 1) return { context, prompt: "Consultemos una contratista a la vez. ¿Cuál quieres revisar primero?" };
   if (!metrics.length && !families.length && !site && !dt && !date && !all
     && !/\b(cuant[oa]s?|lo mismo|repite|otra vez)\b/.test(text)) {
-    return { context, prompt: "Oe, no capté qué dato necesitas. Puedes preguntar por refusal, modulación, cajas, clientes o una ruta." };
+    return { context, prompt: "No capté qué dato necesitas. Puedes preguntar por refusal, modulación, cajas, clientes o una ruta." };
   }
-  if (!context.metrics.length) return { context, prompt: "Oe, ¿quieres saber el refusal, las cajas moduladas, las reubicadas o cómo van las rutas?" };
+  if (!context.metrics.length) return { context, prompt: "¿Quieres saber el refusal, las cajas moduladas, las reubicadas o cómo van las rutas?" };
   return { context };
 }

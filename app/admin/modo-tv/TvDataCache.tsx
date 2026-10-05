@@ -4,7 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { Vehiculo } from "../../seguimiento/types";
 import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage";
 
+import type { ModulacionRegistro } from "../../lib/modulacionStorage";
+import { TvModulationAnnouncements } from "./TvModulationAnnouncements";
+
 type SeguimientoData = {
+  modulations: ModulacionRegistro[];
   records: Vehiculo[];
   modulationRacocimi2: { contractor: string; date: string; modulationBoxes: number }[];
   refusalByComRows: Array<{
@@ -26,13 +30,14 @@ type SeguimientoData = {
 type RangoData = {
   reports: { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] }[];
 };
-const EMPTY_SEGUIMIENTO: SeguimientoData = { records: [], modulationRacocimi2: [], refusalByComRows: [], today: "" };
+const EMPTY_SEGUIMIENTO: SeguimientoData = { modulations: [], records: [], modulationRacocimi2: [], refusalByComRows: [], today: "" };
 const EMPTY_RANGO: RangoData = { reports: [] };
 function seguimientoData(body: SeguimientoData): SeguimientoData {
   if (!Array.isArray(body.records) || !Array.isArray(body.modulationRacocimi2) || !Array.isArray(body.refusalByComRows) || typeof body.today !== "string") {
     throw new Error("La respuesta de seguimiento no es válida.");
   }
   return {
+    modulations: body.modulations || [],
     records: body.records,
     modulationRacocimi2: body.modulationRacocimi2,
     refusalByComRows: body.refusalByComRows,
@@ -106,9 +111,9 @@ type TvCache = {
 const TvDataContext = createContext<TvCache | null>(null);
 
 export function TvDataCache({ children }: { children: ReactNode }) {
-  const seguimiento = useCachedEndpoint("/api/admin/seguimiento?tv=1", EMPTY_SEGUIMIENTO, seguimientoData);
+  const seguimiento = useCachedEndpoint("/api/admin/seguimiento?tv=1&details=1", EMPTY_SEGUIMIENTO, seguimientoData);
   const rango = useCachedEndpoint("/api/admin/rango?tv=1", EMPTY_RANGO, rangoData);
-  return <TvDataContext.Provider value={{ seguimiento, rango }}>{children}</TvDataContext.Provider>;
+  return <TvDataContext.Provider value={{ seguimiento, rango }}><TvModulationAnnouncements records={seguimiento.data.modulations} ready={Boolean(seguimiento.updated)} />{children}</TvDataContext.Provider>;
 }
 
 export function useTvData() {

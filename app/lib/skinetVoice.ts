@@ -125,7 +125,7 @@ export class SkinetVoice {
     this.clearQuestion();
     this.setStatus("speaking");
     this.recognition.abort();
-    const greeting = "Oe, ¿en qué te ayudo?";
+    const greeting = "¿En qué puedo ayudarte?";
     this.callbacks.reply(greeting);
     this.callbacks.speak(greeting, () => {
       if (!this.active || generation !== this.generation) return;

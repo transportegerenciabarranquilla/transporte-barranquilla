@@ -65,7 +65,7 @@ test("la pregunta sobre cajas moduladas a HL consulta modulación y separa las r
     ],
   };
   assert.equal(answerSkinet("oe skinet cuántas cajas le han modulado a hl", hlData, day).answer,
-    "HL hoy lleva 200 cajas moduladas y 2 reubicadas, mijo.");
+    "HL hoy lleva 200 cajas moduladas y 2 reubicadas.");
   assert.match(answerSkinet("cuántas cajas han reubicado a h l", hlData, day).answer, /2 cajas reubicadas de 200 moduladas/);
 });
 
@@ -87,7 +87,7 @@ test("saluda al llamarlo, escucha la pregunta y pausa reconocimiento durante su 
   say("Skinet", false);
   assert.equal(calls.speeches.length, 0);
   say("hola Skinet");
-  assert.equal(calls.speeches[0].text, "Oe, ¿en qué te ayudo?");
+  assert.equal(calls.speeches[0].text, "¿En qué puedo ayudarte?");
   say("Skinet"); // No escucha su propia voz.
   assert.equal(calls.speeches.length, 1);
   calls.speeches[0].done();
@@ -194,9 +194,9 @@ test("conserva el DT para nuevas métricas y lo elimina al cambiar de contratist
 
 test("no transforma preguntas ajenas ni contratistas múltiples en cifras supuestas", () => {
   const previous = understandSkinet("refusal de HL", day).context;
-  assert.match(understandSkinet("cuál es el clima", day, previous).prompt, /no capté/);
+  assert.match(understandSkinet("cuál es el clima", day, previous).prompt, /No capté/);
   assert.match(understandSkinet("refusal de HL y Logísticos", day).prompt, /una contratista a la vez/);
-  assert.match(understandSkinet("otra pregunta", day, previous).prompt, /no capté/);
+  assert.match(understandSkinet("otra pregunta", day, previous).prompt, /No capté/);
   assert.equal(isSkinetQuestion("dime el refiusal de hache ele"), true);
   assert.equal(isSkinetQuestion("y HL"), true);
   assert.equal(isSkinetQuestion("y HL de ayer"), true);
@@ -344,4 +344,23 @@ test("reconoce la pregunta de identidad sin confundirla con el responsable de un
   await Promise.resolve();
   assert.equal(calls.speeches[0].text, "¡Yo soy Skainet! ¡Y tú no eres nadie delante mío!");
   voice.stop();
+});
+const { createModulationTracker, modulationAnnouncement } = compile("./skinetModulations.ts");
+test("TV anuncia nuevas modulaciones una sola vez sin leer historial ni ediciones", () => {
+  const start = Date.parse("2026-10-05T12:00:00Z");
+  const track = createModulationTracker(start);
+  const old = { id: "1", contratista: "HL Logisticos", createdAt: "2026-10-05T11:00:00Z" };
+  const fresh = { ...old, id: "2", createdAt: "2026-10-05T12:00:05Z", totalCajas: "20", dt: "123", codigoCliente: "456", personaNombre: "Ana", causal: "Cerrado" };
+  assert.deepEqual(track([old]), []);
+  assert.deepEqual(track([fresh, old, fresh]), [fresh]);
+  assert.deepEqual(track([{ ...fresh, totalCajas: "30" }]), []);
+  assert.deepEqual(track([old, { ...old, id: "historical" }]), []);
+  assert.equal(track([{ ...fresh, contratista: "Logisticos" }]).length, 1);
+  const spoken = modulationAnnouncement(fresh);
+  for (const value of ["HL Logisticos", "Ana", "20 cajas", "123", "456", "Cerrado"]) assert.ok(spoken.includes(value));
+});
+test("TV puede iniciar sin modulaciones y anunciar la primera", () => {
+  const track = createModulationTracker(0);
+  assert.deepEqual(track([]), []);
+  assert.equal(track([{ id: "new", createdAt: "2026-10-05T12:00:00Z" }]).length, 1);
 });

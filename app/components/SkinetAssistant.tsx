@@ -217,7 +217,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
         </select>
       </label>
       <button type="button" disabled={status === "question" || status === "thinking" || status === "speaking"} onClick={() => {
-        const sample = "¡Oe, mijo! Soy Skainet. Aquí estoy para ayudarte con la operación.";
+        const sample = "Soy Skainet. Estoy disponible para consultar la operación.";
         if (controller.current) controller.current.announce(sample);
         else { updateStatus("speaking"); speak(sample, () => updateStatus("off")); }
       }} className="rounded-md border border-cyan-200 px-3 py-1 text-cyan-800 disabled:opacity-50">Probar voz</button>
