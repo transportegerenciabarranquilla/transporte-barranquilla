@@ -99,6 +99,39 @@ test("saluda al llamarlo, escucha la pregunta y pausa reconocimiento durante su 
   assert.equal(calls.states.at(-1), "question");
   voice.stop();
 });
+test("saludo y pregunta en una misma transcripción conservan la pregunta", async () => {
+  const { voice, calls, recognition } = fixture();
+  voice.start();
+  recognition.onresult({ resultIndex: 0, results: [
+    { isFinal: true, 0: { transcript: "hola Skinet" } },
+    { isFinal: true, 0: { transcript: "cómo va el seguimiento" } },
+  ] });
+  assert.equal(calls.speeches[0].text, "¿En qué puedo ayudarte?");
+  calls.speeches[0].done();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls.questions, ["cómo va el seguimiento"]);
+  assert.equal(calls.speeches[1].text, "Refusal: 1,2 por ciento.");
+  voice.stop();
+});
+
+test("vuelve a escuchar si el navegador tarda en liberar el reconocimiento", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { voice, calls, recognition, say } = fixture();
+  voice.start();
+  say("hola Skinet");
+  let attempts = 0;
+  recognition.start = () => {
+    attempts++;
+    if (attempts === 1) throw new DOMException("Reconocimiento aún cerrando", "InvalidStateError");
+  };
+  calls.speeches[0].done();
+  assert.equal(attempts, 1);
+  t.mock.timers.tick(500);
+  assert.equal(attempts, 2);
+  assert.equal(calls.states.at(-1), "question");
+  voice.stop();
+});
+
 test("si se apaga mientras consulta, descarta la respuesta pendiente", async () => {
   let finish;
   const { voice, calls } = fixture(() => new Promise(resolve => { finish = resolve; }));
@@ -107,7 +140,7 @@ test("si se apaga mientras consulta, descarta la respuesta pendiente", async () 
   voice.stop();
   finish("Respuesta vieja");
   await pending;
-  assert.equal(calls.replies.length, 0);
+  assert.deepEqual(calls.replies, [""]);
   assert.equal(calls.states.at(-1), "off");
 });
 test("denegar el micrófono detiene la escucha y presenta un mensaje claro", () => {

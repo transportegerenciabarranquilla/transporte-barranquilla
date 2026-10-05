@@ -67,7 +67,9 @@ export class SkinetVoice {
             this.queueQuestion(wake.question);
             continue;
           }
-          this.greet("");
+          const following = Array.from({ length: event.results.length - index - 1 }, (_, offset) => event.results[index + offset + 1])
+            .filter(result => result.isFinal).map(result => result[0].transcript.trim()).filter(Boolean).join(" ");
+          this.greet(following);
           break;
         }
         if (this.state === "question") {
@@ -108,9 +110,13 @@ export class SkinetVoice {
   private setStatus(status: SkinetStatus) { this.state = status; this.callbacks.status(status); }
   private listen() {
     if (!this.active) return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
     try { this.recognition.start(); }
     catch (error) {
-      if (error instanceof Error && error.name === "InvalidStateError") return;
+      // abort() puede tardar en liberar el micrófono después de hablar.
+      // Reintentar evita quedar en «Te escucho» sin reconocer ninguna pregunta.
+      if (error instanceof Error && error.name === "InvalidStateError") { this.scheduleListen(); return; }
       this.stop();
       this.callbacks.error("No se pudo iniciar el micrófono. Puedes escribir tu pregunta.");
     }
@@ -189,6 +195,7 @@ export class SkinetVoice {
     this.recognition.abort();
     this.callbacks.cancelSpeech();
     this.callbacks.question(question);
+    this.callbacks.reply("");
     try {
       const reply = await this.callbacks.answer(question);
       if (generation !== this.generation) return;

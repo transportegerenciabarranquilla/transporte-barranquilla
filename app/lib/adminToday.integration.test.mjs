@@ -111,10 +111,12 @@ test("Skainet reproduce al máximo y respeta la voz elegida", () => {
     testVoice.props.onClick();
     assert.equal(spoken[0].volume, 1);
     assert.equal(spoken[0].voice.voiceURI, "online");
+    spoken[0].onstart();
     assert.match(spoken[0].text, /Soy Skainet/);
     nodes.find(node => node.type === "select").props.onChange({ target: { value: "local" } });
     testVoice.props.onClick();
     assert.equal(spoken[1].voice.voiceURI, "local");
+    spoken[1].onstart();
   } finally { globalThis.window = realWindow; globalThis.SpeechSynthesisUtterance = realUtterance; }
 });
 

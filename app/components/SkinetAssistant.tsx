@@ -31,6 +31,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
   const statusRef = useRef<SkinetStatus>("off");
   const controller = useRef<SkinetVoice | null>(null);
   const activeUtterance = useRef<SpeechSynthesisUtterance | null>(null);
+  const speechStartTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const requestVersion = useRef(0);
   const automaticListening = useRef(false);
   const callbacks = useRef({ onAsk, onReport, onListeningChange });
@@ -45,6 +46,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
   }, []);
   const speak = useCallback((text: string, done: () => void) => {
     if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) { done(); return; }
+    clearTimeout(speechStartTimer.current);
     const utterance = new SpeechSynthesisUtterance(text);
     activeUtterance.current = utterance;
     utterance.lang = "es-CO";
@@ -57,13 +59,27 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
       || available.find(voice => /^es[-_]CO$/i.test(voice.lang))
       || available.find(voice => /^es\b/i.test(voice.lang) && !voice.localService)
       || available.find(voice => /^es\b/i.test(voice.lang)) || null;
-    utterance.onend = () => { activeUtterance.current = null; done(); };
-    utterance.onerror = event => {
-      if (event.error === "canceled" || event.error === "interrupted") return;
+    const finish = () => {
+      if (activeUtterance.current !== utterance) return;
+      clearTimeout(speechStartTimer.current);
       activeUtterance.current = null;
-      setError("No pude reproducir la voz. La respuesta está en pantalla.");
       done();
     };
+    utterance.onstart = () => { clearTimeout(speechStartTimer.current); };
+    utterance.onend = finish;
+    utterance.onerror = event => {
+      if (activeUtterance.current !== utterance) return;
+      if (event.error !== "canceled" && event.error !== "interrupted") setError("No pude reproducir la voz. La respuesta está en pantalla.");
+      finish();
+    };
+    speechStartTimer.current = setTimeout(() => {
+      if (activeUtterance.current !== utterance) return;
+      setError("El navegador bloqueó la voz. Pulsa Probar voz para activarla.");
+      utterance.onend = null;
+      utterance.onerror = null;
+      window.speechSynthesis.cancel();
+      finish();
+    }, 5000);
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
   }, []);
@@ -92,7 +108,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
       answer: text => callbacks.current.onAsk(text), question: setQuestion, reply: setReply,
       status: updateStatus,
       error: message => { automaticListening.current = false; setError(message); setListening(false); callbacks.current.onListeningChange(false); },
-      cancelSpeech: () => { window.speechSynthesis?.cancel(); activeUtterance.current = null; },
+      cancelSpeech: () => { clearTimeout(speechStartTimer.current); activeUtterance.current = null; window.speechSynthesis?.cancel(); },
       speak,
     });
     setListening(true);
@@ -122,6 +138,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
     window.addEventListener("bavaria-session-reset", sessionEnded);
     return () => {
       window.clearTimeout(timer);
+      clearTimeout(speechStartTimer.current);
       requests.current++;
       controller.current?.stop();
       window.speechSynthesis?.cancel();
