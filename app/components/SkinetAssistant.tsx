@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, Mic, MicOff, Send } from "lucide-react";
+import { Mic, MicOff, Send } from "lucide-react";
 import { SkinetVoice, type SkinetRecognition, type SkinetStatus } from "../lib/skinetVoice";
 import { startSkinetReports } from "../lib/skinetReports";
 import { openSkinetMicrophone } from "../lib/skinetMicrophone";
 
 const statusLabels: Record<SkinetStatus, string> = {
-  off: "Micrófono apagado", wake: "Di «hola Skainet»", question: "Te escucho, haz tu pregunta",
-  thinking: "Consultando la operación…", speaking: "Skainet está respondiendo",
+  off: "Micrófono apagado", wake: "Di «hola Zora»", question: "Te escucho, haz tu pregunta",
+  thinking: "Consultando la operación…", speaking: "Zora está respondiendo",
 };
 type RecognitionWindow = Window & { SpeechRecognition?: new () => SkinetRecognition; webkitSpeechRecognition?: new () => SkinetRecognition };
 type PolicyDocument = Document & { permissionsPolicy?: { allowsFeature: (name: string) => boolean }; featurePolicy?: { allowsFeature: (name: string) => boolean } };
@@ -33,6 +33,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
   const [reply, setReply] = useState("");
   const [error, setError] = useState("");
   const [reportsEnabled, setReportsEnabled] = useState(true);
+  const [open, setOpen] = useState(false);
   const [lastReportAt, setLastReportAt] = useState("");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceUri, setVoiceUri] = useState("");
@@ -315,12 +316,16 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
     }
   }
 
-  return <section aria-label="Asistente Skainet" className="mb-5 rounded-xl border border-cyan-200 bg-white p-4 shadow-sm">
-    <audio ref={replyAudio} preload="none" aria-label="Respuesta hablada de Skainet" />
+  return <>
+    <button type="button" aria-label={open ? "Cerrar Zora" : "Abrir Zora"} aria-expanded={open} onClick={() => setOpen(value => !value)} className="fixed bottom-5 right-5 z-50 h-16 w-16 overflow-hidden rounded-full border-0 bg-transparent shadow-xl shadow-slate-900/25 transition hover:scale-105 focus:outline-none focus:ring-4 focus:ring-cyan-300">
+      <img src="/brand/zora-icon.png" alt="Zora" className="h-full w-full object-contain" />
+    </button>
+    <section aria-label="Asistente Zora" className="mb-5 rounded-xl border border-cyan-200 bg-white p-4 shadow-sm">
+    <audio ref={replyAudio} preload="none" aria-label="Respuesta hablada de Zora" />
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-cyan-50 text-cyan-800"><Bot aria-hidden="true" /></span>
-        <div><h2 className="font-semibold text-[#10223d]">Skainet</h2><p className="text-sm text-slate-500">Tu asistente de operación · Solo administrador</p></div>
+        <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl bg-[#10223d]"><img src="/brand/zora-icon.png" alt="" className="h-full w-full object-cover" /></span>
+        <div><h2 className="font-semibold text-[#10223d]">Zora</h2><p className="text-sm text-slate-500">Tu asistente de operación · Solo administrador</p></div>
       </div>
       <button type="button" aria-pressed={listening} onClick={toggle} className="inline-flex items-center gap-2 rounded-md bg-[#10223d] px-4 py-2 text-sm font-semibold text-white">
         {listening ? <MicOff size={17} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}{listening ? "Pausar escucha" : "Reanudar escucha"}
@@ -329,12 +334,12 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
     <p role="status" className="mt-3 text-sm font-medium text-cyan-800">{statusLabels[status]}</p>
     {heard && <p className="mt-1 text-sm text-slate-600">Último texto escuchado: {heard}</p>}
     {listening && microphoneName && <div className="mt-2 text-xs text-slate-600"><p>{microphoneName} · {microphoneLevel > 3 ? "Recibiendo sonido" : "Habla y comprueba que la barra se mueva"}</p><meter aria-label="Nivel de entrada del micrófono" min={0} max={100} value={microphoneLevel} className="mt-1 h-3 w-full max-w-xs" /></div>}
-    {microphones.length > 0 && <label className="mt-2 flex items-center gap-2 text-sm text-slate-600">Micrófono<select aria-label="Micrófono para Skainet" value={microphoneId} onChange={event => {
+    {microphones.length > 0 && <label className="mt-2 flex items-center gap-2 text-sm text-slate-600">Micrófono<select aria-label="Micrófono para Zora" value={microphoneId} onChange={event => {
       selectedMicrophone.current = event.target.value;
       setMicrophoneId(event.target.value);
       if (listening) void startListening();
     }} className="max-w-80 rounded-md border border-slate-200 px-2 py-1"><option value="">Predeterminado del equipo</option>{microphones.filter(device => device.deviceId !== "default").map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Micrófono disponible"}</option>)}</select></label>}
-    <p className="mt-1 text-sm text-slate-500">Pulsa Reanudar escucha para preguntar por voz y di «hola Skainet». El micrófono solo se utiliza para escuchar preguntas. Puedes escribir y escuchar respuestas sin activar el micrófono.</p>
+    <p className="mt-1 text-sm text-slate-500">Pulsa Reanudar escucha para preguntar por voz y di «hola Zora». El micrófono solo se utiliza para escuchar preguntas. Puedes escribir y escuchar respuestas sin activar el micrófono.</p>
     <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
       <label className="flex items-center gap-2">Voz
         <select value={voiceUri} onChange={event => { selectedVoice.current = event.target.value; setVoiceUri(event.target.value); }} className="max-w-64 rounded-md border border-slate-200 bg-white px-2 py-1">
@@ -343,7 +348,7 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
         </select>
       </label>
       <button type="button" disabled={status === "question" || status === "thinking" || status === "speaking"} onClick={() => {
-        const sample = "Soy Skainet. Estoy disponible para consultar la operación.";
+        const sample = "Soy Zora. Estoy disponible para consultar la operación.";
         if (controller.current) controller.current.announce(sample);
         else { updateStatus("speaking"); speak(sample, () => updateStatus("off")); }
       }} className="rounded-md border border-cyan-200 px-3 py-1 text-cyan-800 disabled:opacity-50">Probar voz</button>
@@ -354,11 +359,20 @@ export function SkinetAssistant({ onAsk, onReport, onListeningChange }: {
       <span className="text-xs text-slate-500">{lastReportAt ? `Último informe: ${lastReportAt}` : "Mientras tengas el admin abierto; al volver, lee el informe pendiente."}</span>
     </div>
     {question && <p className="mt-3 text-sm text-slate-600"><b>Tú:</b> {question}</p>}
-    {reply && <p aria-live="polite" className="mt-2 whitespace-pre-line rounded-lg bg-cyan-50 p-3 text-sm leading-6 text-slate-800"><b>Skainet:</b> {reply}</p>}
+    {reply && <p aria-live="polite" className="mt-2 whitespace-pre-line rounded-lg bg-cyan-50 p-3 text-sm leading-6 text-slate-800"><b>Zora:</b> {reply}</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     <form onSubmit={submit} className="mt-3 flex gap-2">
-      <input aria-label="Pregunta para Skainet" maxLength={500} value={input} onChange={event => setInput(event.target.value)} placeholder="¿Cómo va la entrega en rango de Logísticos Galapa?" className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800" />
+      <input aria-label="Pregunta para Zora" maxLength={500} value={input} onChange={event => setInput(event.target.value)} placeholder="¿Cómo va la entrega en rango de Logísticos Galapa?" className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800" />
       <button type="submit" aria-label="Enviar pregunta" disabled={!input.trim() || status === "thinking"} className="rounded-md bg-cyan-700 px-3 py-2 text-white disabled:opacity-50"><Send size={18} /></button>
     </form>
-  </section>;
+    </section>
+    {open && <div aria-label="Preguntar a Zora" className="fixed bottom-24 right-5 z-50 w-[min(380px,calc(100vw-2rem))] rounded-2xl border border-cyan-200 bg-white p-4 shadow-2xl">
+      <div className="mb-3 flex items-center gap-2"><img src="/brand/zora-icon.png" alt="" className="h-9 w-9 object-contain" /><div><p className="font-bold text-[#10223d]">Zora</p><p className="text-xs text-slate-500">Pregunta sobre la operación</p></div></div>
+      {reply && <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-line rounded-lg bg-cyan-50 p-3 text-sm leading-5 text-slate-800"><b>Zora:</b> {reply}</p>}
+      <form onSubmit={submit} className="flex gap-2">
+        <input aria-label="Pregunta rápida para Zora" autoFocus maxLength={500} value={input} onChange={event => setInput(event.target.value)} placeholder="Escribe tu pregunta…" className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800" />
+        <button type="submit" aria-label="Enviar pregunta a Zora" disabled={!input.trim() || status === "thinking"} className="rounded-lg bg-cyan-700 px-3 py-2 text-white disabled:opacity-50"><Send size={18} /></button>
+      </form>
+    </div>}
+  </>;
 }

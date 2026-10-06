@@ -189,6 +189,51 @@ test("distingue ausencia de datos y pide sede o contratista para rutas ambiguas"
   assert.equal(answerSkinet("entrega en rango DT 123", { ...data, summaries: [...data.summaries, { contractor: "HL Logisticos" }], rangeReports: [report, { ...report, contractor: "HL Logisticos" }] }, day).clarify, true);
 });
 
+test("una consulta nueva de rango no hereda la persona anterior", () => {
+  const previous = understandSkinet("entrega en rango del RR Ana", day).context;
+  assert.equal(previous.rr, "ana");
+  const result = understandSkinet("como va el entrega en rango de logisticos galapa", day, previous);
+  assert.equal(result.context.rr, undefined);
+  assert.equal(result.context.person, undefined);
+  assert.deepEqual(result.context.metrics, ["range"]);
+  assert.match(answerSkinet("como va el entrega en rango de logisticos galapa", data, day, result.context).answer, /Entrega en rango de Logisticos hoy: 50 por ciento/);
+});
+
+test("consulta cliente por nombre o código y da el detalle de sus visitas", () => {
+  const byName = understandSkinet("información del cliente Tienda Uno", day);
+  assert.equal(byName.context.client, "tienda uno");
+  assert.match(answerSkinet("información del cliente Tienda Uno", data, day, byName.context).answer, /varios clientes.*código 1.*código 2/);
+  const answer = answerSkinet("cliente código 2", data, day).answer;
+  assert.match(answer, /Cliente Tienda Uno \(código 2\)/);
+  assert.match(answer, /DT 123, placa ABC123/);
+  assert.match(answer, /fuera de rango.*Reubicación/);
+  assert.match(answerSkinet("cliente código 1", data, day).answer, /Cliente Tienda Uno/);
+  assert.match(answerSkinet("cliente código 99", data, day).answer, /No encontré al cliente/);
+  const modulationOnly = { ...data, rangeReports: [], modulations: [{ contratista: "Logisticos", fechaDespacho: day, dt: "123", codigoCliente: "99", nombreCliente: "Tienda Nueva", totalCajas: "12", cajasGestionadas: "5" }] };
+  assert.match(answerSkinet("cliente código 99", modulationOnly, day).answer, /Tienda Nueva.*12 cajas reportadas y 5 gestionadas.*No hay visitas de rango/);
+});
+
+test("información general de DT incluye avance, refusal y rango", () => {
+  const complete = { ...data, records: [{ ...data.records[0], cajasRefusalFinal: 2 }] };
+  const answer = answerSkinet("información del DT 123", complete, day).answer;
+  assert.match(answer, /RR: Ana.*Placa: ABC123/);
+  assert.match(answer, /Seguimiento: 5 de 10 clientes visitados/);
+  assert.match(answer, /Refusal: 10 por ciento/);
+  assert.match(answer, /Entrega en rango.*50 por ciento/);
+});
+
+test("compara refusal entre contratistas cuando preguntan cuál lleva más", () => {
+  const comparison = { ...data, summaries: [{ contractor: "Logisticos" }, { contractor: "HL Logisticos" }, { contractor: "Surti Cervezas" }], records: [
+    { ...data.records[0], transportista: "Logisticos", cajas: 100, cajasRefusalFinal: 4 },
+    { ...data.records[0], transportista: "HL Logisticos", transporte: "456", cajas: 50, cajasRefusalFinal: 10 },
+    { ...data.records[0], transportista: "Surti Cervezas", transporte: "789", cajas: 200, cajasRefusalFinal: 2 },
+  ] };
+  const answer = answerSkinet("logisticos es el que lleva mas refusal", comparison, day);
+  assert.match(answer.answer, /Logisticos no es la contratista con mayor refusal/);
+  assert.match(answer.answer, /HL Logisticos/);
+  assert.match(answer.answer, /Logisticos: 4 por ciento/);
+});
+
 test("la API de rango acota la fecha sin quitar el alcance de sesión", async () => {
   let session = { contractor: "Logisticos", accessToken: "test", isAdmin: false };
   const queries = [];

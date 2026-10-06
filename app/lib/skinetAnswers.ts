@@ -75,6 +75,26 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if (!contractors.length) return { answer: "No tengo datos de esa contratista dentro del alcance de tu sesión." };
   const permitted = new Set(contractors.map(normalizeContractorName));
   let records = (data.records || []).filter(record => permitted.has(normalizeContractorName(record.transportista)));
+  const metrics = new Set(context.metrics);
+  if (metrics.has("maxRefusal")) {
+    const refusalRows = authorized.map(contractor => {
+      const contractorRecords = (data.records || []).filter(record => normalizeContractorName(record.transportista) === normalizeContractorName(contractor));
+      const boxes = contractorRecords.reduce((sum, record) => sum + number(record.cajas), 0);
+      const pending = contractorRecords.reduce((sum, record) => sum + number(record.cajasRefusalFinal), 0);
+      const missing = contractorRecords.filter(record => !hasNumber(record.cajas) || !hasNumber(record.cajasRefusalFinal)).length;
+      return { contractor, boxes, pending, missing, percent: boxes ? pending / boxes * 100 : null };
+    }).filter(row => row.boxes > 0 && row.missing === 0 && row.percent !== null);
+    if (!refusalRows.length) return { answer: "No tengo datos completos de refusal para comparar las contratistas dentro del alcance de tu sesión." };
+    const highest = Math.max(...refusalRows.map(row => row.percent!));
+    const leaders = refusalRows.filter(row => row.percent === highest);
+    const targetName = context.contractor === "hl" ? "hllogisticos" : context.contractor === "logisticos" ? "logisticos" : context.contractor === "corona" ? "corona" : context.contractor === "surti" ? "surticervezas" : undefined;
+    const target = targetName ? refusalRows.find(row => normalizeContractorName(row.contractor).includes(targetName)) : undefined;
+    const ranking = [...refusalRows].sort((a, b) => b.percent! - a.percent!).map(row => `${row.contractor}: ${format(row.percent!)} por ciento (${format(row.pending)} de ${format(row.boxes)} cajas)`).join("; ");
+    const conclusion = target ? target.percent === highest
+      ? `${target.contractor} sí es la contratista con mayor refusal${leaders.length > 1 ? " junto con " + leaders.filter(row => row !== target).map(row => row.contractor).join(", ") : ""}.`
+      : `${target.contractor} no es la contratista con mayor refusal; la mayor es ${leaders.map(row => row.contractor).join(", ")}.` : `La contratista con mayor refusal es ${leaders.map(row => row.contractor).join(", ")}.`;
+    return { answer: `${conclusion} Comparación: ${ranking}.` };
+  }
   let personName = context.rr || "";
   if (context.rr) {
     const query = normalizeSkinet(context.rr);
@@ -106,6 +126,47 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   if (context.rr) modulations = modulations.filter(record => rrRoutes.has(`${normalizeContractorName(record.contratista)}:${skinetDt(record.dt)}`));
   const rangeReports = context.rr ? (data.rangeReports || []).map(report => ({ ...report, rows: report.rows.filter(row => rrRoutes.has(`${normalizeContractorName(report.contractor)}:${skinetDt(row.dt)}`)) })) : data.rangeReports || [];
   const range = skinetRangeRows(rangeReports, permitted, day, context);
+  const contractorLabel = named ? contractors[0] === "HL Logisticos" ? "HL" : contractors[0] : site ? `la operación de ${site}` : "la operación";
+  const period = context.period;
+  if (context.client) {
+    const query = normalizeSkinet(context.client).replace(/[^a-z0-9\s]/g, "").trim();
+    const words = query.split(/\s+/).filter(Boolean);
+    const matches = range.rows.filter(row => {
+      const code = normalizeSkinet(row.pocExternalId || "").replace(/[^a-z0-9]/g, "");
+      const name = normalizeSkinet(row.pocName || "").replace(/[^a-z0-9\s]/g, " ");
+      return code === query.replace(/\s/g, "") || words.every(word => name.split(/\s+/).includes(word));
+    });
+    const clients = new Map<string, typeof matches>();
+    for (const row of matches) {
+      const key = `${normalizeContractorName(row.contractor)}:${normalizeSkinet(row.pocExternalId || row.pocName)}`;
+      clients.set(key, [...(clients.get(key) || []), row]);
+    }
+    if (!matches.length) {
+      const modulationMatches = modulations.filter(record => {
+        const code = normalizeSkinet(record.codigoCliente || "").replace(/[^a-z0-9]/g, "");
+        const name = normalizeSkinet(record.nombreCliente || "").replace(/[^a-z0-9\s]/g, " ");
+        return code === query.replace(/\s/g, "") || words.every(word => name.split(/\s+/).includes(word));
+      });
+      const modulationClients = new Map<string, typeof modulationMatches>();
+      for (const record of modulationMatches) {
+        const key = `${normalizeContractorName(record.contratista)}:${normalizeSkinet(record.codigoCliente || record.nombreCliente || "")}`;
+        modulationClients.set(key, [...(modulationClients.get(key) || []), record]);
+      }
+      if (!modulationClients.size) return { answer: `No encontré al cliente ${context.client} en los reportes de rango ni en las modulaciones de ${contractorLabel} ${period} dentro del alcance de tu sesión.` };
+      if (modulationClients.size > 1) return { answer: `Encontré varios clientes para «${context.client}»: ${[...modulationClients.values()].slice(0, 5).map(rows => `${rows[0].nombreCliente || rows[0].codigoCliente} (código ${rows[0].codigoCliente || "sin registrar"})`).join(", ")}. Indica el código.`, clarify: true };
+      const clientModulations = [...modulationClients.values()][0];
+      const client = clientModulations[0];
+      return { answer: `Cliente ${client.nombreCliente || "sin nombre"} (código ${client.codigoCliente || "sin registrar"}) de ${client.contratista || contractorLabel} ${period}: ${clientModulations.length} modulaciones, ${format(clientModulations.reduce((sum, row) => sum + number(row.totalCajas), 0))} cajas reportadas y ${format(clientModulations.reduce((sum, row) => sum + number(row.cajasGestionadas), 0))} gestionadas. DT: ${[...new Set(clientModulations.map(row => row.dt).filter(Boolean))].join(", ") || "sin registrar"}. No hay visitas de rango disponibles para este cliente.` };
+    }
+    if (clients.size > 1) return { answer: `Encontré varios clientes para «${context.client}»: ${[...clients.values()].slice(0, 5).map(rows => `${rows[0].pocName || rows[0].pocExternalId} (${rows[0].contractor}, código ${rows[0].pocExternalId || "sin registrar"})`).join(", ")}. Indica el código o nombre completo.`, clarify: true };
+    const visits = [...clients.values()][0];
+    const client = visits[0];
+    const related = modulations.filter(record => normalizeContractorName(record.contratista) === normalizeContractorName(client.contractor)
+      && (client.pocExternalId && normalizeSkinet(record.codigoCliente) === normalizeSkinet(client.pocExternalId)
+        || Boolean(record.nombreCliente && normalizeSkinet(record.nombreCliente) === normalizeSkinet(client.pocName))));
+    const details = visits.slice(0, 10).map(row => `DT ${row.dt}, placa ${row.truckLicensePlate || "sin registrar"}, ${row.status === "NOT_STARTED" ? "sin iniciar" : row.withinRadius === true ? "en rango" : row.withinRadius === false ? "fuera de rango" : "rango sin validar"}, estado ${row.status || "sin registrar"}${row.withinRadius === false ? `, motivo ${row.manualOutOfRadiusReason || row.outOfRadiusReason || "sin registrar"}` : ""}, ${hasNumber(row.deliveredVolume) ? format(number(row.deliveredVolume)) : "sin dato de"} cajas entregadas y ${hasNumber(row.refusedVolume) ? format(number(row.refusedVolume)) : "sin dato de"} rechazadas`);
+    return { answer: `Cliente ${client.pocName || "sin nombre"} (código ${client.pocExternalId || "sin registrar"}) de ${client.contractor} ${period}. ${visits.length} ${visits.length === 1 ? "visita" : "visitas"}: ${details.join("; ")}.${visits.length > 10 ? " Muestra las primeras 10; indica el DT para precisar." : ""}${related.length ? ` ${related.length} modulaciones: ${format(related.reduce((sum, row) => sum + number(row.totalCajas), 0))} cajas reportadas y ${format(related.reduce((sum, row) => sum + number(row.cajasGestionadas), 0))} gestionadas.` : ""}` };
+  }
   if (context.plate) {
     records = records.filter(record => skinetPlate(record.vehiculo) === context.plate);
     const plateDts = new Set([...records.map(record => skinetDt(record.transporte)), ...range.rows.map(row => skinetDt(row.dt))]);
@@ -117,8 +178,6 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
     if (records.length > 1 && new Set(records.map(record => record.transportista)).size > 1 && !named) return { answer: "Ese DT aparece en varias contratistas. Dime cuál quieres consultar.", clarify: true };
   }
   if ((dt || context.plate) && !named && new Set([...records.map(row => normalizeContractorName(row.transportista)), ...range.rows.map(row => normalizeContractorName(row.contractor))]).size > 1) return { answer: "Ese DT o placa aparece en varias contratistas. Indica la contratista y sede que quieres consultar.", clarify: true };
-  const contractorLabel = named ? contractors[0] === "HL Logisticos" ? "HL" : contractors[0] : site ? `la operación de ${site}` : "la operación";
-  const period = context.period;
   const label = `${dt ? `el DT ${dt} de ` : context.plate ? `la placa ${context.plate} de ` : context.rr ? `${context.person ? "la persona" : "el RR"} ${personName} de ` : ""}${contractorLabel}`;
   const boxes = records.reduce((sum, record) => sum + number(record.cajas), 0);
   const pending = records.reduce((sum, record) => sum + number(record.cajasRefusalFinal), 0);
@@ -127,7 +186,6 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
     : boxes ? `El refusal de ${label} ${period} va en ${format(pending / boxes * 100)} por ciento. Son ${format(pending)} cajas pendientes de ${format(boxes)} cajas de salida.`
     : `${label} no tiene cajas de salida registradas para ${period}. Todavía no puedo calcular su refusal.`;
   const messages: string[] = [];
-  const metrics = new Set(context.metrics);
   if (metrics.has("maxBoxes")) {
     const candidates = records.filter(record => record.cajas !== null && record.cajas !== undefined && String(record.cajas).trim() !== "" && Number.isFinite(Number(String(record.cajas).replace(/\./g, "").replace(",", "."))));
     if (!candidates.length) return { answer: `No hay rutas con cajas registradas de ${contractorLabel} ${period}.` };
@@ -181,6 +239,12 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   }
   if ((dt || context.plate || context.rr) && metrics.has("status")) {
     for (const record of records.slice(0, 10)) messages.push(skinetRouteAnswer(record, context));
+    if ((dt || context.plate) && !context.routeField && records.length) {
+      const clients = records.reduce((sum, record) => sum + number(record.clientes), 0);
+      const visited = records.reduce((sum, record) => sum + number(record.visitados), 0);
+      messages.push(`Seguimiento: ${format(visited)} de ${format(clients)} clientes visitados. ${format(boxes)} cajas de salida.${missingRefusal ? " Faltan datos para calcular refusal." : boxes ? ` Refusal: ${format(pending / boxes * 100)} por ciento (${format(pending)} cajas pendientes).` : ""}`);
+      if (range.reports.length) messages.push(skinetRangeAnswer(range, context, label));
+    }
     if (records.length > 10) messages.push(`Hay ${records.length} rutas coincidentes. Consulta un DT para acotar el resultado.`);
     if (!records.length) {
       const row = range.rows[0];

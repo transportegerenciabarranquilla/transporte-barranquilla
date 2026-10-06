@@ -145,7 +145,7 @@ export default function AdminPage() {
       queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
     });
     let rangeReports: SkinetData["rangeReports"];
-    if (context.metrics.some(metric => ["range", "rangeDetails", "status", "summary"].includes(metric)) || context.plate) {
+    if (context.metrics.some(metric => ["range", "rangeDetails", "status", "summary"].includes(metric)) || context.plate || context.client) {
       const rangeData = await queryClient.fetchQuery({
         queryKey: ["admin", "rango", "skinet", day], staleTime: 0,
         queryFn: ({ signal }) => apiQuery<{ reports: NonNullable<SkinetData["rangeReports"]> }>(`/api/admin/rango?${new URLSearchParams({ desde: day, hasta: day })}`, signal),
