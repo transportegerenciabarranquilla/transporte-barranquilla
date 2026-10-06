@@ -2,16 +2,15 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { canAccessContractor } from "../../../lib/adminScope";
 import { normalizeContractorName } from "../../../lib/contractors";
-import { buildRrTripAverages, RR_TRIP_PEOPLE, RR_TRIP_START_DATE, rrTripDate, type RrTripSourceRow } from "../../../lib/rrTripAverage";
+import { buildRrTripAverages, RR_TRIP_START_DATE, rrTripDate, type RrTripSourceRow } from "../../../lib/rrTripAverage";
 import { supabaseReadHeaders, supabaseRest } from "../../../lib/supabaseServer";
 
-const SELECT = "contractor,visited:data->>visitados,company:data->>transportista,rr_cc:data->>cedulaResponsable,aux1_cc:data->>cedulaAuxiliar1,aux2_cc:data->>cedulaAuxiliar2,aux3_cc:data->>cedulaAuxiliar3,dt:data->>transporte,trip:data->>viaje,plate:data->>vehiculo,dispatch_date:data->>fechaDespacho,dt_date:data->>fechaDt,record_date:data->>date,created_at_data:data->>createdAt";
+const SELECT = "contractor,planned:data->>clientes,visited:data->>visitados,company:data->>transportista,rr_cc:data->>cedulaResponsable,aux1_cc:data->>cedulaAuxiliar1,aux2_cc:data->>cedulaAuxiliar2,aux3_cc:data->>cedulaAuxiliar3,dt:data->>transporte,trip:data->>viaje,plate:data->>vehiculo,dispatch_date:data->>fechaDespacho,dt_date:data->>fechaDt,record_date:data->>date,created_at_data:data->>createdAt";
 const ATTENDANCE_SELECT = "contractor,dt:data->>dt,created_at_data:data->>createdAt,rr_cc:data->>cedulaResponsable,aux1_cc:data->>cedulaAuxiliar1,aux2_cc:data->>cedulaAuxiliar2,aux3_cc:data->>cedulaAuxiliar3";
 const PAGE_SIZE = 1000;
 
 type SourceRow = RrTripSourceRow & { company?: string | null };
 type AttendanceRow = Pick<RrTripSourceRow, "contractor" | "dt" | "created_at_data" | "rr_cc" | "aux1_cc" | "aux2_cc" | "aux3_cc">;
-type PersonnelRow = { CC?: string | null; CARGO?: string | null; CONTRATISTA?: string | null };
 
 async function readAttendance(accessToken: string) {
   const byRoute = new Map<string, AttendanceRow>();
@@ -66,17 +65,7 @@ export async function GET() {
         aux3_cc: row.aux3_cc || crew.aux3_cc,
       } : row;
     });
-    const personnelQuery = new URLSearchParams({ select: "CC,CARGO,CONTRATISTA", CC: `in.(${RR_TRIP_PEOPLE.map(person => person.cc).join(",")})`, limit: "100" });
-    const personnelResponse = await fetch(supabaseRest("transporte_barranquilla", `?${personnelQuery}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
-    if (!personnelResponse.ok) throw new Error("No se pudieron consultar los cargos.");
-    const personnel = await personnelResponse.json() as PersonnelRow[];
-    const cargos = new Map<string, string>();
-    for (const row of personnel) {
-      const cc = String(row.CC || "").replace(/\D/g, "");
-      const cargo = String(row.CARGO || "").trim();
-      if (cc && cargo && canAccessContractor(session, row.CONTRATISTA || "") && !cargos.has(cc)) cargos.set(cc, cargo);
-    }
-    const people = buildRrTripAverages(enrichedRows).map(person => ({ ...person, cargo: cargos.get(person.cc) || "Sin cargo registrado" }));
+    const people = buildRrTripAverages(enrichedRows);
     return NextResponse.json({ people, sourceRows: rows.length }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "No se pudieron calcular los promedios desde Seguimiento. Intenta de nuevo." }, { status: 503 });

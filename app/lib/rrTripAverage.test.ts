@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRrTripAverages, RR_TRIP_PEOPLE } from "./rrTripAverage.ts";
+import { buildRrTripAverages, RR_TRIP_PEOPLE, rrTripWorkweek } from "./rrTripAverage.ts";
 
 test("muestra las 13 personas y cuenta cada viaje una sola vez por fecha, contratista, DT y número", () => {
   const rows = buildRrTripAverages([
@@ -10,7 +10,7 @@ test("muestra las 13 personas y cuenta cada viaje una sola vez por fecha, contra
     { contractor: "Logisticos", dispatch_date: "2026-10-07", dt: "8002", trip: "1", aux3_cc: "1042971540" },
   ]);
   assert.equal(rows.length, RR_TRIP_PEOPLE.length);
-  assert.deepEqual(rows[0].days, [{ date: "2026-10-06", trips: 2, visited: null }, { date: "2026-10-07", trips: 1, visited: null }]);
+  assert.deepEqual(rows[0].days, [{ date: "2026-10-06", trips: 2, visited: null, planned: null }, { date: "2026-10-07", trips: 1, visited: null, planned: null }]);
   assert.equal(rows[0].cc, "1042971540");
   assert.deepEqual(rows[4].days, []);
 });
@@ -24,8 +24,8 @@ test("suma visitas por viaje sin duplicar personas ni versiones y conserva las f
     { ...base, dispatch_date: "2026-10-06", dt: "3", visited: 5 },
   ])[0];
   assert.deepEqual(person.days, [
-    { date: "2026-10-06", trips: 2, visited: 17 },
-    { date: "2026-10-07", trips: 1, visited: 0 },
+    { date: "2026-10-06", trips: 2, visited: 17, planned: null },
+    { date: "2026-10-07", trips: 1, visited: 0, planned: null },
   ]);
 });
 
@@ -46,4 +46,15 @@ test("solo atribuye viajes por cédula y no por coincidencias de nombres", () =>
   assert.equal(rows[0].days[0].trips, 1);
   assert.equal(rows[4].name, "Luis Eduardo Orozco Moron");
   assert.equal(rows[4].days[0].trips, 1);
+});
+
+test("suma clientes planeados por persona y día, sin duplicar versiones del viaje", () => {
+  const rows = buildRrTripAverages([
+    { contractor: "Logisticos", dispatch_date: "2026-10-06", dt: "8001", trip: "1", rr_cc: "1042971540", planned: 12 },
+    { contractor: "Logisticos", dispatch_date: "2026-10-06", dt: "8001", trip: "1", rr_cc: "1042971540", planned: 14 },
+    { contractor: "Logisticos", dispatch_date: "2026-10-06", dt: "8002", trip: "1", rr_cc: "1042971540", planned: 8 },
+    { contractor: "Logisticos", dispatch_date: "2026-10-07", dt: "8003", trip: "1", rr_cc: "1042971540", planned: 5 },
+  ]);
+  assert.deepEqual(rows[0].days.map(day => [day.date, day.planned]), [["2026-10-06", 22], ["2026-10-07", 5]]);
+  assert.deepEqual(rrTripWorkweek("2026-10-06"), ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]);
 });

@@ -452,7 +452,7 @@ function ClosingCountdown({ deadline, uploadedAt, createdDate, now, status }: { 
   const clock = complaintElapsedClock(uploadedAt || "", deadline, now, createdDate);
   if (!clock) return <span className="text-slate-400">Sin fecha de carga</span>;
   return <div className="inline-flex flex-nowrap items-center gap-2 whitespace-nowrap">
-    <span className={`whitespace-nowrap rounded-md px-2 py-1 font-mono font-black ${clock.overdue ? "bg-red-100 text-red-700" : "bg-blue-50 text-blue-700"}`}>{formatElapsed(clock.elapsedSeconds)}</span>
+    {!clock.overdue && <span className="whitespace-nowrap rounded-md bg-blue-50 px-2 py-1 font-mono font-black text-blue-700">{formatElapsed(clock.elapsedSeconds)}</span>}
     {clock.overdue && <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-red-100 px-2 py-1 font-black text-red-700"><AlertTriangle size={13} />Plazo vencido · +{formatElapsed(clock.overdueSeconds)}</span>}
     {!clock.overdue && <span className="whitespace-nowrap rounded-md bg-emerald-50 px-2 py-1 font-bold text-emerald-700">En plazo</span>}
     {clock.approximate && <span className="text-[10px] text-slate-500">Hora aproximada</span>}

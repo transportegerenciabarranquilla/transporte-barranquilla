@@ -12,6 +12,13 @@ export function rrTripsToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
+export function rrTripWorkweek(referenceDate: string) {
+  const selected = new Date(`${referenceDate}T00:00:00Z`);
+  if (!Number.isFinite(selected.getTime()) || selected.toISOString().slice(0, 10) !== referenceDate) return [];
+  const monday = selected.getTime() - ((selected.getUTCDay() + 6) % 7) * 86_400_000;
+  return Array.from({ length: 5 }, (_, index) => new Date(monday + index * 86_400_000).toISOString().slice(0, 10));
+}
+
 export const RR_TRIP_PEOPLE = [
   { name: "Cristo González", cc: "1042971540" },
   { name: "Andrés Elles", cc: "7959524" },
@@ -47,17 +54,18 @@ export type RrTripSourceRow = {
   record_date?: string | null;
   created_at_data?: string | null;
   visited?: number | string | null;
+  planned?: number | string | null;
 };
 
 export type RrTripPerson = {
   name: string;
   cc: string;
   cargo: string;
-  days: Array<{ date: string; trips: number; visited: number | null }>;
+  days: Array<{ date: string; trips: number; visited: number | null; planned: number | null }>;
 };
 
 export function buildRrTripAverages(rows: RrTripSourceRow[]): RrTripPerson[] {
-  const people = RR_TRIP_PEOPLE.map(person => ({ ...person, trips: new Map<string, Map<string, number | null>>() }));
+  const people = RR_TRIP_PEOPLE.map(person => ({ ...person, trips: new Map<string, Map<string, { visited: number | null; planned: number | null }>>() }));
   const byCc = new Map(people.map(person => [person.cc, person]));
   for (const row of rows) {
     const date = rrTripDate(row);
@@ -68,13 +76,15 @@ export function buildRrTripAverages(rows: RrTripSourceRow[]): RrTripPerson[] {
     const routeKey = JSON.stringify([contractor, route, trip]);
     const value = row.visited == null || String(row.visited).trim() === "" ? NaN : Number(row.visited);
     const visited = Number.isSafeInteger(value) && value >= 0 ? value : null;
+    const plannedValue = row.planned == null || String(row.planned).trim() === "" ? NaN : Number(row.planned);
+    const planned = Number.isSafeInteger(plannedValue) && plannedValue >= 0 ? plannedValue : null;
     const ids = new Set([row.rr_cc, row.aux1_cc, row.aux2_cc, row.aux3_cc].map(value => String(value || "").replace(/\D/g, "")).filter(Boolean));
     for (const cc of ids) {
       const person = byCc.get(cc as typeof RR_TRIP_PEOPLE[number]["cc"]);
       if (!person) continue;
       if (!person.trips.has(date)) person.trips.set(date, new Map());
       // La API entrega las versiones por updated_at ascendente: gana la última.
-      person.trips.get(date)!.set(routeKey, visited);
+      person.trips.get(date)!.set(routeKey, { visited, planned });
     }
   }
   return people.map(person => ({
@@ -83,7 +93,8 @@ export function buildRrTripAverages(rows: RrTripSourceRow[]): RrTripPerson[] {
     cargo: "",
     days: [...person.trips].map(([date, trips]) => ({
       date, trips: trips.size,
-      visited: [...trips.values()].some(value => value === null) ? null : [...trips.values()].reduce<number>((sum, value) => sum + (value ?? 0), 0),
+      visited: [...trips.values()].some(value => value.visited === null) ? null : [...trips.values()].reduce<number>((sum, value) => sum + (value.visited ?? 0), 0),
+      planned: [...trips.values()].some(value => value.planned === null) ? null : [...trips.values()].reduce<number>((sum, value) => sum + (value.planned ?? 0), 0),
     })).sort((a, b) => a.date.localeCompare(b.date)),
   }));
 }
