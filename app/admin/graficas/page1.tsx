@@ -138,9 +138,10 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         Contratista: item.contractor,
         Viajes: item.trips,
         "ADH_KM promedio %": item.adherenceKmPercent,
+        "% entrega en rango": item.rangePercent ?? "",
         "Diferencia acumulada km": item.differenceKm,
       })));
-      offendersSheet["!cols"] = [12, 28, 24, 28, 24, 12, 24, 27].map((wch) => ({ wch }));
+      offendersSheet["!cols"] = [12, 28, 24, 28, 24, 12, 24, 22, 27].map((wch) => ({ wch }));
       XLSX.utils.book_append_sheet(workbook, offendersSheet, "Top conductores");
 
       const detailSheet = XLSX.utils.json_to_sheet(filtered.map((row) => ({
