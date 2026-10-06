@@ -5,15 +5,18 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ChevronRight, Clock3, LocateFixed, MapPin, Navigation, Plus, Route, Search, ShieldCheck, Trash2, Truck } from "lucide-react";
 import type { Layer, Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import CriticalRouteChoices from "../../components/CriticalRouteChoices";
 
 type Point = { label: string; latitude: number; longitude: number; type?: string };
 type RouteStep = { distanceMeters: number; durationSeconds: number; instruction: string };
+type RouteOption = { coordinates: [number, number][]; distanceMeters: number; durationSeconds: number; steps: RouteStep[] };
 type RouteHazard = { id: number; type: string; description: string; latitude: number; longitude: number };
 type StoredHazard = { id: number; ruta: string; tipo: string; descripcion: string; latitud: number; longitud: number; activo: boolean };
 type RouteResult = {
   origin: Point;
   destination: Point;
-  route: { coordinates: [number, number][]; distanceMeters: number; durationSeconds: number; steps: RouteStep[] };
+  route: RouteOption;
+  routes: RouteOption[];
   disclaimer: string;
   warnings: string[];
   hazards: RouteHazard[];
@@ -26,6 +29,7 @@ export default function CriticalRoutesPage() {
   const [access, setAccess] = useState<"checking" | "allowed" | "denied">("checking");
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<RouteResult | null>(null);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<string | null>(null);
@@ -116,6 +120,7 @@ export default function CriticalRoutesPage() {
       const response = await fetch(`/api/people/critical-routes?q=${encodeURIComponent(value)}${routeParam}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo calcular la ruta.");
+      setSelectedRouteIndex(0);
       setResult(body as RouteResult);
     } catch (caught) {
       setResult(null);
@@ -129,6 +134,11 @@ export default function CriticalRoutesPage() {
     const name = neighborhoodName(neighborhood.route);
     mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     void calculateRoute(`${name}, Barranquilla`, name);
+  }
+
+  function selectRoute(index: number) {
+    setResult(current => current?.routes?.[index] ? { ...current, route: current.routes[index] } : current);
+    setSelectedRouteIndex(index);
   }
 
   if (access === "checking") return <StatusScreen text="Validando acceso a People…" />;
@@ -201,6 +211,7 @@ export default function CriticalRoutesPage() {
 
           <article className="relative order-3 min-h-[620px] scroll-mt-5 overflow-hidden rounded-2xl border border-slate-300 bg-[#dcecf3] shadow-sm xl:col-span-2" ref={mapSectionRef}>
             <RouteMap result={result} />
+            {result ? <CriticalRouteChoices routes={result.routes || [result.route]} selectedIndex={selectedRouteIndex} onSelect={selectRoute} /> : null}
             {result?.warnings?.length ? <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 mx-auto max-w-xl rounded-xl border border-amber-300 bg-amber-50/95 p-4 text-amber-950 shadow-xl backdrop-blur"><p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.12em]"><AlertTriangle size={18} />Advertencia en esta ruta</p><ul className="mt-2 space-y-1 text-sm font-semibold">{result.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div> : null}
             {!result ? <div className="pointer-events-none absolute inset-0 grid place-items-center p-6"><div className="max-w-sm rounded-2xl border border-white/80 bg-white/95 p-6 text-center shadow-xl backdrop-blur"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-cyan-50 text-[#176b73]"><MapPin size={27} /></span><h3 className="mt-4 text-lg font-semibold">Busca el primer destino</h3><p className="mt-2 text-sm leading-6 text-slate-500">El mapa mostrará el recorrido desde el Centro Distribución Galapa - Bavaria hasta el lugar encontrado.</p></div></div> : null}
           </article>
@@ -210,7 +221,7 @@ export default function CriticalRoutesPage() {
             {result ? <>
               {result.warnings?.length ? <div className="border-b border-amber-200 bg-amber-50 p-4 text-amber-900"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em]"><AlertTriangle size={16} />Precauciones de esta ruta</p><ul className="mt-2 space-y-1 text-xs font-semibold">{result.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div> : null}
               <div className="grid grid-cols-2 gap-3 border-b border-slate-200 p-4">
-                <Metric icon={<Navigation size={18} />} label="Distancia" value={formatDistance(result.route.distanceMeters)} />
+                <Metric icon={<Navigation size={18} />} label="Distancia" value={formatDistance(result.route.distanceMeters)} />              <CriticalRouteChoices routes={result.routes || [result.route]} selectedIndex={selectedRouteIndex} onSelect={selectRoute} />
                 <Metric icon={<Clock3 size={18} />} label="Tiempo estimado" value={formatDuration(result.route.durationSeconds)} />
               </div>
               <div className="space-y-3 border-b border-slate-200 p-4 text-xs">

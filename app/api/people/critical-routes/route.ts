@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchCriticalRouteOptions, type OsrmRoute } from "../../../lib/criticalRouteOptions";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 
@@ -13,20 +14,6 @@ type NominatimResult = {
   lat?: string;
   lon?: string;
   type?: string;
-};
-
-type OsrmRoute = {
-  distance?: number;
-  duration?: number;
-  geometry?: { coordinates?: [number, number][]; type?: string };
-  legs?: Array<{
-    steps?: Array<{
-      distance?: number;
-      duration?: number;
-      name?: string;
-      maneuver?: { type?: string; modifier?: string };
-    }>;
-  }>;
 };
 
 export async function GET(request: Request) {
@@ -48,27 +35,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: `No encontramos “${query}” en Barranquilla ni en Colombia.` }, { status: 404 });
     }
 
-    const route = await calculateFastestRoute(destination.longitude, destination.latitude);
-    if (!route?.geometry?.coordinates?.length) {
+    const routes = await fetchCriticalRouteOptions(DISTRIBUTION_CENTER, destination, "TransporteBarranquilla-RutasCriticas/1.0");
+    if (!routes.length) {
       return NextResponse.json({ error: "No se encontró una ruta vehicular hasta ese destino." }, { status: 404 });
     }
 
     const routeHazards = selectedRoute ? await hazardsForRoute(selectedRoute, session.accessToken) : [];
+    const options = routes.map(formatRoute);
     return NextResponse.json({
       origin: DISTRIBUTION_CENTER,
       destination,
-      route: {
-        distanceMeters: Math.round(route.distance || 0),
-        durationSeconds: Math.round(route.duration || 0),
-        coordinates: route.geometry.coordinates,
-        steps: (route.legs?.[0]?.steps || [])
-          .filter((step) => Number(step.distance || 0) >= 20)
-          .map((step) => ({
-            distanceMeters: Math.round(step.distance || 0),
-            durationSeconds: Math.round(step.duration || 0),
-            instruction: maneuverLabel(step.maneuver?.type, step.maneuver?.modifier, step.name),
-          })),
-      },
+      route: options[0],
+      routes: options,
       disclaimer: "Ruta estimada para automóvil, sin tráfico en tiempo real ni restricciones específicas de vehículos pesados.",
       warnings: routeHazards.map((hazard) => hazard.description),
       hazards: routeHazards,
@@ -149,17 +127,15 @@ async function geocodeDestination(query: string) {
   return null;
 }
 
-async function calculateFastestRoute(longitude: number, latitude: number) {
-  const coordinates = `${DISTRIBUTION_CENTER.longitude},${DISTRIBUTION_CENTER.latitude};${longitude},${latitude}`;
-  const params = new URLSearchParams({ alternatives: "false", geometries: "geojson", overview: "full", steps: "true" });
-  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?${params}`, {
-    cache: "no-store",
-    headers: { Accept: "application/json", "User-Agent": "TransporteBarranquilla-RutasCriticas/1.0" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error("El servicio de rutas no respondió. Intenta nuevamente.");
-  const body = (await response.json()) as { code?: string; routes?: OsrmRoute[] };
-  return body.code === "Ok" ? body.routes?.[0] || null : null;
+function formatRoute(route: OsrmRoute) {
+  return {
+    distanceMeters: Math.round(route.distance || 0),
+    durationSeconds: Math.round(route.duration || 0),
+    coordinates: route.geometry!.coordinates!,
+    steps: (route.legs || []).flatMap(leg => leg.steps || [])
+      .filter(step => Number(step.distance || 0) >= 20)
+      .map(step => ({ distanceMeters: Math.round(step.distance || 0), durationSeconds: Math.round(step.duration || 0), instruction: maneuverLabel(step.maneuver?.type, step.maneuver?.modifier, step.name) })),
+  };
 }
 
 function maneuverLabel(type = "", modifier = "", street = "") {
