@@ -32,7 +32,7 @@ export default function PromedioRrPage() {
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= RR_TRIP_START_DATE;
   const rows = useMemo(() => (report?.people || []).map(person => {
     const day = validDate ? person.days.find(day => day.date === date && day.date >= RR_TRIP_START_DATE) : undefined;
-    return { name: person.name, trips: day?.trips ?? 0, visited: day ? day.visited : 0 };
+    return { name: person.name, cc: person.cc, cargo: person.cargo, trips: day?.trips ?? 0, visited: day ? day.visited : 0 };
   }), [report, date, validDate]);
   const peopleWithTrips = rows.filter(row => row.trips > 0).length;
   const allTrips = rows.reduce((sum, row) => sum + row.trips, 0);
@@ -61,16 +61,18 @@ export default function PromedioRrPage() {
           { label: "Visitas de las personas", value: allVisits === null ? "Sin dato completo" : integer.format(allVisits) },
         ].map(item => <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 text-2xl font-bold tabular-nums">{item.value}</p></div>)}</div>
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-5"><h2 className="font-bold">Conductores y responsables solicitados</h2><p className="mt-1 text-xs text-slate-500">Viajes y clientes visitados únicamente del {formattedDate}. Las visitas se suman por viaje, no son clientes únicos. Una ruta compartida cuenta para cada integrante. «Sin dato» indica que falta el número de visitas.</p></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm">
+          <div className="border-b border-slate-200 p-5"><h2 className="font-bold">Conductores y responsables solicitados</h2><p className="mt-1 text-xs text-slate-500">Viajes y clientes visitados únicamente del {formattedDate}, identificados por cédula en Seguimiento y Asistencias. Las visitas se suman por viaje, no son clientes únicos. Una ruta compartida cuenta para cada integrante. «Sin dato» indica que falta el número de visitas.</p></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm">
             <thead className="bg-[#10223d] text-xs uppercase tracking-wide text-white"><tr>
               <th scope="col" className="px-4 py-3">Persona</th>
+              <th scope="col" className="px-4 py-3">Cargo</th>
               <th scope="col" className="px-4 py-3 text-right">Viajes</th>
               <th scope="col" className="px-4 py-3 text-right">Clientes visitados</th>
               <th scope="col" className="px-4 py-3">Fecha</th>
             </tr></thead>
-            <tbody className="divide-y divide-slate-100">{rows.map(row => <tr key={row.name} className="even:bg-slate-50/70">
-              <td className="px-4 py-3 font-semibold">{row.name}</td>
+            <tbody className="divide-y divide-slate-100">{rows.map(row => <tr key={row.cc} className="even:bg-slate-50/70">
+              <td className="px-4 py-3"><span className="font-semibold">{row.name}</span><span className="block text-xs text-slate-500">CC {row.cc}</span></td>
+              <td className="px-4 py-3">{row.cargo}</td>
               <td className="px-4 py-3 text-right font-semibold tabular-nums">{integer.format(row.trips)}</td>
               <td className="px-4 py-3 text-right tabular-nums">{row.visited == null ? "Sin dato" : integer.format(row.visited)}</td>
               <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formattedDate}</td>

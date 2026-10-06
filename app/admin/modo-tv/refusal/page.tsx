@@ -168,7 +168,7 @@ function ContractorRiskPanel({ general, items }: { general: RefusalStats; items:
         <div className="flex items-center gap-2"><span className="rounded-full border border-[#294765] bg-[#0a203b] px-3 py-1.5 text-[10px] font-bold text-cyan-100/70 2xl:text-xs">META &lt; 1%</span><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider 2xl:text-xs ${controlled ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-red-400/40 bg-red-500/15 text-red-300"}`}><i className={`h-2.5 w-2.5 rounded-full ${controlled ? "bg-emerald-400" : "animate-pulse bg-red-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span></div>
       </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-4 items-center gap-2 px-3 py-3 2xl:gap-4 2xl:px-5">
+        <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-2 px-3 py-3 2xl:gap-4 2xl:px-5">
         {circles.map((item, index) => <RefusalBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : "#d4a017"} key={item.contractor} label={item.contractor} stats={item.stats} />)}
       </div>
       <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center 2xl:h-20">

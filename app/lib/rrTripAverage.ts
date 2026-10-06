@@ -13,19 +13,19 @@ export function rrTripsToday() {
 }
 
 export const RR_TRIP_PEOPLE = [
-  { name: "Cristo González", aliases: [["cristo", "gonzalez"]] },
-  { name: "Andrés Elles", aliases: [["andres", "elles"]] },
-  { name: "Darío Russo", aliases: [["dario", "russo"], ["dairo", "russo"]] },
-  { name: "Eduardo Bermúdez", aliases: [["eduardo", "bermudez"]] },
-  { name: "José Moron", aliases: [["jose", "moron"]] },
-  { name: "Javier Peña", aliases: [["javier", "pena"]] },
-  { name: "Andrés Herrera", aliases: [["andres", "herrera"]] },
-  { name: "Álvaro Herrera", aliases: [["alvaro", "herrera"]] },
-  { name: "Eulogio Cabarcaz", aliases: [["eulogio", "cabarcaz"], ["eulogio", "cabarcas"]] },
-  { name: "Favio Escorcia", aliases: [["favio", "escorcia"]] },
-  { name: "Andrés Duica", aliases: [["andres", "duica"]] },
-  { name: "Álvaro García", aliases: [["alvaro", "garcia"]] },
-  { name: "José Gutiérre", aliases: [["jose", "gutierre"], ["jose", "gutierrez"]] },
+  { name: "Cristo González", cc: "1042971540" },
+  { name: "Andrés Elles", cc: "7959524" },
+  { name: "Darío Russo", cc: "72225725" },
+  { name: "Eduardo Bermúdez", cc: "5799530" },
+  { name: "Luis Eduardo Orozco Moron", cc: "8769783" },
+  { name: "Javier Peña", cc: "72241146" },
+  { name: "Andrés Herrera", cc: "8768517" },
+  { name: "Álvaro Herrera", cc: "72256959" },
+  { name: "Eulogio Cabarcas", cc: "7592397" },
+  { name: "Favio Escorcia", cc: "1063134418" },
+  { name: "Andrés Duica", cc: "1148434809" },
+  { name: "Álvaro Garcia", cc: "72052193" },
+  { name: "José Gutiérrez", cc: "72050002" },
 ] as const;
 
 export type RrTripSourceRow = {
@@ -35,6 +35,10 @@ export type RrTripSourceRow = {
   aux1?: string | null;
   aux2?: string | null;
   aux3?: string | null;
+  rr_cc?: string | null;
+  aux1_cc?: string | null;
+  aux2_cc?: string | null;
+  aux3_cc?: string | null;
   dt?: string | null;
   trip?: string | null;
   plate?: string | null;
@@ -47,22 +51,14 @@ export type RrTripSourceRow = {
 
 export type RrTripPerson = {
   name: string;
-  matchedNames: string[];
+  cc: string;
+  cargo: string;
   days: Array<{ date: string; trips: number; visited: number | null }>;
 };
 
-function tokens(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
-}
-
-function matchingPeople(value: string) {
-  const parts = new Set(tokens(value));
-  return RR_TRIP_PEOPLE.filter(person => person.aliases.some(alias => alias.every(part => parts.has(part))));
-}
-
 export function buildRrTripAverages(rows: RrTripSourceRow[]): RrTripPerson[] {
-  const people = RR_TRIP_PEOPLE.map(person => ({ name: person.name, matchedNames: new Set<string>(), trips: new Map<string, Map<string, number | null>>() }));
-  const byName = new Map(people.map(person => [person.name, person]));
+  const people = RR_TRIP_PEOPLE.map(person => ({ ...person, trips: new Map<string, Map<string, number | null>>() }));
+  const byCc = new Map(people.map(person => [person.cc, person]));
   for (const row of rows) {
     const date = rrTripDate(row);
     const route = String(row.dt || "").replace(/\D/g, "") || String(row.plate || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -72,20 +68,19 @@ export function buildRrTripAverages(rows: RrTripSourceRow[]): RrTripPerson[] {
     const routeKey = JSON.stringify([contractor, route, trip]);
     const value = row.visited == null || String(row.visited).trim() === "" ? NaN : Number(row.visited);
     const visited = Number.isSafeInteger(value) && value >= 0 ? value : null;
-    const names = new Set([row.rr, row.alt, row.aux1, row.aux2, row.aux3].map(value => String(value || "").trim()).filter(Boolean));
-    for (const fullName of names) {
-      for (const match of matchingPeople(fullName)) {
-        const person = byName.get(match.name)!;
-        person.matchedNames.add(fullName);
-        if (!person.trips.has(date)) person.trips.set(date, new Map());
-        // La API entrega las versiones por updated_at ascendente: gana la última.
-        person.trips.get(date)!.set(routeKey, visited);
-      }
+    const ids = new Set([row.rr_cc, row.aux1_cc, row.aux2_cc, row.aux3_cc].map(value => String(value || "").replace(/\D/g, "")).filter(Boolean));
+    for (const cc of ids) {
+      const person = byCc.get(cc as typeof RR_TRIP_PEOPLE[number]["cc"]);
+      if (!person) continue;
+      if (!person.trips.has(date)) person.trips.set(date, new Map());
+      // La API entrega las versiones por updated_at ascendente: gana la última.
+      person.trips.get(date)!.set(routeKey, visited);
     }
   }
   return people.map(person => ({
     name: person.name,
-    matchedNames: [...person.matchedNames].sort((a, b) => a.localeCompare(b, "es")),
+    cc: person.cc,
+    cargo: "",
     days: [...person.trips].map(([date, trips]) => ({
       date, trips: trips.size,
       visited: [...trips.values()].some(value => value === null) ? null : [...trips.values()].reduce<number>((sum, value) => sum + (value ?? 0), 0),

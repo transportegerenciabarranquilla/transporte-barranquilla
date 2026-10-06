@@ -122,7 +122,7 @@ export default function AdminModoTvPage() {
             <DailyProgressPanel summaries={summaries} total={total} />
             <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
               <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[#1c3f61] px-5 text-lg font-extrabold 2xl:h-16 2xl:text-xl"><Truck className="text-cyan-600" size={23} />Estado de las contratistas · Galapa</header>
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:grid-cols-2 2xl:grid-cols-3 2xl:gap-5 2xl:p-4">
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:grid-cols-2 2xl:gap-5 2xl:p-4">
                 {summaries.map((summary) => (
                   <ContractorCard
                     key={summary.contractor}
@@ -178,7 +178,7 @@ function DailyProgressPanel({ summaries, total }: { summaries: Summary[]; total:
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#1d4165] bg-[#071a32]/95 shadow-[0_14px_35px_rgba(0,0,0,.22)]">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[#1c3f61] px-5 text-base font-extrabold 2xl:h-14 2xl:text-lg"><Activity className="text-cyan-600" size={20} />Avance diario</header>
-      <div className="grid min-h-0 flex-1 grid-cols-2 items-center gap-3 px-4 py-3 sm:grid-cols-4 2xl:gap-5 2xl:px-6">
+      <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-3 px-4 py-3 2xl:gap-5 2xl:px-6">
         {circles.map((item, index) => <DailyProgressBubble accent={index === 0 ? "#22d3ee" : index === 1 ? "#3b82f6" : index === 2 ? "#8b5cf6" : "#d4a017"} item={item} key={item.contractor} />)}
       </div>
       <footer className="grid h-16 shrink-0 grid-cols-3 items-center border-t border-slate-200 bg-slate-50/70 text-center 2xl:h-20">
