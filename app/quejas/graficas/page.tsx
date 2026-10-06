@@ -4,13 +4,14 @@ import Link from "next/link";
 import ComplaintDonutChart from "./ComplaintDonutChart";
 import ComplaintChartCard from "./ComplaintChartCard";
 import ComplaintRrModal from "./ComplaintRrModal";
+import ComplaintOver48Modal from "./ComplaintOver48Modal";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, LoaderCircle, Upload } from "lucide-react";
 
 import { type ComplaintRecord } from "../../lib/complaints";
 import { complaintUploadContractor, isComplaintsContractor } from "../../lib/contractors";
 import { complaintRrGroups, type ComplaintRrTracking } from "../../lib/complaintChartRr";
-import { chartDate, complaintChartStatus, complaintClosureTotals, complaintStatusTotals, complaintWeekdays, groupComplaintChart, type ComplaintChartRow } from "../../lib/complaintCharts";
+import { chartDate, complaintChartStatus, complaintClosureCategory, complaintClosureTotals, complaintStatusTotals, complaintWeekdays, groupComplaintChart, type ComplaintChartRow } from "../../lib/complaintCharts";
 
 const inputClass = "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800";
 const format = (value: number) => value.toLocaleString("es-CO");
@@ -56,6 +57,8 @@ function CountChart({ title, values, note, expandable = false, columns = false }
 export default function ComplaintChartsPage() {
   const [access, setAccess] = useState<"checking" | "allowed" | "denied">("checking");
   const [savedRows, setSavedRows] = useState<ComplaintChartRow[]>([]);
+  const [persistedRows, setPersistedRows] = useState<ComplaintChartRow[] | null>(null);
+  const [showOver48, setShowOver48] = useState(false);
   const [tracking, setTracking] = useState<ComplaintRrTracking[]>([]);
   const [sessionContractor, setSessionContractor] = useState("");
   const [rrLoadError, setRrLoadError] = useState("");
@@ -82,8 +85,9 @@ export default function ComplaintChartsPage() {
         }
         setAccess("allowed");
         setSessionContractor(String(body.session?.contractor || ""));
-        const [recordsResponse] = await Promise.all([
+        const [recordsResponse, chartRowsResponse] = await Promise.all([
           fetch("/api/complaints", { cache: "no-store" }),
+          fetch("/api/complaints/chart-rows", { cache: "no-store" }),
           fetch("/api/seguimiento", { cache: "no-store" }).then(async response => {
             const data = await response.json();
             if (!response.ok || !Array.isArray(data.records)) throw new Error("No se pudo cargar el seguimiento para cruzar los DT con sus RR.");
@@ -92,6 +96,15 @@ export default function ComplaintChartsPage() {
         ]);
         const data = await recordsResponse.json();
         if (!recordsResponse.ok) throw new Error(data.error || "No se pudieron consultar las quejas registradas.");
+        if (chartRowsResponse.ok) {
+          const chartData = await chartRowsResponse.json();
+          if (active && Array.isArray(chartData.rows) && chartData.rows.length) {
+            setPersistedRows(chartData.rows);
+            setSource(`${chartData.sourceName || "Excel guardado"} · Guardado en base de datos`);
+          }
+        } else if (active && chartRowsResponse.status === 404) {
+          setError("Para guardar los Excel de gráficas, primero ejecuta supabase/complaint_chart_rows.sql en Supabase.");
+        }
         if (active) setSavedRows((data.records || []).map((record: ComplaintRecord) => ({
           contractor: record.contractor || "Sin transportista", date: chartDate(record.createdDate),
           status: complaintChartStatus(record.status || "Abierta"), issue: record.issue || "Sin novedad", count: 1,
@@ -121,13 +134,24 @@ export default function ComplaintChartsPage() {
       if (!book.SheetNames.length) throw new Error("El archivo no tiene hojas.");
       const { importComplaintChartWorkbook } = await import("../../lib/complaintChartExcel");
       const result = importComplaintChartWorkbook(book);
-      setImportedRows(result.rows.map(row => ({ ...row, contractor: complaintUploadContractor(row.contractor, sessionContractor) })));
-      setSource(`${file.name} · ${result.name}`); clearFilters();
+      const rows = result.rows.map(row => ({ ...row, contractor: complaintUploadContractor(row.contractor, sessionContractor) }));
+      setImportedRows(rows);
+      setSource(`${file.name} · Vista previa sin guardar`); clearFilters();
+      const response = await fetch("/api/complaints/chart-rows", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows, sourceName: `${file.name} · ${result.name}` }), cache: "no-store" });
+      const saved = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(saved.error || "No se pudieron guardar las quejas en la base de datos.");
+      setPersistedRows(current => {
+        const merged = new Map((current || []).map(row => [`${row.contractor}\u0000${row.complaintId}`, row]));
+        for (const row of rows) merged.set(`${row.contractor}\u0000${row.complaintId}`, row);
+        return [...merged.values()];
+      });
+      setImportedRows(null);
+      setSource(`${file.name} · ${result.name} · ${saved.saved} guardadas en base de datos`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo leer el archivo."); }
     finally { setReading(false); }
   }
 
-  const rows = importedRows ?? savedRows;
+  const rows = importedRows ?? persistedRows ?? savedRows;
   const contractors = useMemo(() => [...new Set(rows.map(row => row.contractor))].sort(), [rows]);
   const statuses = useMemo(() => [...new Set(rows.map(row => row.status))].sort(), [rows]);
   const invalidRange = Boolean(from && to && from > to);
@@ -135,6 +159,7 @@ export default function ComplaintChartsPage() {
     && (!from || row.date >= from) && (!to || Boolean(row.date) && row.date <= to)), [rows, contractor, status, from, to]);
   const summary = complaintStatusTotals(visible);
   const closure = complaintClosureTotals(visible);
+  const over48Rows = visible.filter(row => complaintClosureCategory(row) === "after48");
   const rrGroups = useMemo(() => complaintRrGroups(visible, tracking), [visible, tracking]);
   const undated = visible.filter(row => !row.date).reduce((sum, row) => sum + row.count, 0);
 
@@ -158,7 +183,7 @@ export default function ComplaintChartsPage() {
         {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><p className="break-all text-sm font-semibold">Fuente: {source}</p>{importedRows && <button type="button" onClick={() => { setImportedRows(null); setSource("Quejas registradas"); clearFilters(); }} className="text-sm font-semibold text-blue-800 underline">Ver quejas registradas</button>}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><p className="break-all text-sm font-semibold">Fuente: {source}</p>{(importedRows || persistedRows) && <button type="button" onClick={() => { setImportedRows(null); setPersistedRows(null); setSource("Quejas registradas"); clearFilters(); }} className="text-sm font-semibold text-blue-800 underline">Ver quejas registradas</button>}</div>
         {loading && !importedRows && <p role="status" className="mt-3 text-sm text-slate-500">Cargando quejas registradas…</p>}
         {loadError && !importedRows && <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>}
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -197,7 +222,7 @@ export default function ComplaintChartsPage() {
           description={`${format(closure.within48)} de ${format(closure.evaluated)} quejas cerradas evaluables dentro de 48 horas, inclusive. Se excluyen abiertas y sin clasificar. ${format(closure.missing)} cerradas sin fechas válidas o con cierre anterior al ingreso.${closure.estimated ? ` Estimación: ${format(closure.estimated)} quejas tienen fechas sin hora; se considera en plazo una diferencia de hasta 2 días calendario. No permite confirmar 48 horas exactas.` : ""}`}
           values={[
             { label: closure.estimated ? "Hasta 48 h (estimado)" : "Hasta 48 horas", count: closure.within48, color: "#0d9488" },
-            { label: closure.estimated ? "Más de 48 h (estimado)" : "Más de 48 horas", count: closure.after48, color: "#f59e0b" },
+            { label: closure.estimated ? "Más de 48 h (estimado)" : "Más de 48 horas", count: closure.after48, color: "#f59e0b", onClick: () => setShowOver48(true) },
           ]} />
         </div>
         </ComplaintChartCard>
@@ -210,6 +235,7 @@ export default function ComplaintChartsPage() {
         </div>
         </div>
       </div>}
+      {showOver48 && <ComplaintOver48Modal rows={over48Rows} estimated={over48Rows.some(row => (row.openedAt || row.date).length === 10 || (row.closedAt || "").length === 10)} onClose={() => setShowOver48(false)} />}
     </div>
   </main>;
 }

@@ -1,5 +1,5 @@
-export type ComplaintChartRow = { contractor: string; date: string; status: string; issue: string; count: number; openedAt?: string; closedAt?: string; dt?: string; rr?: string; rrId?: string; client?: string; clientCode?: string; complaintId?: string };
-export type ComplaintChartMapping = Record<"contractor" | "date" | "status" | "issue" | "count", string> & { closedDate?: string; dt?: string; client?: string; clientCode?: string; complaintId?: string };
+export type ComplaintChartRow = { contractor: string; date: string; status: string; issue: string; count: number; openedAt?: string; closedAt?: string; dt?: string; rr?: string; rrId?: string; client?: string; clientCode?: string; complaintId?: string; causal?: string; plate?: string; adjudicable?: string; observation?: string };
+export type ComplaintChartMapping = Record<"contractor" | "date" | "status" | "issue" | "count", string> & { closedDate?: string; dt?: string; client?: string; clientCode?: string; complaintId?: string; rr?: string; causal?: string; plate?: string; adjudicable?: string; observation?: string };
 export type ComplaintExcelRow = Record<string, string>;
 export type ComplaintDateOrder = "dmy" | "mdy";
 
@@ -22,6 +22,11 @@ export function suggestComplaintChartMapping(headers: string[]): ComplaintChartM
     client: ["nombredecliente", "nombrecliente", "cliente", "establecimiento", "establishment"],
     clientCode: ["codigo", "codigocliente", "codigodecliente", "codcliente", "code"],
     complaintId: ["ticket", "id", "idqueja", "numeroqueja"],
+    rr: ["rr", "responsable", "personal", "nombrederesponsable"],
+    causal: ["causal", "causales", "motivodecierre"],
+    plate: ["placa", "placas"],
+    adjudicable: ["adjudicablenoadjudicable", "adjudicable"],
+    observation: ["observacion", "observaciones"],
   };
   for (const [field, names] of Object.entries(detailAliases)) {
     const header = headers.find(header => names.includes(key(header)));
@@ -58,6 +63,11 @@ export function parseComplaintChartRows(rows: ComplaintExcelRow[], mapping: Comp
       ...(mapping.client ? { client: read("client") } : {}),
       ...(mapping.clientCode ? { clientCode: read("clientCode") } : {}),
       ...(mapping.complaintId ? { complaintId: read("complaintId") } : {}),
+      ...(mapping.rr ? { rr: read("rr") } : {}),
+      ...(mapping.causal ? { causal: read("causal") } : {}),
+      ...(mapping.plate ? { plate: read("plate") } : {}),
+      ...(mapping.adjudicable ? { adjudicable: read("adjudicable") } : {}),
+      ...(mapping.observation ? { observation: read("observation") } : {}),
     });
   });
   if (!result.length) throw new Error("La hoja no contiene filas para graficar.");
@@ -94,23 +104,27 @@ export function complaintClosureDate(value: string, order: ComplaintDateOrder = 
   return Number.isFinite(Date.parse(stamp)) ? stamp : "";
 }
 
+export function complaintClosureCategory(row: ComplaintChartRow): "within48" | "after48" | "missing" | "notClosed" {
+  if (complaintChartStatus(row.status) !== "Cerrada") return "notClosed";
+  const opened = complaintClosureDate(row.openedAt ?? row.date);
+  const closed = complaintClosureDate(row.closedAt || "");
+  if (!opened || !closed) return "missing";
+  const estimated = opened.length === 10 || closed.length === 10;
+  const start = Date.parse(estimated ? `${opened.slice(0, 10)}T00:00:00Z` : opened);
+  const end = Date.parse(estimated ? `${closed.slice(0, 10)}T00:00:00Z` : closed);
+  if (end < start) return "missing";
+  return end - start <= 48 * 3_600_000 ? "within48" : "after48";
+}
+
 export function complaintClosureTotals(rows: ComplaintChartRow[]) {
   const result = { within48: 0, after48: 0, missing: 0, estimated: 0, evaluated: 0, percentage: 0 };
   for (const row of rows) {
-    if (complaintChartStatus(row.status) !== "Cerrada") continue;
-    const opened = complaintClosureDate(row.openedAt ?? row.date);
-    const closed = complaintClosureDate(row.closedAt || "");
-    if (!opened || !closed) { result.missing += row.count; continue; }
-    const estimated = opened.length === 10 || closed.length === 10;
-    // Without both clocks, compare calendar days instead of inventing hours.
-    const start = estimated ? Date.parse(`${opened.slice(0, 10)}T00:00:00Z`) : Date.parse(opened);
-    const end = estimated ? Date.parse(`${closed.slice(0, 10)}T00:00:00Z`) : Date.parse(closed);
-    const elapsed = end - start;
-    if (elapsed < 0) { result.missing += row.count; continue; }
+    const category = complaintClosureCategory(row);
+    if (category === "notClosed") continue;
+    if (category === "missing") { result.missing += row.count; continue; }
     result.evaluated += row.count;
-    if (estimated) result.estimated += row.count;
-    if (elapsed <= 48 * 3_600_000) result.within48 += row.count;
-    else result.after48 += row.count;
+    if (complaintClosureDate(row.openedAt ?? row.date).length === 10 || complaintClosureDate(row.closedAt || "").length === 10) result.estimated += row.count;
+    result[category] += row.count;
   }
   result.percentage = result.evaluated ? result.within48 / result.evaluated * 100 : 0;
   return result;

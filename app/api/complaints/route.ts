@@ -41,7 +41,8 @@ export async function GET() {
       id: row.complaint_id,
       contractor: resolvedContractor,
       matched: Boolean(match || attendance),
-      closingTime: complaintClosingDisplay(row.data.createdDate, row.data.uploadedAt || row.uploaded_at),
+      uploadedAt: row.data.uploadedAt || row.uploaded_at,
+      closingTime: complaintClosingDisplay(row.data.createdDate),
     };
   });
   const records = session.isAdmin && !session.isSiteAdmin
@@ -231,7 +232,7 @@ function enrichComplaint(input: Record<string, unknown>, _index: number, seguimi
   const contractor = match?.contractor || vehicle?.transportista || (isComplaintsContractor(uploaderContractor) ? uploaderContractor : "Por identificar");
   return {
     id,
-    closingTime: complaintClosingDisplay(createdDate, uploadedAt),
+    closingTime: complaintClosingDisplay(createdDate),
     createdDate,
     code: text(input.code ?? input.Codigo ?? input.codigo),
     establishment: text(input.establishment ?? input.establecimiento),
@@ -332,16 +333,6 @@ function normalizeClosedStatus(value: unknown) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("cerrad");
 }
 
-function complaintClosingDisplay(createdDate: string, uploadedAt: string) {
-  if (!createdDate) return "invalid";
-  const today = bogotaDateKey();
-  if (createdDate < today) return "expired";
-  if (createdDate > today) return "future";
-  return complaintClosingDeadline(uploadedAt);
-}
-
-function bogotaDateKey() {
-  const parts = new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "2-digit", timeZone: "America/Bogota", year: "numeric" }).formatToParts(new Date());
-  const values = new Map(parts.map((part) => [part.type, part.value]));
-  return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
+function complaintClosingDisplay(createdDate: string) {
+  return complaintClosingDeadline(createdDate) || "invalid";
 }

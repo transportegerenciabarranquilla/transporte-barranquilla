@@ -70,7 +70,7 @@ test("reconoce encabezados del Excel y cuenta una queja por fila", () => {
 test("reconoce el reporte de novedades y usa ingreso, sin contar ticket ni código como cantidad", () => {
   const headers = ["Ticket", "CODIGO", "NOMBRE DE CLIENTE", "FECHA DE CIERRE DE LA NOVEDAD", "FECHA DE INGRESO DE LA NOVEDAD", "NOVEDAD", "DT", "PLACA", "RR", "TRANSPORTISTA", "ADJUDICABLE / NO ADJUDICABLE", "ESTATUS", "OBSERVACIÓN"];
   const mapping = suggestComplaintChartMapping(headers);
-  assert.deepEqual(mapping, { contractor: "TRANSPORTISTA", date: "FECHA DE INGRESO DE LA NOVEDAD", status: "ESTATUS", issue: "NOVEDAD", count: "", closedDate: "FECHA DE CIERRE DE LA NOVEDAD", dt: "DT", client: "NOMBRE DE CLIENTE", clientCode: "CODIGO", complaintId: "Ticket" });
+  assert.deepEqual(mapping, { contractor: "TRANSPORTISTA", date: "FECHA DE INGRESO DE LA NOVEDAD", status: "ESTATUS", issue: "NOVEDAD", count: "", closedDate: "FECHA DE CIERRE DE LA NOVEDAD", dt: "DT", client: "NOMBRE DE CLIENTE", clientCode: "CODIGO", complaintId: "Ticket", rr: "RR", plate: "PLACA", adjudicable: "ADJUDICABLE / NO ADJUDICABLE", observation: "OBSERVACIÓN" });
   const rows = parseComplaintChartRows(["CERRADO", "CERRDADO", "CERRDAO", "CERRADDO", ""].map(ESTATUS => ({
     Ticket: "4626545", CODIGO: "13992746", "FECHA DE INGRESO DE LA NOVEDAD": "1/09/2026",
     "FECHA DE CIERRE DE LA NOVEDAD": "2/09/2026", NOVEDAD: "Producto faltante", TRANSPORTISTA: "LOGISTICOS", ESTATUS,

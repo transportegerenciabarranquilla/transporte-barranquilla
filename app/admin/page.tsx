@@ -15,7 +15,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQuery } from "../lib/apiQuery";
 import { SkinetAssistant } from "../components/SkinetAssistant";
 import { answerSkinet, skinetOperationReport, type SkinetData } from "../lib/skinetAnswers";
-import { understandSkinet, isSkinetIdentityQuestion, SKINET_IDENTITY_REPLY, type SkinetContext } from "../lib/skinetUnderstanding";
+import { understandSkinet, isSkinetIdentityQuestion, type SkinetContext } from "../lib/skinetUnderstanding";
 import { bogotaToday } from "../lib/adminDateFilter";
 const FueraDeRangoCharts = dynamic(() => import("./FueraDeRangoCharts"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando gráficas...</p> });
 
@@ -132,27 +132,27 @@ export default function AdminPage() {
   const loading = adminQuery.isPending;
   const error = Array.from(new Set([adminQuery.error, rtiQuery.error].filter(Boolean).map(err => err?.message))).join(" · ");
   async function askSkinet(input: string) {
-    if (isSkinetIdentityQuestion(input)) return SKINET_IDENTITY_REPLY;
+    if (isSkinetIdentityQuestion(input)) return "Yo soy una zorra.";
     const previous = skinetConversation.current;
-    const understood = understandSkinet(input, bogotaToday(), previous && Date.now() - previous.at < 10 * 60_000 ? previous.context : undefined);
+    const understood = understandSkinet(input, bogotaToday(), previous && Date.now() - previous.at < 30 * 60_000 ? previous.context : undefined);
     const { context } = understood;
     if (understood.prompt) {
       skinetConversation.current = { context, at: Date.now() };
       return understood.prompt;
     }
     const day = context.day;
-    const data: SkinetData = await queryClient.fetchQuery({
-      queryKey: ["admin", "seguimiento", "details", day, day], staleTime: 0,
-      queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
-    });
-    let rangeReports: SkinetData["rangeReports"];
-    if (context.metrics.some(metric => ["range", "rangeDetails", "status", "summary"].includes(metric)) || context.plate || context.client) {
-      const rangeData = await queryClient.fetchQuery({
-        queryKey: ["admin", "rango", "skinet", day], staleTime: 0,
+    const needsRange = context.metrics.some(metric => ["range", "rangeDetails", "status", "summary"].includes(metric)) || context.plate || context.client;
+    const [data, rangeData] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: ["admin", "seguimiento", "details", day, day], staleTime: 15_000,
+        queryFn: ({ signal }) => apiQuery<AdminResponse>(`/api/admin/seguimiento?${new URLSearchParams({ details: "1", desde: day, hasta: day })}`, signal),
+      }),
+      needsRange ? queryClient.fetchQuery({
+        queryKey: ["admin", "rango", "skinet", day], staleTime: 15_000,
         queryFn: ({ signal }) => apiQuery<{ reports: NonNullable<SkinetData["rangeReports"]> }>(`/api/admin/rango?${new URLSearchParams({ desde: day, hasta: day })}`, signal),
-      });
-      rangeReports = rangeData.reports;
-    }
+      }) : Promise.resolve(undefined),
+    ]);
+    const rangeReports = rangeData?.reports;
     const result = answerSkinet(input, { ...data, rangeReports }, day, context);
     skinetConversation.current = { context, at: Date.now() };
     return result.answer;

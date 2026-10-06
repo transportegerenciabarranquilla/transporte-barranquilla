@@ -76,7 +76,32 @@ export function answerSkinet(question: string, data: SkinetData, day: string, re
   const permitted = new Set(contractors.map(normalizeContractorName));
   let records = (data.records || []).filter(record => permitted.has(normalizeContractorName(record.transportista)));
   const metrics = new Set(context.metrics);
+  if (metrics.has("maxRangeRefusal")) {
+    const selection = skinetRangeRows(data.rangeReports || [], permitted, day, context);
+    const candidates = selection.rows
+      .filter(row => row.status !== "NOT_STARTED" && row.withinRadius === true && hasNumber(row.refusedVolume))
+      .map(row => ({ row, refused: number(row.refusedVolume) }))
+      .sort((left, right) => right.refused - left.refused);
+    if (!candidates.length) return { answer: "No tengo datos de cajas de refusal en visitas entregadas en rango para comparar los DT." };
+    const highest = candidates[0].refused;
+    const leaders = candidates.filter(item => item.refused === highest);
+    return { answer: `${leaders.length > 1 ? "Hay un empate. " : ""}${leaders.slice(0, 5).map(({ row, refused }) => `El DT ${row.dt || "sin DT"} de ${row.contractor || "sin contratista"} tiene ${format(refused)} cajas de refusal en rango. Placa: ${row.truckLicensePlate || "sin placa"}. Cliente: ${row.pocName || row.pocExternalId || "sin cliente"}.`).join(" ")}` };
+  }
   if (metrics.has("maxRefusal")) {
+    const asksForRoute = /\b(?:dt|ruta|transporte)\b/.test(normalizeSkinet(question));
+    if (asksForRoute) {
+      const routeCandidates = records
+        .filter(record => hasNumber(record.cajasRefusalFinal))
+        .map(record => ({
+          record,
+          pending: number(record.cajasRefusalFinal),
+        }))
+        .sort((left, right) => right.pending - left.pending);
+      if (!routeCandidates.length) return { answer: "No tengo cajas de refusal registradas por DT dentro del alcance de tu sesión." };
+      const highest = routeCandidates[0].pending;
+      const leaders = routeCandidates.filter(item => item.pending === highest);
+      return { answer: `${leaders.length > 1 ? "Hay un empate. " : ""}${leaders.slice(0, 5).map(({ record, pending }) => `El DT ${record.transporte || "sin DT"} de ${record.transportista || "sin contratista"} tiene ${format(pending)} cajas de refusal. Responsable: ${record.nombreResponsable || record.responsable || "sin responsable"}.`).join(" ")}` };
+    }
     const refusalRows = authorized.map(contractor => {
       const contractorRecords = (data.records || []).filter(record => normalizeContractorName(record.transportista) === normalizeContractorName(contractor));
       const boxes = contractorRecords.reduce((sum, record) => sum + number(record.cajas), 0);

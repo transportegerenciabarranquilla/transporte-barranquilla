@@ -46,9 +46,29 @@ export function complaintDateKey(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? "" : localDateKey(parsed);
 }
 
-export function complaintClosingDeadline(uploadedAt: string) {
-  const startedAt = new Date(uploadedAt).getTime();
-  return Number.isFinite(startedAt) ? new Date(startedAt + 48 * 60 * 60 * 1000).toISOString() : "";
+export function complaintClosingDeadline(createdDate: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(createdDate)) return "";
+  const dayStart = Date.parse(`${createdDate}T00:00:00-05:00`);
+  return Number.isFinite(dayStart) ? new Date(dayStart + 24 * 60 * 60 * 1000).toISOString() : "";
+}
+
+export function complaintElapsedClock(uploadedAt: string, closingTime: string, now: number, createdDate = "") {
+  const parsedStart = Date.parse(uploadedAt);
+  const parsedDeadline = Date.parse(closingTime);
+  const hasExactStart = Number.isFinite(parsedStart);
+  const hasDeadline = Number.isFinite(parsedDeadline);
+  const hasCreationDate = /^\d{4}-\d{2}-\d{2}$/.test(createdDate);
+  const start = hasExactStart ? parsedStart : hasCreationDate ? Date.parse(`${createdDate}T00:00:00-05:00`) : NaN;
+  if (!Number.isFinite(start)) return null;
+  const fallbackDeadline = Date.parse(complaintClosingDeadline(createdDate));
+  const deadline = hasDeadline ? parsedDeadline : fallbackDeadline;
+  if (!Number.isFinite(deadline)) return null;
+  return {
+    elapsedSeconds: Math.max(0, Math.floor((now - start) / 1000)),
+    overdueSeconds: Math.max(0, Math.floor((now - deadline) / 1000)),
+    overdue: now >= deadline,
+    approximate: !hasExactStart,
+  };
 }
 
 function localDateKey(date: Date) {

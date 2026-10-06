@@ -2,7 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import { complaintChartExcelRows, importComplaintChartWorkbook } from "./complaintChartExcel.ts";
-import { parseComplaintChartRows, suggestComplaintChartMapping } from "./complaintCharts.ts";
+import { complaintClosureCategory, complaintClosureTotals, parseComplaintChartRows, suggestComplaintChartMapping } from "./complaintCharts.ts";
+
+test("importa causal, DT y RR y el detalle coincide con Más de 48 h", () => {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ["Ticket", "TRANSPORTISTA", "FECHA DE INGRESO DE LA NOVEDAD", "FECHA DE CIERRE DE LA NOVEDAD", "ESTATUS", "NOVEDAD", "CAUSAL", "DT", "RR", "NOMBRE DE CLIENTE"],
+    ["4638107", "LOGISTICOS", "4/09/2026", "7/09/2026", "CERRADO", "Saldo a favor", "Ausentismo del responsable", "8008916262", "SERGIO DE LA CRUZ", "Inversiones Devo"],
+    ["4634053", "LOGISTICOS", "5/09/2026", "5/09/2026", "CERRADO", "Saldo", "", "8008926552", "Responsable", "La Gran Esquina"],
+  ]);
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, "Quejas");
+  const { rows } = importComplaintChartWorkbook(book);
+  assert.equal(rows[0].causal, "Ausentismo del responsable");
+  assert.equal(rows[0].dt, "8008916262");
+  assert.equal(rows[0].rr, "SERGIO DE LA CRUZ");
+  assert.equal(rows[0].client, "Inversiones Devo");
+  assert.equal(complaintClosureCategory(rows[0]), "after48");
+  assert.equal(complaintClosureCategory(rows[1]), "within48");
+  assert.equal(rows.filter(row => complaintClosureCategory(row) === "after48").length, complaintClosureTotals(rows).after48);
+});
 
 test("conserva horas de Excel para distinguir un cierre que excede 48 horas", () => {
   const sheet = XLSX.utils.aoa_to_sheet([

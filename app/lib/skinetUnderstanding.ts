@@ -1,4 +1,4 @@
-export type SkinetMetric = "refusal" | "maxRefusal" | "modulated" | "relocated" | "modulations" | "boxes" | "progress" | "routes" | "status" | "departures" | "summary" | "tracking" | "range" | "rangeDetails" | "maxBoxes" | "rangeVehicles";
+export type SkinetMetric = "refusal" | "maxRefusal" | "maxRangeRefusal" | "modulated" | "relocated" | "modulations" | "boxes" | "progress" | "routes" | "status" | "departures" | "summary" | "tracking" | "range" | "rangeDetails" | "maxBoxes" | "rangeVehicles";
 export type SkinetContext = {
   metrics: SkinetMetric[];
   contractor?: "hl" | "logisticos" | "corona" | "surti";
@@ -14,12 +14,13 @@ export type SkinetContext = {
   day: string;
   period: string;
 };
-export const SKINET_IDENTITY_REPLY = "¡Yo soy Skainet! ¡Y tú no eres nadie delante mío!";
+export const SKINET_IDENTITY_REPLY = "Soy Zora, la asistente de la aplicación. Consulto los datos disponibles de Seguimiento, entrega en rango, refusal, modulaciones, clientes, contratistas, DT y tripulaciones.";
 export function isSkinetIdentityQuestion(question: string) {
-  return /\b(?:quien eres|quien sos|quien es (?:skainet|skinet)|como te llamas|presentate|que eres)\b/.test(normalizeSkinet(question));
+  return /\b(?:quien eres|quien sos|quien es (?:zora|skainet|skinet)|como te llamas|presentate|que eres)\b/.test(normalizeSkinet(question));
 }
 export function normalizeSkinet(text: string) {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b(?:zorra|sora)\b/g, "zora")
     .replace(/\b(?:seguimineto|segumiento|segimiento|seguimieto|seg[u]?imiento)\b/g, "seguimiento")
     .replace(/\b(?:erre\s+erre|r\s+r)\b/g, "rr")
     .replace(/\b(?:re\s*f[uio]\s*[sz]\s*[ao]l|refiusal|refuzal|refus[ao]l|refus[a-z]*)\b/g, "refusal")
@@ -27,6 +28,10 @@ export function normalizeSkinet(text: string) {
     .replace(/\blog[iy]stic[oa]s?\b/g, "logisticos")
     .replace(/\b(?:punto\s*corona|puntocorona)\b/g, "corona")
     .replace(/\b(?:surti\s*cervezas|surticervezas)\b/g, "surti")
+    .replace(/\b(?:entrega|entregas|entregado|entregados)\s+(?:en|dentro del?)\s+(?:rango|radio)\b/g, "entrega en rango")
+    .replace(/\b(?:rechazo|rechazos|devolucion|devoluciones)\b/g, "refusal")
+    .replace(/\b(?:modulacion|modulaciones|modolacion|modolaciones)\b/g, "modulacion")
+    .replace(/\b(?:conductor(?:es)?|chofer(?:es)?)\b/g, "conductor")
     .replace(/\b(?:de\s*te|d\s*[.-]?\s*t)\b/g, "dt");
 }
 
@@ -34,8 +39,9 @@ export function skinetMetrics(text: string): SkinetMetric[] {
   const value = normalizeSkinet(text);
   const metrics: SkinetMetric[] = [];
   if (/\bseguimiento\b/.test(value)) metrics.push("tracking");
-  if (/\bcajas\b/.test(value) && /mas cajas|mayor (?:cantidad|numero|carga)|mas (?:cantidad|numero) de cajas/.test(value)) return ["maxBoxes"];
+  if (/(?:mas|mayor|alto|alta|elevado|elevada)/.test(value) && /\brefusal\b|rechaz/.test(value) && /\b(?:rango|radio)\b|entrega en rango/.test(value)) return ["maxRangeRefusal"];
   if (/(?:mas|mayor|peor|alto|alta|elevado|elevada)/.test(value) && /\brefusal\b|rechaz/.test(value)) return ["maxRefusal"];
+  if (/\bcajas\b/.test(value) && /mas cajas|mayor (?:cantidad|numero|carga)|mas (?:cantidad|numero) de cajas/.test(value)) return ["maxBoxes"];
   if (/(?:rango|radio)/.test(value) && /vehiculos|camiones|carros|placas/.test(value) && /cuantos|cuantas|cantidad|numero|total/.test(value)) return ["range", "rangeVehicles"];
   if (/\brr\b|\bresponsable\b/.test(value)) metrics.push("status");
   const range = /\brango\b|\bradio\b/.test(value);
@@ -156,7 +162,7 @@ export function understandSkinet(question: string, today: string, previous?: Ski
   }
   if (!metrics.length && !families.length && !site && !dt && !plate && !rrSearch && !validClient && !date && !all
     && !/\b(cuant[oa]s?|lo mismo|repite|otra vez)\b/.test(text)) {
-    return { context, prompt: "No capté qué dato necesitas. Puedes preguntar por entrega en rango, refusal, modulación, cajas, clientes, DT o placa." };
+    return { context, prompt: "Soy Zora. Puedo consultar datos reales de Seguimiento, entrega en rango y sus motivos, refusal, modulaciones, clientes, contratistas, DT, placas y tripulaciones. Pregunta, por ejemplo: ¿cómo va Logísticos?, ¿qué DT está fuera de rango? o ¿quién lleva más refusal?" };
   }
   if (!context.metrics.length) return { context, prompt: "¿Quieres saber el refusal, las cajas moduladas, las reubicadas o cómo van las rutas?" };
   return { context };
