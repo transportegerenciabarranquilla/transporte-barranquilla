@@ -147,6 +147,14 @@ export default function AdminRangoPage() {
             {showCharts ? "Volver al rango" : "Gráficas"}
           </button>
           <button
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0f7c58] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b684a]"
+            onClick={() => router.push("/admin/rango/motivos")}
+            type="button"
+          >
+            <BarChart3 size={16} />
+            Motivos fuera de rango
+          </button>
+          <button
             className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-[#10223d] shadow-sm transition hover:bg-slate-50"
             onClick={() => router.push("/admin")}
             type="button"
