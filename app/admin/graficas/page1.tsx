@@ -6,6 +6,8 @@ import { matchRoutePerformance, type PerformanceVehicle, type RoutePerformanceRo
 import { ROUTE_PERFORMANCE_CONTRACTORS, routePerformanceContractor } from "../../lib/routePerformanceContractors";
 import { buildDriverOffenders } from "../../lib/routePerformanceOffenders";
 import { averagePerformance, deliveryPerformance, totalPerformanceMinutes, formatPerformanceDuration, latestPerformanceDate } from "../../lib/routePerformanceMetrics";
+import { surtiRangeFromReports } from "../../lib/routePerformanceRangeFallback";
+import { latestSurtiAdherence } from "../../lib/routePerformanceAdherenceFallback";
 import RoutePerformanceCharts from "./RoutePerformanceCharts";
 import RoutePerformanceTable from "./RoutePerformanceTable";
 
@@ -25,6 +27,8 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
   const [contractorFilter, setContractorFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [surtiRange, setSurtiRange] = useState<ReturnType<typeof surtiRangeFromReports>>(null);
+  const [surtiRangeError, setSurtiRangeError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -52,7 +56,26 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
     return () => controller.abort();
   }, [contractorOnly]);
 
+  useEffect(() => {
+    if (contractorOnly) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ tv: "1" });
+    if (dateFrom) params.set("from", dateFrom);
+    if (dateTo) params.set("to", dateTo);
+    setSurtiRange(null);
+    setSurtiRangeError("");
+    void fetch(`/api/admin/rango?${params}`, { cache: "no-store", signal: controller.signal })
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "No se pudo consultar el rango de Surti Cervezas.");
+        if (!controller.signal.aborted) setSurtiRange(surtiRangeFromReports(Array.isArray(body.reports) ? body.reports : []));
+      })
+      .catch(error => { if (!controller.signal.aborted) setSurtiRangeError(error instanceof Error ? error.message : "No se pudo consultar el rango de Surti Cervezas."); });
+    return () => controller.abort();
+  }, [contractorOnly, dateFrom, dateTo]);
+
   const matchedRows = useMemo(() => contractorOnly ? serverMatchedRows : matchRoutePerformance(rows, records), [rows, records, contractorOnly, serverMatchedRows]);
+  const surtiAdherence = useMemo(() => contractorOnly ? null : latestSurtiAdherence(matchedRows, dateTo || dateFrom), [contractorOnly, matchedRows, dateTo, dateFrom]);
   const dateBounds = useMemo(() => {
     if (!rows.length) return { min: "", max: "" };
     return rows.reduce((bounds, row) => ({
@@ -195,6 +218,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
       </div>
     </header>
     <div className="space-y-4 p-4">
+      {surtiRangeError && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800" role="alert">No se pudo cargar el indicador de Rango de Surti Cervezas: {surtiRangeError}</p>}
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{error}{rows.length ? " Se conservan los registros anteriores." : ""}</p>}
       {recordsError && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800" role="alert">No se pudo cargar Seguimiento. El cruce de RR y conductor no está disponible: {recordsError}</p>}
       <p className="text-xs font-semibold text-slate-600" role="status" aria-live="polite">{loadingStored ? "Cargando los viajes guardados…" : loading ? "Validando y guardando Excel…" : fileName ? `${contractorOnly ? "Historial de viajes" : `${files.length} archivos guardados`} · ${rows.length} viajes${uploadedAt ? ` · Última carga: ${new Date(uploadedAt).toLocaleString("es-CO")}` : ""}` : contractorOnly ? "No hay un Excel disponible del administrador." : "Sube un Excel para guardar los viajes y ver las gráficas."}{recordsLoading ? " Cargando Seguimiento para cruzar las placas…" : ""}</p>
@@ -216,9 +240,9 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
         <p className="text-[11px] text-slate-500">Fechas de viaje disponibles: {dateBounds.min.split("-").reverse().join("/")} al {dateBounds.max.split("-").reverse().join("/")}. El rango incluye ambos días.</p>
         <div role="status" aria-label="Período de los indicadores" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">
           <p className="font-bold">{dateFrom && dateFrom === dateTo ? `Indicadores del ${dateFrom.split("-").reverse().join("/")}` : !dateFrom && !dateTo ? "Indicadores acumulados de todas las fechas" : `Indicadores del ${(dateFrom || dateBounds.min).split("-").reverse().join("/")} al ${(dateTo || dateBounds.max).split("-").reverse().join("/")}`}</p>
-          <p className="mt-1 text-xs">{filtered.length.toLocaleString("es-CO")} viajes seleccionados de {rows.length.toLocaleString("es-CO")} guardados. Todos los indicadores y la exportación usan esta selección.</p>
+          <p className="mt-1 text-xs">{filtered.length.toLocaleString("es-CO")} viajes seleccionados de {rows.length.toLocaleString("es-CO")} guardados. Los indicadores y la exportación usan esta selección; cualquier último dato histórico de Surti se identifica con su propia fecha.</p>
         </div>
-        <RoutePerformanceCharts rows={filtered} contractorOnly={contractorOnly} />
+        <RoutePerformanceCharts rows={filtered} contractorOnly={contractorOnly} surtiRange={!search.trim() && matchFilter === "all" && (contractorFilter === "all" || contractorFilter === "Surti Cervezas") ? surtiRange : null} surtiAdherence={!search.trim() && matchFilter === "all" && (contractorFilter === "all" || contractorFilter === "Surti Cervezas") ? surtiAdherence : null} />
         <RoutePerformanceTable rows={filtered} pending={recordsLoading} error={Boolean(recordsError)} />
       </>}
     </div>

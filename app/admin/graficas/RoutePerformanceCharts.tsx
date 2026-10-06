@@ -41,31 +41,36 @@ function PercentageRing({ value, label, small = false, tone = "range" }: { value
   </svg>;
 }
 
-function ContractorCard({ name, rows, position }: { name: string; rows: MatchedRoutePerformance[]; position: number }) {
+type SurtiRangeSummary = { started: number; inRange: number; days: number; value: number } | null;
+type SurtiAdherenceSummary = { date: string; count: number; value: number } | null;
+
+function ContractorCard({ name, rows, position, surtiRange, surtiAdherence }: { name: string; rows: MatchedRoutePerformance[]; position: number; surtiRange: SurtiRangeSummary; surtiAdherence: SurtiAdherenceSummary }) {
   const adherence = averagePerformance(rows, "adherenceKmPercent");
+  const adherenceHistory = name === "Surti Cervezas" && adherence.value === null ? surtiAdherence : null;
   const range = deliveryPerformance(rows);
+  const rangeReport = name === "Surti Cervezas" && (rows.length === 0 || range.value === null) ? surtiRange : null;
   const initials = name.split(" ").map((word) => word[0]).join("").slice(0, 2);
   return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
     <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5">
-      <div className="flex min-w-0 items-center gap-2.5"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-[11px] font-black tracking-wide text-white">{initials}</span><div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-900">{name}</h4><p className="text-[11px] text-slate-500">{rows.length.toLocaleString("es-CO")} viajes identificados</p></div></div>
+      <div className="flex min-w-0 items-center gap-2.5"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-[11px] font-black tracking-wide text-white">{initials}</span><div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-900">{name}</h4><p className="text-[11px] text-slate-500">{rows.length.toLocaleString("es-CO")} viajes identificados en Excel{rangeReport ? ` · ${format(rangeReport.started)} visitas en Rango` : ""}</p></div></div>
       <span className="text-xs font-bold tabular-nums text-slate-400">0{position}</span>
     </div>
     <div className="grid divide-y divide-slate-100 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
       <div className="flex flex-col items-center gap-1 pb-4 sm:pb-0 sm:pr-2">
         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-700">Adherencia km</p>
-        <PercentageRing value={adherence.value} label={`Adherencia a kilómetros de ${name}`} tone="adherence" small />
-        <p className="text-center text-[11px] text-slate-600">{adherence.count.toLocaleString("es-CO")} viajes con ADH_KM</p>
+        <PercentageRing value={adherenceHistory?.value ?? adherence.value} label={`Adherencia a kilómetros de ${name}${adherenceHistory ? `, último dato del ${adherenceHistory.date.split("-").reverse().join("/")}` : ""}`} tone="adherence" small />
+        <p className="text-center text-[11px] text-slate-600">{adherenceHistory ? `${adherenceHistory.count} viaje${adherenceHistory.count === 1 ? "" : "s"} con ADH_KM · último dato ${adherenceHistory.date.split("-").reverse().join("/")} (fuera del período)` : `${adherence.count.toLocaleString("es-CO")} viajes con ADH_KM`}</p>
       </div>
       <div className="flex flex-col items-center gap-1 pt-4 sm:pt-0 sm:pl-2">
-        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Rango MyGeotab</p>
-        <PercentageRing value={range.value} label={`Entrega en rango MyGeotab de ${name}`} small />
-        <p className="text-center text-[11px] text-slate-600">{range.missing ? `Faltan clientes en ${range.missing} viajes` : `${format(range.visited)} / ${format(range.planned)} clientes`}</p>
+        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">{rangeReport ? "Entrega en rango · reporte de Rango" : "Rango MyGeotab"}</p>
+        <PercentageRing value={rangeReport?.value ?? range.value} label={`Entrega en rango de ${name}${rangeReport ? " según el reporte de Rango" : " MyGeotab"}`} small />
+        <p className="text-center text-[11px] text-slate-600">{rangeReport ? `${format(rangeReport.inRange)} / ${format(rangeReport.started)} visitas en rango · ${rangeReport.days} día${rangeReport.days === 1 ? "" : "s"}` : range.missing ? `Faltan clientes en ${range.missing} viajes` : `${format(range.visited)} / ${format(range.planned)} clientes`}</p>
       </div>
     </div>
   </article>;
 }
 
-export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { rows: MatchedRoutePerformance[]; contractorOnly?: string }) {
+export default function RoutePerformanceCharts({ rows, contractorOnly = "", surtiRange = null, surtiAdherence = null }: { rows: MatchedRoutePerformance[]; contractorOnly?: string; surtiRange?: SurtiRangeSummary; surtiAdherence?: SurtiAdherenceSummary }) {
   const summary = totals(rows);
   const hours = averagePerformance(rows, "adherenceHoursPercent");
   const plannedHours = formatPerformanceDuration(totalPerformanceMinutes(rows, "plannedMinutes"));
@@ -98,9 +103,9 @@ export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { 
     </section>
     <RoutePerformanceTrend rows={rows} />
     <section aria-label="Indicadores por contratista" className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Adherencia a kilómetros y entrega en rango MyGeotab, con los filtros actuales.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Adherencia y MyGeotab del Excel. Si faltan viajes de Surti, su entrega en rango se toma del reporte de Rango para las fechas seleccionadas.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>
       {rows.length > 0 && identifiedTrips === 0 && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">No se identificaron viajes de Surti Cervezas, Logisticos ni HL Logisticos. El Excel puede incluir una columna CONTRATISTA o TRANSPORTISTA para mostrar este desglose.</p>}
-      <div className="mt-4 grid gap-3 xl:grid-cols-3">{byContractor.map(({ name, rows: contractorRows }, index) => <ContractorCard key={name} name={name} rows={contractorRows} position={index + 1} />)}</div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">{byContractor.map(({ name, rows: contractorRows }, index) => <ContractorCard key={name} name={name} rows={contractorRows} position={index + 1} surtiRange={surtiRange} surtiAdherence={surtiAdherence} />)}</div>
     </section>
   </div>;
 }
