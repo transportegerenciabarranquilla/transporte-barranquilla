@@ -99,6 +99,21 @@ test("saluda al llamarlo, escucha la pregunta y pausa reconocimiento durante su 
   assert.equal(calls.states.at(-1), "question");
   voice.stop();
 });
+test("consulta texto provisional cuando el navegador no envía un resultado final", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { voice, calls, say } = fixture();
+  voice.start();
+  say("hola Skainet", false);
+  t.mock.timers.tick(1800);
+  assert.equal(calls.speeches[0].text, "¿En qué puedo ayudarte?");
+  calls.speeches[0].done();
+  say("cómo va el seguimiento de hoy", false);
+  t.mock.timers.tick(1800);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls.questions, ["cómo va el seguimiento de hoy"]);
+  assert.equal(calls.speeches[1].text, "Refusal: 1,2 por ciento.");
+  voice.stop();
+});
 test("saludo y pregunta en una misma transcripción conservan la pregunta", async () => {
   const { voice, calls, recognition } = fixture();
   voice.start();
@@ -129,6 +144,17 @@ test("vuelve a escuchar si el navegador tarda en liberar el reconocimiento", t =
   t.mock.timers.tick(500);
   assert.equal(attempts, 2);
   assert.equal(calls.states.at(-1), "question");
+  voice.stop();
+});
+test("reconoce la misma pista del micrófono seleccionado al reiniciar la escucha", () => {
+  const track = { kind: "audio", readyState: "live" };
+  const { voice, recognition, calls, say } = fixture(undefined, { questionDelayMs: 0, audioTrack: track });
+  const inputs = [];
+  recognition.start = input => inputs.push(input);
+  voice.start();
+  say("hola Skainet");
+  calls.speeches[0].done();
+  assert.deepEqual(inputs, [track, track]);
   voice.stop();
 });
 

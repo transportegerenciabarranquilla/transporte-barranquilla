@@ -67,7 +67,7 @@ test("los consumidores sin rango siguen consultando su alcance completo", async 
 test("Skinet permite activar el micrófono y escribir preguntas", () => {
   const { renderToStaticMarkup } = require("react-dom/server");
   const { createElement } = require("react");
-  const { SkinetAssistant } = compile("../components/SkinetAssistant.tsx", { "../lib/skinetReports": compile("./skinetReports.ts"), "../lib/skinetVoice": compile("./skinetVoice.ts", { "./skinetUnderstanding": compile("./skinetUnderstanding.ts") }) });
+  const { SkinetAssistant } = compile("../components/SkinetAssistant.tsx", { "../lib/skinetMicrophone": compile("./skinetMicrophone.ts"), "../lib/skinetReports": compile("./skinetReports.ts"), "../lib/skinetVoice": compile("./skinetVoice.ts", { "./skinetUnderstanding": compile("./skinetUnderstanding.ts") }) });
   const html = renderToStaticMarkup(createElement(SkinetAssistant, {
     onAsk: async () => "Respuesta", onListeningChange: () => {},
   }));
@@ -99,6 +99,7 @@ test("Skainet reproduce al máximo y respeta la voz elegida", () => {
   const spoken = [];
   const react = { useState: initial => [initial, () => {}], useRef: initial => ({ current: initial }), useCallback: fn => fn, useEffect() {} };
   const { SkinetAssistant } = compile("../components/SkinetAssistant.tsx", {
+    "../lib/skinetMicrophone": compile("./skinetMicrophone.ts"),
     react, "../lib/skinetReports": compile("./skinetReports.ts"), "../lib/skinetVoice": compile("./skinetVoice.ts", { "./skinetUnderstanding": compile("./skinetUnderstanding.ts") }),
   });
   globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
@@ -110,14 +111,38 @@ test("Skainet reproduce al máximo y respeta la voz elegida", () => {
     const testVoice = nodes.find(node => node.type === "button" && node.props.children === "Probar voz");
     testVoice.props.onClick();
     assert.equal(spoken[0].volume, 1);
-    assert.equal(spoken[0].voice.voiceURI, "online");
+    assert.equal(spoken[0].voice.voiceURI, "local");
     spoken[0].onstart();
+    spoken[0].onend();
     assert.match(spoken[0].text, /Soy Skainet/);
     nodes.find(node => node.type === "select").props.onChange({ target: { value: "local" } });
     testVoice.props.onClick();
     assert.equal(spoken[1].voice.voiceURI, "local");
     spoken[1].onstart();
+    spoken[1].onend();
   } finally { globalThis.window = realWindow; globalThis.SpeechSynthesisUtterance = realUtterance; }
+});
+
+test("el asistente reproduce la respuesta como MP3 cuando no hay motor de voz", () => {
+  const originalWindow = globalThis.window;
+  const nodes = [];
+  let plays = 0;
+  const player = { play: () => { plays++; return Promise.resolve(); }, pause() {} };
+  const react = { useState: initial => [initial, () => {}], useRef: initial => ({ current: initial }), useCallback: fn => fn, useEffect() {} };
+  const { SkinetAssistant } = compile("../components/SkinetAssistant.tsx", {
+    react, "../lib/skinetMicrophone": compile("./skinetMicrophone.ts"), "../lib/skinetReports": compile("./skinetReports.ts"), "../lib/skinetVoice": compile("./skinetVoice.ts", { "./skinetUnderstanding": compile("./skinetUnderstanding.ts") }),
+  });
+  globalThis.window = {};
+  try {
+    const visit = node => { if (!node || typeof node !== "object") return; if (Array.isArray(node)) { node.forEach(visit); return; } nodes.push(node); visit(node.props?.children); };
+    visit(SkinetAssistant({ onAsk: async () => "Respuesta", onListeningChange() {} }));
+    nodes.find(node => node.type === "audio").props.ref.current = player;
+    nodes.find(node => node.type === "button" && node.props.children === "Probar voz").props.onClick();
+    assert.equal(plays, 1);
+    assert.match(player.src, /^\/api\/admin\/skinet-audio\?/);
+    assert.match(new URL(player.src, "https://example.test").searchParams.get("text"), /Soy Skainet/);
+    player.onended();
+  } finally { globalThis.window = originalWindow; }
 });
 
 test("Skinet no solicita micrófono al montar ni al regresar a la pestaña", () => {
@@ -133,6 +158,7 @@ test("Skinet no solicita micrófono al montar ni al regresar a la pestaña", () 
     useCallback: fn => fn, useEffect: fn => effects.push(fn),
   };
   const { SkinetAssistant } = compile("../components/SkinetAssistant.tsx", {
+    "../lib/skinetMicrophone": compile("./skinetMicrophone.ts"),
     react, "../lib/skinetReports": compile("./skinetReports.ts"), "../lib/skinetVoice": compile("./skinetVoice.ts", { "./skinetUnderstanding": compile("./skinetUnderstanding.ts") }),
   });
   globalThis.window = {

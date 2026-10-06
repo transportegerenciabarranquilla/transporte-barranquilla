@@ -9,12 +9,13 @@ export interface SkinetRecognition {
   onresult: ((event: RecognitionResultEvent) => void) | null;
   onend: (() => void) | null;
   onerror: ((event: { error: string }) => void) | null;
-  start(): void;
+  start(audioTrack?: MediaStreamTrack): void;
   abort(): void;
 }
 
 export function skinetWake(text: string) {
-  const match = /\b(?:hola\s+)?(?:skai\s?net|skinet|skinte|sky\s?net|ski\s?net)\b/i.exec(text);
+  const plain = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const match = /\b(?:hola\s+)?(?:e?skai\s?net|e?skinet|skinte|sky\s?net|ski\s?net|escai\s?net)\b/i.exec(plain);
   return match ? { question: text.slice(match.index + match[0].length).replace(/^[\s,.:;!?¿¡]+/, "").trim() } : null;
 }
 
@@ -35,6 +36,8 @@ export class SkinetVoice {
   private questionTimer?: ReturnType<typeof setTimeout>;
   private questionDebounce?: ReturnType<typeof setTimeout>;
   private pendingQuestion = "";
+  private interimTimer?: ReturnType<typeof setTimeout>;
+  private interimText = "";
   constructor(private recognition: SkinetRecognition, private callbacks: {
     speak: (text: string, done: () => void) => void;
     cancelSpeech: () => void;
@@ -43,19 +46,36 @@ export class SkinetVoice {
     question: (question: string) => void;
     reply: (reply: string) => void;
     error: (error: string) => void;
-  }, private options: { questionDelayMs?: number } = {}) {
+    transcript?: (text: string) => void;
+  }, private options: { questionDelayMs?: number; audioTrack?: MediaStreamTrack } = {}) {
     recognition.lang = "es-CO";
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = event => {
+      if (!this.active || !["wake", "question"].includes(this.state)) return;
       for (let index = event.resultIndex; index < event.results.length; index++) {
         if (!this.active) continue;
-        if (!event.results[index].isFinal) {
-          if (this.pendingQuestion) this.scheduleQuestion();
-          continue;
-        }
         const text = event.results[index][0].transcript.trim();
         if (!text) continue;
+        this.callbacks.transcript?.(text);
+        if (!event.results[index].isFinal) {
+          if (this.pendingQuestion) this.scheduleQuestion();
+          this.interimText = text;
+          if (this.interimTimer !== undefined) clearTimeout(this.interimTimer);
+          this.interimTimer = setTimeout(() => {
+            this.interimTimer = undefined;
+            const stable = this.interimText;
+            this.interimText = "";
+            if (stable && this.active && ["wake", "question"].includes(this.state)) {
+              // Algunos navegadores entregan texto provisional, pero nunca final.
+              recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: stable } }] });
+            }
+          }, 1800);
+          continue;
+        }
+        if (this.interimTimer !== undefined) clearTimeout(this.interimTimer);
+        this.interimTimer = undefined;
+        this.interimText = "";
         if (this.state === "wake") {
           const wake = skinetWake(text);
           if (!wake) {
@@ -112,7 +132,7 @@ export class SkinetVoice {
     if (!this.active) return;
     clearTimeout(this.timer);
     this.timer = undefined;
-    try { this.recognition.start(); }
+    try { this.recognition.start(this.options.audioTrack); }
     catch (error) {
       // abort() puede tardar en liberar el micrófono después de hablar.
       // Reintentar evita quedar en «Te escucho» sin reconocer ninguna pregunta.
@@ -141,6 +161,9 @@ export class SkinetVoice {
     });
   }
   private clearQuestion() {
+    if (this.interimTimer !== undefined) clearTimeout(this.interimTimer);
+    this.interimTimer = undefined;
+    this.interimText = "";
     if (this.questionDebounce !== undefined) clearTimeout(this.questionDebounce);
     this.questionDebounce = undefined;
     this.pendingQuestion = "";
