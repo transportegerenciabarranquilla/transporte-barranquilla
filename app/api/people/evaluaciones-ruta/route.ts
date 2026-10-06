@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
 import { contractorLabel } from "../../../lib/contractors";
-import { evaluationRole, validateEvaluationAnswers, type EvaluationPerson } from "../../../lib/peopleRouteEvaluation";
-import { PEOPLE_ROUTE_QUESTIONS, PEOPLE_ROUTE_QUESTIONNAIRE_VERSION } from "../../../lib/peopleRouteQuestions";
+import { evaluationRole, validateEvaluationForm, type EvaluationPerson } from "../../../lib/peopleRouteEvaluation";
+import { PEOPLE_ROUTE_QUESTIONNAIRE_VERSION } from "../../../lib/peopleRouteQuestions";
 import { supabaseAdminHeaders, supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../../lib/supabaseServer";
 import * as XLSX from "xlsx";
 import { buildRouteAnalytics, type RouteEvaluationRecord } from "../../../lib/peopleRouteAnalytics";
@@ -80,13 +80,13 @@ export async function POST(request: Request) {
     const person = people.find(item => item.key === body.personKey);
     if (!person) return NextResponse.json({ error: "Los datos de la persona cambiaron. Vuelve a consultar su cédula." }, { status: 409 });
     if (!person.role) return NextResponse.json({ error: "El cargo registrado no tiene un formulario asignado. Actualiza el cargo en People." }, { status: 400 });
-    let answers;
-    try { answers = validateEvaluationAnswers(person.role, body.answers); }
+    let form;
+    try { form = validateEvaluationForm(person.role, body.questions, body.answers); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Respuestas inválidas." }, { status: 400 }); }
     const payload = {
       id: body.id, cc: person.cc, nombre: person.nombre, cargo: person.cargo, contractor: person.contratista,
       person_key: person.key, survey_role: person.role, questionnaire_version: PEOPLE_ROUTE_QUESTIONNAIRE_VERSION,
-      answers: PEOPLE_ROUTE_QUESTIONS[person.role].questions.map(question => ({ id: question.id, question: question.text, answer: answers[question.id] })),
+      answers: form.questions.map(question => ({ id: question.id, question: question.text, answer: form.answers[question.id] })),
       created_by: session.userId,
     };
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       const params = new URLSearchParams({ select: "id,created_at,created_by,person_key,answers", id: `eq.${body.id}`, limit: "1" });
       const previous = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
       const saved = previous.ok ? (await previous.json())[0] : null;
-      if (saved && saved.created_by === session.userId && saved.person_key === person.key && saved.answers.length === payload.answers.length && saved.answers.every((item: { id: string; answer: string }) => answers[item.id] === item.answer)) {
+      if (saved && saved.created_by === session.userId && saved.person_key === person.key && Array.isArray(saved.answers) && saved.answers.length === payload.answers.length && saved.answers.every((item: { id: string; question: string; answer: string }, index: number) => item.id === payload.answers[index].id && item.question === payload.answers[index].question && item.answer === payload.answers[index].answer)) {
         return NextResponse.json({ id: saved.id, createdAt: saved.created_at });
       }
       return NextResponse.json({ error: "Esta evaluación ya existe con otras respuestas. Inicia una nueva evaluación." }, { status: 409 });
@@ -123,17 +123,25 @@ export async function PATCH(request: Request) {
     if (!body || typeof body.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id) || !body.answers || typeof body.answers !== "object" || Array.isArray(body.answers) || !Array.isArray(body.previousAnswers)) {
       return NextResponse.json({ error: "Selecciona una evaluación y responde todas las preguntas." }, { status: 400 });
     }
-    const query = new URLSearchParams({ select: "id,answers", id: `eq.${body.id}`, limit: "1" });
+    const query = new URLSearchParams({ select: "id,answers,survey_role", id: `eq.${body.id}`, limit: "1" });
     const previous = await fetch(supabaseRest(TABLE, `?${query}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
     if (!previous.ok) return NextResponse.json({ error: "No se pudo consultar la evaluación." }, { status: 503 });
-    const saved = (await previous.json())[0] as Pick<RouteEvaluationRecord, "id" | "answers"> | undefined;
+    const saved = (await previous.json())[0] as Pick<RouteEvaluationRecord, "id" | "answers" | "survey_role"> | undefined;
     if (!saved) return NextResponse.json({ error: "Esta evaluación ya no está disponible." }, { status: 404 });
     if (JSON.stringify(saved.answers) !== JSON.stringify(body.previousAnswers)) return NextResponse.json({ error: "Otra persona modificó esta evaluación. Cancela y actualiza los registros antes de editarla nuevamente." }, { status: 409 });
-    // Validate against the saved questions, preserving historical wording and versions.
-    if (Object.keys(body.answers).length !== saved.answers.length || saved.answers.some(item => !["si", "no", "na"].includes(body.answers[item.id]))) {
-      return NextResponse.json({ error: "Responde todas las preguntas con Sí, No o N/A." }, { status: 400 });
+    let answers: RouteEvaluationRecord["answers"];
+    if (body.questions === undefined) {
+      // Compatibilidad con clientes anteriores: solo modifican respuestas.
+      if (Object.keys(body.answers).length !== saved.answers.length || saved.answers.some(item => !["si", "no", "na"].includes(body.answers[item.id]))) {
+        return NextResponse.json({ error: "Responde todas las preguntas con Sí, No o N/A." }, { status: 400 });
+      }
+      answers = saved.answers.map(item => ({ ...item, answer: body.answers[item.id] }));
+    } else {
+      try {
+        const form = validateEvaluationForm(saved.survey_role, body.questions, body.answers, saved.answers.map(item => item.id));
+        answers = form.questions.map(question => ({ id: question.id, question: question.text, answer: form.answers[question.id] }));
+      } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Revisa las preguntas y respuestas." }, { status: 400 }); }
     }
-    const answers = saved.answers.map(item => ({ ...item, answer: body.answers[item.id] }));
     const updateQuery = new URLSearchParams({ id: `eq.${body.id}`, answers: `eq.${JSON.stringify(saved.answers)}`, select: "id" });
     const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
     const response = await fetch(supabaseRest(TABLE, `?${updateQuery}`), {
@@ -146,6 +154,33 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ id: updated[0].id });
   } catch {
     return NextResponse.json({ error: "No se pudo editar la evaluación. Tus cambios siguen disponibles." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await getAuthenticatedSession();
+    if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+    if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "Solo People y administración pueden eliminar evaluaciones." }, { status: 403 });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id) || !Array.isArray(body.previousAnswers)) {
+      return NextResponse.json({ error: "Selecciona una evaluación guardada para eliminar." }, { status: 400 });
+    }
+    const query = new URLSearchParams({ select: "id,answers", id: `eq.${body.id}`, limit: "1" });
+    const previous = await fetch(supabaseRest(TABLE, `?${query}`), { headers: supabaseReadHeaders(session.accessToken), cache: "no-store" });
+    if (!previous.ok) return NextResponse.json({ error: "No se pudo consultar la evaluación." }, { status: 503 });
+    const saved = (await previous.json())[0] as Pick<RouteEvaluationRecord, "id" | "answers"> | undefined;
+    if (!saved) return NextResponse.json({ error: "Esta evaluación ya no está disponible." }, { status: 404 });
+    if (JSON.stringify(saved.answers) !== JSON.stringify(body.previousAnswers)) return NextResponse.json({ error: "La evaluación cambió. Actualiza los registros antes de eliminarla." }, { status: 409 });
+    const deleteQuery = new URLSearchParams({ id: `eq.${body.id}`, answers: `eq.${JSON.stringify(saved.answers)}`, select: "id" });
+    const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
+    const response = await fetch(supabaseRest(TABLE, `?${deleteQuery}`), { method: "DELETE", headers: { ...headers, Prefer: "return=representation" }, cache: "no-store" });
+    if (!response.ok) return NextResponse.json({ error: "No se pudo eliminar la evaluación. Revisa los permisos de eliminación en Supabase." }, { status: 503 });
+    const deleted = await response.json();
+    if (!deleted.length) return NextResponse.json({ error: "El registro cambió o no tienes permiso para eliminarlo. Actualiza los registros." }, { status: 409 });
+    return NextResponse.json({ id: deleted[0].id }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ error: "No se pudo eliminar la evaluación. Intenta de nuevo." }, { status: 500 });
   }
 }
 

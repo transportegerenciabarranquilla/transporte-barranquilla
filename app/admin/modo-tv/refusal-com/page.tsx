@@ -1,4 +1,5 @@
 "use client";
+import { isAdminRefusalExcludedContractor } from "../../../lib/contractors";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, MapPinCheck, Maximize, Package, RefreshCw, ShieldAlert, Truck, Users, X, XCircle } from "lucide-react";
@@ -272,6 +273,7 @@ function buildStats(records: Vehiculo[]): RefusalStats {
 }
 
 function isExcludedContractor(contractor: string | undefined) {
+  if (isAdminRefusalExcludedContractor(contractor)) return true;
   return String(contractor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase() === "puntocoronaarenosa";
 }
 

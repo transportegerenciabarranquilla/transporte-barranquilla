@@ -1,4 +1,5 @@
 "use client"; // Panel compartido entre administración y contratistas.
+import { isAdminRefusalExcludedContractor } from "../../lib/contractors";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -145,8 +146,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
   const onTimeByContractor = useMemo(() => buildOnTimeByContractor(comparisonRecords).filter((row) => !contractorMode || normalizeContractorName(row.contractor) === normalizeContractorName(contractor)), [comparisonRecords, contractor, contractorMode]);
 
   const visibleRefusalRows = useMemo(
-    () => filterRefusalRows(refusalRows, activeDateRange, contractor, dtSearch),
-    [activeDateRange, contractor, dtSearch, refusalRows],
+    () => filterRefusalRows(refusalRows, activeDateRange, contractor, dtSearch).filter(row => contractorMode || !isAdminRefusalExcludedContractor(row.contractor)),
+    [activeDateRange, contractor, contractorMode, dtSearch, refusalRows],
   );
 
   const clientCausalRows = useMemo(
@@ -174,16 +175,16 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
 
   const topRefusalClients = useMemo(() => buildTopRefusalClients(filteredRefusalRows), [filteredRefusalRows]);
   const visibleModulationRefusals = useMemo(
-    () => filterModulationRecords(modulationRecords, activeDateRange, contractor, dtSearch),
-    [activeDateRange, contractor, dtSearch, modulationRecords],
+    () => filterModulationRecords(modulationRecords, activeDateRange, contractor, dtSearch).filter(row => contractorMode || !isAdminRefusalExcludedContractor(row.contratista)),
+    [activeDateRange, contractor, contractorMode, dtSearch, modulationRecords],
   );
   const rrRefusalTop = useMemo(() => buildRrRefusalTop(visibleModulationRefusals), [visibleModulationRefusals]);
   const refusalRecords = useMemo(
     () => visibleRecords.filter((record) => {
       const name = normalizeContractorName(record.transportista);
-      return name === "logisticos" || name === "surticervezas" || name === "hllogisticos";
+      return name === "logisticos" || name === "surticervezas" || (contractorMode && name === "hllogisticos");
     }),
-    [visibleRecords],
+    [visibleRecords, contractorMode],
   );
   const refusalHistory = useMemo(
     () => buildContractorRefusalHistory(refusalRecords, modulationRecords, checkinRecords, activeDateRange, contractor, dtSearch),

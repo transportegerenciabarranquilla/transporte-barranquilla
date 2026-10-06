@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       } } : row))
       .filter((report): report is AdminRangoReport => report !== null)
       .filter((report) => session.isAdmin || normalizeContractorName(report.contractor) === normalizeContractorName(session.contractor))
-      .filter((report) => (session.isSiteAdmin || !isAdminRangoExcludedContractor(report.contractor)));
+      .filter((report) => !session.isAdmin || session.isSiteAdmin || !isAdminRangoExcludedContractor(report.contractor));
     return NextResponse.json({ reports: tv ? reports.map((report) => ({
       id: report.id,
       contractor: report.contractor,

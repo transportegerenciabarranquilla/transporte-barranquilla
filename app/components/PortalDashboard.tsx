@@ -9,7 +9,7 @@ import { GlobalOperationsSearch } from "./GlobalOperationsSearch";
 import { getPortalSessionLabel, getVisiblePortalModules, type PortalModule } from "./portalModules";
 import { isLogisticosContractor } from "../lib/contractors";
 
-const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn, 22: MapPinned, 23: Users, 24: PackageCheck, 25: Route, 26: ClipboardCheck };
+const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn, 22: MapPinned, 23: Users, 24: PackageCheck, 25: Route, 26: ClipboardCheck, 27: ChartColumn };
 
 // Presentation groups only; every access comes from the existing authorized list.
 const operationIds = [1, 2, 3, 12];
@@ -41,8 +41,8 @@ export function PortalDashboard({
   const operationModules = operationIds.flatMap(id => visibleModules.filter(module => module.id === id));
   const supportingModules = visibleModules.filter(module => !operationIds.includes(module.id));
   const deliveryModules = [20, 5, 13, 15].flatMap(id => supportingModules.filter(module => module.id === id));
-  const instrumentModules = [19, 10, 23].flatMap(id => supportingModules.filter(module => module.id === id));
-  const utilityModules = supportingModules.filter(module => ![20, 5, 13, 15, 19, 10, 23].includes(module.id));
+  const instrumentModules = [19, 10, 27, 23].flatMap(id => supportingModules.filter(module => module.id === id));
+  const utilityModules = supportingModules.filter(module => ![20, 5, 13, 15, 19, 10, 27, 23].includes(module.id));
   const toolPosition = (module: PortalModule) => operationModules.length + [...deliveryModules, ...instrumentModules, ...utilityModules].indexOf(module) + 1;
   const mainModule = operationModules.find(module => module.id === 1);
   const consoleModules = operationModules.filter(module => module.id !== 1);

@@ -10,8 +10,7 @@ import { getProgress, getStatus, normalizeCajasTotal } from "../../seguimiento/u
 
 type Summary = { contractor: string; rutas: number; cajas: number; clientes: number; visitados: number };
 type ModulationRow = { contractor: string; date: string; modulationBoxes: number };
-// Los datos de HL Logísticos se mantienen separados de las demás contratistas.
-const GALAPA = ["Logisticos", "Surti Cervezas", "HL Logisticos"];
+const GALAPA = ["Logisticos", "Surti Cervezas"];
 
 export default function AdminModoTvPage() {
   const router = useRouter();
@@ -193,7 +192,7 @@ function DailyProgressPanel({ summaries, total }: { summaries: Summary[]; total:
 
 function DailyProgressBubble({ item, accent }: { item: Summary; accent: string }) {
   const value = item.clientes ? (item.visitados / item.clientes) * 100 : 0;
-  return <div className="flex min-w-0 flex-col items-center gap-3"><div className="grid aspect-square w-[clamp(118px,8.5vw,165px)] place-items-center rounded-full p-3" style={{ background: `conic-gradient(from -90deg,${accent} ${Math.min(100, value)}%,#dbe7f1 0)`, boxShadow: `0 10px 30px ${accent}24` }}><div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><div><strong className={`block text-[clamp(1.55rem,2.25vw,2.35rem)] font-black tabular-nums ${item.contractor === "General" ? "text-amber-600" : "text-[#10213b]"}`}>{value.toFixed(1)}%</strong><span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 2xl:text-[11px]">{item.visitados}/{item.clientes}</span></div></div></div><span className={`truncate rounded-full border px-3 py-1 text-[11px] font-extrabold 2xl:text-sm ${item.contractor === "General" ? "border-amber-200 bg-amber-50 text-amber-700" : item.contractor === "Logisticos" ? "border-cyan-200 bg-cyan-50 text-cyan-700" : item.contractor === "HL Logisticos" ? "border-violet-200 bg-violet-50 text-violet-700" : "border-blue-200 bg-blue-50 text-blue-700"}`}>{item.contractor}</span></div>;
+  return <div className="flex min-w-0 flex-col items-center gap-3"><div className="grid aspect-square w-[clamp(118px,8.5vw,165px)] place-items-center rounded-full p-3" style={{ background: `conic-gradient(from -90deg,${accent} ${Math.min(100, value)}%,#dbe7f1 0)`, boxShadow: `0 10px 30px ${accent}24` }}><div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-inner"><div><strong className={`block text-[clamp(1.55rem,2.25vw,2.35rem)] font-black tabular-nums ${item.contractor === "General" ? "text-amber-600" : "text-[#10213b]"}`}>{value.toFixed(1)}%</strong><span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 2xl:text-[11px]">{item.visitados}/{item.clientes}</span></div></div></div><span className={`truncate rounded-full border px-3 py-1 text-[11px] font-extrabold 2xl:text-sm ${item.contractor === "General" ? "border-amber-200 bg-amber-50 text-amber-700" : item.contractor === "Logisticos" ? "border-cyan-200 bg-cyan-50 text-cyan-700" : "border-blue-200 bg-blue-50 text-blue-700"}`}>{item.contractor}</span></div>;
 }
 
 function ProgressMini({ label, value }: { label: string; value: string }) {

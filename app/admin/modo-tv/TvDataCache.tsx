@@ -6,6 +6,7 @@ import type { PuntoCoronaRouteReport } from "../../lib/puntoCoronaRoutesStorage"
 
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { TvModulationAnnouncements } from "./TvModulationAnnouncements";
+import { isAdminRefusalExcludedContractor } from "../../lib/contractors";
 
 type SeguimientoData = {
   modulations: ModulacionRegistro[];
@@ -37,16 +38,16 @@ function seguimientoData(body: SeguimientoData): SeguimientoData {
     throw new Error("La respuesta de seguimiento no es válida.");
   }
   return {
-    modulations: body.modulations || [],
-    records: body.records,
-    modulationRacocimi2: body.modulationRacocimi2,
-    refusalByComRows: body.refusalByComRows,
+    modulations: (body.modulations || []).filter(record => !isAdminRefusalExcludedContractor(record.contratista)),
+    records: body.records.filter(record => !isAdminRefusalExcludedContractor(record.transportista)),
+    modulationRacocimi2: body.modulationRacocimi2.filter(record => !isAdminRefusalExcludedContractor(record.contractor)),
+    refusalByComRows: body.refusalByComRows.filter(record => !isAdminRefusalExcludedContractor(record.contractor)),
     today: body.today,
   };
 }
 function rangoData(body: RangoData): RangoData {
   if (!Array.isArray(body.reports)) throw new Error("La respuesta de rango no es válida.");
-  return { reports: body.reports };
+  return { reports: body.reports.filter(report => !isAdminRefusalExcludedContractor(report.contractor)) };
 }
 
 // This hook lives in the shared TV layout, so navigation never clears its data.

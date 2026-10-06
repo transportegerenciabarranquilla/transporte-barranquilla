@@ -10,7 +10,6 @@ const colors = ["from-violet-600 to-violet-400", "from-teal-600 to-teal-400", "f
 const contractorColors: Record<string, { bar: string; button: string }> = {
   "Surti Cervezas": { bar: "from-yellow-500 to-yellow-300", button: "border-yellow-400 bg-yellow-400 text-[#10223d]" },
   "Logisticos": { bar: "from-green-600 to-green-400", button: "border-green-700 bg-green-700 text-white" },
-  "HL Logisticos": { bar: "from-red-600 to-red-400", button: "border-red-600 bg-red-600 text-white" },
   "Punto Corona": { bar: "from-amber-600 to-amber-400", button: "border-amber-400 bg-amber-400 text-[#10223d]" },
 };
 

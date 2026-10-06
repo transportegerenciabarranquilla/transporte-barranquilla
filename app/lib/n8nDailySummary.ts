@@ -1,4 +1,4 @@
-import { normalizeContractorName } from "./contractors";
+import { isAdminRefusalExcludedContractor, normalizeContractorName } from "./contractors";
 import type { PuntoCoronaRouteReport } from "./puntoCoronaRoutesStorage";
 import type { Vehiculo } from "../seguimiento/types";
 import { calculateRefusalTotals, type ModulacionRegistro } from "./modulacionStorage";
@@ -67,8 +67,8 @@ export function calculateDailySummary(
     return {
       contractor,
       tracking: routeValues.length ? { routes: routeValues.length, clients, visited, percentage: percent(visited, clients) } : null,
-      refusal: boxes ? { percentage: percent(pending, boxes), pending, boxes } : null,
-      range: latest ? { percentage: percent(inRange, started.length), inRange, started: started.length, outside } : null,
+      refusal: boxes && !isAdminRefusalExcludedContractor(contractor) ? { percentage: percent(pending, boxes), pending, boxes } : null,
+      range: latest && !isAdminRefusalExcludedContractor(contractor) ? { percentage: percent(inRange, started.length), inRange, started: started.length, outside } : null,
     };
   });
   const boxes = contractors.reduce((sum, item) => sum + (item.refusal?.boxes || 0), 0);

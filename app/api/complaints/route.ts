@@ -177,18 +177,22 @@ export async function PATCH(request: Request) {
     await writeAuditLog({ action: "queja_comentada", contractor: current.contractor, details: { characters: comments.length }, module: "quejas", recordId: id, request, session });
     return NextResponse.json({ record });
   }
+  if (normalizeClosedStatus(current.data.status)) return NextResponse.json({ record: current.data });
   if (!current.data.evidence?.path) return NextResponse.json({ error: "Debes subir una evidencia PDF o PNG antes de cerrar la queja." }, { status: 409 });
   const closedAt = new Date().toISOString();
   const record = { ...current.data, status: "Cerrada", closedAt, closedBy: session.email };
-  const updateResponse = await fetch(supabaseRest(TABLE, `?complaint_id=eq.${encodeURIComponent(id)}`), {
+  const closeParams = new URLSearchParams({ complaint_id: `eq.${id}`, "data->>closedAt": "is.null" });
+  const updateResponse = await fetch(supabaseRest(TABLE, `?${closeParams}`), {
     method: "PATCH",
-    headers: { ...headers, Prefer: "return=minimal" },
+    headers: { ...headers, Prefer: "return=representation" },
     body: JSON.stringify({ data: record }),
     cache: "no-store",
   });
   if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+  const [saved] = await updateResponse.json() as Array<{ data: ComplaintRecord }>;
+  if (!saved?.data?.closedAt) return NextResponse.json({ error: "No se confirmó el cierre en la base de datos. Actualiza la lista antes de intentar otra vez." }, { status: 409 });
   await writeAuditLog({ action: "queja_cerrada", contractor: current.contractor, details: { evidence: current.data.evidence.name }, module: "quejas", recordId: id, request, session });
-  return NextResponse.json({ record });
+  return NextResponse.json({ record: saved.data });
 }
 
 async function readSeguimiento(accessToken: string) {

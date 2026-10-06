@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Copias locales de recuperación de datos (nunca publicar)
+/.local-backups/

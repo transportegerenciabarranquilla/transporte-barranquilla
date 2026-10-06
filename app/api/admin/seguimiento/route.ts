@@ -1,7 +1,7 @@
 import { allowedContractors } from "../../../lib/adminScope";
 import { NextResponse } from "next/server";
 import { getAuthenticatedSession } from "../../../lib/authServer";
-import { contractorLabel, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
+import { contractorLabel, isAdminRefusalExcludedContractor, isPuntoCoronaContractor, normalizeContractorName } from "../../../lib/contractors";
 import type { PuntoCoronaRouteReport, PuntoCoronaRouteRow } from "../../../lib/puntoCoronaRoutesStorage";
 import { readAdminTvRows } from "../../../lib/adminTvRows";
 import { supabaseAdminHeaders, supabaseUserHeaders } from "../../../lib/supabaseServer";
@@ -145,8 +145,9 @@ export async function GET(request: Request) {
 
     const visibleRecords = session.isAdmin ? records : records.filter((record) => normalizeContractorName(record.transportista) === normalizeContractorName(session.contractor));
     const visibleModulationRacocimi2 = session.isAdmin ? modulationRacocimi2 : modulationRacocimi2.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
-    const visibleRefusalByComRows = session.isAdmin ? refusalByComRows : refusalByComRows.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
-    const visibleTotals = visibleRecords.reduce((acc, record) => ({
+    const visibleRefusalByComRows = session.isAdmin ? refusalByComRows.filter(record => !isAdminRefusalExcludedContractor(record.contractor)) : refusalByComRows.filter((record) => normalizeContractorName(record.contractor) === normalizeContractorName(session.contractor));
+    const indicatorRecords = visibleRecords.filter(record => !session.isAdmin || !isAdminRefusalExcludedContractor(record.transportista));
+    const visibleTotals = indicatorRecords.reduce((acc, record) => ({
       cajas: acc.cajas + readNumber(record.cajas),
       rechazadas: acc.rechazadas + readNumber(record.cajasRechazadas),
       gestionadas: acc.gestionadas + readNumber(record.cajasGestionadas),
@@ -165,7 +166,7 @@ export async function GET(request: Request) {
       records: visibleRecords,
       modulationRacocimi2: visibleModulationRacocimi2,
       refusalByComRows: visibleRefusalByComRows,
-      totalCajas: visibleCajas,
+      totalCajas: normalizeCajasTotal(visibleRecords.reduce((sum, record) => sum + readNumber(record.cajas), 0)),
       totalRechazadas: visibleTotals.rechazadas,
       totalGestionadas: visibleTotals.gestionadas,
       totalRefusalFinal: visibleTotals.refusalFinal,

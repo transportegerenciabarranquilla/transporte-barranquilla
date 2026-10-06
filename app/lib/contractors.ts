@@ -66,6 +66,11 @@ export function contractorLabel(value: string | null | undefined) {
   return String(value || "").trim();
 }
 
+// Exclusión solo de indicadores administrativos; no revoca acceso ni borra datos.
+export function isAdminRefusalExcludedContractor(value: string | null | undefined) {
+  return ["hl", "hllogisticos", "hllogisticas"].includes(normalizeContractorName(value));
+}
+
 export function isLogisticosContractor(value: string | null | undefined) {
   const normalized = normalizeContractorName(value);
   return normalized === "logisticos" || normalized === "logisticosarenosa";
@@ -120,5 +125,5 @@ export function isOperationalContractor(value: string | null | undefined): value
 // Entrega en rango. Se mantiene centralizada para que pantalla y exportación
 // apliquen exactamente la misma regla.
 export function isAdminRangoExcludedContractor(value: string | null | undefined) {
-  return normalizeContractorName(value) === "puntocoronaarenosa";
+  return isAdminRefusalExcludedContractor(value) || normalizeContractorName(value) === "puntocoronaarenosa";
 }

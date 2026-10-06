@@ -1,4 +1,5 @@
 "use client";
+import { isAdminRefusalExcludedContractor } from "../lib/contractors";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -246,7 +247,9 @@ export default function AdminPage() {
       { cajas: 0, hl: 0, clientes: 0, refusalFinal: 0 },
     );
 
-    values.refusalFinal = calculateFinalRefusal(dateRecords, modulationRecords, checkinRecords);
+    const refusalRecords = dateRecords.filter(record => !isAdminRefusalExcludedContractor(record.transportista));
+    values.refusalFinal = calculateFinalRefusal(refusalRecords, modulationRecords.filter(row => !isAdminRefusalExcludedContractor(row.contratista)), checkinRecords.filter(row => !isAdminRefusalExcludedContractor(row.contratista)));
+    const refusalBoxes = normalizeCajasTotal(refusalRecords.reduce((sum, record) => sum + readNumber(record.cajas), 0));
     const roundedCajas = normalizeCajasTotal(values.cajas);
     const roundedHl = normalizeHlTotal(values.hl);
 
@@ -254,7 +257,7 @@ export default function AdminPage() {
       ...values,
       cajas: roundedCajas,
       hl: roundedHl,
-      refusal: roundedCajas ? Number(((values.refusalFinal / roundedCajas) * 100).toFixed(2)) : 0,
+      refusal: refusalBoxes ? Number(((values.refusalFinal / refusalBoxes) * 100).toFixed(2)) : 0,
     };
   }, [checkinRecords, dateRecords, modulationRecords]);
 
@@ -670,10 +673,10 @@ export default function AdminPage() {
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <span className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700">
-                  {summary.refusalFinal.toLocaleString("es-CO")} cajas refusal
+                  {isAdminRefusalExcludedContractor(summary.contractor) ? "No incluido en indicador" : summary.refusalFinal.toLocaleString("es-CO") + " cajas refusal"}
                 </span>
                 <span className="rounded-md bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700">
-                  {summary.refusal.toLocaleString("es-CO")}% final
+                  {isAdminRefusalExcludedContractor(summary.contractor) ? "—" : summary.refusal.toLocaleString("es-CO") + "% final"}
                 </span>
               </div>
               <div className="mt-3">

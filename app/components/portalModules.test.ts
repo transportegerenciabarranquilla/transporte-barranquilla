@@ -16,6 +16,15 @@ test("Route Tracking tiene módulo propio solo para administradores", () => {
   }
 });
 
+test("Promedio RR solo aparece en administración", () => {
+  for (const contractor of ["Admin", "Admin Arenosa"]) {
+    const modules = getVisiblePortalModules({ contractor, isAdmin: true });
+    assert.equal(modules.find(module => module.href === "/admin/promedio-rr")?.title, "Promedio RR");
+  }
+  assert.equal(getVisiblePortalModules({ contractor: "Logisticos" }).some(module => module.href === "/admin/promedio-rr"), false);
+  assert.equal(getVisiblePortalModules({ isPeople: true }).some(module => module.href === "/admin/promedio-rr"), false);
+});
+
 test("HL Logisticos recibe los módulos de Surti y Refusal con identidad independiente", () => {
   const contractor = contractorForEmail(" HLLogistica@gmail.com ");
   assert.equal(contractor, "HL Logisticos");

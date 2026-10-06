@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTvData } from "../TvDataCache";
 import { ExitTvButton } from "../ExitTvButton";
 import type { PuntoCoronaRouteReport } from "../../../lib/puntoCoronaRoutesStorage";
-import { contractorLabel, normalizeContractorName } from "../../../lib/contractors";
+import { contractorLabel, isAdminRefusalExcludedContractor, normalizeContractorName } from "../../../lib/contractors";
 
 type TvReport = { id: string; contractor: string; operationalDate: string; kind: PuntoCoronaRouteReport["kind"]; uploadedAt?: string; updatedAt: string; summary: PuntoCoronaRouteReport["summary"] };
 type RangeStats = { visits: number; inRange: number; outOfRange: number; percent: number };
@@ -38,7 +38,7 @@ export default function RangoTvPage() {
 
   const today = bogotaToday();
   const reports = useMemo(
-    () => preferredReports(data.reports.filter((report) => report.operationalDate === today).map(normalizeTvReport)),
+    () => preferredReports(data.reports.filter((report) => report.operationalDate === today && !isAdminRefusalExcludedContractor(report.contractor)).map(normalizeTvReport)),
     [data.reports, today],
   );
   const contractors = useMemo(
@@ -49,7 +49,7 @@ export default function RangoTvPage() {
     [reports],
   );
   const general = reports.reduce((total, report) => addStats(total, statsFor(report)), emptyStats());
-  const lastUpload = useMemo(() => getLastUpload(data.reports.filter((report) => report.operationalDate === today)), [data.reports, today]);
+  const lastUpload = useMemo(() => getLastUpload(data.reports.filter((report) => report.operationalDate === today && !isAdminRefusalExcludedContractor(report.contractor))), [data.reports, today]);
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
