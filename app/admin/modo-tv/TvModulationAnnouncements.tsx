@@ -26,6 +26,31 @@ export function TvModulationAnnouncements({ records, ready }: { records: Modulac
     if (!text) return;
     const version = ++generation.current;
     current.current = text;
+    const browserVoices = "speechSynthesis" in window ? window.speechSynthesis.getVoices() : [];
+    const pablo = browserVoices.find(voice => voice.name.trim().toLocaleLowerCase() === "microsoft pablo - spanish (spain)" || voice.name.toLocaleLowerCase().includes("microsoft pablo"));
+    if (pablo && "SpeechSynthesisUtterance" in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.voice = pablo;
+      utterance.lang = pablo.lang || "es-ES";
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.onstart = () => { if (generation.current === version) setMessage("Skainet está hablando · Voz Microsoft Pablo activa"); };
+      utterance.onend = () => {
+        if (generation.current !== version) return;
+        current.current = "";
+        setMessage("Audio listo · Esperando nuevas modulaciones");
+        nextRef.current();
+      };
+      utterance.onerror = () => {
+        if (generation.current !== version) return;
+        current.current = "";
+        queue.current.unshift(text);
+        setMessage("No se pudo reproducir la voz del TV. Comprueba el sonido.");
+      };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      return;
+    }
     player.src = `/api/admin/skinet-audio?${new URLSearchParams({ text: text.slice(0, 700) })}`;
     player.volume = 1;
     const fail = (error: unknown) => {
