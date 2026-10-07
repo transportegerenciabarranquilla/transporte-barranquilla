@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Moon, Sun, ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, ShieldCheck, X } from "lucide-react";
 import { Icon } from "./Icon";
 import { LoginGalaxy } from "./LoginGalaxy";
+import { POWER_APPS_URL } from "../lib/contractors";
 import styles from "./loginGalaxy.module.css";
 
 type LoginForm = {
@@ -56,6 +57,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
   const [errors, setErrors] = useState<LoginErrors>({});
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [loginRedirectUrl, setLoginRedirectUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [isCoordinateModalOpen, setIsCoordinateModalOpen] = useState(false);
   const [coordinateForm, setCoordinateForm] = useState<NewCoordinateForm>(initialCoordinateForm);
@@ -118,6 +120,8 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
   function updateField<Key extends keyof LoginForm>(key: Key, value: LoginForm[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
+    setLoginError("");
+    setLoginRedirectUrl("");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -128,10 +132,14 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
     if (Object.keys(nextErrors).length === 0) {
       setSubmitting(true);
       setLoginError("");
+      setLoginRedirectUrl("");
       try {
         await onLogin(form);
       } catch (error) {
         setLoginError(error instanceof Error ? error.message : "No se pudo iniciar sesion.");
+        if (error instanceof Error && "redirectUrl" in error && error.redirectUrl === POWER_APPS_URL) {
+          setLoginRedirectUrl(error.redirectUrl);
+        }
       } finally {
         setSubmitting(false);
       }
@@ -384,6 +392,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                   <ArrowRight size={17} />
                 </button>
                 {loginError ? <p role="alert" className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</p> : null}
+                {loginRedirectUrl ? <a className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-800 underline" href={loginRedirectUrl}>Ir a Power Apps <ArrowRight size={16} /></a> : null}
               </form>
             </div>
 

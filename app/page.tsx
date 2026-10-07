@@ -4,10 +4,17 @@ import { useEffect, useState } from "react";
 import { LoginScreen } from "./components/LoginScreen";
 import { PortalDashboard } from "./components/PortalDashboard";
 import { cacheContractor } from "./lib/contractorBranding";
+import { POWER_APPS_URL } from "./lib/contractors";
 import { clearRemoteCache } from "./lib/remoteStore";
 
 type LoginForm = { email: string; password: string; remember: boolean };
 type SessionState = { email: string; contractor: string; isAdmin?: boolean; isPeople?: boolean } | null;
+
+class LoginRedirectError extends Error {
+  constructor(message: string, readonly redirectUrl: string) {
+    super(message);
+  }
+}
 
 export default function Home() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -61,6 +68,9 @@ export default function Home() {
       body: JSON.stringify(form),
     });
     const body = await response.json().catch(() => ({}));
+    if (response.status === 403 && body.code === "POWER_APPS_ONLY" && body.redirectUrl === POWER_APPS_URL) {
+      throw new LoginRedirectError(body.error, body.redirectUrl);
+    }
     if (!response.ok) throw new Error(body.error || "No se pudo iniciar sesión.");
     clearRemoteCache();
     cacheContractor(body.contractor);

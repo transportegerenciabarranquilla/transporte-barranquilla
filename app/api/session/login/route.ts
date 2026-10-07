@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
-import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "../../../lib/contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, POWER_APPS_URL, usesPowerAppsInstead } from "../../../lib/contractors";
 import { readSecurityState } from "../../../lib/securityState";
 import { requestIp } from "../../../lib/securityIp";
 import { isIpBlocked } from "../../../lib/securityIpState";
@@ -18,6 +18,13 @@ export async function POST(request: Request) {
   const { email, password } = bodyInput as { email: string; password: string };
   const remember = bodyInput.remember === true;
   const normalizedEmail = email?.trim().toLowerCase() || "";
+  if (usesPowerAppsInstead(normalizedEmail)) {
+    return NextResponse.json({
+      error: "Esta cuenta ya no tiene acceso a este aplicativo. Para continuar, ingresa a Power Apps.",
+      code: "POWER_APPS_ONLY",
+      redirectUrl: POWER_APPS_URL,
+    }, { status: 403 });
+  }
   const contractor = contractorForEmail(normalizedEmail);
   if (!contractor) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });
 

@@ -1,12 +1,20 @@
 export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
   "logisticos@bavaria-seguimiento.com": "Logisticos",
   "puntocorona@bavaria-seguimiento.com": "Punto Corona",
-  "surticervezas@bavaria-seguimiento.com": "Surti Cervezas",
-  "hllogistica@gmail.com": "HL Logisticos",
   "logisticos@transporte.com": "Logisticos Arenosa",
   "logisticosare@gmail.com": "Logisticos Arenosa",
   "corona@transporte.com": "Punto Corona Arenosa",
 };
+
+const POWER_APPS_ONLY_EMAILS = new Set([
+  "surticervezas@bavaria-seguimiento.com",
+  "hllogistica@gmail.com",
+]);
+export const POWER_APPS_URL = "https://transporttracking1.powerappsportals.com/";
+
+export function usesPowerAppsInstead(email: string | null | undefined) {
+  return POWER_APPS_ONLY_EMAILS.has(email?.trim().toLowerCase() || "");
+}
 
 export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
 export const ARENOSA_ADMIN_EMAIL = "adminare@gmail.com";
@@ -41,6 +49,7 @@ export function isPeopleEmail(email: string | null | undefined) {
 }
 
 export function contractorForEmail(email: string | null | undefined) {
+  if (usesPowerAppsInstead(email)) return null;
   if (isEffectiveRestEmail(email)) return "Control de ingreso";
   if (isSiteAdminEmail(email)) return "Admin Arenosa";
   if (isAdminEmail(email)) return "Admin";
