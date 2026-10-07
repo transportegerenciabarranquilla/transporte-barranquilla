@@ -30,7 +30,7 @@ async function geocode(query: string) {
 }
 
 function formatRoute(route: OsrmRoute) {
-  return { coordinates: route.geometry!.coordinates!, distanceMeters: Math.round(route.distance || 0), durationSeconds: Math.round(route.duration || 0), steps: (route.legs || []).flatMap(leg => leg.steps || []).filter(step => Number(step.distance) >= 20).map(step => ({ distanceMeters: Math.round(step.distance || 0), durationSeconds: Math.round(step.duration || 0), instruction: instruction(step.maneuver?.type, step.maneuver?.modifier, step.name) })) };
+  return { coordinates: route.geometry!.coordinates!, direction: route.direction || null, distanceMeters: Math.round(route.distance || 0), durationSeconds: Math.round(route.duration || 0), steps: (route.legs || []).flatMap(leg => leg.steps || []).filter(step => Number(step.distance) >= 20).map(step => ({ distanceMeters: Math.round(step.distance || 0), durationSeconds: Math.round(step.duration || 0), instruction: instruction(step.maneuver?.type, step.maneuver?.modifier, step.name) })) };
 }
 
 function instruction(type = "", modifier = "", street = "") {

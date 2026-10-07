@@ -9,7 +9,7 @@ import CriticalRouteChoices from "../components/CriticalRouteChoices";
 
 type Neighborhood = { id: number; route: string; distributionCenter: string };
 type Hazard = { id: number; ruta: string; tipo: string; descripcion: string; latitud: number; longitud: number; activo: boolean };
-type RouteOption = { coordinates: [number, number][]; distanceMeters: number; durationSeconds: number; steps: Array<{ distanceMeters: number; durationSeconds: number; instruction: string }> };
+type RouteOption = { coordinates: [number, number][]; direction?: string | null; distanceMeters: number; durationSeconds: number; steps: Array<{ distanceMeters: number; durationSeconds: number; instruction: string }> };
 type RouteResult = { origin: { label: string; latitude: number; longitude: number }; destination: { label: string; latitude: number; longitude: number }; route: RouteOption; routes: RouteOption[] };
 
 export default function PublicCriticalRoutesPage() {

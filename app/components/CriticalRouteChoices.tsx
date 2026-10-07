@@ -1,6 +1,6 @@
 "use client";
 
-type RouteChoice = { distanceMeters: number; durationSeconds: number };
+type RouteChoice = { distanceMeters: number; durationSeconds: number; direction?: string | null };
 
 export default function CriticalRouteChoices({ routes, selectedIndex, onSelect }: { routes: RouteChoice[]; selectedIndex: number; onSelect: (index: number) => void }) {
   if (!routes.length) return null;
@@ -12,7 +12,7 @@ export default function CriticalRouteChoices({ routes, selectedIndex, onSelect }
       key={index}
       onClick={() => onSelect(index)}
       type="button"
-    ><span className="font-bold">{index === 0 ? "Ruta recomendada" : `Alternativa ${index}`}</span><span className="whitespace-nowrap tabular-nums">{(route.distanceMeters / 1000).toFixed(1)} km · {Math.max(1, Math.round(route.durationSeconds / 60))} min</span></button>)}</div>
-    {routes.length === 1 ? <p className="mt-2 text-[11px] text-slate-500">No se encontró otro recorrido vehicular razonable para este destino.</p> : null}
+    ><span className="font-bold">{index === 0 ? "Ruta recomendada" : `Alternativa ${index}${route.direction ? ` · ${route.direction}` : ""}`}</span><span className="whitespace-nowrap tabular-nums">{(route.distanceMeters / 1000).toFixed(1)} km · {Math.max(1, Math.round(route.durationSeconds / 60))} min</span></button>)}</div>
+    {routes.length < 4 ? <p className="mt-2 text-[11px] text-slate-500">Se encontraron {routes.length} recorridos vehiculares distintos para este destino.</p> : null}
   </div>;
 }
