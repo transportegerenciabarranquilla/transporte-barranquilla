@@ -13,6 +13,6 @@ export default function CriticalRouteChoices({ routes, selectedIndex, onSelect }
       onClick={() => onSelect(index)}
       type="button"
     ><span className="font-bold">{index === 0 ? "Ruta recomendada" : `Alternativa ${index}${route.direction ? ` · ${route.direction}` : ""}`}</span><span className="whitespace-nowrap tabular-nums">{(route.distanceMeters / 1000).toFixed(1)} km · {Math.max(1, Math.round(route.durationSeconds / 60))} min</span></button>)}</div>
-    {routes.length < 4 ? <p className="mt-2 text-[11px] text-slate-500">Se encontraron {routes.length} recorridos vehiculares distintos para este destino.</p> : null}
+    {routes.length < 4 ? <p className="mt-2 text-[11px] text-slate-500">Se encontraron {routes.length} recorridos vehiculares distintos para este destino. No se muestran rutas del Oeste.</p> : null}
   </div>;
 }

@@ -14,7 +14,7 @@ const start = [origin.longitude, origin.latitude];
 const end = [destination.longitude, destination.latitude];
 const route = (distance, middle) => ({ distance, duration: distance / 10, geometry: { coordinates: [start, middle, end] }, legs: [{ steps: [] }] });
 
-test("entrega recomendada y tres alternativas de sectores distintos", async () => {
+test("entrega recomendada y alternativas de sectores permitidos", async () => {
   const original = global.fetch;
   const calls = [];
   global.fetch = async url => {
@@ -30,9 +30,9 @@ test("entrega recomendada y tres alternativas de sectores distintos", async () =
     const options = await fetchCriticalRouteOptions(origin, destination, "test");
     assert.equal(options.length, 4);
     assert.equal(options[0].direction, undefined);
-    assert.equal(new Set(options.slice(1).map(option => option.direction)).size, 3);
+    assert.deepEqual(new Set(options.slice(1).map(option => option.direction)), new Set(["Norte", "Sur", "Este"]));
     assert.match(calls[0], /alternatives=3/);
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 4);
   } finally { global.fetch = original; }
 });
 
@@ -43,5 +43,17 @@ test("descarta caminos duplicados y muestra solo rutas reales", async () => {
     const options = await fetchCriticalRouteOptions(origin, destination, "test");
     assert.equal(options.length, 1);
     assert.equal(options[0].distance, 10_000);
+  } finally { global.fetch = original; }
+});
+
+test("rechaza un punto cardinal ajustado a una vía demasiado lejana", async () => {
+  const original = global.fetch;
+  global.fetch = async url => {
+    const points = decodeURIComponent(String(url).split("/driving/")[1].split("?")[0]).split(";");
+    if (points.length === 2) return Response.json({ code: "Ok", routes: [route(10_000, [-74.835, 10.95])] });
+    return Response.json({ code: "Ok", waypoints: [{ distance: 0 }, { distance: 900 }, { distance: 0 }], routes: [route(12_000, points[1].split(",").map(Number))] });
+  };
+  try {
+    assert.equal((await fetchCriticalRouteOptions(origin, destination, "test")).length, 1);
   } finally { global.fetch = original; }
 });

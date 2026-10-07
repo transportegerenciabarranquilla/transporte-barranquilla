@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Clock3, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Clock3, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeContractorName } from "../../lib/contractors";
 import type { Vehiculo } from "../../seguimiento/types";
@@ -31,6 +31,39 @@ function normalizeSearch(value: string) {
 
 function shownDuration(seconds: number | null) {
   return seconds === null ? "Pendiente" : formatDuration(seconds);
+}
+
+function timeCoverage(entries: (RouteTrackingEntry & { operationalDate: string })[]) {
+  const route = new Map<string, number | null>();
+  const tml = new Map<string, number | null>();
+  const awake = new Map<string, number | null>();
+  const record = (values: Map<string, number | null>, key: string, seconds: number | null) => {
+    if (!values.has(key) || (values.get(key) === null && seconds !== null)) values.set(key, seconds);
+  };
+  for (const entry of entries) {
+    if (!entry.document) continue;
+    record(route, `${entry.operationalDate}:${entry.key}`, entry.routeSeconds);
+    record(tml, `${entry.operationalDate}:${entry.document}:${roleGroup(entry.role)}`, entry.tmlSeconds);
+    record(awake, `${entry.operationalDate}:${entry.document}`, entry.awakeSeconds);
+  }
+  return [
+    { key: "route", label: "Ruta acumulada", unit: "participaciones en ruta", color: "#7c3aed", values: route },
+    { key: "tml", label: "TML acumulado", unit: "días/persona", color: "#2563eb", values: tml },
+    { key: "awake", label: "Despertino acumulado", unit: "días/persona", color: "#f59e0b", values: awake },
+  ].map(({ values, ...metric }) => {
+    const calculated = [...values.values()].filter((seconds): seconds is number => seconds !== null);
+    return { ...metric, total: values.size, count: calculated.length, seconds: calculated.reduce((sum, seconds) => sum + seconds, 0), percent: values.size ? calculated.length / values.size * 100 : null };
+  });
+}
+
+function TimeCoverageRing({ label, percent, color }: { label: string; percent: number | null; color: string }) {
+  const radius = 43;
+  const circumference = 2 * Math.PI * radius;
+  return <svg className="h-36 w-36 shrink-0" role="img" aria-label={`${label}: ${percent === null ? "sin registros" : `${Math.round(percent)} % con tiempo calculado`}`} viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="11" />
+    {percent !== null && <circle cx="60" cy="60" r={radius} fill="none" stroke={color} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${circumference * percent / 100} ${circumference}`} transform="rotate(-90 60 60)" />}
+    <text x="60" y="66" textAnchor="middle" fill="#10223d" fontSize="22" fontWeight="800">{percent === null ? "—" : `${Math.round(percent)}%`}</text>
+  </svg>;
 }
 
 function averageByPerson(entries: (RouteTrackingEntry & { operationalDate: string })[]) {
@@ -72,6 +105,8 @@ function averageByPerson(entries: (RouteTrackingEntry & { operationalDate: strin
     tmlDays: person.tml.length,
     tmlPendingDays: person.days.size - person.tml.length,
     awakeSeconds: average(person.awake),
+    awakeTotalSeconds: person.awake.length ? person.awake.reduce((sum, value) => sum + value, 0) : null,
+    awakeDays: person.awake.length,
   })).sort((a, b) => (b.routeTotalSeconds ?? -1) - (a.routeTotalSeconds ?? -1) || a.name.localeCompare(b.name, "es"));
 }
 
@@ -81,7 +116,9 @@ export function RouteTrackingDashboard() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [query, setQuery] = useState("");
-  const [rankingMetric, setRankingMetric] = useState<"tmlTotalSeconds" | "routeTotalSeconds">("routeTotalSeconds");
+  const [rankingMetric, setRankingMetric] = useState<"tmlTotalSeconds" | "routeTotalSeconds" | "awakeTotalSeconds">("routeTotalSeconds");
+  const [rankingPages, setRankingPages] = useState<Record<string, number>>({});
+  const [tableSort, setTableSort] = useState<"routeTotalSeconds" | "tmlSeconds" | "awakeSeconds">("routeTotalSeconds");
   const [personQuery, setPersonQuery] = useState("");
   const [showPersonSearch, setShowPersonSearch] = useState(false);
   const personSearchInput = useRef<HTMLInputElement>(null);
@@ -167,6 +204,7 @@ export function RouteTrackingDashboard() {
     const search = normalizeSearch(query);
     return search ? entries.filter((entry) => normalizeSearch([entry.dt, entry.trip, entry.carrier, entry.name, entry.document].join(" ")).includes(search)) : entries;
   }, [entries, query]);
+  const coverage = useMemo(() => timeCoverage(filtered), [filtered]);
   const personDailyTml = useMemo(() => {
     if (!selectedPerson) return [];
     const daily = new Map<string, number | null>();
@@ -192,8 +230,11 @@ export function RouteTrackingDashboard() {
   })), [filtered]);
   const tableCards = useMemo(() => {
     const search = normalizeSearch(personQuery);
-    return cards.map((card) => ({ ...card, people: search ? card.people.filter((person) => normalizeSearch(`${person.name} ${person.document}`).includes(search)) : card.people }));
-  }, [cards, personQuery]);
+    return cards.map((card) => {
+      const people = search ? card.people.filter((person) => normalizeSearch(`${person.name} ${person.document}`).includes(search)) : card.people;
+      return { ...card, people: [...people].sort((a, b) => (b[tableSort] ?? -1) - (a[tableSort] ?? -1) || a.name.localeCompare(b.name, "es")) };
+    });
+  }, [cards, personQuery, tableSort]);
   useEffect(() => {
     if (showPersonSearch) personSearchInput.current?.focus();
   }, [showPersonSearch]);
@@ -229,7 +270,7 @@ export function RouteTrackingDashboard() {
         {!loading && rangeDates.length > 0 && (!hasGeoVictoria || !hasVehicleArrival || !hasAwakeTime) ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">{!hasGeoVictoria ? `No hay marcaciones de GeoVictoria cargadas en Gerencia en el rango seleccionado; el TML y el tiempo despertino quedan pendientes. ` : ""}{!hasVehicleArrival ? "Seguimiento aún no registra llegadas de vehículo para este rango; el tiempo despertino queda pendiente hasta que se registren." : hasGeoVictoria && !hasAwakeTime ? "Las salidas de GeoVictoria guardadas no coinciden por cédula con tripulantes de rutas que ya llegaron; el tiempo despertino queda pendiente." : ""}</p> : null}
         <section className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div><h2 className="text-lg font-black text-[#2d1b4e]">Tiempo en ruta, TML y tiempo despertino</h2><p className="mt-1 text-xs text-slate-500">Tiempo en ruta acumulado y promedios de TML y despertino por persona en el rango, incluyendo ambas fechas. TML cuenta una vez por día; los pendientes no cuentan como cero. Ruta: salida a llegada del vehículo. TML: entrada GeoVictoria a primera salida de ruta. Despertino: llegada del vehículo a salida GeoVictoria.</p></div>
+            <div><h2 className="text-lg font-black text-[#2d1b4e]">Tiempo en ruta, TML y tiempo despertino</h2><p className="mt-1 text-xs text-slate-500">Resumen del período seleccionado. Los círculos indican el porcentaje de registros con tiempo calculado; debajo aparece la duración acumulada. Ruta: salida a llegada del vehículo. TML: entrada GeoVictoria a primera salida de ruta. Despertino: llegada del vehículo a salida GeoVictoria.</p></div>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-xs font-bold text-slate-600">Desde<input type="date" className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setStartDate(event.target.value)} value={startDate} /></label>
               <label className="text-xs font-bold text-slate-600">Hasta<input type="date" className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setEndDate(event.target.value)} value={endDate} /></label>
@@ -239,39 +280,59 @@ export function RouteTrackingDashboard() {
           </div>
           {loading ? <p className="rounded-2xl border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">Cargando seguimiento…</p> : invalidRange ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">La fecha inicial debe ser anterior o igual a la fecha final.</p> : !rangeDates.length ? <p className="rounded-2xl border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">No hay rutas de Seguimiento en el rango seleccionado.</p> : (
             <div className="w-full space-y-5">
+              <div className="grid gap-4 md:grid-cols-3" aria-label="Resumen de tiempos y cobertura">
+                {coverage.map((metric) => <article className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm" key={metric.key}>
+                  <h3 className="text-sm font-black text-[#2d1b4e]">{metric.label}</h3>
+                  <TimeCoverageRing label={metric.label} percent={metric.percent} color={metric.color} />
+                  <p className="text-xs font-semibold text-slate-500">{metric.count.toLocaleString("es-CO")} de {metric.total.toLocaleString("es-CO")} {metric.unit} con dato</p>
+                  <p className="mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">Tiempo acumulado</p>
+                  <p className="mt-1 font-mono text-xl font-black tabular-nums" style={{ color: metric.color }}>{metric.count ? formatDuration(metric.seconds) : "—"}</p>
+                </article>)}
+              </div>
               <section aria-label="Top 10 peores de Logísticos" className="space-y-3">
                 <div>
                   <h3 className="text-lg font-black text-[#2d1b4e]">Top 10 peores · Logísticos</h3>
                   <p className="text-xs text-slate-500">Mayor acumulado primero, según el rango de fechas y la búsqueda. Ruta suma los tiempos de todos los viajes; TML suma una vez por día y persona en cada rol. Los pendientes no cuentan como cero y las rutas en curso siguen actualizándose.</p>
-                  <label className="mt-3 inline-block text-xs font-bold text-slate-600">Ordenar Top 10 por<select value={rankingMetric} onChange={(event) => setRankingMetric(event.target.value as typeof rankingMetric)} className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="routeTotalSeconds">Tiempo en ruta acumulado</option><option value="tmlTotalSeconds">TML acumulado</option></select></label>
+                  <label className="mt-3 inline-block text-xs font-bold text-slate-600">Ordenar Top 10 por<select value={rankingMetric} onChange={(event) => { setRankingMetric(event.target.value as typeof rankingMetric); setRankingPages({}); }} className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="routeTotalSeconds">Tiempo en ruta acumulado</option><option value="tmlTotalSeconds">TML acumulado</option><option value="awakeTotalSeconds">Despertino acumulado</option></select></label>
                 </div>
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                  {rankings.map((ranking) => <article className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" key={ranking.key}>
+                  {rankings.map((ranking) => {
+                    const pageSize = 5;
+                    const pageCount = Math.max(1, Math.ceil(ranking.people.length / pageSize));
+                    const page = Math.min(rankingPages[ranking.key] || 0, pageCount - 1);
+                    const visiblePeople = ranking.people.slice(page * pageSize, (page + 1) * pageSize);
+                    return <article className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" key={ranking.key}>
                     <div className="flex items-center justify-between px-4 py-3 text-white" style={{ backgroundColor: ranking.color }}>
                       <h4 className="text-sm font-black">{ranking.label}</h4>
                       <span className="text-xs font-bold">{ranking.people.length} peores</span>
                     </div>
-                    <div className="max-h-[460px] overflow-auto">
+                    <div>
                       <table className="w-full text-left text-xs">
                         <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-slate-500">
-                          <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Nombre / Cédula</th><th className="px-3 py-2 text-right">{rankingMetric === "routeTotalSeconds" ? "Ruta acumulada" : "TML acumulado"}</th></tr>
+                          <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Nombre / Cédula</th><th className="px-3 py-2 text-right">{rankingMetric === "routeTotalSeconds" ? "Ruta acumulada" : rankingMetric === "tmlTotalSeconds" ? "TML acumulado" : "Despertino acumulado"}</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {ranking.people.map((person, index) => <tr className="hover:bg-slate-50" key={person.key}>
-                            <td className="px-3 py-2 align-top font-black text-slate-400">{index + 1}</td>
+                          {visiblePeople.map((person, index) => <tr className="hover:bg-slate-50" key={person.key}>
+                            <td className="px-3 py-2 align-top font-black text-slate-400">{page * pageSize + index + 1}</td>
                             <td className="px-3 py-2">
                               <button type="button" className="text-left font-bold text-[#10223d] underline decoration-violet-200 underline-offset-2 hover:text-violet-700 focus-visible:outline-violet-600" onClick={() => setSelectedPerson(person)} aria-label={`Ver todos los DT de ${person.name}`}>{person.name}</button>
                               <p className="text-[10px] text-slate-500">CC {person.document}</p>
-                              <p className="text-[10px] text-slate-500">{rankingMetric === "routeTotalSeconds" ? `${person.routeTrips} viajes con tiempo en ruta` : `${person.tmlDays} días con TML`}</p>
-                              {(rankingMetric === "routeTotalSeconds" ? person.routePendingTrips : person.tmlPendingDays) > 0 ? <p className="text-[10px] font-semibold text-amber-700">Acumulado parcial · {rankingMetric === "routeTotalSeconds" ? `${person.routePendingTrips} viajes sin tiempo` : `${person.tmlPendingDays} días con ruta sin TML`}</p> : null}
+                              <p className="text-[10px] text-slate-500">{rankingMetric === "routeTotalSeconds" ? `${person.routeTrips} viajes con tiempo en ruta` : rankingMetric === "tmlTotalSeconds" ? `${person.tmlDays} días con TML` : `${person.awakeDays} días con despertino`}</p>
+                              {(rankingMetric === "routeTotalSeconds" ? person.routePendingTrips : rankingMetric === "tmlTotalSeconds" ? person.tmlPendingDays : 0) > 0 ? <p className="text-[10px] font-semibold text-amber-700">Acumulado parcial · {rankingMetric === "routeTotalSeconds" ? `${person.routePendingTrips} viajes sin tiempo` : `${person.tmlPendingDays} días con ruta sin TML`}</p> : null}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono font-black tabular-nums" style={{ color: ranking.color }}>{shownDuration(person[rankingMetric])}</td>
                           </tr>)}
                         </tbody>
                       </table>
                       {!ranking.people.length ? <p className="px-4 py-8 text-center text-xs text-slate-500">Sin tiempos calculados para este rol e indicador en el rango seleccionado.</p> : null}
+                      {ranking.people.length > pageSize ? <div className="flex items-center justify-center gap-3 border-t border-slate-100 px-3 py-2">
+                        <button aria-label={`Ver página anterior de ${ranking.label}`} className="grid h-8 w-8 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30" disabled={page === 0} onClick={() => setRankingPages((current) => ({ ...current, [ranking.key]: page - 1 }))} type="button"><ChevronUp size={17} /></button>
+                        <span className="text-[10px] font-bold text-slate-500">{page + 1} / {pageCount}</span>
+                        <button aria-label={`Ver página siguiente de ${ranking.label}`} className="grid h-8 w-8 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30" disabled={page >= pageCount - 1} onClick={() => setRankingPages((current) => ({ ...current, [ranking.key]: page + 1 }))} type="button"><ChevronDown size={17} /></button>
+                      </div> : null}
                     </div>
-                  </article>)}
+                  </article>;
+                  })}
                 </div>
               </section>
               {tableCards.map((card) => <article className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_14px_40px_rgba(45,27,78,0.06)]" key={card.id}>
@@ -281,6 +342,15 @@ export function RouteTrackingDashboard() {
                     <button type="button" aria-expanded={showPersonSearch} aria-controls="table-person-search" onClick={() => { setShowPersonSearch(true); personSearchInput.current?.focus(); }} className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-xs font-bold hover:bg-white/20"><Search size={15} /> Buscar personas</button>
                     <span className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-bold">{card.people.length} personas</span>
                   </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
+                  <label className="text-[10px] font-black uppercase tracking-wide text-slate-500">Ordenar de mayor a menor
+                    <select aria-label="Ordenar personas de mayor a menor" className="ml-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold normal-case tracking-normal text-slate-700" onChange={(event) => setTableSort(event.target.value as typeof tableSort)} value={tableSort}>
+                      <option value="routeTotalSeconds">Ruta acumulada</option>
+                      <option value="tmlSeconds">TML promedio</option>
+                      <option value="awakeSeconds">Despertino</option>
+                    </select>
+                  </label>
                 </div>
                 {showPersonSearch ? <div id="table-person-search" className="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-violet-50/50 px-4 py-3">
                   <label className="text-xs font-bold text-slate-600">Nombre o cédula<input ref={personSearchInput} type="search" value={personQuery} onChange={(event) => setPersonQuery(event.target.value)} placeholder="Escribe el nombre o la cédula" className="mt-1 block w-72 max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-violet-600" /></label>
