@@ -1,4 +1,4 @@
-export const ROUTE_PERFORMANCE_CONTRACTORS = ["Surti Cervezas", "Logisticos", "HL Logisticos"] as const;
+export const ROUTE_PERFORMANCE_CONTRACTORS = ["Logisticos"] as const;
 
 export function routePerformanceContractor(value: string | null | undefined) {
   const normalized = (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");

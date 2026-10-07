@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { TdControlApp } from "./components/TdControlApp";
 
 export const metadata: Metadata = {
-  title: "Atrasos | People Transporte",
+  title: "TML | People Transporte",
   description: "Control de atrasos, marcaciones y tripulaciones por corte.",
 };
 

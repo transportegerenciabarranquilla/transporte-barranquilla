@@ -40,7 +40,7 @@ type AttendanceRow = {
 
 const SEGUIMIENTO_SELECT = "contractor,transporte:data->>transporte,vehiculo:data->>vehiculo,viaje:data->>viaje,fechaDespacho:data->>fechaDespacho,fechaDt:data->>fechaDt,status:data->>status,horaSalida:data->>horaSalida,horaLlegada:data->>horaLlegada,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2,nombreResponsable:data->>nombreResponsable,nombreAuxiliar1:data->>nombreAuxiliar1,nombreAuxiliar2:data->>nombreAuxiliar2";
 const ATTENDANCE_SELECT = "contractor,dt:data->>dt,llave:data->>llave,createdAt:data->>createdAt,cedulaResponsable:data->>cedulaResponsable,cedulaAuxiliar1:data->>cedulaAuxiliar1,cedulaAuxiliar2:data->>cedulaAuxiliar2";
-const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Surti Cervezas", "Punto Corona"];
+const SEGUIMIENTO_CONTRACTORS = ["Logisticos", "Punto Corona"];
 
 export async function GET() {
   try {

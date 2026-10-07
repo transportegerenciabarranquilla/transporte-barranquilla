@@ -15,7 +15,7 @@ import { validateModulacion } from "../modulacion/utils";
 import { ModulacionForm } from "../modulacion/components/ModulacionForm";
 import { ModulacionHeader } from "../modulacion/components/ModulacionHeader";
 import { mapAttendanceToVehicle } from "../modulacion/utils";
-import { normalizeContractorName } from "../lib/contractors";
+import { isMigratedContractor, MIGRATED_CONTRACTOR_ERROR, normalizeContractorName } from "../lib/contractors";
 
 export default function RegistroModulacionPage() {
   const router = useRouter();
@@ -35,6 +35,15 @@ export default function RegistroModulacionPage() {
   useEffect(() => {
     const contratista = form.contratista;
     const dt = normalizeDt(form.dt);
+
+    if (isMigratedContractor(contratista)) {
+      const timeout = window.setTimeout(() => {
+        setVehiculosSeguimiento([]);
+        setVehiclesError(MIGRATED_CONTRACTOR_ERROR);
+        setLoadingVehicles(false);
+      }, 0);
+      return () => window.clearTimeout(timeout);
+    }
 
     if (!contratista || !dt) {
       const timeout = window.setTimeout(() => {
@@ -282,6 +291,10 @@ export default function RegistroModulacionPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isMigratedContractor(form.contratista)) {
+      setSaveError(MIGRATED_CONTRACTOR_ERROR);
+      return;
+    }
     const nextErrors = validateModulacion(form);
     if (loadingVehicles) {
       nextErrors.dt = "Espera a que termine la validacion del DT.";

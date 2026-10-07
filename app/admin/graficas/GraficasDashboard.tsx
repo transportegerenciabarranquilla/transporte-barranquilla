@@ -1,5 +1,5 @@
 "use client"; // Panel compartido entre administración y contratistas.
-import { isAdminRefusalExcludedContractor } from "../../lib/contractors";
+import { isAdminRefusalExcludedContractor, isLogisticosContractor, isMigratedContractor } from "../../lib/contractors";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -95,8 +95,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "No se pudo cargar graficas admin.");
         const nextRecords = (body.records || []) as Vehiculo[];
-        setRecords(nextRecords);
-        setRefusalRows(body.refusalByComRows || []);
+        setRecords(contractorMode ? nextRecords : nextRecords.filter((row) => isLogisticosContractor(row.transportista)));
+        setRefusalRows(contractorMode ? body.refusalByComRows || [] : (body.refusalByComRows || []).filter((row: AdminRefusalComRow) => isLogisticosContractor(row.contractor)));
         if (contractorMode && !contractorName && nextRecords[0]?.transportista) setContractor(nextRecords[0].transportista);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar graficas admin."))
@@ -107,33 +107,33 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
     // Publicar cada respuesta sin esperar a las consultas m?s lentas.
     void Promise.allSettled([
       fetchJson<{ reports?: RangoOverviewReport[] }>("/api/admin/rango")
-        .then((body) => setRangoReports(body.reports || [])),
+        .then((body) => setRangoReports((body.reports || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
       fetchJson<{ records?: ModulationOverviewRecord[] }>("/api/modulaciones")
-        .then((body) => setModulationRecords(body.records || []))
+        .then((body) => setModulationRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isLogisticosContractor(row.contratista)))))
         .catch(() => setManagementError("No se pudieron cargar las gestiones. Recarga la p?gina para intentar de nuevo."))
         .finally(() => setManagementLoading(false)),
       fetchJson<{ records?: AdminCheckinRecord[] }>("/api/checkins")
-        .then((body) => setCheckinRecords(body.records || [])),
+        .then((body) => setCheckinRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isLogisticosContractor(row.contratista))))),
       fetchJson<{ records?: Record<string, unknown>[]; tables?: { RTI?: Record<string, unknown>[] } }>("/api/people/rti")
-        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []))),
+        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []).filter((row) => !isMigratedContractor(row.carrier) && (contractorMode || isLogisticosContractor(row.carrier))))),
       fetchJson<{ records?: DailyChecklistRecord[] }>("/api/daily-checklists")
-        .then((body) => setDailyChecklists(body.records || [])),
+        .then((body) => setDailyChecklists((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
       fetchJson<{ records?: DailyAbsenteeismRecord[] }>("/api/daily-absenteeism")
-        .then((body) => setAbsenteeismRecords(body.records || [])),
+        .then((body) => setAbsenteeismRecords((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
     ]).then((results) => {
       const sources = ["entrega en rango", "modulaciones", "check-ins", "RTI", "checklists", "ausentismo"];
       setOverviewErrors(results.flatMap((result, index) => result.status === "rejected" ? [sources[index]] : []));
     }).finally(() => setOverviewLoading(false));
-  }, []);
+  }, [contractorMode]);
 
   useEffect(() => {
     if (activeView !== "people" || attendanceRequested.current) return;
     attendanceRequested.current = true;
     void fetchJson<{ snapshots?: AttendanceSnapshot[] }>("/api/people/attendance-snapshots")
-      .then((body) => setAttendanceSnapshots(body.snapshots || []))
+      .then((body) => setAttendanceSnapshots(contractorMode ? body.snapshots || [] : (body.snapshots || []).map((snapshot) => ({ ...snapshot, rows: snapshot.rows.filter((row) => isLogisticosContractor(row.contratista)) })).filter((snapshot) => snapshot.rows.length > 0)))
       .catch(() => setAttendanceError("No se pudo cargar la asistencia. Recarga la p?gina para intentar de nuevo."))
       .finally(() => setAttendanceLoading(false));
-  }, [activeView]);
+  }, [activeView, contractorMode]);
 
   const contractors = useMemo(() => getContractors(records), [records]);
 

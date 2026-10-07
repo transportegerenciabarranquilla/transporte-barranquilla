@@ -5,6 +5,7 @@ import { Moon, Sun, ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, Shield
 import { Icon } from "./Icon";
 import { LoginGalaxy } from "./LoginGalaxy";
 import styles from "./loginGalaxy.module.css";
+import { MIGRATED_CONTRACTOR_URL } from "../lib/contractors";
 
 type LoginForm = {
   email: string;
@@ -383,7 +384,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                   {submitting ? "Ingresando..." : "Entrar al portal"}
                   <ArrowRight size={17} />
                 </button>
-                {loginError ? <p className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</p> : null}
+                {loginError ? <p role="alert" className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError.includes(MIGRATED_CONTRACTOR_URL) ? <>Error: debes dirigirte a <a className="break-all font-semibold underline" href={MIGRATED_CONTRACTOR_URL}>{MIGRATED_CONTRACTOR_URL}</a>. Este es tu nuevo aplicativo.</> : loginError}</p> : null}
               </form>
             </div>
 

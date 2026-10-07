@@ -1,8 +1,9 @@
-import { ARENOSA_CONTRACTORS, CONTRACTORS, isSiteAdminEmail, normalizeContractorName } from "./contractors.ts";
+import { ARENOSA_CONTRACTORS, CONTRACTORS, isMigratedContractor, isSiteAdminEmail, normalizeContractorName } from "./contractors.ts";
 
 type ScopeSession = { email: string; contractor: string; isAdmin: boolean; isPeople?: boolean };
 
 export function allowedContractors(session: ScopeSession): readonly string[] {
+  if (isMigratedContractor(session.contractor)) return [];
   if (isSiteAdminEmail(session.email)) return ARENOSA_CONTRACTORS;
   return session.isAdmin || session.isPeople ? CONTRACTORS : [session.contractor];
 }

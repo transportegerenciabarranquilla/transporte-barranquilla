@@ -11,7 +11,7 @@ import { normalizeCajasTotal } from "../../../seguimiento/utils";
 
 type RefusalStats = { cajas: number; reportadas: number; gestionadas: number; final: number; checkins: number; percent: number; max: number };
 type SummaryRow = { key?: string; label: string; reportadas: number; gestionadas: number; final: number; percent: number };
-const GALAPA = ["Logisticos", "Surti Cervezas"];
+const GALAPA = ["Logisticos"];
 
 export default function RefusalComTvPage() {
   const router = useRouter();
@@ -199,7 +199,7 @@ function GeneralRefusalCard({ general, contractorStats }: { general: RefusalStat
   return (
     <aside className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:min-h-0">
       <header className="flex h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-emerald-50/40 px-4">
-        <div><h2 className="text-base font-bold tracking-tight">Control general</h2><p className="text-[10px] text-slate-500">Logísticos y Surti Cervezas</p></div>
+        <div><h2 className="text-base font-bold tracking-tight">Control general</h2><p className="text-[10px] text-slate-500">Logísticos</p></div>
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${controlled ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}><span className={`h-1.5 w-1.5 rounded-full ${controlled ? "bg-emerald-500" : "bg-rose-500"}`} />{controlled ? "Controlado" : "Sobre el tope"}</span>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">

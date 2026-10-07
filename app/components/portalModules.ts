@@ -1,4 +1,4 @@
-import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isMigratedContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
 
 export type PortalModule = {
   id: number;
@@ -135,7 +135,7 @@ const complaintsModule: PortalModule = {
 
 const peopleDelaysModule: PortalModule = {
   id: 7,
-  title: "Atrasos",
+  title: "TML",
   href: "/personas/eliot",
   detail: "Tiempos disponibles, marcaciones y tripulaciones",
   tone: "from-[#ed6a5a] to-[#7c3aed]",
@@ -257,6 +257,7 @@ export function getVisiblePortalModules({
   isAdmin?: boolean;
   isPeople?: boolean;
 }) {
+  if (isMigratedContractor(contractor)) return [];
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");

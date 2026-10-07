@@ -5,7 +5,7 @@ import { calculateRefusalTotals, type ModulacionRegistro } from "./modulacionSto
 import { supabaseAdminHeaders, supabaseRest } from "./supabaseServer";
 import { normalizeCajasTotal, normalizeCajasValue } from "../seguimiento/utils";
 
-const CONTRACTORS = ["Logisticos", "Surti Cervezas", "HL Logisticos"] as const;
+const CONTRACTORS = ["Logisticos"] as const;
 type DbRow<T> = { contractor: string; data: T | null; updated_at: string };
 export type DailyContractorSummary = {
   contractor: string;

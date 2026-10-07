@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Download,
   FileSpreadsheet,
-  LockKeyhole,
   RotateCcw,
   Upload,
 } from "lucide-react";
@@ -28,6 +27,7 @@ import {
   saveSnapshot,
 } from "../lib/db";
 import { hashFileBuffer, parseTdWorkbook } from "../lib/parser";
+import { createBackupWorkbook, parseBackupWorkbook } from "../lib/backupWorkbook";
 import type { BackupPayload, CrewRole, TdSnapshot } from "../lib/types";
 import { DashboardFiltersPanel, EmptyDashboard, HistoryPanel, PlateCrewTable, RankingsTable, WarningsSummary } from "./DashboardUi";
 import { RankingChart } from "./RankingChart";
@@ -38,7 +38,7 @@ import { MissingMarksTable } from "./MissingMarksTable";
 const DEFAULT_FILTERS: DashboardFilters = { query: "", carrier: "todos", plate: "todas", status: "todos" };
 const ROLES: CrewRole[] = ["rr", "aux", "conductor"];
 
-export function TdDashboard({ onLock }: { onLock: () => void }) {
+export function TdDashboard() {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const backupInput = useRef<HTMLInputElement | null>(null);
   const [snapshots, setSnapshots] = useState<TdSnapshot[]>([]);
@@ -189,14 +189,18 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
   }
 
   async function downloadBackup() {
-    const backup = await createBackup();
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `respaldo-control-td-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      const backup = await createBackup();
+      const blob = new Blob([createBackupWorkbook(backup)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `respaldo-tml-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "No fue posible descargar el respaldo." });
+    }
   }
 
   async function handleBackupRestore(event: ChangeEvent<HTMLInputElement>) {
@@ -204,7 +208,9 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
     event.target.value = "";
     if (!file) return;
     try {
-      const payload = JSON.parse(await file.text()) as BackupPayload;
+      const payload = /\.json$/i.test(file.name)
+        ? JSON.parse(await file.text()) as BackupPayload
+        : parseBackupWorkbook(await file.arrayBuffer());
       await restoreBackup(payload);
       await refreshSnapshots();
       setMessage({ tone: "success", text: `Respaldo restaurado con ${payload.snapshots.length} corte${payload.snapshots.length === 1 ? "" : "s"}.` });
@@ -221,17 +227,16 @@ export function TdDashboard({ onLock }: { onLock: () => void }) {
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#2d1b4e] text-white shadow-lg shadow-violet-200"><FileSpreadsheet size={22} /></span>
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#ed6a5a]">Operación de transporte</p>
-              <h1 className="text-lg font-black text-[#2d1b4e] sm:text-xl">Control de llegada y salida</h1>
+              <h1 className="text-lg font-black text-[#2d1b4e] sm:text-xl">TML · Control de llegada y salida</h1>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input accept=".xlsx,.xls" className="hidden" onChange={handleUpload} ref={fileInput} type="file" />
-            <input accept="application/json,.json" className="hidden" onChange={handleBackupRestore} ref={backupInput} type="file" />
+            <input accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.json,application/json" className="hidden" onChange={handleBackupRestore} ref={backupInput} type="file" />
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50" onClick={() => backupInput.current?.click()} type="button"><RotateCcw size={15} /> Restaurar</button>
-            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40" disabled={!snapshots.length} onClick={downloadBackup} type="button"><Download size={15} /> Respaldo</button>
+            <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40" disabled={!snapshots.length} onClick={downloadBackup} type="button"><Download size={15} /> Respaldo Excel</button>
             <button className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${closedSnapshot ? "border-teal-200 bg-teal-50 text-teal-700" : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"}`} disabled={!dateSnapshots.length || Boolean(closedSnapshot) || uploading} onClick={closeOperationalDay} type="button"><CheckCircle2 size={15} /> {closedSnapshot ? "Día cerrado" : "Cerrar día"}</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#ed6a5a] px-4 text-xs font-black text-white shadow-sm shadow-rose-100 hover:bg-[#d95749] disabled:bg-slate-300" disabled={uploading} onClick={() => fileInput.current?.click()} type="button"><Upload size={16} /> {uploading ? "Procesando…" : "Subir Excel"}</button>
-            <button aria-label="Bloquear" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-[#2d1b4e]" onClick={onLock} type="button"><LockKeyhole size={17} /></button>
           </div>
         </div>
       </header>

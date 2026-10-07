@@ -9,7 +9,7 @@ import type { Vehiculo } from "../../../seguimiento/types";
 import { getProgress, getStatus, normalizeCajasTotal } from "../../../seguimiento/utils";
 
 type RefusalStats = { cajas: number; reportadas: number; gestionadas: number; final: number; checkins: number; percent: number; max: number };
-const GALAPA = ["Logisticos", "Surti Cervezas"];
+const GALAPA = ["Logisticos"];
 
 export default function RefusalTvPage() {
   const router = useRouter();

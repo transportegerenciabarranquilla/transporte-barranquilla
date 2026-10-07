@@ -36,7 +36,7 @@ export async function GET() {
       rows.push(...page);
       if (page.length < pageSize) break;
     }
-    return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })) });
+    return NextResponse.json({ records: rows.map((row) => ({ ...row.data, contratista: row.contractor || row.data.contratista })).filter((record) => isOperationalContractor(record.contratista)) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando check-in." }, { status: 500 });
   }
