@@ -6,6 +6,8 @@ import { calculateTdSeconds } from "../eliot/lib/time";
 
 export type ManagementAttendanceSnapshot = {
   operationalDate: string;
+  fileName?: string;
+  uploadedAt?: string;
   rows: Array<{
     identificador?: string;
     nombreCompleto?: string;

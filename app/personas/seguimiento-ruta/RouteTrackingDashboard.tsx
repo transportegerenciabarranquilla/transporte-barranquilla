@@ -33,8 +33,15 @@ function shownDuration(seconds: number | null) {
   return seconds === null ? "Pendiente" : formatDuration(seconds);
 }
 
+function formatUploadDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin fecha registrada";
+  return new Intl.DateTimeFormat("es-CO", { dateStyle: "long", timeStyle: "short", timeZone: "America/Bogota" }).format(date);
+}
+
 function timeCoverage(entries: (RouteTrackingEntry & { operationalDate: string })[]) {
   const route = new Map<string, number | null>();
+  const routeDayForTrip = new Map<string, string>();
   const tml = new Map<string, number | null>();
   const awake = new Map<string, number | null>();
   const record = (values: Map<string, number | null>, key: string, seconds: number | null) => {
@@ -42,17 +49,27 @@ function timeCoverage(entries: (RouteTrackingEntry & { operationalDate: string }
   };
   for (const entry of entries) {
     if (!entry.document) continue;
-    record(route, `${entry.operationalDate}:${entry.key}`, entry.routeSeconds);
-    record(tml, `${entry.operationalDate}:${entry.document}:${roleGroup(entry.role)}`, entry.tmlSeconds);
-    record(awake, `${entry.operationalDate}:${entry.document}`, entry.awakeSeconds);
+    const dayKey = `${entry.operationalDate}:${entry.document}`;
+    const tripKey = `${entry.operationalDate}:${entry.key}`;
+    record(route, tripKey, entry.routeSeconds);
+    routeDayForTrip.set(tripKey, dayKey);
+    record(tml, dayKey, entry.tmlSeconds);
+    record(awake, dayKey, entry.awakeSeconds);
+  }
+  const routeDays = new Map<string, number | null>();
+  for (const [tripKey, seconds] of route) {
+    const dayKey = routeDayForTrip.get(tripKey)!;
+    const previous = routeDays.get(dayKey);
+    routeDays.set(dayKey, previous === null || seconds === null ? null : (previous ?? 0) + seconds);
   }
   return [
-    { key: "route", label: "Ruta acumulada", unit: "participaciones en ruta", color: "#7c3aed", values: route },
-    { key: "tml", label: "TML acumulado", unit: "días/persona", color: "#2563eb", values: tml },
-    { key: "awake", label: "Despertino acumulado", unit: "días/persona", color: "#f59e0b", values: awake },
-  ].map(({ values, ...metric }) => {
-    const calculated = [...values.values()].filter((seconds): seconds is number => seconds !== null);
-    return { ...metric, total: values.size, count: calculated.length, seconds: calculated.reduce((sum, seconds) => sum + seconds, 0), percent: values.size ? calculated.length / values.size * 100 : null };
+    { key: "route", label: "Tiempo en ruta", unit: "participaciones en ruta", color: "#7c3aed", values: route, dailyValues: routeDays },
+    { key: "tml", label: "TML por día", unit: "días/persona", color: "#2563eb", values: tml, dailyValues: tml },
+    { key: "awake", label: "vespertino por día", unit: "días/persona", color: "#f59e0b", values: awake, dailyValues: awake },
+  ].map(({ values, dailyValues, ...metric }) => {
+    const count = [...values.values()].filter((seconds) => seconds !== null).length;
+    const days = [...dailyValues.values()].filter((seconds): seconds is number => seconds !== null);
+    return { ...metric, total: values.size, count, days: days.length, averageSeconds: days.length ? days.reduce((sum, seconds) => sum + seconds, 0) / days.length : null, percent: values.size ? count / values.size * 100 : null };
   });
 }
 
@@ -68,46 +85,55 @@ function TimeCoverageRing({ label, percent, color }: { label: string; percent: n
 
 function averageByPerson(entries: (RouteTrackingEntry & { operationalDate: string })[]) {
   const countedTml = new Set<string>();
-  const people = new Map<string, { key: string; name: string; document: string; role: string; dts: Set<string>; days: Set<string>; trips: Set<string>; route: number[]; tml: number[]; awake: number[] }>();
+  const countedAwake = new Set<string>();
+  const people = new Map<string, { key: string; name: string; document: string; role: string; dts: Set<string>; days: Set<string>; trips: Set<string>; route: number[]; routeDays: Map<string, { sum: number; missing: boolean }>; tml: number[]; awake: number[] }>();
   for (const entry of entries) {
     if (!entry.document) continue;
     const role = roleGroup(entry.role);
     const key = `${entry.document}:${role}`;
-    const person = people.get(key) || { key, name: entry.name, document: entry.document, role, dts: new Set<string>(), days: new Set<string>(), trips: new Set<string>(), route: [], tml: [], awake: [] };
+    const person = people.get(key) || { key, name: entry.name, document: entry.document, role, dts: new Set<string>(), days: new Set<string>(), trips: new Set<string>(), route: [], routeDays: new Map<string, { sum: number; missing: boolean }>(), tml: [], awake: [] };
     person.days.add(entry.operationalDate);
     if (entry.dt.trim()) person.dts.add(entry.dt.trim());
     const tripKey = `${entry.operationalDate}:${entry.key}`;
     if (!person.trips.has(tripKey)) {
       person.trips.add(tripKey);
       if (entry.routeSeconds !== null) person.route.push(entry.routeSeconds);
+      const day = person.routeDays.get(entry.operationalDate) || { sum: 0, missing: false };
+      if (entry.routeSeconds === null) day.missing = true;
+      else day.sum += entry.routeSeconds;
+      person.routeDays.set(entry.operationalDate, day);
     }
     const dailyKey = `${entry.operationalDate}:${key}`;
     if (entry.tmlSeconds !== null && !countedTml.has(dailyKey)) {
       person.tml.push(entry.tmlSeconds);
       countedTml.add(dailyKey);
     }
-    if (entry.awakeSeconds !== null) person.awake.push(entry.awakeSeconds);
+    if (entry.awakeSeconds !== null && !countedAwake.has(dailyKey)) {
+      person.awake.push(entry.awakeSeconds);
+      countedAwake.add(dailyKey);
+    }
     people.set(key, person);
   }
   const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
-  return [...people.values()].map((person) => ({
-    key: person.key,
-    name: person.name,
-    document: person.document,
-    role: person.role,
-    dts: [...person.dts],
-    routeSeconds: average(person.route),
-    routeTotalSeconds: person.route.length ? person.route.reduce((sum, value) => sum + value, 0) : null,
-    routeTrips: person.route.length,
-    routePendingTrips: person.trips.size - person.route.length,
-    tmlSeconds: average(person.tml),
-    tmlTotalSeconds: person.tml.length ? person.tml.reduce((sum, value) => sum + value, 0) : null,
-    tmlDays: person.tml.length,
-    tmlPendingDays: person.days.size - person.tml.length,
-    awakeSeconds: average(person.awake),
-    awakeTotalSeconds: person.awake.length ? person.awake.reduce((sum, value) => sum + value, 0) : null,
-    awakeDays: person.awake.length,
-  })).sort((a, b) => (b.routeTotalSeconds ?? -1) - (a.routeTotalSeconds ?? -1) || a.name.localeCompare(b.name, "es"));
+  return [...people.values()].map((person) => {
+    const completeRouteDays = [...person.routeDays.values()].filter((day) => !day.missing);
+    return {
+      key: person.key,
+      name: person.name,
+      document: person.document,
+      role: person.role,
+      dts: [...person.dts],
+      routeDailyAverageSeconds: average(completeRouteDays.map((day) => day.sum)),
+      routeDays: completeRouteDays.length,
+      routeTrips: person.route.length,
+      routePendingTrips: person.trips.size - person.route.length,
+      tmlSeconds: average(person.tml),
+      tmlDays: person.tml.length,
+      tmlPendingDays: person.days.size - person.tml.length,
+      awakeSeconds: average(person.awake),
+      awakeDays: person.awake.length,
+    };
+  }).sort((a, b) => (b.routeDailyAverageSeconds ?? -1) - (a.routeDailyAverageSeconds ?? -1) || a.name.localeCompare(b.name, "es"));
 }
 
 export function RouteTrackingDashboard() {
@@ -116,9 +142,8 @@ export function RouteTrackingDashboard() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [query, setQuery] = useState("");
-  const [rankingMetric, setRankingMetric] = useState<"tmlTotalSeconds" | "routeTotalSeconds" | "awakeTotalSeconds">("routeTotalSeconds");
+  const rankingMetric = "routeDailyAverageSeconds" as const;
   const [rankingPages, setRankingPages] = useState<Record<string, number>>({});
-  const [tableSort, setTableSort] = useState<"routeTotalSeconds" | "tmlSeconds" | "awakeSeconds">("routeTotalSeconds");
   const [personQuery, setPersonQuery] = useState("");
   const [showPersonSearch, setShowPersonSearch] = useState(false);
   const personSearchInput = useRef<HTMLInputElement>(null);
@@ -215,14 +240,20 @@ export function RouteTrackingDashboard() {
     return [...daily].sort(([a], [b]) => a.localeCompare(b)).map(([date, seconds]) => ({ date, seconds }));
   }, [entries, selectedPerson]);
   const personTmlValues = personDailyTml.flatMap((day) => day.seconds === null ? [] : [day.seconds]);
-  const personTmlTotal = personTmlValues.length ? personTmlValues.reduce((sum, seconds) => sum + seconds, 0) : null;
+  const personTmlAverage = personTmlValues.length ? personTmlValues.reduce((sum, seconds) => sum + seconds, 0) / personTmlValues.length : null;
   const personRouteSummary = useMemo(() => {
     const trips = new Map<string, number | null>();
     for (const entry of entries) {
       if (entry.document === selectedPerson?.document) trips.set(`${entry.operationalDate}:${entry.key}`, entry.routeSeconds);
     }
-    const values = [...trips.values()].filter((value): value is number => value !== null);
-    return { total: values.length ? values.reduce((sum, value) => sum + value, 0) : null, calculated: values.length, pending: trips.size - values.length };
+    const days = new Map<string, number | null>();
+    for (const [key, seconds] of trips) {
+      const date = key.slice(0, 10);
+      const previous = days.get(date);
+      days.set(date, previous === null || seconds === null ? null : (previous ?? 0) + seconds);
+    }
+    const complete = [...days.values()].filter((seconds): seconds is number => seconds !== null);
+    return { average: complete.length ? complete.reduce((sum, seconds) => sum + seconds, 0) / complete.length : null, days: complete.length, pending: [...trips.values()].filter((seconds) => seconds === null).length };
   }, [entries, selectedPerson]);
   const cards = useMemo(() => CONTRACTOR_CARDS.map((contractor) => ({
     ...contractor,
@@ -232,9 +263,9 @@ export function RouteTrackingDashboard() {
     const search = normalizeSearch(personQuery);
     return cards.map((card) => {
       const people = search ? card.people.filter((person) => normalizeSearch(`${person.name} ${person.document}`).includes(search)) : card.people;
-      return { ...card, people: [...people].sort((a, b) => (b[tableSort] ?? -1) - (a[tableSort] ?? -1) || a.name.localeCompare(b.name, "es")) };
+      return { ...card, people: [...people].sort((a, b) => (b[rankingMetric] ?? -1) - (a[rankingMetric] ?? -1) || a.name.localeCompare(b.name, "es")) };
     });
-  }, [cards, personQuery, tableSort]);
+  }, [cards, personQuery, rankingMetric]);
   useEffect(() => {
     if (showPersonSearch) personSearchInput.current?.focus();
   }, [showPersonSearch]);
@@ -251,6 +282,9 @@ export function RouteTrackingDashboard() {
   const hasGeoVictoria = attendance.some((snapshot) => rangeDates.includes(snapshot.operationalDate) && snapshot.rows.some((row) => normalizeContractorName(row.contratista) === "logisticos" && (row.entrada || row.salida)));
   const hasVehicleArrival = routes.some((route) => rangeDates.includes(routeDate(route)) && normalizeContractorName(route.transportista) === "logisticos" && /^\d{1,2}:\d{2}/.test(String(route.horaLlegada || "")));
   const hasAwakeTime = entries.some((entry) => normalizeContractorName(entry.carrier) === "logisticos" && entry.awakeSeconds !== null);
+  const lastUploadedFile = useMemo(() => attendance
+    .filter((snapshot) => snapshot.uploadedAt)
+    .sort((a, b) => Date.parse(b.uploadedAt || "") - Date.parse(a.uploadedAt || ""))[0] || null, [attendance]);
 
   return (
     <main className="min-h-screen bg-[#f4f2fa] px-4 py-6 text-slate-800 sm:px-8 sm:py-9">
@@ -267,10 +301,10 @@ export function RouteTrackingDashboard() {
         </header>
 
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700" role="alert">{error}</p> : null}
-        {!loading && rangeDates.length > 0 && (!hasGeoVictoria || !hasVehicleArrival || !hasAwakeTime) ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">{!hasGeoVictoria ? `No hay marcaciones de GeoVictoria cargadas en Gerencia en el rango seleccionado; el TML y el tiempo despertino quedan pendientes. ` : ""}{!hasVehicleArrival ? "Seguimiento aún no registra llegadas de vehículo para este rango; el tiempo despertino queda pendiente hasta que se registren." : hasGeoVictoria && !hasAwakeTime ? "Las salidas de GeoVictoria guardadas no coinciden por cédula con tripulantes de rutas que ya llegaron; el tiempo despertino queda pendiente." : ""}</p> : null}
+        {!loading && rangeDates.length > 0 && (!hasGeoVictoria || !hasVehicleArrival || !hasAwakeTime) ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">{!hasGeoVictoria ? `No hay marcaciones de GeoVictoria cargadas en Gerencia en el rango seleccionado; el TML y el tiempo vespertino quedan pendientes. ` : ""}{!hasVehicleArrival ? "Seguimiento aún no registra llegadas de vehículo para este rango; el tiempo vespertino queda pendiente hasta que se registren." : hasGeoVictoria && !hasAwakeTime ? "Las salidas de GeoVictoria guardadas no coinciden por cédula con tripulantes de rutas que ya llegaron; el tiempo vespertino queda pendiente." : ""}</p> : null}
         <section className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div><h2 className="text-lg font-black text-[#2d1b4e]">Tiempo en ruta, TML y tiempo despertino</h2><p className="mt-1 text-xs text-slate-500">Resumen del período seleccionado. Los círculos indican el porcentaje de registros con tiempo calculado; debajo aparece la duración acumulada. Ruta: salida a llegada del vehículo. TML: entrada GeoVictoria a primera salida de ruta. Despertino: llegada del vehículo a salida GeoVictoria.</p></div>
+            <div><h2 className="text-lg font-black text-[#2d1b4e]">Tiempo en ruta, TML y tiempo vespertino</h2><p className="mt-1 text-xs text-slate-500">Promedios por persona y día en el período seleccionado. Los círculos indican el porcentaje de registros con tiempo calculado. Para Tiempo en ruta se suman los viajes del mismo día antes de promediar; los días pendientes no cuentan como cero. TML: entrada GeoVictoria a primera salida de ruta. vespertino: llegada del vehículo a salida GeoVictoria.</p></div>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-xs font-bold text-slate-600">Desde<input type="date" className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setStartDate(event.target.value)} value={startDate} /></label>
               <label className="text-xs font-bold text-slate-600">Hasta<input type="date" className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setEndDate(event.target.value)} value={endDate} /></label>
@@ -285,15 +319,15 @@ export function RouteTrackingDashboard() {
                   <h3 className="text-sm font-black text-[#2d1b4e]">{metric.label}</h3>
                   <TimeCoverageRing label={metric.label} percent={metric.percent} color={metric.color} />
                   <p className="text-xs font-semibold text-slate-500">{metric.count.toLocaleString("es-CO")} de {metric.total.toLocaleString("es-CO")} {metric.unit} con dato</p>
-                  <p className="mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">Tiempo acumulado</p>
-                  <p className="mt-1 font-mono text-xl font-black tabular-nums" style={{ color: metric.color }}>{metric.count ? formatDuration(metric.seconds) : "—"}</p>
+                  <p className="mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">Promedio por persona y día</p>
+                  <p className="mt-1 font-mono text-xl font-black tabular-nums" style={{ color: metric.color }}>{metric.averageSeconds === null ? "—" : formatDuration(metric.averageSeconds)}</p>
+                  <p className="mt-1 text-[10px] text-slate-500">{metric.days.toLocaleString("es-CO")} días/persona calculados</p>
                 </article>)}
               </div>
               <section aria-label="Top 10 peores de Logísticos" className="space-y-3">
                 <div>
                   <h3 className="text-lg font-black text-[#2d1b4e]">Top 10 peores · Logísticos</h3>
-                  <p className="text-xs text-slate-500">Mayor acumulado primero, según el rango de fechas y la búsqueda. Ruta suma los tiempos de todos los viajes; TML suma una vez por día y persona en cada rol. Los pendientes no cuentan como cero y las rutas en curso siguen actualizándose.</p>
-                  <label className="mt-3 inline-block text-xs font-bold text-slate-600">Ordenar Top 10 por<select value={rankingMetric} onChange={(event) => { setRankingMetric(event.target.value as typeof rankingMetric); setRankingPages({}); }} className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="routeTotalSeconds">Tiempo en ruta acumulado</option><option value="tmlTotalSeconds">TML acumulado</option><option value="awakeTotalSeconds">Despertino acumulado</option></select></label>
+                  <p className="text-xs text-slate-500">Mayor promedio diario primero, según las fechas y la búsqueda. Tiempo en ruta suma los viajes de cada persona por día; TML y vespertino cuentan una vez por día. Los días pendientes no cuentan como cero.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                   {rankings.map((ranking) => {
@@ -309,7 +343,7 @@ export function RouteTrackingDashboard() {
                     <div>
                       <table className="w-full text-left text-xs">
                         <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-slate-500">
-                          <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Nombre / Cédula</th><th className="px-3 py-2 text-right">{rankingMetric === "routeTotalSeconds" ? "Ruta acumulada" : rankingMetric === "tmlTotalSeconds" ? "TML acumulado" : "Despertino acumulado"}</th></tr>
+                          <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Nombre / Cédula</th><th className="px-3 py-2 text-right">{rankingMetric === "routeDailyAverageSeconds" ? "Tiempo en ruta" : rankingMetric === "tmlSeconds" ? "TML por día" : "vespertino por día"}</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {visiblePeople.map((person, index) => <tr className="hover:bg-slate-50" key={person.key}>
@@ -317,8 +351,8 @@ export function RouteTrackingDashboard() {
                             <td className="px-3 py-2">
                               <button type="button" className="text-left font-bold text-[#10223d] underline decoration-violet-200 underline-offset-2 hover:text-violet-700 focus-visible:outline-violet-600" onClick={() => setSelectedPerson(person)} aria-label={`Ver todos los DT de ${person.name}`}>{person.name}</button>
                               <p className="text-[10px] text-slate-500">CC {person.document}</p>
-                              <p className="text-[10px] text-slate-500">{rankingMetric === "routeTotalSeconds" ? `${person.routeTrips} viajes con tiempo en ruta` : rankingMetric === "tmlTotalSeconds" ? `${person.tmlDays} días con TML` : `${person.awakeDays} días con despertino`}</p>
-                              {(rankingMetric === "routeTotalSeconds" ? person.routePendingTrips : rankingMetric === "tmlTotalSeconds" ? person.tmlPendingDays : 0) > 0 ? <p className="text-[10px] font-semibold text-amber-700">Acumulado parcial · {rankingMetric === "routeTotalSeconds" ? `${person.routePendingTrips} viajes sin tiempo` : `${person.tmlPendingDays} días con ruta sin TML`}</p> : null}
+                              <p className="text-[10px] text-slate-500">{rankingMetric === "routeDailyAverageSeconds" ? `${person.routeDays} días completos · ${person.routeTrips} viajes con tiempo` : rankingMetric === "tmlSeconds" ? `${person.tmlDays} días con TML` : `${person.awakeDays} días con vespertino`}</p>
+                              {(rankingMetric === "routeDailyAverageSeconds" ? person.routePendingTrips : rankingMetric === "tmlSeconds" ? person.tmlPendingDays : 0) > 0 ? <p className="text-[10px] font-semibold text-amber-700">Datos parciales · {rankingMetric === "routeDailyAverageSeconds" ? `${person.routePendingTrips} viajes sin tiempo` : `${person.tmlPendingDays} días con ruta sin TML`}</p> : null}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono font-black tabular-nums" style={{ color: ranking.color }}>{shownDuration(person[rankingMetric])}</td>
                           </tr>)}
@@ -344,13 +378,6 @@ export function RouteTrackingDashboard() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
-                  <label className="text-[10px] font-black uppercase tracking-wide text-slate-500">Ordenar de mayor a menor
-                    <select aria-label="Ordenar personas de mayor a menor" className="ml-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold normal-case tracking-normal text-slate-700" onChange={(event) => setTableSort(event.target.value as typeof tableSort)} value={tableSort}>
-                      <option value="routeTotalSeconds">Ruta acumulada</option>
-                      <option value="tmlSeconds">TML promedio</option>
-                      <option value="awakeSeconds">Despertino</option>
-                    </select>
-                  </label>
                 </div>
                 {showPersonSearch ? <div id="table-person-search" className="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-violet-50/50 px-4 py-3">
                   <label className="text-xs font-bold text-slate-600">Nombre o cédula<input ref={personSearchInput} type="search" value={personQuery} onChange={(event) => setPersonQuery(event.target.value)} placeholder="Escribe el nombre o la cédula" className="mt-1 block w-72 max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-violet-600" /></label>
@@ -359,12 +386,15 @@ export function RouteTrackingDashboard() {
                 </div> : null}
                 <div ref={peopleTableScroll} className="max-h-[calc(100dvh-16rem)] min-h-80 overflow-auto">
                   <table className="w-full min-w-[800px] text-left text-[10px]">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-[9px] font-black uppercase tracking-[0.08em] text-slate-500"><tr><th className="w-8 px-2 py-2 text-center">#</th><th className="px-2 py-2">Persona</th><th className="px-2 py-2">DTs</th><th className="px-2 py-2">Rol</th><th className="px-2 py-2 text-right">Ruta acumulada</th><th className="px-2 py-2 text-right">TML promedio</th><th className="px-2 py-2 text-right">Despertino</th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">{card.people.map((person, index) => <tr className="hover:bg-slate-50" key={person.key}><td className="px-2 py-2 text-center font-black text-slate-400">{index + 1}</td><td className="px-2 py-2"><button type="button" className="text-left font-bold text-[#10223d] underline decoration-violet-200 underline-offset-2 hover:text-violet-700 focus-visible:outline-violet-600" onClick={() => setSelectedPerson(person)} aria-label={`Ver todos los DT de ${person.name}`}>{person.name}</button><p className="text-[9px] text-slate-400">CC {person.document}</p></td><td className="px-2 py-2 font-mono font-semibold text-slate-600">{person.dts.length ? <div className="flex max-w-xs flex-wrap gap-x-3 gap-y-1">{person.dts.map((dt) => <span className="whitespace-nowrap" key={dt}>{dt}</span>)}</div> : "Sin DT"}</td><td className="px-2 py-2 text-slate-500">{person.role}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums" style={{ color: card.color }}>{shownDuration(person.routeTotalSeconds)}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums text-violet-700">{shownDuration(person.tmlSeconds)}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums text-amber-700">{shownDuration(person.awakeSeconds)}</td></tr>)}</tbody>
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-[9px] font-black uppercase tracking-[0.08em] text-slate-500"><tr><th className="w-8 px-2 py-2 text-center">#</th><th className="px-2 py-2">Persona</th><th className="px-2 py-2">DTs</th><th className="px-2 py-2">Rol</th><th className="px-2 py-2 text-right">Tiempo en ruta</th><th className="px-2 py-2 text-right">TML por día</th><th className="px-2 py-2 text-right">vespertino por dia</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">{card.people.map((person, index) => <tr className="hover:bg-slate-50" key={person.key}><td className="px-2 py-2 text-center font-black text-slate-400">{index + 1}</td><td className="px-2 py-2"><button type="button" className="text-left font-bold text-[#10223d] underline decoration-violet-200 underline-offset-2 hover:text-violet-700 focus-visible:outline-violet-600" onClick={() => setSelectedPerson(person)} aria-label={`Ver todos los DT de ${person.name}`}>{person.name}</button><p className="text-[9px] text-slate-400">CC {person.document}</p></td><td className="px-2 py-2 font-mono font-semibold text-slate-600">{person.dts.length ? <div className="flex max-w-xs flex-wrap gap-x-3 gap-y-1">{person.dts.map((dt) => <span className="whitespace-nowrap" key={dt}>{dt}</span>)}</div> : "Sin DT"}</td><td className="px-2 py-2 text-slate-500">{person.role}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums" style={{ color: card.color }}>{shownDuration(person.routeDailyAverageSeconds)}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums text-violet-700">{shownDuration(person.tmlSeconds)}</td><td className="px-2 py-2 text-right font-mono font-black tabular-nums text-amber-700">{shownDuration(person.awakeSeconds)}</td></tr>)}</tbody>
                   </table>
                   {!card.people.length ? <p className="px-4 py-10 text-center text-xs text-slate-500">No hay personas para este rango y búsqueda.</p> : null}
                 </div>
               </article>)}
+              <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-xs font-semibold text-slate-600 shadow-sm">
+                {lastUploadedFile ? <>Último archivo montado: <span className="font-black text-slate-800">{lastUploadedFile.fileName || "Archivo de asistencia"}</span> · {formatUploadDate(lastUploadedFile.uploadedAt || "")}</> : "No hay archivos montados con fecha registrada."}
+              </p>
             </div>
           )}
         </section>
@@ -381,18 +411,18 @@ export function RouteTrackingDashboard() {
         <div className="max-h-[60dvh] overflow-auto">
           <section className="mx-5 mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4" aria-label="Desglose diario del TML">
             <h3 className="text-sm font-black text-violet-900">Tiempo en ruta del rango seleccionado</h3>
-            <p className="mt-2 text-sm text-violet-900">Acumulado: <strong>{shownDuration(personRouteSummary.total)}</strong> · {personRouteSummary.calculated} viajes calculados · {personRouteSummary.pending} pendientes</p>
-            <p className="mb-4 mt-1 text-xs text-slate-600">Suma todos los viajes de la persona dentro del rango. Las horas acumuladas pueden superar 24 horas.</p>
+            <p className="mt-2 text-sm text-violet-900">Promedio por día: <strong>{shownDuration(personRouteSummary.average)}</strong> · {personRouteSummary.days} días completos · {personRouteSummary.pending} viajes pendientes</p>
+            <p className="mb-4 mt-1 text-xs text-slate-600">Suma los viajes de cada día y promedia únicamente los días completos dentro del rango.</p>
             <h3 className="text-sm font-black text-violet-900">TML del rango seleccionado · {startDate || "Inicio del histórico"} a {endDate || "Fin del histórico"}</h3>
-            <p className="mt-2 text-sm text-violet-900">Acumulado: <strong>{shownDuration(personTmlTotal)}</strong> · Promedio: <strong>{shownDuration(personTmlTotal === null ? null : personTmlTotal / personTmlValues.length)}</strong></p>
+            <p className="mt-2 text-sm text-violet-900">Promedio por día: <strong>{shownDuration(personTmlAverage)}</strong></p>
             <p className="mt-1 text-xs text-slate-600">{personTmlValues.length} días calculados de {personDailyTml.length} días con ruta. La suma cuenta cada día una vez, aunque tenga varios DTs.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {personDailyTml.map((day) => <div key={day.date} className="rounded-lg border border-violet-100 bg-white px-3 py-2 text-xs"><p className="font-bold text-slate-600">{day.date}</p><p className={day.seconds === null ? "text-amber-700" : "font-mono font-bold text-violet-700"}>{shownDuration(day.seconds)}</p></div>)}
             </div>
-            {personDailyTml.length > personTmlValues.length ? <p className="mt-3 text-xs text-amber-800">Acumulado parcial: faltan datos para calcular el TML de los días pendientes. Se necesitan entrada GeoVictoria y salida de ruta del mismo día.</p> : null}
+            {personDailyTml.length > personTmlValues.length ? <p className="mt-3 text-xs text-amber-800">Faltan datos para calcular el TML de los días pendientes. Se necesitan entrada GeoVictoria y salida de ruta del mismo día.</p> : null}
           </section>
           <table className="w-full min-w-[750px] text-left text-xs">
-            <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-slate-500"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">DT</th><th className="px-4 py-3">Viaje</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3 text-right">Ruta</th><th className="px-4 py-3 text-right">TML</th><th className="px-4 py-3 text-right">Despertino</th></tr></thead>
+            <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-slate-500"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">DT</th><th className="px-4 py-3">Viaje</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3 text-right">Ruta</th><th className="px-4 py-3 text-right">TML</th><th className="px-4 py-3 text-right">vespertino</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {personHistory.map((entry, index) => <tr key={`${entry.operationalDate}:${entry.key}:${index}`} className="hover:bg-slate-50">
                 <td className="whitespace-nowrap px-4 py-3">{entry.operationalDate}</td>
