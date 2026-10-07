@@ -6,7 +6,7 @@ import type { Vehiculo } from "../../seguimiento/types";
 import { getVehicleRecordKey } from "../../seguimiento/utils";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { isMigratedContractor, isSecurityOwnerEmail, normalizeContractorName } from "../../lib/contractors";
+import { isSecurityOwnerEmail, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 import { dedupeUpsertRows } from "../../lib/seguimientoUpsert";
@@ -26,6 +26,8 @@ const PUBLIC_CONTRACTORS: Record<string, string> = {
   logisticos: "Logisticos",
   puntocorona: "Punto Corona",
   surticervezas: "Surti Cervezas",
+  hllogisticos: "HL Logisticos",
+  hllogistica: "HL Logisticos",
   logisticosarenosa: "Logisticos Arenosa",
   coronaarenosa: "Punto Corona Arenosa",
   puntocoronaarenosa: "Punto Corona Arenosa",
@@ -91,7 +93,6 @@ export async function GET(request: Request) {
     let rows = initialRows;
     const filterRows = (sourceRows: typeof rows) => sourceRows
         .filter((row): row is typeof row & { data: Vehiculo } => Boolean(row.data))
-        .filter((row) => !isMigratedContractor(row.contractor || row.data.transportista))
         .filter((row) => !requestedDt || normalizeDt(String(row.data?.transporte ?? "")) === requestedDt)
         .filter((row) => {
           if (isGlobalAdminQuery) return true;

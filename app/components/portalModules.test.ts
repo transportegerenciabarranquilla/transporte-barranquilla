@@ -25,20 +25,21 @@ test("Promedio RR solo aparece en administración", () => {
   assert.equal(getVisiblePortalModules({ isPeople: true }).some(module => module.href === "/admin/promedio-rr"), false);
 });
 
-test("HL no recibe módulos ni acceso operativo, Surti sí", () => {
+test("HL recibe sus módulos y acceso operativo, igual que Surti", () => {
   const contractor = contractorForEmail(" HLLogistica@gmail.com ");
   assert.equal(contractor, "HL Logisticos");
   assert.equal(normalizeContractorName("HL Logistica"), normalizeContractorName(contractor));
   const modules = getVisiblePortalModules({ contractor: contractor! });
   const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
-  assert.deepEqual(modules, []);
+  assert.ok(modules.some(({ href }) => href === "/modulacion"));
+  assert.ok(modules.some(({ href }) => href === "/seguimiento/refusal"));
   assert.ok(surti.some(({ href }) => href === "/modulacion"));
   assert.ok(surti.some(({ href }) => href === "/seguimiento"));
-  assert.equal(isComplaintsContractor(contractor), false);
+  assert.equal(isComplaintsContractor(contractor), true);
   assert.equal(canManageComplaint(contractor, "Surti Cervezas"), false);
-  assert.equal(canManageComplaint(contractor, contractor), false);
+  assert.equal(canManageComplaint(contractor, contractor), true);
   const session = { email: "hllogistica@gmail.com", contractor: contractor!, isAdmin: false };
-  assert.equal(canAccessContractor(session, contractor), false);
+  assert.equal(canAccessContractor(session, contractor), true);
   assert.equal(canAccessContractor(session, "Surti Cervezas"), false);
   assert.equal(canAccessContractor(session, "Logisticos"), false);
   assert.equal(canAccessContractor({ email: "surticervezas@bavaria-seguimiento.com", contractor: "Surti Cervezas", isAdmin: false }, "Surti Cervezas"), true);

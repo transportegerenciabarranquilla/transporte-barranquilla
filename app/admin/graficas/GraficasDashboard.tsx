@@ -1,5 +1,5 @@
 "use client"; // Panel compartido entre administración y contratistas.
-import { isAdminRefusalExcludedContractor, isLogisticosContractor, isMigratedContractor } from "../../lib/contractors";
+import { isAdminRefusalExcludedContractor, isLogisticosContractor } from "../../lib/contractors";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -58,7 +58,7 @@ type ModulationOverviewRecord = ModulationRefusalRecord & {
 type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreCompleto?: string; identificador?: string; cargo?: string; contratista?: string; entrada?: string }> };
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 type GraphView = "summary" | "ontime" | "modulation" | "refusal" | "people";
-const isAdminGraphContractor = (value: string | null | undefined) => isLogisticosContractor(value) || normalizeContractorName(value) === "surticervezas";
+const isAdminGraphContractor = (value: string | null | undefined) => isLogisticosContractor(value) || ["surticervezas", "hllogisticos"].includes(normalizeContractorName(value));
 
 export default function GraficasDashboard({ contractorMode = false, contractorName = "", deliveryMode = false }: { contractorMode?: boolean; contractorName?: string; deliveryMode?: boolean }) {
   const router = useRouter();
@@ -108,19 +108,19 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
     // Publicar cada respuesta sin esperar a las consultas m?s lentas.
     void Promise.allSettled([
       fetchJson<{ reports?: RangoOverviewReport[] }>("/api/admin/rango")
-        .then((body) => setRangoReports((body.reports || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
+        .then((body) => setRangoReports((body.reports || []).filter((row) => contractorMode || isAdminGraphContractor(row.contractor)))),
       fetchJson<{ records?: ModulationOverviewRecord[] }>("/api/modulaciones")
-        .then((body) => setModulationRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isAdminGraphContractor(row.contratista)))))
+        .then((body) => setModulationRecords((body.records || []).filter((row) => contractorMode || isAdminGraphContractor(row.contratista))))
         .catch(() => setManagementError("No se pudieron cargar las gestiones. Recarga la p?gina para intentar de nuevo."))
         .finally(() => setManagementLoading(false)),
       fetchJson<{ records?: AdminCheckinRecord[] }>("/api/checkins")
-        .then((body) => setCheckinRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isAdminGraphContractor(row.contratista))))),
+        .then((body) => setCheckinRecords((body.records || []).filter((row) => contractorMode || isAdminGraphContractor(row.contratista)))),
       fetchJson<{ records?: Record<string, unknown>[]; tables?: { RTI?: Record<string, unknown>[] } }>("/api/people/rti")
-        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []).filter((row) => !isMigratedContractor(row.carrier) && (contractorMode || isAdminGraphContractor(row.carrier))))),
+        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []).filter((row) => contractorMode || isAdminGraphContractor(row.carrier)))),
       fetchJson<{ records?: DailyChecklistRecord[] }>("/api/daily-checklists")
-        .then((body) => setDailyChecklists((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
+        .then((body) => setDailyChecklists((body.records || []).filter((row) => contractorMode || isAdminGraphContractor(row.contractor)))),
       fetchJson<{ records?: DailyAbsenteeismRecord[] }>("/api/daily-absenteeism")
-        .then((body) => setAbsenteeismRecords((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
+        .then((body) => setAbsenteeismRecords((body.records || []).filter((row) => contractorMode || isAdminGraphContractor(row.contractor)))),
     ]).then((results) => {
       const sources = ["entrega en rango", "modulaciones", "check-ins", "RTI", "checklists", "ausentismo"];
       setOverviewErrors(results.flatMap((result, index) => result.status === "rejected" ? [sources[index]] : []));

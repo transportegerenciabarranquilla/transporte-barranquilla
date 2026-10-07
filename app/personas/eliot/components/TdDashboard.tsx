@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  Clock3,
   Download,
   FileSpreadsheet,
   RotateCcw,
@@ -34,7 +35,7 @@ import { RankingChart } from "./RankingChart";
 import { RoleSummaryCards } from "./RoleSummaryCards";
 import { TrendChart } from "./TrendChart";
 import { MissingMarksTable } from "./MissingMarksTable";
-import { RouteTimeTable } from "./RouteTimeTable";
+import { RouteTimeDashboard } from "./RouteTimeDashboard";
 
 const DEFAULT_FILTERS: DashboardFilters = { query: "", carrier: "todos", plate: "todas", status: "todos" };
 const ROLES: CrewRole[] = ["rr", "aux", "conductor"];
@@ -48,6 +49,7 @@ export function TdDashboard() {
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [rankingMode, setRankingMode] = useState<"mejores" | "offenders">("mejores");
   const [showMissingMarks, setShowMissingMarks] = useState(false);
+  const [view, setView] = useState<"tml" | "route">("tml");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -236,6 +238,7 @@ export function TdDashboard() {
             <input accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.json,application/json" className="hidden" onChange={handleBackupRestore} ref={backupInput} type="file" />
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50" onClick={() => backupInput.current?.click()} type="button"><RotateCcw size={15} /> Restaurar</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40" disabled={!snapshots.length} onClick={downloadBackup} type="button"><Download size={15} /> Respaldo Excel</button>
+            <button aria-pressed={view === "route"} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold ${view === "route" ? "border-violet-300 bg-violet-100 text-violet-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`} onClick={() => setView((current) => current === "route" ? "tml" : "route")} type="button"><Clock3 size={15} /> Tiempo en ruta</button>
             <button className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${closedSnapshot ? "border-teal-200 bg-teal-50 text-teal-700" : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"}`} disabled={!dateSnapshots.length || Boolean(closedSnapshot) || uploading} onClick={closeOperationalDay} type="button"><CheckCircle2 size={15} /> {closedSnapshot ? "Día cerrado" : "Cerrar día"}</button>
             <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#ed6a5a] px-4 text-xs font-black text-white shadow-sm shadow-rose-100 hover:bg-[#d95749] disabled:bg-slate-300" disabled={uploading} onClick={() => fileInput.current?.click()} type="button"><Upload size={16} /> {uploading ? "Procesando…" : "Subir Excel"}</button>
           </div>
@@ -259,6 +262,7 @@ export function TdDashboard() {
               plates={getPlates(selectedSnapshot.rows)}
               selectedSnapshot={selectedSnapshot}
             />
+            {view === "route" ? <RouteTimeDashboard rows={filteredRows} operationalDate={activeDate} snapshotId={selectedSnapshot.id} /> : <>
             <RoleSummaryCards summary={summary} />
 
             <section className="panel flex flex-wrap items-center justify-between gap-3 p-3">
@@ -282,8 +286,8 @@ export function TdDashboard() {
               </>
             )}
             <TrendChart rows={filteredRows} />
-            <RouteTimeTable rows={filteredRows} />
             <PlateCrewTable rows={filteredRows} />
+            </>}
 
             {selectedSnapshot.warnings.length ? <WarningsSummary rowCount={selectedSnapshot.rows.length} warnings={selectedSnapshot.warnings} /> : null}
 

@@ -21,13 +21,7 @@ export const EFFECTIVE_REST_EMAIL = "honor-gl@gmail.com";
 export function isEffectiveRestEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === EFFECTIVE_REST_EMAIL;
 }
-export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
-export const MIGRATED_CONTRACTOR_URL = "https://transporttracking1.powerappsportals.com/";
-export const MIGRATED_CONTRACTOR_ERROR = `Error: debes dirigirte a ${MIGRATED_CONTRACTOR_URL}. Este es tu nuevo aplicativo.`;
-
-export function isMigratedContractor(value: string | null | undefined) {
-  return normalizeContractorName(value) === "hllogisticos";
-}
+export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "HL Logisticos", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
 const VALID_OPERATIONAL_CONTRACTORS = new Set([
   ...CONTRACTORS.map((contractor) => normalizeContractorName(contractor)),
   "coronaarenosa",
@@ -72,9 +66,9 @@ export function contractorLabel(value: string | null | undefined) {
   return String(value || "").trim();
 }
 
-// Exclusión de indicadores administrativos; el acceso se revoca en la sesión.
+// Exclusión de indicadores administrativos; no revoca acceso ni borra datos.
 export function isAdminRefusalExcludedContractor(value: string | null | undefined) {
-  return isMigratedContractor(value) || ["hl", "hllogisticas"].includes(normalizeContractorName(value));
+  return ["hl", "hllogisticos", "hllogisticas"].includes(normalizeContractorName(value));
 }
 
 export function isLogisticosContractor(value: string | null | undefined) {
@@ -84,7 +78,7 @@ export function isLogisticosContractor(value: string | null | undefined) {
 
 export function canEditRangeReasons(contractor: string | null | undefined) {
   const normalized = normalizeContractorName(contractor);
-  return normalized === "logisticos" || normalized === "surticervezas";
+  return normalized === "logisticos" || normalized === "surticervezas" || normalized === "hllogisticos";
 }
 
 // El módulo de cumplimiento de entregas queda deshabilitado para las contratistas.

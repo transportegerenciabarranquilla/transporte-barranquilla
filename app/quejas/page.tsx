@@ -215,11 +215,29 @@ function ComplaintRecordsTable({ loading, now, onSelect, records }: { loading: b
     <div className="max-h-[650px] overflow-auto">
       <table className="w-full min-w-[1250px] text-left text-xs">
 <thead className="sticky top-0 bg-[#10223d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Tiempo transcurrido</th><th className="px-3 py-3">Fecha creacion</th><th className="px-3 py-3">Codigo</th><th className="px-3 py-3">Establecimiento</th><th className="px-3 py-3">Novedad</th><th className="px-3 py-3">Transportista</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Fecha y hora de cierre</th><th className="px-3 py-3">Cruce seguimiento</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{records.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} uploadedAt={record.uploadedAt} createdDate={record.createdDate} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => onSelect(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="whitespace-nowrap px-3 py-3">{formatComplaintClosedAt(record.closedAt)}</td><td className="px-3 py-3"><b>{record.dt ? `DT ${record.dt}` : "Sin DT"}</b><span className="block text-[10px] text-slate-500">{record.plate || (hasComplaintCrew(record) ? "Tripulacion encontrada" : "Sin tripulacion")}</span></td></tr>)}</tbody>
+        <tbody className="divide-y divide-slate-100">{records.map((record) => <tr className={hasComplaintCrew(record) ? "hover:bg-slate-50" : "bg-amber-50/60"} key={record.id}><td className="px-3 py-3 font-bold">{record.id}</td><td className="px-3 py-3"><ClosingCountdown deadline={record.closingTime} uploadedAt={record.uploadedAt} createdDate={record.createdDate} now={now} status={record.status} /></td><td className="whitespace-nowrap px-3 py-3">{record.createdDate}</td><td className="px-3 py-3">{record.code || "-"}</td><td className="max-w-56 px-3 py-3">{record.establishment || "-"}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-bold text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-900" onClick={() => onSelect(record)} type="button">{record.issue || "Ver novedad"}</button></td><td className="px-3 py-3">{record.contractor || "-"}</td><td className="px-3 py-3"><span className={`rounded-md px-2 py-1 font-black ${normalizeText(record.status).includes("cerrad") ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{record.status || "Abierta"}</span></td><td className="whitespace-nowrap px-3 py-3">{formatComplaintClosedAt(record.closedAt)}</td><td className="min-w-60 max-w-80 px-3 py-3"><ComplaintTrackingDetails record={record} /></td></tr>)}</tbody>
       </table>
       {!loading && !records.length ? <p className="p-10 text-center text-sm text-slate-400">No hay quejas para mostrar.</p> : null}
     </div>
   </section>;
+}
+
+function ComplaintTrackingDetails({ record }: { record: ComplaintRecord }) {
+  const crew = [
+    { role: "Responsable de ruta (RR)", name: record.responsible, document: record.responsibleId },
+    { role: "Conductor", name: record.driver, document: record.driverId },
+    { role: "Auxiliar", name: record.auxiliary, document: record.auxiliaryId },
+  ];
+  return <div className="space-y-2">
+    <div><p className="font-black text-[#10223d]">{record.dt ? `DT ${record.dt}` : "Sin DT"}</p><p className="text-[10px] text-slate-500">{record.plate ? `Placa ${record.plate}` : "Sin placa en Seguimiento"}</p></div>
+    <dl className="space-y-2 border-t border-slate-200 pt-2">
+      {crew.map((person, index) => <div className={index === 0 ? "rounded-lg border border-blue-100 bg-blue-50 px-2 py-2" : ""} key={person.role}>
+        <dt className="text-[9px] font-black uppercase tracking-wide text-slate-500">{person.role}</dt>
+        <dd className="break-words text-[11px] font-semibold text-[#10223d]">{person.name || "Sin nombre en Seguimiento"}</dd>
+        <dd className="text-[10px] text-slate-500">{person.document ? `CC ${person.document}` : "Sin cédula"}</dd>
+      </div>)}
+    </dl>
+  </div>;
 }
 
 function ComplaintFilters(props: ComplaintFiltersProps) {

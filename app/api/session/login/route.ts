@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
-import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, isMigratedContractor, MIGRATED_CONTRACTOR_ERROR } from "../../../lib/contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail } from "../../../lib/contractors";
 import { readSecurityState } from "../../../lib/securityState";
 import { requestIp } from "../../../lib/securityIp";
 import { isIpBlocked } from "../../../lib/securityIpState";
@@ -20,7 +20,6 @@ export async function POST(request: Request) {
   const normalizedEmail = email?.trim().toLowerCase() || "";
   const contractor = contractorForEmail(normalizedEmail);
   if (!contractor) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });
-  if (isMigratedContractor(contractor)) return NextResponse.json({ error: MIGRATED_CONTRACTOR_ERROR, migrated: true }, { status: 403 });
 
   const supabaseKey = requireSupabaseKey();
   let authResponse: Response;

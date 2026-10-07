@@ -292,15 +292,7 @@ export function PlateCrewTable({ rows }: { rows: TdRow[] }) {
 
   return (
     <section className="panel overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/80 px-5 py-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">Detalle operativo</p>
-          <h2 className="mt-0.5 text-base font-black text-[#2d1b4e]">Tripulaciones por placa</h2>
-        </div>
-        <span className="rounded-lg bg-white px-3 py-1.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
-          {Math.min(visibleCount, groups.length)} de {groups.length} placas
-        </span>
-      </div>
+    
 
       {groups.length ? (
         <>

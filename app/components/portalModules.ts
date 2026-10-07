@@ -1,4 +1,4 @@
-import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isMigratedContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
 
 export type PortalModule = {
   id: number;
@@ -248,6 +248,15 @@ const peopleRouteEvaluationModule: PortalModule = {
   accent: "border-l-[#7c3aed]",
 };
 
+const peopleRouteTrackingModule: PortalModule = {
+  id: 28,
+  title: "Seguimiento de ruta",
+  href: "/personas/seguimiento-ruta",
+  detail: "Tiempo en ruta, TML y tiempo despertino",
+  tone: "from-[#10223d] to-[#1264ff]",
+  accent: "border-l-[#1264ff]",
+};
+
 export function getVisiblePortalModules({
   contractor,
   isAdmin,
@@ -257,12 +266,11 @@ export function getVisiblePortalModules({
   isAdmin?: boolean;
   isPeople?: boolean;
 }) {
-  if (isMigratedContractor(contractor)) return [];
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
   if (contractor === "Control de ingreso") return [peopleEffectiveRestModule];
-  if (isPeople) return [peopleModule, peopleRouteEvaluationModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule];
+  if (isPeople) return [peopleModule, peopleRouteEvaluationModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule, peopleRouteTrackingModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
     return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminRouteAnalysisModule, adminRrAverageModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];

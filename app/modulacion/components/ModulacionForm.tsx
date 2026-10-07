@@ -6,7 +6,6 @@ import { onlyNumbers } from "../utils";
 import { normalizeDt } from "../../lib/modulacionStorage";
 import type { Vehiculo } from "../../seguimiento/types";
 import { NumericField } from "./NumericField";
-import { isMigratedContractor, MIGRATED_CONTRACTOR_URL } from "../../lib/contractors";
 
 const contractors = ["Punto Corona", "Punto Corona Arenosa", "Logisticos", "Surti Cervezas", "HL Logisticos"];
 
@@ -45,8 +44,7 @@ export function ModulacionForm({
 }) {
   const hasTypedDt = Boolean(form.contratista && normalizeDt(form.dt));
   const hasValidatedDt = hasTypedDt && vehiculosSeguimiento.some((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(form.dt));
-  const migrated = isMigratedContractor(form.contratista);
-  const submitDisabled = migrated || saving || loadingVehicles || (hasTypedDt && !hasValidatedDt);
+  const submitDisabled = saving || loadingVehicles || (hasTypedDt && !hasValidatedDt);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -70,7 +68,6 @@ export function ModulacionForm({
                 ))}
               </select>
               {errors.contratista ? <p className="mt-2 text-sm text-red-600">{errors.contratista}</p> : null}
-              {migrated ? <p role="alert" className="mt-2 text-sm font-medium text-red-700">Error: debes dirigirte a <a className="break-all underline" href={MIGRATED_CONTRACTOR_URL}>{MIGRATED_CONTRACTOR_URL}</a>. Este es tu nuevo aplicativo.</p> : null}
             </label>
 
             <NumericField

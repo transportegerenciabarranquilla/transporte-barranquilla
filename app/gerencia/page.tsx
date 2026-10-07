@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useAdminScope } from "../lib/useAdminScope";
+import { contractorLabel, normalizeContractorName } from "../lib/contractors";
 import { useRouter } from "next/navigation";
-import { Archive, ArrowLeft, Building2, ChevronDown, ChevronUp, Clock3, FileSpreadsheet, Maximize2, Minimize2, RefreshCw, Upload } from "lucide-react";
+import { Archive, ArrowLeft, Building2, ChevronDown, ChevronUp, Clock3, Download, FileSpreadsheet, Maximize2, Minimize2, RefreshCw, Upload } from "lucide-react";
 
 type Person = {
   cc: string;
@@ -122,6 +123,7 @@ export default function ManagementPage() {
   const [historyTo, setHistoryTo] = useState(() => bogotaToday());
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
   const [isAllowed, setIsAllowed] = useState(false);
@@ -368,13 +370,21 @@ export default function ManagementPage() {
       const parsedRows = allParsedRows.filter((row) => dateKey(row.fechaKey) === today).map((row) => ({ ...row, fechaKey: today }));
       if (!parsedRows.length) throw new Error(`El Excel no contiene registros de hoy (${formatDate(today)}). No se guardó ningún dato.`);
 
-      const response = await fetch("/api/people/attendance-snapshots", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operationalDate: today, fileName: file.name, rows: parsedRows }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo guardar la asistencia en la base de datos.");
+      const rowsByContractor = new Map<string, ClockRow[]>();
+      for (const row of parsedRows) {
+        const contractor = contractorLabel(row.contratista || "Logisticos");
+        const key = normalizeContractorName(contractor);
+        rowsByContractor.set(key, [...(rowsByContractor.get(key) || []), { ...row, contratista: contractor }]);
+      }
+      await Promise.all([...rowsByContractor.values()].map(async (rows) => {
+        const response = await fetch("/api/people/attendance-snapshots", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ operationalDate: today, fileName: file.name, rows }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `No se pudo guardar la asistencia de ${rows[0]?.contratista}.`);
+      }));
       await refreshAttendanceData();
       dateSelectedByUser.current = true;
       setSelectedDate(today);
@@ -385,6 +395,33 @@ export default function ManagementPage() {
       setError(caught instanceof Error ? caught.message : "No se pudo leer el Excel de asistencia.");
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function downloadAttendanceHistory() {
+    setIsDownloading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/people/attendance-snapshots?export=all&refresh=${Date.now()}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo consultar el historial de asistencia.");
+      const snapshots = (body.snapshots || []) as AttendanceSnapshot[];
+      if (!snapshots.length) throw new Error("Todavía no hay archivos de asistencia guardados para descargar.");
+      const { createManagementAttendanceHistoryWorkbook } = await import("../lib/managementAttendanceWorkbook");
+      const workbook = createManagementAttendanceHistoryWorkbook(snapshots);
+      const blob = new Blob([workbook], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `historial-asistencia-gerencia-${bogotaToday()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo descargar el historial de asistencia.");
+    } finally {
+      setIsDownloading(false);
     }
   }
 
@@ -439,6 +476,7 @@ export default function ManagementPage() {
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!previousOpenSnapshot || isClosing} onClick={closePreviousDay} title={previousOpenSnapshot ? `Cerrar ${formatDate(previousOpenSnapshot.operationalDate)}` : "No hay jornadas anteriores abiertas"} type="button">
               <Archive size={16} /> {isClosing ? "Cerrando…" : previousOpenSnapshot ? `Cerrar ${formatShortDate(previousOpenSnapshot.operationalDate)}` : "Anterior cerrada"}
             </button>
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={isDownloading} onClick={downloadAttendanceHistory} title="Descargar en Excel todas las marcaciones y cortes guardados" type="button"><Download size={16} /> {isDownloading ? "Preparando Excel…" : "Descargar Excel e historial"}</button>
             <input accept=".xlsx,.xls" className="hidden" onChange={handleAttendanceUpload} ref={fileInputRef} type="file" />
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#ed6a5a] px-5 text-sm font-black text-white shadow-lg shadow-rose-100 transition hover:bg-[#d95749] disabled:bg-slate-300" disabled={isUploading} onClick={() => fileInputRef.current?.click()} type="button">
               <Upload size={16} /> {isUploading ? "Procesando…" : "Subir Excel de asistencia"}
@@ -1072,7 +1110,7 @@ function parseClockRow(row: Record<string, unknown>, peopleById: Map<string, Per
     identificador,
     nombreCompleto,
     cargo: readClockValue(row, ["cargo"]) || person?.cargo || "",
-    contratista: "Logísticos",
+    contratista: person?.contratista || readClockValue(row, ["contratista", "transportista", "empresa"]) || "Logísticos",
     fechaKey: normalizeClockDate(fecha),
     entrada,
     salida,

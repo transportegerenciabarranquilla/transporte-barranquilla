@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import type { ModulacionRegistro } from "../../lib/modulacionStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { isMigratedContractor, isOperationalContractor, MIGRATED_CONTRACTOR_ERROR, normalizeContractorName } from "../../lib/contractors";
+import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -136,7 +136,6 @@ export async function PUT(request: Request) {
 
     const isPublicSubmission = !session && records.length === 1 && Boolean(records[0]?.contratista);
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
-    if (isMigratedContractor(contractor)) return NextResponse.json({ error: MIGRATED_CONTRACTOR_ERROR, migrated: true }, { status: 403 });
     if (!isOperationalContractor(contractor)) {
       return NextResponse.json({ error: "Contratista no válido." }, { status: 400 });
     }

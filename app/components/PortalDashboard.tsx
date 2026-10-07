@@ -9,7 +9,7 @@ import { GlobalOperationsSearch } from "./GlobalOperationsSearch";
 import { getPortalSessionLabel, getVisiblePortalModules, type PortalModule } from "./portalModules";
 import { isLogisticosContractor } from "../lib/contractors";
 
-const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn, 22: MapPinned, 23: Users, 24: PackageCheck, 25: Route, 26: ClipboardCheck, 27: ChartColumn };
+const moduleIcons: Record<number, LucideIcon> = { 1: Truck, 2: PackageCheck, 3: Clock3, 4: Users, 5: Route, 6: CalendarCheck, 7: Timer, 8: BriefcaseBusiness, 9: Star, 10: ChartColumn, 11: Timer, 12: ClipboardCheck, 13: Phone, 14: MapPinned, 15: MessageSquareWarning, 16: ReceiptText, 17: MapPinned, 18: BedDouble, 19: ChartColumn, 22: MapPinned, 23: Users, 24: PackageCheck, 25: Route, 26: ClipboardCheck, 27: ChartColumn, 28: Route };
 
 // Presentation groups only; every access comes from the existing authorized list.
 const operationIds = [1, 2, 3, 12];

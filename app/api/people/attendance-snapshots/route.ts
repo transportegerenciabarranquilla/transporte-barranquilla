@@ -7,18 +7,29 @@ type ClockRow = { identificador?: string; nombreCompleto?: string; cargo?: strin
 type AttendanceSnapshot = { operationalDate: string; fileName: string; rows: ClockRow[]; uploadedAt: string; closedAt: string | null };
 type AttendanceRecord = { operational_date: string; contractor: string; file_name: string; rows: ClockRow[] | null; uploaded_at: string; closed_at: string | null };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getAuthenticatedSession({ allowSiteAdmin: true });
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
-    const params = new URLSearchParams({ select: "operational_date,contractor,file_name,rows,uploaded_at,closed_at", order: "operational_date.desc" });
+    const exportAll = new URL(request.url).searchParams.get("export") === "all";
+    const params = new URLSearchParams({ select: "operational_date,contractor,file_name,rows,uploaded_at,closed_at", order: "operational_date.desc,contractor.asc" });
     if (!session.isAdmin && !session.isPeople) params.set("contractor", `eq.${session.contractor}`);
-    const response = await fetch(
-      supabaseRest("attendance_snapshots", `?${params}`),
-      { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" },
-    );
-    if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
-    const records = (await response.json().catch(() => [])) as AttendanceRecord[];
+    const records: AttendanceRecord[] = [];
+    const pageSize = 500;
+    do {
+      if (exportAll) {
+        params.set("limit", String(pageSize));
+        params.set("offset", String(records.length));
+      }
+      const response = await fetch(
+        supabaseRest("attendance_snapshots", `?${params}`),
+        { headers: supabaseUserHeaders(session.accessToken), cache: "no-store" },
+      );
+      if (!response.ok) return NextResponse.json({ error: await supabaseError(response) }, { status: response.status });
+      const page = (await response.json().catch(() => [])) as AttendanceRecord[];
+      records.push(...page);
+      if (!exportAll || page.length < pageSize) break;
+    } while (true);
     return NextResponse.json({ snapshots: records.filter((row) => canAccessContractor(session, row.contractor)).map((row) => ({ ...toSnapshot(row), rows: (row.rows || []).filter((person) => canAccessContractor(session, person.contratista || row.contractor)) })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar la asistencia." }, { status: 500 });

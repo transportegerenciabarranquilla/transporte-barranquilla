@@ -5,7 +5,6 @@ import { Moon, Sun, ArrowRight, Eye, EyeOff, Lock, Mail, MapPinned, Plus, Shield
 import { Icon } from "./Icon";
 import { LoginGalaxy } from "./LoginGalaxy";
 import styles from "./loginGalaxy.module.css";
-import { MIGRATED_CONTRACTOR_URL } from "../lib/contractors";
 
 type LoginForm = {
   email: string;
@@ -234,7 +233,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
           </div>
           <div className={styles.hero}>
             <div className={styles.eyebrow}><i /> Una operación. Todas las conexiones.</div>
-            <h1>Tu operación,<br />en un mismo<span>universo.</span></h1>
+            <h1>CD,<br />en un mismo<span>universo.</span></h1>
             <p>Cada ruta, cada entrega, cada decisión. Conecta con tu operación y mantén el control desde un solo lugar.</p>
           </div>
           <div className={styles.coordinates}><div><b>Barranquilla</b>10.98° N / 74.78° O</div><div><b>Seguimiento</b>Rutas conectadas</div><div><b>Control</b>Visión integral</div></div>
@@ -384,7 +383,7 @@ export function LoginScreen({ onLogin, sessionError = "" }: { onLogin: (form: Lo
                   {submitting ? "Ingresando..." : "Entrar al portal"}
                   <ArrowRight size={17} />
                 </button>
-                {loginError ? <p role="alert" className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError.includes(MIGRATED_CONTRACTOR_URL) ? <>Error: debes dirigirte a <a className="break-all font-semibold underline" href={MIGRATED_CONTRACTOR_URL}>{MIGRATED_CONTRACTOR_URL}</a>. Este es tu nuevo aplicativo.</> : loginError}</p> : null}
+                {loginError ? <p role="alert" className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</p> : null}
               </form>
             </div>
 
