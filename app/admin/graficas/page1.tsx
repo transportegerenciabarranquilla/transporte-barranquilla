@@ -62,7 +62,7 @@ export default function DiferenciaKilometros({ records, recordsLoading = false, 
   }, [rows]);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("es");
-    return matchedRows.filter((row) => (contractorOnly || routePerformanceContractor(row.contractor) === "Logisticos") && (!dateFrom || row.date >= dateFrom) && (!dateTo || row.date <= dateTo) && (matchFilter === "all" || row.match === matchFilter) && (contractorFilter === "all" || routePerformanceContractor(row.contractor) === contractorFilter) && [row.plate, row.originalPlate, row.matchedPlate, row.rr, row.driver, row.contractor, row.date, row.dt].join(" ").toLocaleLowerCase("es").includes(query));
+    return matchedRows.filter((row) => (contractorOnly || ROUTE_PERFORMANCE_CONTRACTORS.some((contractor) => routePerformanceContractor(row.contractor) === contractor)) && (!dateFrom || row.date >= dateFrom) && (!dateTo || row.date <= dateTo) && (matchFilter === "all" || row.match === matchFilter) && (contractorFilter === "all" || routePerformanceContractor(row.contractor) === contractorFilter) && [row.plate, row.originalPlate, row.matchedPlate, row.rr, row.driver, row.contractor, row.date, row.dt].join(" ").toLocaleLowerCase("es").includes(query));
   }, [matchedRows, search, matchFilter, contractorFilter, dateFrom, dateTo, contractorOnly]);
   const matchedCount = filtered.filter((row) => row.match === "matched").length;
 

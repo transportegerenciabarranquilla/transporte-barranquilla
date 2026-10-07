@@ -1,5 +1,5 @@
 import "server-only";
-import { routePerformanceContractor } from "./routePerformanceContractors";
+import { ROUTE_PERFORMANCE_CONTRACTORS, routePerformanceContractor } from "./routePerformanceContractors";
 import { createRoutePerformanceHistory } from "./routePerformanceHistory";
 import { parseRoutePerformanceRows, type RoutePerformanceRow } from "./routePerformanceImport";
 import { supabaseAdminHeaders, supabaseError, supabaseRest } from "./supabaseServer";
@@ -22,9 +22,9 @@ export async function readRoutePerformanceFile() {
       if (!history.acceptFile(file.file_name)) continue;
       const parsed = await parseRoutePerformanceFile(Buffer.from(file.file_base64, "base64"));
       const unique = history.addRows(parsed);
-      const logisticosRows = unique.filter((row) => !row.excelContractor || routePerformanceContractor(row.excelContractor) === "Logisticos");
-      rows.push(...logisticosRows);
-      if (logisticosRows.length) files.push({ id: file.id, fileName: file.file_name, uploadedAt: file.created_at, rowCount: logisticosRows.length });
+      const activeRows = unique.filter((row) => !row.excelContractor || ROUTE_PERFORMANCE_CONTRACTORS.some((contractor) => routePerformanceContractor(row.excelContractor) === contractor));
+      rows.push(...activeRows);
+      if (activeRows.length) files.push({ id: file.id, fileName: file.file_name, uploadedAt: file.created_at, rowCount: activeRows.length });
     }
     offset += stored.length;
   }

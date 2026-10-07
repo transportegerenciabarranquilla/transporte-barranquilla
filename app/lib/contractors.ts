@@ -21,12 +21,12 @@ export const EFFECTIVE_REST_EMAIL = "honor-gl@gmail.com";
 export function isEffectiveRestEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === EFFECTIVE_REST_EMAIL;
 }
-export const CONTRACTORS = ["Logisticos", "Punto Corona", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
+export const CONTRACTORS = ["Logisticos", "Punto Corona", "Surti Cervezas", "Logisticos Arenosa", "Punto Corona Arenosa"] as const;
 export const MIGRATED_CONTRACTOR_URL = "https://transporttracking1.powerappsportals.com/";
 export const MIGRATED_CONTRACTOR_ERROR = `Error: debes dirigirte a ${MIGRATED_CONTRACTOR_URL}. Este es tu nuevo aplicativo.`;
 
 export function isMigratedContractor(value: string | null | undefined) {
-  return ["surticervezas", "hllogisticos"].includes(normalizeContractorName(value));
+  return normalizeContractorName(value) === "hllogisticos";
 }
 const VALID_OPERATIONAL_CONTRACTORS = new Set([
   ...CONTRACTORS.map((contractor) => normalizeContractorName(contractor)),
@@ -84,7 +84,7 @@ export function isLogisticosContractor(value: string | null | undefined) {
 
 export function canEditRangeReasons(contractor: string | null | undefined) {
   const normalized = normalizeContractorName(contractor);
-  return normalized === "logisticos";
+  return normalized === "logisticos" || normalized === "surticervezas";
 }
 
 // El módulo de cumplimiento de entregas queda deshabilitado para las contratistas.

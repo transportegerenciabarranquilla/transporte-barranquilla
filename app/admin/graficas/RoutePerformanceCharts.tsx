@@ -99,7 +99,7 @@ export default function RoutePerformanceCharts({ rows, contractorOnly = "" }: { 
     <RoutePerformanceTrend rows={rows} />
     <section aria-label="Indicadores por contratista" className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Comparativo</p><h3 className="mt-1 text-base font-bold text-slate-900">Por contratista</h3><p className="mt-1 text-xs text-slate-500">Adherencia y MyGeotab de los viajes identificados en el Excel para las fechas seleccionadas.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{identifiedTrips.toLocaleString("es-CO")} viajes identificados</span></div>
-      {rows.length > 0 && identifiedTrips === 0 && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">No se identificaron viajes de Logísticos. El Excel puede incluir una columna CONTRATISTA o TRANSPORTISTA para mostrar este desglose.</p>}
+      {rows.length > 0 && identifiedTrips === 0 && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">No se identificaron viajes de Logísticos o Surti Cervezas. El Excel puede incluir una columna CONTRATISTA o TRANSPORTISTA para mostrar este desglose.</p>}
       <div className="mt-4 grid gap-3 xl:grid-cols-3">{byContractor.map(({ name, rows: contractorRows }, index) => <ContractorCard key={name} name={name} rows={contractorRows} position={index + 1} />)}</div>
     </section>
   </div>;

@@ -25,6 +25,7 @@ type AuthenticatedSession = NonNullable<Awaited<ReturnType<typeof getAuthenticat
 const PUBLIC_CONTRACTORS: Record<string, string> = {
   logisticos: "Logisticos",
   puntocorona: "Punto Corona",
+  surticervezas: "Surti Cervezas",
   logisticosarenosa: "Logisticos Arenosa",
   coronaarenosa: "Punto Corona Arenosa",
   puntocoronaarenosa: "Punto Corona Arenosa",

@@ -10,7 +10,7 @@ import { getProgress, getStatus, normalizeCajasTotal } from "../../seguimiento/u
 
 type Summary = { contractor: string; rutas: number; cajas: number; clientes: number; visitados: number };
 type ModulationRow = { contractor: string; date: string; modulationBoxes: number };
-const GALAPA = ["Logisticos"];
+const GALAPA = ["Logisticos", "Surti Cervezas"];
 
 export default function AdminModoTvPage() {
   const router = useRouter();

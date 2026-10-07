@@ -58,6 +58,7 @@ type ModulationOverviewRecord = ModulationRefusalRecord & {
 type AttendanceSnapshot = { operationalDate: string; rows: Array<{ nombreCompleto?: string; identificador?: string; cargo?: string; contratista?: string; entrada?: string }> };
 type AdminCheckinRecord = CheckinCajasRegistro & { contratista?: string };
 type GraphView = "summary" | "ontime" | "modulation" | "refusal" | "people";
+const isAdminGraphContractor = (value: string | null | undefined) => isLogisticosContractor(value) || normalizeContractorName(value) === "surticervezas";
 
 export default function GraficasDashboard({ contractorMode = false, contractorName = "", deliveryMode = false }: { contractorMode?: boolean; contractorName?: string; deliveryMode?: boolean }) {
   const router = useRouter();
@@ -95,8 +96,8 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "No se pudo cargar graficas admin.");
         const nextRecords = (body.records || []) as Vehiculo[];
-        setRecords(contractorMode ? nextRecords : nextRecords.filter((row) => isLogisticosContractor(row.transportista)));
-        setRefusalRows(contractorMode ? body.refusalByComRows || [] : (body.refusalByComRows || []).filter((row: AdminRefusalComRow) => isLogisticosContractor(row.contractor)));
+        setRecords(contractorMode ? nextRecords : nextRecords.filter((row) => isAdminGraphContractor(row.transportista)));
+        setRefusalRows(contractorMode ? body.refusalByComRows || [] : (body.refusalByComRows || []).filter((row: AdminRefusalComRow) => isAdminGraphContractor(row.contractor)));
         if (contractorMode && !contractorName && nextRecords[0]?.transportista) setContractor(nextRecords[0].transportista);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar graficas admin."))
@@ -107,19 +108,19 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
     // Publicar cada respuesta sin esperar a las consultas m?s lentas.
     void Promise.allSettled([
       fetchJson<{ reports?: RangoOverviewReport[] }>("/api/admin/rango")
-        .then((body) => setRangoReports((body.reports || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
+        .then((body) => setRangoReports((body.reports || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
       fetchJson<{ records?: ModulationOverviewRecord[] }>("/api/modulaciones")
-        .then((body) => setModulationRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isLogisticosContractor(row.contratista)))))
+        .then((body) => setModulationRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isAdminGraphContractor(row.contratista)))))
         .catch(() => setManagementError("No se pudieron cargar las gestiones. Recarga la p?gina para intentar de nuevo."))
         .finally(() => setManagementLoading(false)),
       fetchJson<{ records?: AdminCheckinRecord[] }>("/api/checkins")
-        .then((body) => setCheckinRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isLogisticosContractor(row.contratista))))),
+        .then((body) => setCheckinRecords((body.records || []).filter((row) => !isMigratedContractor(row.contratista) && (contractorMode || isAdminGraphContractor(row.contratista))))),
       fetchJson<{ records?: Record<string, unknown>[]; tables?: { RTI?: Record<string, unknown>[] } }>("/api/people/rti")
-        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []).filter((row) => !isMigratedContractor(row.carrier) && (contractorMode || isLogisticosContractor(row.carrier))))),
+        .then((body) => setRtiRecords(parseDatabaseRows(body.records || body.tables?.RTI || []).filter((row) => !isMigratedContractor(row.carrier) && (contractorMode || isAdminGraphContractor(row.carrier))))),
       fetchJson<{ records?: DailyChecklistRecord[] }>("/api/daily-checklists")
-        .then((body) => setDailyChecklists((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
+        .then((body) => setDailyChecklists((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
       fetchJson<{ records?: DailyAbsenteeismRecord[] }>("/api/daily-absenteeism")
-        .then((body) => setAbsenteeismRecords((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isLogisticosContractor(row.contractor))))),
+        .then((body) => setAbsenteeismRecords((body.records || []).filter((row) => !isMigratedContractor(row.contractor) && (contractorMode || isAdminGraphContractor(row.contractor))))),
     ]).then((results) => {
       const sources = ["entrega en rango", "modulaciones", "check-ins", "RTI", "checklists", "ausentismo"];
       setOverviewErrors(results.flatMap((result, index) => result.status === "rejected" ? [sources[index]] : []));
@@ -130,7 +131,7 @@ export default function GraficasDashboard({ contractorMode = false, contractorNa
     if (activeView !== "people" || attendanceRequested.current) return;
     attendanceRequested.current = true;
     void fetchJson<{ snapshots?: AttendanceSnapshot[] }>("/api/people/attendance-snapshots")
-      .then((body) => setAttendanceSnapshots(contractorMode ? body.snapshots || [] : (body.snapshots || []).map((snapshot) => ({ ...snapshot, rows: snapshot.rows.filter((row) => isLogisticosContractor(row.contratista)) })).filter((snapshot) => snapshot.rows.length > 0)))
+      .then((body) => setAttendanceSnapshots(contractorMode ? body.snapshots || [] : (body.snapshots || []).map((snapshot) => ({ ...snapshot, rows: snapshot.rows.filter((row) => isAdminGraphContractor(row.contratista)) })).filter((snapshot) => snapshot.rows.length > 0)))
       .catch(() => setAttendanceError("No se pudo cargar la asistencia. Recarga la p?gina para intentar de nuevo."))
       .finally(() => setAttendanceLoading(false));
   }, [activeView, contractorMode]);

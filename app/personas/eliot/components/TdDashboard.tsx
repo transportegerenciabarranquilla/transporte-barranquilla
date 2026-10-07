@@ -34,6 +34,7 @@ import { RankingChart } from "./RankingChart";
 import { RoleSummaryCards } from "./RoleSummaryCards";
 import { TrendChart } from "./TrendChart";
 import { MissingMarksTable } from "./MissingMarksTable";
+import { RouteTimeTable } from "./RouteTimeTable";
 
 const DEFAULT_FILTERS: DashboardFilters = { query: "", carrier: "todos", plate: "todas", status: "todos" };
 const ROLES: CrewRole[] = ["rr", "aux", "conductor"];
@@ -281,6 +282,7 @@ export function TdDashboard() {
               </>
             )}
             <TrendChart rows={filteredRows} />
+            <RouteTimeTable rows={filteredRows} />
             <PlateCrewTable rows={filteredRows} />
 
             {selectedSnapshot.warnings.length ? <WarningsSummary rowCount={selectedSnapshot.rows.length} warnings={selectedSnapshot.warnings} /> : null}
