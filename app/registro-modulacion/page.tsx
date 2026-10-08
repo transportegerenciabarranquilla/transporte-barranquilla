@@ -15,7 +15,7 @@ import { validateModulacion } from "../modulacion/utils";
 import { ModulacionForm } from "../modulacion/components/ModulacionForm";
 import { ModulacionHeader } from "../modulacion/components/ModulacionHeader";
 import { mapAttendanceToVehicle } from "../modulacion/utils";
-import { normalizeContractorName } from "../lib/contractors";
+import { canWriteModulationsAndAttendance, normalizeContractorName } from "../lib/contractors";
 
 export default function RegistroModulacionPage() {
   const router = useRouter();
@@ -282,6 +282,10 @@ export default function RegistroModulacionPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWriteModulationsAndAttendance(form.contratista)) {
+      setSaveError("Logísticos puede consultar el módulo, pero no registrar modulaciones.");
+      return;
+    }
     const nextErrors = validateModulacion(form);
     if (loadingVehicles) {
       nextErrors.dt = "Espera a que termine la validacion del DT.";
@@ -336,6 +340,7 @@ export default function RegistroModulacionPage() {
           loadingModulador={loadingModulador}
           loadingVehicles={loadingVehicles}
           moduladorError={moduladorError}
+          readOnly={!canWriteModulationsAndAttendance(form.contratista)}
           rrNombre={form.personaNombre}
           onChange={updateField}
           onSubmit={handleSubmit}

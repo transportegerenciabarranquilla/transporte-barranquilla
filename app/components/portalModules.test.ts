@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getVisiblePortalModules } from "./portalModules.ts";
-import { canAccessDeliveryCompliance, canManageComplaint, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, canManageComplaint, canWriteModulationsAndAttendance, complaintUploadContractor, contractorForEmail, isComplaintsContractor, normalizeContractorName } from "../lib/contractors.ts";
 import { canAccessContractor } from "../lib/adminScope.ts";
 
 test("Route Tracking tiene módulo propio solo para administradores", () => {
@@ -79,6 +79,13 @@ test("cumplimiento de entregas no está disponible para HL, Logísticos ni Surti
 test("correos no asignados siguen sin acceso a una contratista", () => {
   assert.equal(contractorForEmail("desconocido@gmail.com"), null);
   assert.equal(isComplaintsContractor("Desconocido"), false);
+});
+
+test("Logísticos consulta modulaciones y asistencias pero no puede escribirlas", () => {
+  assert.equal(canWriteModulationsAndAttendance("Logisticos"), false);
+  assert.equal(canWriteModulationsAndAttendance("Logísticos"), false);
+  assert.equal(canWriteModulationsAndAttendance("Logisticos Arenosa"), false);
+  assert.equal(canWriteModulationsAndAttendance("Surti Cervezas"), true);
 });
 
 test("Logísticos administra quejas solo de su sede y Corona solo las propias", () => {

@@ -90,6 +90,11 @@ export function canEditRangeReasons(contractor: string | null | undefined) {
   return normalized === "logisticos" || normalized === "surticervezas" || normalized === "hllogisticos";
 }
 
+export function canWriteModulationsAndAttendance(contractor: string | null | undefined) {
+  const normalized = normalizeContractorName(contractor);
+  return normalized !== "logisticos" && normalized !== "logisticosarenosa";
+}
+
 // El módulo de cumplimiento de entregas queda deshabilitado para las contratistas.
 const DELIVERY_COMPLIANCE_CONTRACTORS = new Set<string>();
 

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
-import { isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
+import { canWriteModulationsAndAttendance, isOperationalContractor, normalizeContractorName } from "../../lib/contractors";
 import { cachedJsonFetch, clearServerCache } from "../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseHeaders, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 
@@ -56,6 +56,9 @@ export async function PUT(request: Request) {
     const contractor = isPublicSubmission ? records[0]?.contratista : session?.contractor || records[0]?.contratista;
     if (!isOperationalContractor(contractor)) {
       return NextResponse.json({ error: "Contratista no valido." }, { status: 400 });
+    }
+    if (!canWriteModulationsAndAttendance(contractor)) {
+      return NextResponse.json({ error: "Logísticos tiene acceso de consulta, pero no puede registrar asistencias." }, { status: 403 });
     }
     if (records.some((record) => normalizeContractorName(record.contratista) !== normalizeContractorName(contractor))) {
       return NextResponse.json({ error: `Solo puedes guardar asistencia de ${contractor}.` }, { status: 403 });

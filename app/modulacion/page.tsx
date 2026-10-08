@@ -23,6 +23,7 @@ import { ModulacionHeader } from "./components/ModulacionHeader";
 import dynamic from "next/dynamic";
 const ModulacionComparison = dynamic(() => import("./components/ModulacionComparison"), { loading: () => <p role="status" className="p-6 text-sm text-slate-500">Cargando comparación...</p> });
 import type { Vehiculo } from "../seguimiento/types";
+import { canWriteModulationsAndAttendance } from "../lib/contractors";
 
 const MODULACION_REFRESH_MS = 30_000;
 
@@ -37,6 +38,7 @@ export default function ModulacionPage() {
   const [selectedDateTo, setSelectedDateTo] = useState(() => getLocalDateKey());
   const [selectedContractor, setSelectedContractor] = useState("");
   const [isAdminSession, setIsAdminSession] = useState(false);
+  const [canManageRecords, setCanManageRecords] = useState(false);
   const [selectedSalesBoss, setSelectedSalesBoss] = useState("");
   const [search, setSearch] = useState("");
   const [telefonosCliente, setTelefonosCliente] = useState<Record<string, string>>({});
@@ -66,9 +68,13 @@ export default function ModulacionPage() {
       .then((body) => {
         const isAdmin = Boolean(body?.session?.isAdmin);
         setIsAdminSession(isAdmin);
+        setCanManageRecords(!isAdmin && canWriteModulationsAndAttendance(body?.session?.contractor));
         if (!isAdmin && body?.session?.contractor) setSelectedContractor(body.session.contractor);
       })
-      .catch(() => setIsAdminSession(false));
+      .catch(() => {
+        setIsAdminSession(false);
+        setCanManageRecords(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -304,6 +310,7 @@ export default function ModulacionPage() {
       <ModulacionHeader onBack={() => router.push("/")} />
 
       <section className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
+        {!canManageRecords && !isAdminSession ? <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Logísticos tiene acceso de consulta. Crear, editar y eliminar modulaciones está deshabilitado.</p> : null}
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500">Modulo interno</p>
@@ -510,6 +517,7 @@ export default function ModulacionPage() {
                             <input
                               className="h-7 w-14 rounded-md border border-slate-200 bg-white/90 px-1.5 text-center text-xs font-semibold text-[#10223d] outline-none transition focus:border-[#00b8d9]"
                               inputMode="numeric"
+                               disabled={!canManageRecords}
                               aria-label={`Cajas gestionadas del cliente ${registro.codigoCliente}`}
                               onBlur={() => commitCajasGestionadas(registro.id)}
                               onChange={(event) => updateCajasGestionadasDraft(registro.id, event.target.value)}
@@ -532,6 +540,7 @@ export default function ModulacionPage() {
                                     ? origin === "Logística" ? "border-cyan-600 bg-cyan-600 text-white" : "border-violet-600 bg-violet-600 text-white"
                                     : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                                 }`}
+                                 disabled={!canManageRecords}
                                 key={origin}
                                 onClick={() => updateOrigenReubicacion(registro.id, origin)}
                                 type="button"
@@ -547,22 +556,22 @@ export default function ModulacionPage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap justify-end gap-1">
-                        <button
+                        {canManageRecords ? <button
                           className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50 px-1.5 text-[10px] font-semibold text-[#07556b] transition hover:border-[#00b8d9] hover:bg-white"
                           onClick={() => setSelectedRegistroId(registro.id)}
                           type="button"
                         >
                           <Eye size={13} />
                           Ver
-                        </button>
-                        <button
+                        </button> : null}
+                        {canManageRecords ? <button
                           className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-800 transition hover:border-blue-200 hover:bg-white"
                           onClick={() => setEditingRegistroId(registro.id)}
                           type="button"
                         >
                           <Pencil size={13} />
                           Editar
-                        </button>
+                        </button> : null}
                         <button
                           aria-label={`Eliminar modulacion ${registro.codigoCliente}`}
                           className="inline-grid h-7 w-7 place-items-center rounded-md border border-red-100 bg-red-50 text-red-700 transition hover:border-red-200 hover:bg-white"
@@ -598,10 +607,11 @@ export default function ModulacionPage() {
             registro={registroSeleccionado}
             selectedVehicle={vehiculoSeleccionado}
             preventistaNombre={registroSeleccionado.preventistaNombre || nombresPreventista[registroSeleccionado.codigoCliente] || ""}
+             readOnly={!canManageRecords}
           />
         ) : null}
 
-        {registroEditando ? (
+        {registroEditando && canManageRecords ? (
           <EditModulacionModal
             key={registroEditando.id}
             onClose={() => setEditingRegistroId(null)}
@@ -903,12 +913,14 @@ function ModulacionDetailModal({
   onCommitGestionadas,
   onChangeComentarioModulador,
   gestionadasDraft,
+  readOnly,
 }: {
   onClose: () => void;
   registro: ModulacionRegistro;
   selectedVehicle: Vehiculo | null;
   preventistaNombre: string;
   gestionadasDraft?: string;
+  readOnly?: boolean;
   onChangeGestionadas: (id: string, value: string) => void;
   onCommitGestionadas: (id: string) => void;
   onChangeComentarioModulador: (id: string, value: string) => void;
@@ -922,13 +934,14 @@ function ModulacionDetailModal({
   }, [registro.id, registro.comentarioModulador]);
 
   function persistComentarioModulador() {
+    if (readOnly) return;
     if ((registro.comentarioModulador || "") === comentarioModuladorDraft) return;
     onChangeComentarioModulador(registro.id, comentarioModuladorDraft);
   }
 
   function handleClose() {
     persistComentarioModulador();
-    onCommitGestionadas(registro.id);
+    if (!readOnly) onCommitGestionadas(registro.id);
     onClose();
   }
 
@@ -1013,6 +1026,7 @@ function ModulacionDetailModal({
                 <textarea
                   className="mt-2 min-h-20 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   onBlur={persistComentarioModulador}
+                   disabled={readOnly}
                   onChange={(event) => setComentarioModuladorDraft(event.target.value)}
                   placeholder="Agrega una nota interna de modulacion"
                   value={comentarioModuladorDraft}
@@ -1023,6 +1037,7 @@ function ModulacionDetailModal({
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-[#10223d] outline-none transition focus:border-[#f5bd19]"
                   inputMode="numeric"
+                   disabled={readOnly}
                   onBlur={() => onCommitGestionadas(registro.id)}
                   onChange={(event) => onChangeGestionadas(registro.id, event.target.value)}
                   onKeyDown={(event) => {

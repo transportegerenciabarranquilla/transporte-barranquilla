@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CONTRACTORS, contractorLabel, normalizeContractorName } from "../lib/contractors";
+import { canWriteModulationsAndAttendance, CONTRACTORS, contractorLabel, normalizeContractorName } from "../lib/contractors";
 import { ArrowLeft, BadgeCheck, Building2, ClipboardCheck, Hash, IdCard, Truck, Users } from "lucide-react";
 import {
   createAttendanceKey,
@@ -63,6 +63,7 @@ export default function AsistenciaPage() {
   const [saving, setSaving] = useState(false);
   const personasCacheRef = useRef(new Map<string, Persona>());
   const { cedulaAuxiliar1, cedulaAuxiliar2, cedulaAuxiliar3, cedulaResponsable, contratista } = form;
+  const readOnly = !canWriteModulationsAndAttendance(contratista);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +128,10 @@ export default function AsistenciaPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (readOnly) {
+      setSaveError("Logísticos puede ingresar, pero no registrar asistencias.");
+      return;
+    }
     const nextErrors = validate(form);
 
     personFields.forEach((field) => {
@@ -277,9 +282,10 @@ export default function AsistenciaPage() {
               </button>
             ) : null}
 
+            {readOnly ? <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Logísticos tiene acceso al módulo en modo consulta; el registro de asistencias está deshabilitado.</p> : null}
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#f5bd19] px-5 text-sm font-semibold text-[#10223d] transition hover:bg-[#e6a400] disabled:opacity-60"
-              disabled={saving}
+              disabled={saving || readOnly}
               type="submit"
             >
               <BadgeCheck size={18} />

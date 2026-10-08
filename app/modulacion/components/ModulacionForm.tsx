@@ -20,6 +20,7 @@ export function ModulacionForm({
   rrNombre,
   onChange,
   onSubmit,
+  readOnly,
   saveError,
   saving,
   submitted,
@@ -36,6 +37,7 @@ export function ModulacionForm({
   rrNombre?: string;
   onChange: <Key extends keyof FormState>(key: Key, value: FormState[Key]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  readOnly?: boolean;
   saveError?: string;
   saving?: boolean;
   submitted: boolean;
@@ -44,7 +46,7 @@ export function ModulacionForm({
 }) {
   const hasTypedDt = Boolean(form.contratista && normalizeDt(form.dt));
   const hasValidatedDt = hasTypedDt && vehiculosSeguimiento.some((vehiculo) => normalizeDt(vehiculo.transporte) === normalizeDt(form.dt));
-  const submitDisabled = saving || loadingVehicles || (hasTypedDt && !hasValidatedDt);
+  const submitDisabled = readOnly || saving || loadingVehicles || (hasTypedDt && !hasValidatedDt);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -198,6 +200,7 @@ export function ModulacionForm({
           </div>
         </FormSection>
 
+        {readOnly ? <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Logísticos puede ingresar y consultar, pero no registrar modulaciones.</p> : null}
         <button
           className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#0f7c58] px-5 text-sm font-semibold text-white transition hover:bg-[#0b684a] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
           disabled={submitDisabled}
