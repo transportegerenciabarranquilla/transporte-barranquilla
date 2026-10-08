@@ -42,7 +42,7 @@ export async function GET() {
       contractor: resolvedContractor,
       matched: Boolean(match || attendance),
       uploadedAt: row.data.uploadedAt || row.uploaded_at,
-      closingTime: complaintClosingDisplay(row.data.createdDate),
+      closingTime: complaintClosingDisplay(row.data.createdDate, row.data.uploadedAt || row.uploaded_at),
     };
   });
   const records = session.isAdmin && !session.isSiteAdmin
@@ -232,7 +232,7 @@ function enrichComplaint(input: Record<string, unknown>, _index: number, seguimi
   const contractor = match?.contractor || vehicle?.transportista || (isComplaintsContractor(uploaderContractor) ? uploaderContractor : "Por identificar");
   return {
     id,
-    closingTime: complaintClosingDisplay(createdDate),
+    closingTime: complaintClosingDisplay(createdDate, uploadedAt),
     createdDate,
     code: text(input.code ?? input.Codigo ?? input.codigo),
     establishment: text(input.establishment ?? input.establecimiento),
@@ -333,6 +333,6 @@ function normalizeClosedStatus(value: unknown) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("cerrad");
 }
 
-function complaintClosingDisplay(createdDate: string) {
-  return complaintClosingDeadline(createdDate) || "invalid";
+function complaintClosingDisplay(createdDate: string, uploadedAt = "") {
+  return complaintClosingDeadline(createdDate, uploadedAt) || "invalid";
 }

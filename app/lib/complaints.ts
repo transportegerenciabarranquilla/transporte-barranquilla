@@ -46,10 +46,12 @@ export function complaintDateKey(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? "" : localDateKey(parsed);
 }
 
-export function complaintClosingDeadline(createdDate: string) {
+export function complaintClosingDeadline(createdDate: string, uploadedAt = "") {
+  const uploadedTime = Date.parse(uploadedAt);
+  if (Number.isFinite(uploadedTime)) return new Date(uploadedTime + 48 * 60 * 60 * 1000).toISOString();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(createdDate)) return "";
   const dayStart = Date.parse(`${createdDate}T00:00:00-05:00`);
-  return Number.isFinite(dayStart) ? new Date(dayStart + 24 * 60 * 60 * 1000).toISOString() : "";
+  return Number.isFinite(dayStart) ? new Date(dayStart + 48 * 60 * 60 * 1000).toISOString() : "";
 }
 
 export function complaintElapsedClock(uploadedAt: string, closingTime: string, now: number, createdDate = "") {
@@ -60,7 +62,7 @@ export function complaintElapsedClock(uploadedAt: string, closingTime: string, n
   const hasCreationDate = /^\d{4}-\d{2}-\d{2}$/.test(createdDate);
   const start = hasExactStart ? parsedStart : hasCreationDate ? Date.parse(`${createdDate}T00:00:00-05:00`) : NaN;
   if (!Number.isFinite(start)) return null;
-  const fallbackDeadline = Date.parse(complaintClosingDeadline(createdDate));
+  const fallbackDeadline = Date.parse(complaintClosingDeadline(createdDate, uploadedAt));
   const deadline = hasDeadline ? parsedDeadline : fallbackDeadline;
   if (!Number.isFinite(deadline)) return null;
   return {
