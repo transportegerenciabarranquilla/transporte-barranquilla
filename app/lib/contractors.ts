@@ -7,13 +7,23 @@ export const CONTRACTOR_BY_EMAIL: Record<string, string> = {
 };
 
 const POWER_APPS_ONLY_EMAILS = new Set([
-  "surticervezas@bavaria-seguimiento.com",
   "hllogistica@gmail.com",
+]);
+const REVOKED_APP_ACCESS_EMAILS = new Set([
+  "surticervezas@bavaria-seguimiento.com",
 ]);
 export const POWER_APPS_URL = "https://transporttracking1.powerappsportals.com/";
 
 export function usesPowerAppsInstead(email: string | null | undefined) {
   return POWER_APPS_ONLY_EMAILS.has(email?.trim().toLowerCase() || "");
+}
+
+export function isAppAccessRevoked(email: string | null | undefined) {
+  return REVOKED_APP_ACCESS_EMAILS.has(email?.trim().toLowerCase() || "");
+}
+
+export function isAppContractorAccessRevoked(contractor: string | null | undefined) {
+  return normalizeContractorName(contractor) === "surticervezas";
 }
 
 export const ADMIN_EMAIL = "admin@bavaria-seguimiento.com";
@@ -49,6 +59,7 @@ export function isPeopleEmail(email: string | null | undefined) {
 }
 
 export function contractorForEmail(email: string | null | undefined) {
+  if (isAppAccessRevoked(email)) return null;
   if (usesPowerAppsInstead(email)) return null;
   if (isEffectiveRestEmail(email)) return "Control de ingreso";
   if (isSiteAdminEmail(email)) return "Admin Arenosa";
@@ -87,7 +98,7 @@ export function isLogisticosContractor(value: string | null | undefined) {
 
 export function canEditRangeReasons(contractor: string | null | undefined) {
   const normalized = normalizeContractorName(contractor);
-  return normalized === "logisticos" || normalized === "surticervezas" || normalized === "hllogisticos";
+  return normalized === "logisticos" || normalized === "hllogisticos";
 }
 
 // El módulo de cumplimiento de entregas queda deshabilitado para las contratistas.
