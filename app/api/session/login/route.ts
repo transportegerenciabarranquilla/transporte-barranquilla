@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE, getAuthCookieOptions, REFRESH_COOKIE, REMEMBER_COOKIE } from "../../../lib/authServer";
-import { contractorForEmail, isAdminEmail, isAppAccessRevoked, isAppContractorAccessRevoked, isPeopleEmail, isSecurityOwnerEmail, POWER_APPS_URL, usesPowerAppsInstead } from "../../../lib/contractors";
+import { contractorForEmail, isAdminEmail, isPeopleEmail, isSecurityOwnerEmail, POWER_APPS_URL, usesPowerAppsInstead } from "../../../lib/contractors";
 import { readSecurityState } from "../../../lib/securityState";
 import { requestIp } from "../../../lib/securityIp";
 import { isIpBlocked } from "../../../lib/securityIpState";
@@ -18,12 +18,6 @@ export async function POST(request: Request) {
   const { email, password } = bodyInput as { email: string; password: string };
   const remember = bodyInput.remember === true;
   const normalizedEmail = email?.trim().toLowerCase() || "";
-  if (isAppAccessRevoked(normalizedEmail)) {
-    return NextResponse.json({
-      error: "La cuenta de Surti Cervezas no tiene permisos para acceder a este aplicativo.",
-      code: "ACCOUNT_DISABLED",
-    }, { status: 403 });
-  }
   if (usesPowerAppsInstead(normalizedEmail)) {
     return NextResponse.json({
       error: "Esta cuenta ya no tiene acceso a este aplicativo. Para continuar, ingresa a Power Apps.",
@@ -32,7 +26,7 @@ export async function POST(request: Request) {
     }, { status: 403 });
   }
   const contractor = contractorForEmail(normalizedEmail);
-  if (!contractor || isAppContractorAccessRevoked(contractor)) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });
+  if (!contractor) return NextResponse.json({ error: "Este correo no tiene una empresa asignada." }, { status: 403 });
 
   const supabaseKey = requireSupabaseKey();
   let authResponse: Response;

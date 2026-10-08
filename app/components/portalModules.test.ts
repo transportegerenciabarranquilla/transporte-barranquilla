@@ -25,7 +25,7 @@ test("Promedio RR solo aparece en administración", () => {
   assert.equal(getVisiblePortalModules({ isPeople: true }).some(module => module.href === "/admin/promedio-rr"), false);
 });
 
-test("HL conserva sus módulos y Surti no recibe acceso al portal", () => {
+test("HL y Surti reciben sus módulos operativos", () => {
   const contractor = contractorForEmail(" HLLogistica@gmail.com ");
   assert.equal(contractor, "HL Logisticos");
   assert.equal(normalizeContractorName("HL Logistica"), normalizeContractorName(contractor));
@@ -33,7 +33,8 @@ test("HL conserva sus módulos y Surti no recibe acceso al portal", () => {
   const surti = getVisiblePortalModules({ contractor: "Surti Cervezas" });
   assert.ok(modules.some(({ href }) => href === "/modulacion"));
   assert.ok(modules.some(({ href }) => href === "/seguimiento/refusal"));
-  assert.deepEqual(surti, []);
+  assert.ok(surti.some(({ href }) => href === "/modulacion"));
+  assert.ok(surti.some(({ href }) => href === "/seguimiento"));
   assert.equal(isComplaintsContractor(contractor), true);
   assert.equal(canManageComplaint(contractor, "Surti Cervezas"), false);
   assert.equal(canManageComplaint(contractor, contractor), true);
@@ -41,7 +42,7 @@ test("HL conserva sus módulos y Surti no recibe acceso al portal", () => {
   assert.equal(canAccessContractor(session, contractor), true);
   assert.equal(canAccessContractor(session, "Surti Cervezas"), false);
   assert.equal(canAccessContractor(session, "Logisticos"), false);
-  assert.equal(canAccessContractor({ email: "surticervezas@bavaria-seguimiento.com", contractor: "Surti Cervezas", isAdmin: false }, "Surti Cervezas"), false);
+  assert.equal(canAccessContractor({ email: "surticervezas@bavaria-seguimiento.com", contractor: "Surti Cervezas", isAdmin: false }, "Surti Cervezas"), true);
 });
 
 test("Logisticos Arenosa recibe los mismos módulos que Galapa y su seguimiento propio", () => {

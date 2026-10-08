@@ -1,4 +1,4 @@
-import { canAccessDeliveryCompliance, contractorSiteName, isAppContractorAccessRevoked, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
+import { canAccessDeliveryCompliance, contractorSiteName, isComplaintsContractor, isLogisticosContractor, isPuntoCoronaContractor, normalizeContractorName } from "../lib/contractors.ts";
 
 export type PortalModule = {
   id: number;
@@ -266,7 +266,6 @@ export function getVisiblePortalModules({
   isAdmin?: boolean;
   isPeople?: boolean;
 }) {
-  if (isAppContractorAccessRevoked(contractor)) return [];
   const canSeeJornada = Boolean(isAdmin || isLogisticosContractor(contractor));
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
