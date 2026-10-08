@@ -47,7 +47,7 @@ export default function RoutePerformanceTable({ rows, pending, error }: { rows: 
         </tr>)}</tbody>
       </table>
     </div>
-    {!offenders.length && <p className="px-5 py-8 text-center text-sm text-slate-500">No hay conductores identificados con ADH_KM en los filtros actuales.</p>}
+    {!offenders.length && <p className="px-5 py-8 text-center text-sm text-slate-500">No hay conductores ni vehículos con ADH_KM en los filtros actuales.</p>}
     {offenders.length > PAGE_SIZE && <nav aria-label="Paginación de top offenders" className="flex items-center justify-center gap-3 border-t border-slate-200 bg-slate-50/80 px-4 py-3">
       <button aria-label="Ver registros anteriores" className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-30" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} type="button"><ChevronLeft size={18} /></button>
       <span className="min-w-32 text-center text-xs font-bold tabular-nums text-slate-600">{currentPage * PAGE_SIZE + 1}-{Math.min((currentPage + 1) * PAGE_SIZE, offenders.length)} de {offenders.length} · Página {currentPage + 1} de {pageCount}</span>

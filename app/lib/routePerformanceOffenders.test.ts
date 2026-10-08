@@ -29,6 +29,17 @@ test("excluye filas sin conductor identificado o sin adherencia", () => {
   assert.deepEqual(ranking.map((item) => [item.driver, item.rr, item.adherenceKmPercent]), [["Luis", "", 0]]);
 });
 
+test("muestra por placa los vehículos que todavía no tienen conductor registrado", () => {
+  const ranking = buildDriverOffenders([
+    { driver: "", rr: "", contractor: "Surti Cervezas", matchedPlate: "COPSX942", adherenceKmPercent: 65.8, rangePercent: 100, differenceKm: 11.71 },
+    { driver: "Sin identificar", rr: "", contractor: "Surti Cervezas", matchedPlate: "COVEJ198", adherenceKmPercent: 74, rangePercent: 50, differenceKm: 9.2 },
+  ]);
+  assert.deepEqual(ranking.map((item) => [item.driver, item.plates, item.contractor]), [
+    ["Sin registrar", ["PSX942"], "Surti Cervezas"],
+    ["Sin registrar", ["VEJ198"], "Surti Cervezas"],
+  ]);
+});
+
 test("muestra todas las placas de la tripulación sin duplicar ni alterar los indicadores", () => {
   const trip = { driver: "Luis", rr: "Ana", contractor: "Logisticos", adherenceKmPercent: 50, differenceKm: 5 };
   const [group] = buildDriverOffenders([
