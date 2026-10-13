@@ -159,7 +159,7 @@ export async function PATCH(request: Request) {
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const body = await request.json().catch(() => ({})) as { id?: string; action?: string; comments?: string };
   const id = text(body.id);
-  if (!id || !["close", "comment"].includes(body.action || "")) return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
+  if (!id || !["close", "comment", "reopen"].includes(body.action || "")) return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const params = new URLSearchParams({ select: "contractor,data", complaint_id: `eq.${id}`, limit: "1" });
   const currentResponse = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
@@ -167,6 +167,36 @@ export async function PATCH(request: Request) {
   const current = (await currentResponse.json() as Array<{ contractor: string; data: ComplaintRecord }>)[0];
   if (!current) return NextResponse.json({ error: "Queja no encontrada." }, { status: 404 });
   if (!session.isAdmin && !canManageComplaint(session.contractor, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (body.action === "reopen") {
+    if (!isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "Solo Logísticos puede reabrir quejas." }, { status: 403 });
+    if (!normalizeClosedStatus(current.data.status)) return NextResponse.json({ record: current.data });
+    const reopenedAt = new Date().toISOString();
+    const history = Array.isArray(current.data.statusHistory) ? current.data.statusHistory : [];
+    const { closedAt, closedBy, ...openData } = current.data;
+    const lastHistory = history.at(-1);
+    const historyWithClosure = lastHistory?.status === "Cerrada" && lastHistory.at === closedAt
+      ? history
+      : [...history, { status: "Cerrada" as const, at: closedAt || reopenedAt, by: closedBy || "" }];
+    const record: ComplaintRecord = {
+      ...openData,
+      status: "Abierta",
+      reopenedAt,
+      reopenedBy: session.email,
+      statusHistory: [
+        ...historyWithClosure,
+        { status: "Abierta", at: reopenedAt, by: session.email },
+      ],
+    };
+    const reopenParams = new URLSearchParams({ complaint_id: `eq.${id}`, "data->>closedAt": "not.is.null" });
+    const updateResponse = await fetch(supabaseRest(TABLE, `?${reopenParams}`), {
+      method: "PATCH", headers: { ...headers, Prefer: "return=representation" }, body: JSON.stringify({ data: record }), cache: "no-store",
+    });
+    if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+    const [saved] = await updateResponse.json() as Array<{ data: ComplaintRecord }>;
+    if (!saved?.data || normalizeClosedStatus(saved.data.status)) return NextResponse.json({ error: "No se confirmó la reapertura. Actualiza la lista antes de intentar otra vez." }, { status: 409 });
+    await writeAuditLog({ action: "queja_reabierta", contractor: current.contractor, details: { previousClosedAt: closedAt, previousClosedBy: closedBy }, module: "quejas", recordId: id, request, session });
+    return NextResponse.json({ record: saved.data });
+  }
   if (body.action === "comment") {
     const comments = text(body.comments);
     if (comments.length > 2000) return NextResponse.json({ error: "El comentario no puede superar 2.000 caracteres." }, { status: 400 });
@@ -181,7 +211,13 @@ export async function PATCH(request: Request) {
   if (normalizeClosedStatus(current.data.status)) return NextResponse.json({ record: current.data });
   if (!current.data.evidence?.path) return NextResponse.json({ error: "Debes subir una evidencia PDF o PNG antes de cerrar la queja." }, { status: 409 });
   const closedAt = new Date().toISOString();
-  const record = { ...current.data, status: "Cerrada", closedAt, closedBy: session.email };
+  const record = {
+    ...current.data,
+    status: "Cerrada",
+    closedAt,
+    closedBy: session.email,
+    statusHistory: [...(Array.isArray(current.data.statusHistory) ? current.data.statusHistory : []), { status: "Cerrada" as const, at: closedAt, by: session.email }],
+  };
   const closeParams = new URLSearchParams({ complaint_id: `eq.${id}`, "data->>closedAt": "is.null" });
   const updateResponse = await fetch(supabaseRest(TABLE, `?${closeParams}`), {
     method: "PATCH",

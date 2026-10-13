@@ -99,6 +99,39 @@ test("un cierre repetido conserva la fecha y hora originales", async t => {
   assert.equal(result.body.record.closedAt, closedAt);
   assert.equal(writes, 0);
 });
+test("Logisticos puede reabrir una queja cerrada y conserva el evento en el historial", async t => {
+  const closedAt = "2026-10-06T12:34:56.000Z";
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (options.method === "PATCH") {
+      assert.equal(new URL(url).searchParams.get("data->>closedAt"), "not.is.null");
+      const payload = JSON.parse(options.body).data;
+      assert.equal(payload.status, "Abierta");
+      assert.equal("closedAt" in payload, false);
+      assert.equal(payload.statusHistory.at(-2).status, "Cerrada");
+      assert.equal(payload.statusHistory.at(-1).status, "Abierta");
+      return Response.json([{ data: payload }]);
+    }
+    return Response.json([{ contractor: "Logisticos", data: { id: "q1", status: "Cerrada", closedAt, closedBy: "closer@example.test", evidence } }]);
+  });
+  const result = await route({ contractor: "Logisticos", accessToken: "session-token", email: "logisticos@example.test" }).PATCH(new Request("https://example.test", {
+    method: "PATCH", body: JSON.stringify({ id: "q1", action: "reopen" }),
+  }));
+  assert.equal(result.status, 200);
+  assert.equal(result.body.record.status, "Abierta");
+  assert.ok(Number.isFinite(Date.parse(result.body.record.reopenedAt)));
+});
+test("una contratista distinta de Logisticos no puede reabrir quejas", async t => {
+  let writes = 0;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (options.method === "PATCH") writes++;
+    return Response.json([{ contractor: "Surti Cervezas", data: { id: "q1", status: "Cerrada", closedAt: "2026-10-06T12:34:56.000Z", evidence } }]);
+  });
+  const result = await route({ contractor: "Surti Cervezas", accessToken: "session-token", email: "surti@example.test" }).PATCH(new Request("https://example.test", {
+    method: "PATCH", body: JSON.stringify({ id: "q1", action: "reopen" }),
+  }));
+  assert.equal(result.status, 403);
+  assert.equal(writes, 0);
+});
 test("muestra la hora de cierre en Bogotá en el detalle de la queja", () => {
   const react = { ...require("react"), useState: initial => [initial, () => {}] };
   const { ComplaintModal } = compile("../quejas/page.tsx", {
@@ -110,6 +143,17 @@ test("muestra la hora de cierre en Bogotá en el detalle de la queja", () => {
   const html = renderToStaticMarkup(ComplaintModal({ busy: false, error: "", message: "", complaint: { id: "q1", status: "Cerrada", closedAt: "2026-10-06T12:34:56.000Z" }, now: Date.now() }));
   assert.match(html, /Fecha y hora de cierre/);
   assert.match(html, /07:34:56/);
+});
+test("muestra Reabrir queja en el mismo modal para Logisticos", () => {
+  const react = { ...require("react"), useState: initial => [initial, () => {}] };
+  const { ComplaintModal } = compile("../quejas/page.tsx", {
+    react,
+    "../lib/contractors": contractors,
+    "../lib/complaints": complaints,
+    "next/dynamic": { default: () => () => null },
+  }, "\nexport { ComplaintModal };\n");
+  const html = renderToStaticMarkup(ComplaintModal({ busy: false, canReopen: true, error: "", message: "", complaint: { id: "q1", status: "Cerrada", closedAt: "2026-10-06T12:34:56.000Z" }, now: Date.now() }));
+  assert.match(html, /Reabrir queja/);
 });
 test("la ventana muestra el error y permite seleccionar JPG y reintentar el mismo archivo", () => {
   const react = { ...require("react"), useState: initial => [initial, () => {}] };

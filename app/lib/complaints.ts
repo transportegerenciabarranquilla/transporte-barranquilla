@@ -23,6 +23,9 @@ export type ComplaintRecord = {
   evidence?: { path: string; name: string; type: string; uploadedAt: string; uploadedBy: string };
   closedAt?: string;
   closedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  statusHistory?: Array<{ status: "Abierta" | "Cerrada"; at: string; by: string }>;
 };
 
 export const COMPLAINT_TEMPLATE_COLUMNS = ["id", "tiempo para cierre", "fecha creacion", "Codigo", "establecimiento", "novedad", "transportista", "estado", "dt"] as const;

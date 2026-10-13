@@ -32,6 +32,7 @@ export async function GET(request: Request) {
     if (!session) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
     const search = new URL(request.url).searchParams;
     const tv = search.get("tv") === "1";
+    const adherence = search.get("adherencia") === "1";
     let range;
     try { range = adminDateRange(search); }
     catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
@@ -59,8 +60,12 @@ export async function GET(request: Request) {
         summary: row.summary,
       } } : row))
       .filter((report): report is AdminRangoReport => report !== null)
+      .filter((report) => {
+        const date = report.operationalDate.slice(0, 10);
+        return (!range.from || date >= range.from) && (!range.to || date <= range.to);
+      })
       .filter((report) => session.isAdmin || normalizeContractorName(report.contractor) === normalizeContractorName(session.contractor))
-      .filter((report) => !session.isAdmin || session.isSiteAdmin || !isAdminRangoExcludedContractor(report.contractor));
+      .filter((report) => adherence || !session.isAdmin || session.isSiteAdmin || !isAdminRangoExcludedContractor(report.contractor));
     return NextResponse.json({ reports: tv ? reports.map((report) => ({
       id: report.id,
       contractor: report.contractor,

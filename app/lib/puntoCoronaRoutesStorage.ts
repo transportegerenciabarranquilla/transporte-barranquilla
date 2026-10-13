@@ -24,6 +24,10 @@ export type PuntoCoronaRouteRow = {
   truckLicensePlate: string;
   pocExternalId: string;
   pocName: string;
+  /** Orden establecido originalmente para visitar al cliente. */
+  plannedVisitOrder?: number | null;
+  /** Orden en el que el RR realizo la visita. */
+  actualVisitOrder?: number | null;
   status: PuntoCoronaRouteStatus;
   withinRadius: boolean | null;
   outOfRadiusReason: string;

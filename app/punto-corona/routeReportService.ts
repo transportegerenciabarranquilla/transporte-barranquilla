@@ -212,13 +212,15 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
   const read = createRowReader(row);
   const tourDisplayId = read(["tour_display_id", "tour display id", "dt"]);
   const pocExternalId = read(["poc_external_id", "codigo cliente", "cliente"]);
+  const actualVisitOrder = readOrder(read(["visit_order", "visit order", "orden visita", "orden real"]));
+  const plannedVisitOrder = readOrder(read(["original_order", "original order", "orden original", "orden planeado"]));
   const timeColumns = ["out_of_radius_time", "out_of_radius_at", "hora fuera de rango"].map(normalizeKey);
   const eventTime = Object.entries(row)
     .filter(([key]) => timeColumns.includes(normalizeKey(key)))
     .map(([, value]) => rangeTime(value)).find(value => value !== null);
 
   return {
-    id: `${tourDisplayId}-${pocExternalId}-${read(["visit_order", "original_order"])}`,
+    id: `${tourDisplayId}-${pocExternalId}-${actualVisitOrder ?? plannedVisitOrder ?? ""}`,
     dt: normalizeDt(tourDisplayId),
     tourDisplayId,
     tourDate: toDateKey(read(["tour_date", "fecha"])),
@@ -226,6 +228,8 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
     truckLicensePlate: read(["truck_license_plate", "placa", "vehiculo"]),
     pocExternalId,
     pocName: read(["poc_name", "nombre cliente", "cliente"]),
+    plannedVisitOrder,
+    actualVisitOrder,
     status: read(["status", "estado"]),
     withinRadius: readBoolean(read(["within_radius", "en rango"])),
     outOfRadiusReason: read(["out_of_radius_reason", "razon fuera de rango"]),
@@ -255,6 +259,11 @@ function mapRouteRow(row: Record<string, unknown>): PuntoCoronaRouteRow {
       ]),
     ),
   };
+}
+
+function readOrder(value: string) {
+  const parsed = Number(String(value || "").trim().replace(",", "."));
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function mergeRouteWithSeguimiento(row: PuntoCoronaRouteRow, vehicle: Vehiculo, routeDt: string) {

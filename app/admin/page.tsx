@@ -485,6 +485,14 @@ export default function AdminPage() {
                   Entrega en rango
                 </button>
                 <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-emerald-300/30 bg-emerald-400/15 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/25"
+                  onClick={() => router.push("/admin/adherencia")}
+                  type="button"
+                >
+                  <BarChart3 size={16} />
+                  Adherencia a cumplimiento
+                </button>
+                <button
                   className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/15"
                   onClick={() => router.push("/admin/auditoria")}
                   type="button"
