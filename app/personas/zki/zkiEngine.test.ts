@@ -1,6 +1,10 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { rankTerritoryAuxiliaries } from "./zkiEngine.ts";
+
+function visitsInTerritory(rows: Array<Record<string, unknown>>, territory: string) {
+  return parseZkiVisits(rows.map((row) => ({ ...row, Barrio: territory })));
+}
 
 test("no asigna como conductor a un responsable de otra ruta y busca reemplazo", () => {
   const trips = parseTrips([{ Numero: 1, Nombre: "A", Peso: 1000 }, { Numero: 2, Nombre: "B", Peso: 1000 }]);
@@ -70,13 +74,15 @@ test("sin cédula detecta el conductor con nombres reordenados y no elimina ruta
   assert.equal([...assigned.values()].filter(row => row.driver === "Sin conductor disponible").length, 2);
 });
 
-test("recupera el ZKI del auxiliar aunque no haya RR con historial en el territorio", () => {
+test("recupera el ZKI del auxiliar solo con un código del catálogo", () => {
   const trip = parseTrips([{ Numero: 1, Nombre: "Zona", Peso: 1000, Clientes: 1 }])[0];
-  const visits = parseZkiVisits([{ Nombre: "Auxiliar real", Cedula: "123", Cargo: "Auxiliar", Codigo: "00100", Visitas: 5 }]);
+  const visits = parseZkiVisits([{ Nombre: "Auxiliar real", Cedula: "123", Cargo: "Auxiliar", Codigo: "00100", Barrio: "Zona", Visitas: 5 }]);
   const scores = rankTerritoryAuxiliaries(trip, visits, ["100"], DEFAULT_ZKI_SETTINGS);
   assert.equal(scores.length, 1);
   assert.equal(scores[0].zki, 100);
   assert.deepEqual(rankTerritoryAuxiliaries(trip, visits, ["200"], DEFAULT_ZKI_SETTINGS), []);
+  const [otherTrip] = parseTrips([{ Numero: 2, Nombre: "Carrizal", Peso: 1000 }]);
+  assert.equal(rankTerritoryAuxiliaries(otherTrip, visits, ["100"], DEFAULT_ZKI_SETTINGS)[0].zki, 100);
 });
 
 test("asigna el auxiliar con historial a la ruta que puede alcanzar el umbral", () => {
@@ -99,9 +105,9 @@ test("cruza códigos numéricos de Excel y reconoce RR y líder de ruta", () => 
   const trip = parseTrips([{ Numero: "007.0", Nombre: "Zona", Peso: 500, Clientes: 1 }])[0];
   assert.equal(trip.territoryId, "7");
   const visits = parseZkiVisits([
-    { Nombre: "Ana Perez", Cargo: "RR", Codigo: "000123.0", Visitas: 5 },
-    { Nombre: "Luis Diaz", Cargo: "Líder de Ruta", Codigo: 123, Visitas: 5 },
-    { Nombre: "Conductor", Cargo: "Conductor", Codigo: 123, Visitas: 5 },
+    { Nombre: "Ana Perez", Cargo: "RR", Codigo: "000123.0", Barrio: "Zona", Visitas: 5 },
+    { Nombre: "Luis Diaz", Cargo: "Líder de Ruta", Codigo: 123, Barrio: "Zona", Visitas: 5 },
+    { Nombre: "Conductor", Cargo: "Conductor", Codigo: 123, Barrio: "Zona", Visitas: 5 },
   ]);
   assert.equal(visits.length, 2);
   const ranked = rankCandidates(trip, [], visits, ["00123"], new Map(), DEFAULT_ZKI_SETTINGS);
@@ -263,6 +269,22 @@ test("si faltan carros prioriza la ruta viable y deja la de ZKI cero sin placa",
   assert.equal(assigned.get(trips[0].id)?.vehicle, "Sin placa");
 });
 
+test("con RR libres reserva el conductor escaso para la ruta viable aunque pese menos", () => {
+  const trips = parseTrips([
+    { Numero: 1, Nombre: "Pesada sin ZKI", Peso: 9_000 },
+    { Numero: 2, Nombre: "Ligera viable", Peso: 8_000 },
+  ]);
+  const zero = { ...fakeCandidate("RR cero", 0), zki: 0, totalZki: 0, hasKnowledge: false };
+  const viable = { ...fakeCandidate("RR viable", 100), zki: 100, totalZki: 100 };
+  const assigned = assignFreeResponsiblesToDriverVehicles(
+    [{ trip: trips[0], recommendation: zero }, { trip: trips[1], recommendation: viable }],
+    [{ plate: "AAA111", driver: "Conductor A", driverId: "10" }],
+    new Map([["aaa111", 10_000]]),
+  );
+  assert.equal(assigned.get(trips[1].id)?.vehicle, "AAA111");
+  assert.equal(assigned.get(trips[0].id)?.vehicle, "Sin placa");
+});
+
 test("si faltan parejas prioriza el mayor ZKI del RR aunque su ruta pese menos", () => {
   const trips = parseTrips([
     { Numero: 1, Nombre: "ZKI bajo", Peso: 9_000 },
@@ -318,16 +340,17 @@ test("interpreta Codigo y Nombre de la tabla histórica ZKI", () => {
   assert.equal(visits[0].count, 1);
 });
 
-test("calcula frecuencia y profundidad desde el histórico compactado", () => {
+test("cuenta visitas compactadas por código de cliente", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 2, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Uno", vehiculo: "VH-1" }]);
-  const visits = parseZkiVisits([
+  const visits = visitsInTerritory([
     { Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 5 },
     { Codigo: 101, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 1 },
-  ]);
+  ], "Zona");
   const [candidate] = rankCandidates(trip, history, visits, ["100", "101"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.frequency, 3);
   assert.equal(candidate.depth, 50);
+  assert.equal(candidate.zki, 50);
 });
 
 test("omite cargos distintos de Responsable en el histórico ZKI", () => {
@@ -347,7 +370,7 @@ test("no usa el vehículo histórico de seguimiento para completar la combinaci�
 test("una visita aislada no aporta profundidad al ZKI", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Viaje: 1, Peso: 1000, Clientes: 1, "Placa Asignada": "AAA111" }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Bajo", nombreAuxiliar1: "Conductor", vehiculo: "AAA111" }]);
-  const visits = parseZkiVisits([{ Codigo: 100, Nombre: "RR Bajo", Cargo: "Responsable" }]);
+  const visits = visitsInTerritory([{ Codigo: 100, Nombre: "RR Bajo", Cargo: "Responsable" }], "Zona");
   const settings = { ...DEFAULT_ZKI_SETTINGS, coverageWeight: 100, frequencyWeight: 0, depthWeight: 0 };
   const [candidate] = rankCandidates(trip, history, visits, Array.from({ length: 9 }, (_, index) => String(100 + index)), new Map([["aaa111", 2000]]), settings);
   assert.equal(Math.round(candidate.coverage), 11);
@@ -369,7 +392,7 @@ test("normaliza frecuencia al tope configurado y nunca supera cien", () => {
 test("conserva el nombre del RR proveniente de ZKI aunque seguimiento lo ordene distinto", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "El Triunfo", Peso: 8000, Clientes: 1, "Placa Asignada": "VH-1", "Peso Máximo": 9000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "Gustavo Mendoza Salcedo", nombreAuxiliar1: "Conductor 1", vehiculo: "VH-1", territorio: "El Triunfo", clientes: 1, visitados: 1, fechaDespacho: "2026-08-01" }]);
-  const visits = parseZkiVisits([{ Codigo: 12518871, Nombre: "Mendoza Salcedo Gustavo", Cargo: "Responsable" }]);
+  const visits = visitsInTerritory([{ Codigo: 12518871, Nombre: "Mendoza Salcedo Gustavo", Cargo: "Responsable" }], "El Triunfo");
   const [candidate] = rankCandidates(trip, history, visits, ["12518871"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.rr, "Mendoza Salcedo Gustavo");
   assert.equal(candidate.driver, "Sin conductor identificado");
@@ -379,10 +402,10 @@ test("conserva el nombre del RR proveniente de ZKI aunque seguimiento lo ordene 
   assert.match(candidate.reason, /ZKI/);
 });
 
-test("frecuencia usa clientes únicos atendidos y no todos los del territorio", () => {
+test("frecuencia usa clientes únicos y el ZKI exige cinco visitas por cliente", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 20, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Uno", nombreAuxiliar1: "Conductor", vehiculo: "VH-1" }]);
-  const visits = parseZkiVisits(Array.from({ length: 5 }, (_, index) => ({ Codigo: 100 + index, Nombre: "RR Uno", Cargo: "Responsable" })));
+  const visits = visitsInTerritory(Array.from({ length: 5 }, (_, index) => ({ Codigo: 100 + index, Nombre: "RR Uno", Cargo: "Responsable" })), "Zona");
   const clients = Array.from({ length: 20 }, (_, index) => String(100 + index));
   const [candidate] = rankCandidates(trip, history, visits, clients, capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.coverage, 25);
@@ -392,15 +415,15 @@ test("frecuencia usa clientes únicos atendidos y no todos los del territorio", 
   assert.equal(candidate.zki, 0);
 });
 
-test("profundidad se calcula sobre clientes únicos atendidos", () => {
+test("el ZKI cuenta qué proporción de clientes atendidos llegó a cinco visitas", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 20, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Uno", vehiculo: "VH-1" }]);
-  const visits = parseZkiVisits([
+  const visits = visitsInTerritory([
     ...Array.from({ length: 5 }, () => ({ Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable" })),
     ...Array.from({ length: 5 }, () => ({ Codigo: 101, Nombre: "RR Uno", Cargo: "Responsable" })),
     { Codigo: 102, Nombre: "RR Uno", Cargo: "Responsable" },
     { Codigo: 103, Nombre: "RR Uno", Cargo: "Responsable" },
-  ]);
+  ], "Zona");
   const clients = Array.from({ length: 20 }, (_, index) => String(100 + index));
   const [candidate] = rankCandidates(trip, history, visits, clients, capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.coverage, 20);
@@ -409,12 +432,76 @@ test("profundidad se calcula sobre clientes únicos atendidos", () => {
   assert.equal(candidate.zki, 50);
 });
 
+test("RR y auxiliar se evalúan por cliente, sin juntar visitas de clientes distintos", () => {
+  const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 3 }]);
+  const rows = [
+    { Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 2 },
+    { Codigo: 101, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 2 },
+    { Codigo: 100, Nombre: "Aux Uno", Cargo: "Auxiliar", Visitas: 2 },
+    { Codigo: 101, Nombre: "Aux Uno", Cargo: "Auxiliar", Visitas: 3 },
+  ];
+  const four = rankCandidates(trip, [], visitsInTerritory(rows, "Zona"), ["100", "101", "102"], new Map(), DEFAULT_ZKI_SETTINGS)[0];
+  assert.equal(four.zki, 0);
+  assert.equal(four.auxiliaryZki, 0);
+  const fiveRows = [...rows, { Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable", Visitas: 3 }];
+  const five = rankCandidates(trip, [], visitsInTerritory(fiveRows, "Zona"), ["100", "101", "102"], new Map(), DEFAULT_ZKI_SETTINGS)[0];
+  assert.equal(five.zki, 50);
+  const raised = rankCandidates(trip, [], visitsInTerritory(fiveRows, "Zona"), ["100", "101", "102"], new Map(), { ...DEFAULT_ZKI_SETTINGS, depthThreshold: 6 })[0];
+  assert.equal(raised.zki, 0);
+  assert.equal(raised.auxiliaryZki, 0);
+});
+
+test("el código del cliente determina el ZKI aunque cambie el barrio", () => {
+  const [trip] = parseTrips([{ Numero: 1, Nombre: "Carrizal", Peso: 1000, Clientes: 1 }]);
+  const visits = parseZkiVisits([
+    { Nombre: "RR uno", Cargo: "Responsable", Codigo: 111, Barrio: "La Gloria", Visitas: 5 },
+    { Nombre: "RR dos", Cargo: "Responsable", Codigo: 999, Barrio: "Carrizal", Visitas: 5 },
+    { Nombre: "Aux uno", Cargo: "Auxiliar", Codigo: 111, Barrio: "Otra zona", Visitas: 5 },
+  ]);
+  const candidates = rankCandidates(trip, [], visits, ["111"], new Map(), DEFAULT_ZKI_SETTINGS);
+  assert.equal(candidates.find(row => row.rr === "RR uno")?.zki, 100);
+  assert.equal(candidates.find(row => row.rr === "RR dos")?.zki, 0);
+  assert.equal(rankTerritoryAuxiliaries(trip, visits, ["111"], DEFAULT_ZKI_SETTINGS)[0].zki, 100);
+  assert.deepEqual(rankTerritoryAuxiliaries(trip, visits, ["999"], DEFAULT_ZKI_SETTINGS), []);
+});
+
+test("sin códigos del catálogo no atribuye ZKI por el nombre de la zona", () => {
+  const [trip] = parseTrips([{ Numero: 1, Nombre: "Las Mavinas, Lipaya", Peso: 1000 }]);
+  const visits = parseZkiVisits([
+    { Nombre: "RR uno", Cargo: "Responsable", Codigo: 111, Barrio: "LAS MALVINAS", Visitas: 5 },
+    { Nombre: "Aux uno", Cargo: "Auxiliar", Codigo: 111, Barrio: "LIPAYA", Visitas: 5 },
+  ]);
+  const [candidate] = rankCandidates(trip, [], visits, [], new Map(), DEFAULT_ZKI_SETTINGS);
+  assert.equal(candidate.zki, 0);
+  assert.equal(candidate.auxiliaryZki, 0);
+  assert.deepEqual(rankTerritoryAuxiliaries(trip, visits, [], DEFAULT_ZKI_SETTINGS), []);
+});
+test("un RR sin visitas al cliente puede completar la ruta con un auxiliar ZKI 100", () => {
+  const [trip] = parseTrips([{ Número: 1, Nombre: "Carrizal", Peso: 1000 }]);
+  const visits = parseZkiVisits([
+    { Nombre: "RR externo", Cargo: "Responsable", Codigo: 200, Barrio: "Carrizal", Visitas: 5 },
+    { Nombre: "Aux local", Cargo: "Auxiliar", Codigo: 100, Barrio: "Otro barrio", Visitas: 5 },
+  ]);
+  const [candidate] = rankCandidates(trip, [], visits, ["100"], new Map(), DEFAULT_ZKI_SETTINGS, visits, visits);
+  assert.equal(candidate.hasKnowledge, false);
+  assert.equal(candidate.zki, 0);
+  assert.equal(candidate.auxiliaryZki, 100);
+  const paired = assignFreeResponsiblesToDriverVehicles(
+    [{ trip, recommendation: candidate }],
+    [{ plate: "AAA111", driver: "Conductor uno", driverId: "10" }],
+    new Map([["aaa111", 2000]]),
+  );
+  const unique = enforceUniqueAssignedCrew([{ tripId: trip.id, recommendation: paired.get(trip.id) }]);
+  assert.equal(unique.get(trip.id)?.totalZki, 100);
+  assert.equal(unique.get(trip.id)?.viable, true);
+});
+
 test("el ZKI del auxiliar puede completar el mínimo aunque el RR tenga profundidad cero", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 1 }]);
-  const visits = parseZkiVisits([
+  const visits = visitsInTerritory([
     { Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable" },
     ...Array.from({ length: 5 }, () => ({ Codigo: 100, Nombre: "Aux Uno", Cargo: "Auxiliar" })),
-  ]);
+  ], "Zona");
   const [candidate] = rankCandidates(trip, [], visits, ["100"], new Map(), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidate.zki, 0);
   assert.equal(candidate.auxiliaryZki, 100);
@@ -435,7 +522,7 @@ test("evalúa en el territorio a RR registrados en otras zonas", () => {
   assert.equal(candidates.find((candidate) => candidate.rr === "RR externo")?.zki, 0);
 });
 
-test("el ZKI usa solo profundidad aunque se configuren otros pesos", () => {
+test("el ZKI usa solo la profundidad por cliente aunque se configuren otros pesos", () => {
   const [trip] = parseTrips([{ Número: 2, Nombre: "Territorio 2", Viaje: 1, Peso: 8471.91, Clientes: 22, "Placa Asignada": "COVEK261", "Peso Máximo": 9710 }]);
   const history = parseCrewHistory([{ nombreResponsable: "Rodriguez Bayona Julian", nombreAuxiliar1: "Lopez Lidueña Luis Eduardo", vehiculo: "COVEK261" }]);
   const visitRows: Array<Record<string, unknown>> = [];
@@ -446,7 +533,7 @@ test("el ZKI usa solo profundidad aunque se configuren otros pesos", () => {
   visitRows.push({ Codigo: 1000, Nombre: "Rodriguez Bayona Julian", Cargo: "Responsable" });
   const clients = Array.from({ length: 22 }, (_, index) => String(1000 + index));
   const matrixSettings = { ...DEFAULT_ZKI_SETTINGS, coverageWeight: 60, frequencyWeight: 25, depthWeight: 15 };
-  const [candidate] = rankCandidates(trip, history, parseZkiVisits(visitRows), clients, capacityMap([trip.raw]), matrixSettings);
+  const [candidate] = rankCandidates(trip, history, visitsInTerritory(visitRows, "Territorio 2"), clients, capacityMap([trip.raw]), matrixSettings);
   assert.equal(candidate.coverage, 90.91);
   assert.equal(candidate.frequency, 8.75);
   assert.equal(candidate.frequencyScore, 100);
@@ -457,7 +544,7 @@ test("el ZKI usa solo profundidad aunque se configuren otros pesos", () => {
 test("no incorpora responsables provenientes únicamente de seguimiento", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Viaje: 1, Peso: 1000, Clientes: 2, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Sin Historial", vehiculo: "VH-1" }]);
-  const visits = parseZkiVisits([{ Codigo: 999, Nombre: "Otro RR", Cargo: "Responsable" }]);
+  const visits = visitsInTerritory([{ Codigo: 999, Nombre: "Otro RR", Cargo: "Responsable" }], "Zona");
   const candidates = rankCandidates(trip, history, visits, ["100", "101"], capacityMap([trip.raw]), DEFAULT_ZKI_SETTINGS);
   assert.equal(candidates.length, 1);
   assert.equal(candidates.some((candidate) => candidate.rr === "RR Sin Historial"), false);
@@ -716,8 +803,8 @@ test("la selección de RR no descarta rutas por compartir conductor histórico",
 test("usa como reserva un auxiliar ZKI aunque no haya visitado el territorio", () => {
   const [trip] = parseTrips([{ Número: 1, Nombre: "Zona", Peso: 1000, Clientes: 1, "Placa Asignada": "VH-1", "Peso Máximo": 2000 }]);
   const history = parseCrewHistory([{ nombreResponsable: "RR Uno", nombreAuxiliar1: "Conductor Uno", vehiculo: "VH-1" }]);
-  const responsibleVisits = parseZkiVisits([{ Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable" }]);
-  const auxiliaryRoster = parseZkiVisits([{ Codigo: 999, Nombre: "Auxiliar Reserva", Cedula: 123, Cargo: "Auxiliar" }]);
+  const responsibleVisits = visitsInTerritory([{ Codigo: 100, Nombre: "RR Uno", Cargo: "Responsable" }], "Zona");
+  const auxiliaryRoster = visitsInTerritory([{ Codigo: 999, Nombre: "Auxiliar Reserva", Cedula: 123, Cargo: "Auxiliar" }], "Otro barrio");
   const [candidate] = rankCandidates(trip, history, responsibleVisits, ["100"], new Map([["1", 2000]]), DEFAULT_ZKI_SETTINGS, auxiliaryRoster);
   assert.equal(candidate.auxiliary, "Auxiliar Reserva");
   assert.equal(candidate.auxiliaryZki, 0);
@@ -731,6 +818,13 @@ function fakeCandidate(rr: string, totalZki: number): Candidate {
     capacity: 10_000, viable: true, hasKnowledge: true, habitualVehicle: true, reason: "Viable",
   };
 }
+
+test("con igual ZKI elige al RR que conoce más clientes del territorio", () => {
+  const narrower = { ...fakeCandidate("RR uno", 100), coverage: 10, uniqueClients: 1 };
+  const broader = { ...fakeCandidate("RR dos", 100), coverage: 60, uniqueClients: 6 };
+  const assigned = assignUniqueResponsibles([{ tripId: "territorio:1", candidates: [narrower, broader] }]);
+  assert.equal(assigned.get("territorio:1")?.rr, "RR dos");
+});
 
 test('RR libre conserva mejor ZKI aunque su conductor habitual no pueda cargar el viaje', () => {
   const trip = parseTrips([{ Numero: 1, Nombre: 'Zona', Peso: 9000 }])[0];
@@ -747,4 +841,26 @@ test('RR libre conserva mejor ZKI aunque su conductor habitual no pueda cargar e
   assert.equal(result?.vehicle, 'BBB222');
   assert.equal(result?.driver, 'Conductor B');
   assert.equal(result?.driverId, '20');
+});
+
+test('RR libres distribuyen las placas fijas por capacidad antes del ZKI o la placa del archivo', () => {
+  const trips = parseTrips([
+    { Numero: 1, Nombre: 'Liviana', Peso: 8000, 'Placa Asignada': 'GRANDE' },
+    { Numero: 2, Nombre: 'Pesada', Peso: 9000 },
+  ]);
+  const light = { ...fakeCandidate('RR liviano', 100), vehicle: 'GRANDE' };
+  const heavy = { ...fakeCandidate('RR pesado', 75), vehicle: 'PEQUENA' };
+  const pairs = [
+    { plate: 'GRANDE', driver: 'Conductor grande', driverId: '10', responsible: 'Otro RR' },
+    { plate: 'PEQUENA', driver: 'Conductor pequeno', driverId: '20', responsible: 'Otro RR' },
+  ];
+  const capacities = new Map([['grande', 9710], ['pequena', 8600]]);
+  const assigned = assignFreeResponsiblesToDriverVehicles([
+    { trip: trips[0], recommendation: light },
+    { trip: trips[1], recommendation: heavy },
+  ], pairs, capacities);
+  assert.equal(assigned.get(trips[0].id)?.vehicle, 'PEQUENA');
+  assert.equal(assigned.get(trips[1].id)?.vehicle, 'GRANDE');
+  assert.equal(assigned.get(trips[0].id)?.viable, true);
+  assert.equal(assigned.get(trips[1].id)?.viable, true);
 });

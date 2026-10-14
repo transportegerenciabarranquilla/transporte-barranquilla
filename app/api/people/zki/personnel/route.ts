@@ -5,7 +5,6 @@ import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
 import { normalizeContractorName } from "../../../../lib/contractors";
 import { formatPersonName } from "../../../../lib/personNames";
-import { readServerCache } from "../../../../lib/serverCache";
 import { supabaseAdminHeaders, supabaseError, supabaseRest, supabaseUserHeaders } from "../../../../lib/supabaseServer";
 import { readZkiCrewRows } from "../crewTable";
 
@@ -18,28 +17,19 @@ export async function GET() {
   const session = await getAuthenticatedSession();
   if (!session || (!session.isPeople && !session.isAdmin)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
-  const [peopleResponse, profilesResponse, attendances, crewRows] = await Promise.all([
+  const [peopleResponse, profilesResponse, crewRows] = await Promise.all([
     fetch(supabaseRest("transporte_barranquilla", "?select=CC,NOMBRE,CARGO,CONTRATISTA&order=NOMBRE.asc&limit=2000"), { headers, cache: "no-store" }),
     fetch(supabaseRest("people_profiles", "?select=profile_id,data&profile_id=like.zki-person:*"), { headers, cache: "no-store" }),
-    readExternalResponsibleAttendances(headers),
     readZkiCrewRows(headers),
   ]);
   if (!peopleResponse.ok) return NextResponse.json({ error: await supabaseError(peopleResponse) }, { status: peopleResponse.status });
   const people = await peopleResponse.json() as Record<string, unknown>[];
   const profiles = profilesResponse.ok ? await profilesResponse.json() as Array<{ profile_id: string; data?: PersonProfile }> : [];
-  const externalAttendanceCounts = new Map<string, number>();
-  attendances.forEach((row) => {
-    const contractor = normalizeContractorName(row.contractor);
-    const id = String(row.cedulaResponsable || "").replace(/\D/g, "");
-    if (!id || !contractor || contractor === "logisticos") return;
-    externalAttendanceCounts.set(id, (externalAttendanceCounts.get(id) || 0) + 1);
-  });
   const profileById = new Map(profiles.map((row) => [row.profile_id.replace("zki-person:", ""), row.data || {}]));
   const logisticsPeople = people
     .map(toPerson)
     .filter((person): person is Person => Boolean(person))
-    .filter((person) => normalizeContractorName(person.contractor) === "logisticos")
-    .filter((person) => !["RR", "Líder de Ruta"].includes(person.role) || (externalAttendanceCounts.get(person.id) || 0) < 2);
+    .filter((person) => normalizeContractorName(person.contractor) === "logisticos");
   const drivers = crewRows.flatMap((row): Person[] => row.driver && row.driverId
     ? [{ id: row.driverId, name: row.driver, role: "Conductor", available: true, contractor: "Logisticos" }]
     : []);
@@ -57,23 +47,6 @@ export async function GET() {
       minimumClients: row.data?.minimumClients,
       maximumClients: row.data?.maximumClients,
     }])),
-  });
-}
-
-type ResponsibleAttendance = { contractor?: string; cedulaResponsable?: string };
-
-function readExternalResponsibleAttendances(headers: Record<string, string>) {
-  return readServerCache<ResponsibleAttendance[]>("zki:external-responsible-attendances", 60_000, async () => {
-    // Proyección angosta: evita descargar el JSON completo del histórico.
-    const params = new URLSearchParams({
-      select: "contractor,cedulaResponsable:data->>cedulaResponsable",
-      contractor: "not.ilike.*logistic*",
-      limit: "10000",
-    });
-    const query = `?${params.toString()}`;
-    const response = await fetch(supabaseRest("asistencias_ruta", query), { headers, cache: "no-store" });
-    if (!response.ok) return [];
-    return await response.json() as ResponsibleAttendance[];
   });
 }
 

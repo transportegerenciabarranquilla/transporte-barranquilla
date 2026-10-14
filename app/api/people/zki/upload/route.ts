@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAuthenticatedSession } from "../../../../lib/authServer";
+import { parseActivePersonnelIds } from "../../../../lib/activePersonnel";
 
 export async function POST(request: Request) {
   try {
@@ -13,6 +14,17 @@ export async function POST(request: Request) {
     if (file.size > 30 * 1024 * 1024) return NextResponse.json({ error: "El archivo supera 30 MB." }, { status: 413 });
 
     const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true, type: "array" });
+    if (new URL(request.url).searchParams.get("mode") === "active-personnel") {
+      try {
+        const ids = parseActivePersonnelIds(workbook.SheetNames.map((name) => ({
+          name,
+          rows: XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], { header: 1, defval: null, raw: true }),
+        })));
+        return NextResponse.json({ ids, received: ids.length, fileName: file.name });
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudieron leer las cédulas." }, { status: 400 });
+      }
+    }
     const rows = workbook.SheetNames.flatMap((name) =>
       XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], { defval: null, raw: true }),
     ).map(normalizeRow).filter((row) => Object.values(row).some((value) => value !== null && value !== ""));

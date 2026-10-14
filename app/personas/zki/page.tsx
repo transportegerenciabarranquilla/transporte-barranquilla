@@ -1,11 +1,9 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, BarChart3, CalendarDays, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, Search, ShieldX, SlidersHorizontal, Trash2, Truck, Upload, UserPlus, Users, X } from "lucide-react";
-import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
-import type { Vehiculo } from "../../seguimiento/types";
-import { calculateDriverAdherence, type DriverAdherenceRow } from "./adherence";
+import { AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, Database, Eye, FileSpreadsheet, RefreshCw, Search, ShieldX, SlidersHorizontal, Truck, Upload, Users, X } from "lucide-react";
+import { normalizeCedula, remainingActivePersonnel } from "../../lib/activePersonnel";
 import {
   assignUniqueResponsibles,
   assignFreeResponsiblesToDriverVehicles,
@@ -14,11 +12,11 @@ import {
   capacityMap,
   DEFAULT_ZKI_SETTINGS,
   parseCrewHistory,
-  parseTrips,
   parseTerritoryClients,
   parseZkiVisits,
   rankCandidates,
   rankTerritoryAuxiliaries,
+  tripsFromTerritoryClients,
   samePerson,
   normalizeZkiCode,
   normalizePersonName,
@@ -30,12 +28,10 @@ import {
 
 type CrewPair = { plate: string; driver: string; driverId: string; responsible: string; responsibleId: string };
 type ApiData = { rows: RawRow[]; history: RawRow[]; capacities: RawRow[]; crew: CrewPair[]; source: { table: string; rows: number; columns?: string[] } };
-type PersonnelClientRange = { minimumClients?: number; maximumClients?: number };
-type PersonnelRule = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string; minimumClients?: number; maximumClients?: number; historical?: boolean };
+type PersonnelRule = { id: string; name: string; role: "RR" | "Líder de Ruta" | "Conductor" | "Auxiliar"; available: boolean; contractor?: string; minimumClients?: number; maximumClients?: number };
 type VehicleStatus = { plate: string; contractor: string; capacity: number; available: boolean; useInZki: boolean };
 const ZKI_BROWSER_CACHE_KEY = "zki-dashboard-cache-v7-free-rr";
-const ZKI_ADHERENCE_CACHE_KEY = "zki-driver-adherence-v5-complete-table";
-const PERSONNEL_PAGE_SIZE = 40;
+const ACTIVE_PERSONNEL_CACHE_KEY = "zki-active-personnel-v1";
 let zkiMemoryCache: ApiData | null = null;
 
 function isApiData(value: unknown): value is ApiData {
@@ -49,29 +45,21 @@ function normalizePerson(value: unknown) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
-function candidatePersonnelAvailable(candidate: Candidate, rules: PersonnelRule[]) {
-  const unavailable = rules.filter((person) => !person.available);
-  const matches = (person: PersonnelRule, id: string, name: string) =>
-    (person.id && id && person.id.replace(/\D/g, "") === id.replace(/\D/g, "")) ||
-    (person.name && normalizePersonName(person.name) === normalizePersonName(name));
-  // Solo se excluye una persona cuando fue marcada explícitamente como no
-  // disponible. No pertenecer al catálogo editable no elimina su historial.
-  const blocked = (id: string, name: string) => unavailable.some((person) => matches(person, id, name));
-  return !blocked(candidate.rrId, candidate.rr) && !blocked(candidate.driverId, candidate.driver);
+function todayKey() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function candidateIsLogisticsRr(candidate: Candidate, rules: PersonnelRule[], crewPairs: CrewPair[]) {
-  const inPersonnel = rules.some((person) => {
-    if (!(["RR", "Líder de Ruta"] as PersonnelRule["role"][]).includes(person.role)) return false;
-    if (normalizePerson(person.contractor) !== "logisticos") return false;
-    return (person.id && candidate.rrId && person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
-      || (person.name && normalizePersonName(person.name) === normalizePersonName(candidate.rr));
-  });
-  if (inPersonnel) return true;
-  return crewPairs.some((pair) =>
-    (pair.responsibleId && candidate.rrId && pair.responsibleId.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, ""))
-    || (pair.responsible && normalizePersonName(pair.responsible) === normalizePersonName(candidate.rr)),
-  );
+function matchesPersonnel(person: PersonnelRule, id: string, name: string) {
+  const personId = String(person.id || "").replace(/\D/g, "");
+  const candidateId = String(id || "").replace(/\D/g, "");
+  if (personId && candidateId) return personId === candidateId;
+  return Boolean(person.name && name && normalizePersonName(person.name) === normalizePersonName(name));
+}
+
+function candidateIsActiveRr(candidate: Candidate, rules: PersonnelRule[]) {
+  return rules.some((person) => (person.role === "RR" || normalizePerson(person.role).includes("liderderuta"))
+    && normalizePerson(person.contractor) === "logisticos" && matchesPersonnel(person, candidate.rrId, candidate.rr));
 }
 
 function displayPlate(value: unknown) {
@@ -81,19 +69,14 @@ function displayPlate(value: unknown) {
   return String(value || "").trim();
 }
 
-function resolveExportCrewIds(item: Candidate | undefined, personnel: PersonnelRule[], crewPairs: CrewPair[]) {
+function resolveExportCrewIds(item: Candidate | undefined, personnel: PersonnelRule[]) {
   if (!item) return { responsibleId: "", driverId: "", auxiliaryId: "" };
-  const byName = (name: string, roles: PersonnelRule["role"][]) => personnel.find((person) =>
-    roles.includes(person.role) && normalizePerson(person.name) === normalizePerson(name),
+  const byPerson = (id: string, name: string, roles: PersonnelRule["role"][]) => personnel.find((person) =>
+    roles.includes(person.role) && matchesPersonnel(person, id, name),
   )?.id.replace(/\D/g, "") || "";
-  const responsibleId = byName(item.rr, ["RR", "Líder de Ruta"])
-    || crewPairs.find((pair) => normalizePerson(pair.responsible) === normalizePerson(item.rr))?.responsibleId.replace(/\D/g, "")
-    || item.rrId.replace(/\D/g, "");
-  let driverId = byName(item.driver, ["Conductor"])
-    || crewPairs.find((pair) => normalizePerson(pair.driver) === normalizePerson(item.driver))?.driverId.replace(/\D/g, "")
-    || item.driverId.replace(/\D/g, "");
-  const auxiliaryId = byName(item.auxiliary, ["Auxiliar"])
-    || item.auxiliaryId.replace(/\D/g, "");
+  const responsibleId = byPerson(item.rrId, item.rr, ["RR", "Líder de Ruta"]);
+  let driverId = byPerson(item.driverId, item.driver, ["Conductor"]);
+  const auxiliaryId = byPerson(item.auxiliaryId, item.auxiliary, ["Auxiliar"]);
 
   // Una cÃ©dula no puede identificar simultÃ¡neamente a dos nombres diferentes.
   // Si una fuente histÃ³rica la trae cruzada, conserva la del RR validada y no
@@ -105,69 +88,53 @@ function resolveExportCrewIds(item: Candidate | undefined, personnel: PersonnelR
 export default function ZkiPage() {
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
-  const territoryUploadRef = useRef<HTMLInputElement>(null);
-  const yesterdayPlanningRef = useRef<HTMLInputElement>(null);
+  const activePersonnelUploadRef = useRef<HTMLInputElement>(null);
   const [data, setData] = useState<ApiData | null>(null);
   const [settings, setSettings] = useState<ZkiSettings>(DEFAULT_ZKI_SETTINGS);
   const [selectedTrip, setSelectedTrip] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [activePersonnelIds, setActivePersonnelIds] = useState<string[] | null>(null);
+  const [activePersonnelFileName, setActivePersonnelFileName] = useState("");
+  const [activePersonnelDate, setActivePersonnelDate] = useState("");
+  const [currentDate, setCurrentDate] = useState(todayKey);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [planningRows, setPlanningRows] = useState<RawRow[]>([]);
-  const [territoryRows, setTerritoryRows] = useState<RawRow[]>([]);
-  const [adherenceRows, setAdherenceRows] = useState<DriverAdherenceRow[]>([]);
-  const [adherenceDate, setAdherenceDate] = useState("");
-  const [trackingDate, setTrackingDate] = useState(() => localDateKey(-1));
+  const [catalogRows, setCatalogRows] = useState<RawRow[]>([]);
   const [showMatrix, setShowMatrix] = useState(false);
-  const [showPersonnel, setShowPersonnel] = useState(false);
   const [showVehicles, setShowVehicles] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [vehicleContractor, setVehicleContractor] = useState("Todos");
   const [vehicleAvailability, setVehicleAvailability] = useState<Record<string, VehicleStatus>>({});
   const [vehicleError, setVehicleError] = useState("");
-  const [showAddPerson, setShowAddPerson] = useState(false);
-  const [syncingPersonnel, setSyncingPersonnel] = useState(false);
-  const [personnelSearch, setPersonnelSearch] = useState("");
-  const [personnelRole, setPersonnelRole] = useState<"Todos" | PersonnelRule["role"]>("Todos");
-  const [personnelView, setPersonnelView] = useState<"catalog" | "history">("catalog");
-  const [personnelPage, setPersonnelPage] = useState(1);
-  const deferredPersonnelSearch = useDeferredValue(personnelSearch);
-  const [, startPersonnelTransition] = useTransition();
-  const [selectedPersonnelId, setSelectedPersonnelId] = useState("");
   const [personnelRules, setPersonnelRules] = useState<PersonnelRule[]>([]);
-  const [personnelClientRanges, setPersonnelClientRanges] = useState<Record<string, PersonnelClientRange>>({});
-  const [personForm, setPersonForm] = useState({ id: "", name: "", role: "RR" as PersonnelRule["role"] });
-
-  const adherencePeople = useMemo(() => adherenceRows.flatMap((row, routeIndex) => {
-    const people = [
-      { role: "Conductor", name: row.driver, id: row.driverId, adherent: row.adherent },
-      { role: "RR", name: row.responsible, id: row.responsibleId, adherent: row.responsibleAdherent },
-      { role: "Auxiliar", name: row.auxiliary, id: row.auxiliaryId, adherent: row.auxiliaryAdherent },
-    ];
-    return people.filter((person) => person.name || person.id).map((person) => ({
-      ...person,
-      routeIndex,
-      territory: row.territory,
-      plannedPlate: row.plannedPlate,
-      actualPlate: row.actualPlate,
-      dt: row.dt,
-      actualRole: findActualCrewRole(row, person.id, person.name),
-    }));
-  }), [adherenceRows]);
 
   async function loadPersonnel() {
     const response = await fetch("/api/people/zki/personnel", { cache: "no-store" });
     const body = await response.json().catch(() => ({}));
-    if (response.ok) {
-      const records = (body.records || []) as PersonnelRule[];
-      setPersonnelRules([...new Map(records.map((person) => [person.id, person])).values()]);
-      setPersonnelClientRanges(body.profiles || {});
-    }
+    if (!response.ok) { setError(body.error || "No se pudo cargar la tabla de personal."); return; }
+    const records = (body.records || []) as PersonnelRule[];
+    setPersonnelRules([...new Map(records.map((person) => [person.id, person])).values()]);
   }
 
   useEffect(() => { void loadPersonnel(); }, []);
-
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(ACTIVE_PERSONNEL_CACHE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { ids?: unknown; fileName?: unknown; date?: unknown };
+      if (parsed.date !== todayKey()) { sessionStorage.removeItem(ACTIVE_PERSONNEL_CACHE_KEY); return; }
+      if (Array.isArray(parsed.ids) && parsed.ids.every((id) => typeof id === "string" && Boolean(normalizeCedula(id)))) {
+        setActivePersonnelIds(parsed.ids);
+        setActivePersonnelFileName(typeof parsed.fileName === "string" ? parsed.fileName : "Excel de personal activo");
+        setActivePersonnelDate(todayKey());
+      }
+    } catch { /* La carga puede repetirse si no hay copia local. */ }
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentDate(todayKey()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   async function loadVehicleAvailability() {
     const response = await fetch("/api/people/zki/vehicles", { cache: "no-store" });
     const body = await response.json().catch(() => ({}));
@@ -218,34 +185,21 @@ export default function ZkiPage() {
     void load();
   }, []);
 
-  const trips = useMemo(() => parseTrips(planningRows), [planningRows]);
   const history = useMemo(() => parseCrewHistory(data?.history || []), [data]);
   const visits = useMemo(() => parseZkiVisits(data?.rows || []), [data]);
-  const auxiliaryRoster = useMemo(() => {
-    const unique = new Map<string, ZkiVisit>();
-    visits.forEach((visit) => {
-      if (!normalizePerson(visit.role).includes("auxiliar")) return;
-      const key = normalizePerson(visit.rrId || visit.rr);
-      if (key && !unique.has(key)) unique.set(key, visit);
-    });
-    personnelRules.forEach((person) => {
-      if (person.role !== "Auxiliar" || !person.available) return;
-      const key = normalizePerson(person.id || person.name);
-      if (!key || unique.has(key)) return;
-      unique.set(key, {
-        rr: person.name,
-        rrId: person.id,
-        client: "",
-        zone: "",
-        driver: "",
-        vehicle: "",
-        role: "Auxiliar",
-        count: 1,
-      });
-    });
-    return Array.from(unique.values());
-  }, [personnelRules, visits]);
-  const territoryClients = useMemo(() => parseTerritoryClients(territoryRows), [territoryRows]);
+  const trips = useMemo(() => tripsFromTerritoryClients(catalogRows, visits), [catalogRows, visits]);
+  const hasCurrentPersonnel = Boolean(activePersonnelIds && activePersonnelDate === currentDate);
+  const activePersonnel = useMemo(() => {
+    const ids = new Set(hasCurrentPersonnel ? activePersonnelIds : []);
+    return personnelRules.filter((person) => ids.has(normalizeCedula(person.id))).map((person) => ({ ...person, available: true }));
+  }, [activePersonnelIds, hasCurrentPersonnel, personnelRules]);
+  const activeCrewPairs = useMemo(() => (data?.crew || []).filter((pair) => activePersonnel.some((person) =>
+    person.role === "Conductor" && matchesPersonnel(person, pair.driverId, pair.driver),
+  )), [activePersonnel, data?.crew]);
+  const auxiliaryRoster = useMemo(() => activePersonnel.filter((person) => person.role === "Auxiliar").map((person): ZkiVisit => ({
+    rr: person.name, rrId: person.id, client: "", zone: "", driver: "", vehicle: "", role: "Auxiliar", count: 1,
+  })), [activePersonnel]);
+  const territoryClients = useMemo(() => parseTerritoryClients(catalogRows), [catalogRows]);
   const clientsByTerritory = useMemo(() => {
     const index = new Map<string, string[]>();
     territoryClients.forEach((row) => {
@@ -256,7 +210,7 @@ export default function ZkiPage() {
     return index;
   }, [territoryClients]);
   const visitsByClient = useMemo(() => {
-    const index = new Map<string, typeof visits>();
+    const index = new Map<string, ZkiVisit[]>();
     visits.forEach((visit) => {
       const key = normalizeZkiCode(visit.client);
       if (!key) return;
@@ -267,11 +221,7 @@ export default function ZkiPage() {
     return index;
   }, [visits]);
   const activeTrip = trips.find((trip) => trip.id === selectedTrip) || trips[0];
-  const clientsForTrip = useMemo(
-    () => activeTrip ? clientsByTerritory.get(activeTrip.territoryId) || [] : [],
-    [activeTrip, clientsByTerritory],
-  );
-  const allCapacities = useMemo(() => capacityMap([...(data?.capacities || []), ...(data?.history || []), ...planningRows]), [data?.capacities, data?.history, planningRows]);
+  const allCapacities = useMemo(() => capacityMap([...(data?.capacities || []), ...(data?.history || [])]), [data?.capacities, data?.history]);
   const capacities = useMemo(() => {
     // La tabla `placas`, representada por vehicleAvailability, es la lista
     // blanca. Historial, capacidad_carga y el Excel solo aportan capacidad;
@@ -284,86 +234,31 @@ export default function ZkiPage() {
     .map((vehicle) => ({ ...vehicle, capacity: vehicle.capacity || allCapacities.get(vehicle.plate) || 0 }))
     .filter((vehicle) => vehicle.plate.includes(normalizePerson(vehicleSearch)) && (vehicleContractor === "Todos" || vehicle.contractor === vehicleContractor)), [allCapacities, vehicleAvailability, vehicleContractor, vehicleSearch]);
   const vehicleContractors = useMemo(() => ["Todos", ...new Set(Object.values(vehicleAvailability).map((vehicle) => vehicle.contractor))], [vehicleAvailability]);
-  const historicalPersonnel = useMemo(() => {
-    const records = new Map<string, PersonnelRule>();
-    const add = (id: string | undefined, name: string, role: PersonnelRule["role"]) => {
-      const cleanId = String(id || "").replace(/\D/g, "");
-      const key = cleanId || normalizePerson(name);
-      if (!key || !name || records.has(key)) return;
-      const current = personnelRules.find((person) =>
-        (cleanId && person.id.replace(/\D/g, "") === cleanId) || normalizePerson(person.name) === normalizePerson(name),
-      );
-      const savedRange = personnelClientRanges[cleanId];
-      records.set(key, {
-        id: cleanId,
-        name,
-        role,
-        available: current?.available === true,
-        contractor: current?.contractor || "Logisticos",
-        minimumClients: current?.minimumClients ?? savedRange?.minimumClients,
-        maximumClients: current?.maximumClients ?? savedRange?.maximumClients,
-        historical: true,
-      });
-    };
-    visits.forEach((visit) => add(visit.rrId, visit.rr, normalizePerson(visit.role).includes("auxiliar") ? "Auxiliar" : "RR"));
-    history.forEach((record) => {
-      add(record.rrId, record.rr, "RR");
-      add(record.driverId, record.driver, "Conductor");
-    });
-    return [...records.values()].sort((left, right) => left.name.localeCompare(right.name, "es"));
-  }, [history, personnelClientRanges, personnelRules, visits]);
-  const personnelRangeRules = useMemo(() => {
-    const currentIds = new Set(personnelRules.map((person) => person.id));
-    return [
-      ...personnelRules,
-      ...historicalPersonnel.filter((person) => person.id && !currentIds.has(person.id) && person.minimumClients !== undefined && person.maximumClients !== undefined),
-    ];
-  }, [historicalPersonnel, personnelRules]);
-  const personnelSource = personnelView === "history" ? historicalPersonnel : personnelRules;
-  const filteredPersonnel = useMemo(() => {
-    const query = normalizePerson(deferredPersonnelSearch);
-    return personnelSource.filter((person) =>
-      (personnelRole === "Todos" || person.role === personnelRole) &&
-      (!query || normalizePerson(`${person.name} ${person.id} ${person.role}`).includes(query)),
-    );
-  }, [deferredPersonnelSearch, personnelRole, personnelSource]);
-  const personnelPageCount = Math.max(1, Math.ceil(filteredPersonnel.length / PERSONNEL_PAGE_SIZE));
-  const visiblePersonnelPage = Math.min(personnelPage, personnelPageCount);
-  const pagedPersonnel = useMemo(() => {
-    const start = (visiblePersonnelPage - 1) * PERSONNEL_PAGE_SIZE;
-    return filteredPersonnel.slice(start, start + PERSONNEL_PAGE_SIZE);
-  }, [filteredPersonnel, visiblePersonnelPage]);
-
-  useEffect(() => {
-    setPersonnelPage(1);
-  }, [deferredPersonnelSearch, personnelRole, personnelView]);
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = clientsByTerritory.get(trip.territoryId) || [];
-    const relevantVisits = clientCodes.length ? [...new Set(clientCodes)].flatMap((client) => visitsByClient.get(normalizeZkiCode(client)) || []) : visits;
-    const rankedWithHistory = rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster, visits)
-      .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki }))
-      .filter((candidate) => candidateIsLogisticsRr(candidate, personnelRules, data?.crew || []) && candidatePersonnelAvailable(candidate, personnelRules));
+    const relevantVisits = [...new Set(clientCodes.map(normalizeZkiCode).filter(Boolean))].flatMap((code) => visitsByClient.get(code) || []);
+    const rankedWithHistory = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster, visits), activePersonnel, trip.clients)
+      .map((candidate) => ({ ...candidate, viable: candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki }))
+      .filter((candidate) => candidateIsActiveRr(candidate, activePersonnel));
     const auxiliaryScores = rankTerritoryAuxiliaries(trip, relevantVisits, clientCodes, settings);
-    const ranked = applyPersonnelClientRanges(
-      addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules, auxiliaryScores),
-      personnelRangeRules, trip.clients,
-    );
+    const ranked = addCrewResponsibleFallbacks(rankedWithHistory, activeCrewPairs, capacities, auxiliaryRoster, activePersonnel, auxiliaryScores)
+      .filter((candidate) => candidateIsActiveRr(candidate, activePersonnel));
     return { trip, candidates: ranked };
-  }), [auxiliaryRoster, capacities, clientsByTerritory, data?.crew, history, personnelRangeRules, personnelRules, settings, trips, visits, visitsByClient]);
+  }), [activeCrewPairs, activePersonnel, auxiliaryRoster, capacities, clientsByTerritory, history, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
     const assignments = assignUniqueResponsibles(
       rankedPlanning.map(({ trip, candidates }) => ({ tripId: trip.id, candidates })),
       settings.minimumZki,
     );
     const preliminary = rankedPlanning.map(({ trip, candidates }) => ({ trip, candidates, recommendation: assignments.get(trip.id) }));
-    const paired = assignFreeResponsiblesToDriverVehicles(preliminary, data?.crew || [], capacities, settings.minimumZki);
+    const paired = assignFreeResponsiblesToDriverVehicles(preliminary, activeCrewPairs, capacities, settings.minimumZki);
     const unique = enforceUniqueAssignedCrew(preliminary.map(item => {
       const recommendation = paired.get(item.trip.id);
-      const ids = resolveExportCrewIds(recommendation, personnelRules, data?.crew || []);
+      const ids = resolveExportCrewIds(recommendation, activePersonnel);
       return { tripId: item.trip.id, recommendation: recommendation ? { ...recommendation, rrId: ids.responsibleId || recommendation.rrId, driverId: ids.driverId || recommendation.driverId, auxiliaryId: ids.auxiliaryId || recommendation.auxiliaryId } : undefined };
     }), settings.minimumZki);
     return preliminary.map(item => ({ ...item, recommendation: unique.get(item.trip.id) }));
-  }, [capacities, data?.crew, personnelRules, rankedPlanning, settings.minimumZki]);
+  }, [activeCrewPairs, activePersonnel, capacities, rankedPlanning, settings.minimumZki]);
   const candidates = useMemo(
     () => activeTrip ? rankedPlanning.find((item) => item.trip.id === activeTrip.id)?.candidates || [] : [],
     [activeTrip, rankedPlanning],
@@ -372,11 +267,43 @@ export default function ZkiPage() {
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
   const incompleteTrips = planning.filter(({ recommendation: item }) => !hasCompleteCrew(item) || !item?.viable || item.totalZki < settings.minimumZki);
   const planningComplete = planning.length > 0 && incompleteTrips.length === 0;
+  const assignedRrCount = planning.filter(({ recommendation: item }) => item?.rr && !normalizePerson(item.rr).startsWith("sin")).length;
+  const assignedDriverCount = planning.filter(({ trip, recommendation: item }) => item?.driver && !normalizePerson(item.driver).startsWith("sin") && item.vehicle && !normalizePerson(item.vehicle).startsWith("sin") && item.capacity >= trip.weight).length;
+  const qualifiedZkiCount = planning.filter(({ recommendation: item }) => item && item.totalZki >= settings.minimumZki).length;
   const incompleteDetails = incompleteTrips.map(({ trip, recommendation: item }) => {
     const tripCandidates = rankedPlanning.find((entry) => entry.trip.id === trip.id)?.candidates || [];
-    return { trip, candidates: tripCandidates.length, reason: incompleteCrewReason(item, tripCandidates.length, trip.weight, settings.minimumZki) };
+    const hasCatalogCodes = Boolean(clientsByTerritory.get(trip.territoryId)?.length);
+    return { trip, candidates: tripCandidates.length, reason: !hasCurrentPersonnel ? "Carga el Excel de cédulas activas de hoy para cruzarlo con la tabla de personal." : hasCatalogCodes
+      ? incompleteCrewReason(item, tripCandidates.length, trip.weight, settings.minimumZki)
+      : "El catálogo cargado no contiene códigos de cliente para esta ruta; no se puede calcular su ZKI." };
   });
   const source = data?.source;
+
+  async function uploadActivePersonnel(file?: File) {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/people/zki/upload?mode=active-personnel", { method: "POST", body: form });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo leer el Excel de personal activo.");
+      const ids = (body.ids || []) as string[];
+      const matched = ids.filter((id) => personnelRules.some((person) => normalizeCedula(person.id) === id));
+      if (personnelRules.length && !matched.length) throw new Error("Ninguna cédula del Excel coincide con la tabla de personal.");
+      setActivePersonnelIds(ids);
+      setActivePersonnelFileName(file.name);
+      setActivePersonnelDate(todayKey());
+      try { sessionStorage.setItem(ACTIVE_PERSONNEL_CACHE_KEY, JSON.stringify({ ids, fileName: file.name, date: todayKey() })); } catch { /* La copia local es opcional. */ }
+      setMessage(`${ids.length} cédulas activas cargadas; ${matched.length} coinciden con la tabla de personal.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo leer el Excel de personal activo.");
+    } finally {
+      setUploading(false);
+      if (activePersonnelUploadRef.current) activePersonnelUploadRef.current.value = "";
+    }
+  }
 
   async function upload(file?: File) {
     if (!file) return;
@@ -389,7 +316,12 @@ export default function ZkiPage() {
       const response = await fetch("/api/people/zki/upload", { method: "POST", body: form });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo subir el Excel.");
-      applyUploadedRows(Array.isArray(body.rows) ? body.rows : [], file.name);
+      const rows = Array.isArray(body.rows) ? body.rows as RawRow[] : [];
+      const clients = parseTerritoryClients(rows);
+      if (!clients.length) throw new Error("El archivo necesita ID de territorio, código de cliente y barrio.");
+      setCatalogRows(rows);
+      setSelectedTrip("");
+      setMessage(new Set(clients.map((row) => row.territoryId)).size + " territorios y " + clients.length + " relaciones con clientes cargados desde " + file.name + ". Los RR se cruzan con la tabla ZKI.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo subir el Excel.");
     } finally {
@@ -398,91 +330,19 @@ export default function ZkiPage() {
     }
   }
 
-  async function uploadTerritories(file?: File) {
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      const form = new FormData();
-      form.set("file", file);
-      const response = await fetch("/api/people/zki/upload", { method: "POST", body: form });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo leer el catálogo de territorios.");
-      applyUploadedRows(Array.isArray(body.rows) ? body.rows : [], file.name);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo leer el catálogo de territorios.");
-    } finally {
-      setUploading(false);
-      if (territoryUploadRef.current) territoryUploadRef.current.value = "";
-    }
-  }
-
-  async function uploadYesterdayPlanning(file?: File) {
-    if (!file) return;
-    if (!trackingDate) { setError("Escoge el día del seguimiento que se cruzará con la planeación."); return; }
-    setUploading(true); setError("");
-    try {
-      const form = new FormData(); form.set("file", file);
-      const [uploadResponse, attendanceResponse, vehicleResponse, crewResponse] = await Promise.all([
-        fetch("/api/people/zki/upload", { method: "POST", body: form }),
-        fetch("/api/asistencias?live=1", { cache: "no-store" }),
-        fetch("/api/seguimiento", { cache: "no-store" }),
-        fetch("/api/people/zki/crew", { cache: "no-store" }),
-      ]);
-      const [uploadBody, attendanceBody, vehicleBody, crewBody] = await Promise.all([
-        uploadResponse.json().catch(() => ({})), attendanceResponse.json().catch(() => ({})), vehicleResponse.json().catch(() => ({})), crewResponse.json().catch(() => ({})),
-      ]);
-      if (!uploadResponse.ok) throw new Error(uploadBody.error || "No se pudo leer la planeación de ayer.");
-      if (!attendanceResponse.ok) throw new Error(attendanceBody.error || "No se pudo consultar la asistencia.");
-      if (!vehicleResponse.ok) throw new Error(vehicleBody.error || "No se pudo consultar el seguimiento.");
-      if (!crewResponse.ok) throw new Error(crewBody.error || "No se pudo consultar Conductores-placas.");
-      const habitualPairs = Array.isArray(crewBody.crew) ? crewBody.crew as CrewPair[] : [];
-      if (!habitualPairs.length) throw new Error("Conductores-placas no devolvió parejas para calcular el VH habitual.");
-      const result = calculateDriverAdherence(
-        Array.isArray(uploadBody.rows) ? uploadBody.rows : [],
-        (attendanceBody.records || []) as AsistenciaRegistro[],
-        (vehicleBody.records || []) as Vehiculo[],
-        trackingDate,
-        habitualPairs,
-      );
-      if (!result.length) throw new Error("No se reconocieron las columnas Conductor y Placa en la planeación.");
-      setAdherenceRows(result); setAdherenceDate(trackingDate);
-      sessionStorage.setItem(ZKI_ADHERENCE_CACHE_KEY, JSON.stringify({ date: trackingDate, rows: result }));
-      setMessage(`Adherencia calculada con el seguimiento del ${trackingDate}: ${result.filter((row) => row.adherent).length} de ${result.length} conductores salieron en su VH planeado.`);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo calcular la adherencia."); }
-    finally { setUploading(false); if (yesterdayPlanningRef.current) yesterdayPlanningRef.current.value = ""; }
-  }
-
-  function applyUploadedRows(rows: RawRow[], fileName: string) {
-    const detectedTerritories = parseTerritoryClients(rows);
-    const detectedTrips = parseTrips(rows);
-    if (detectedTerritories.length > 0 && detectedTrips.length === 0) {
-      setTerritoryRows(rows);
-      setMessage(`${detectedTerritories.length.toLocaleString("es-CO")} relaciones territorio–cliente detectadas en ${fileName}.`);
-      return;
-    }
-    if (detectedTrips.length > 0) {
-      setPlanningRows(rows);
-      setSelectedTrip("");
-      setMessage(`${detectedTrips.length.toLocaleString("es-CO")} viajes detectados en ${fileName}. La tabla histórica ZKI no fue modificada.`);
-      return;
-    }
-    throw new Error("No se reconocieron columnas de viajes ni de territorio–cliente en el archivo.");
-  }
-
   async function downloadExcel() {
     if (!planning.length) {
-      setError("Carga los viajes y el catálogo de territorios antes de generar el Excel.");
+      setError("Carga el Excel de territorios y clientes antes de generar el Excel.");
       return;
     }
-    if (!planningComplete) {
-      setError(`No se puede finalizar la planeación: ${incompleteTrips.length} territorio(s) siguen pendientes o tienen un ZKI combinado inferior a ${settings.minimumZki}.`);
+    if (!hasCurrentPersonnel) {
+      setError("Carga el Excel del personal activo de hoy antes de generar el resultado.");
       return;
     }
     const assignedPeople: Array<{ id: string; name: string; territory: string; role: string }> = [];
     for (const { trip, recommendation: item } of planning) {
       if (!item) continue;
-      const ids = resolveExportCrewIds(item, personnelRules, data?.crew || []);
+      const ids = resolveExportCrewIds(item, activePersonnel);
       for (const person of [
         { id: ids.responsibleId, name: item.rr, role: "responsable" },
         { id: ids.driverId, name: item.driver, role: "conductor" },
@@ -499,10 +359,11 @@ export default function ZkiPage() {
     }
     const XLSX = await import("xlsx");
     const assignments = planning.map(({ trip, recommendation: item }) => {
-      const ids = resolveExportCrewIds(item, personnelRules, data?.crew || []);
+      const ids = resolveExportCrewIds(item, activePersonnel);
       return {
       "ID territorio": trip.territoryId,
-      "Peso territorio": trip.weight,
+      Barrios: Array.isArray(trip.raw.neighborhoods) ? trip.raw.neighborhoods.join(", ") : trip.zone,
+      "Peso territorio": trip.weight || "",
       "Cedula responsable": ids.responsibleId,
       "ZKI responsable": item?.zki || 0,
       "Nombre responsable": item?.rr || "Sin historial suficiente",
@@ -516,18 +377,19 @@ export default function ZkiPage() {
       "ZKI auxiliar": item?.auxiliaryZki || 0,
       "Nombre auxiliar": item?.auxiliary || "",
       "ZKI total": item?.totalZki || 0,
-      Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
+      Estado: !item ? "Sin asignación" : !hasCompleteCrew(item) ? "Tripulación pendiente" : item.totalZki < settings.minimumZki ? "ZKI pendiente" : "ZKI cumple; peso sin verificar",
       };
     });
-    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge).map((item) => ({
+    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge || item.auxiliaryZki > 0).map((item) => ({
       "ID territorio": trip.territoryId,
+      Barrios: Array.isArray(trip.raw.neighborhoods) ? trip.raw.neighborhoods.join(", ") : trip.zone,
       "ID Empleado": item.rrId,
       Tipo: 1,
       Nombre: item.rr,
       "% Cobertura": item.coverage,
       "Frecuencia Promedio": item.frequency,
       "Frecuencia Tope": Math.min(item.frequency, settings.frequencyCap),
-      "% Clientes 5+": item.depth,
+      "Clientes atendidos con visitas mínimas (%)": item.depth,
       "Clientes únicos": item.uniqueClients || 0,
       "Clientes territorio": item.territoryClients || Math.max(trip.clients, new Set(territoryClients.filter((row) => row.territoryId === trip.territoryId).map((row) => row.client)).size),
       ZKI: item.zki,
@@ -536,98 +398,25 @@ export default function ZkiPage() {
       "ZKI total": item.totalZki,
       Vehículo: item.vehicle,
       Capacidad: item.capacity,
-      Estado: item.viable ? "Viable" : item.reason,
+      Estado: item.totalZki >= settings.minimumZki ? "ZKI cumple; peso sin verificar" : item.reason,
     })));
+    const availablePeople = remainingActivePersonnel(activePersonnel, assignedPeople.map((person) => person.id))
+      .sort((left, right) => left.role.localeCompare(right.role, "es") || left.name.localeCompare(right.name, "es"));
     const workbook = XLSX.utils.book_new();
     const assignmentsSheet = XLSX.utils.json_to_sheet(assignments);
     const matrixSheet = XLSX.utils.json_to_sheet(matrix);
-    assignmentsSheet["!cols"] = [12, 16, 20, 16, 34, 34, 20, 14, 20, 16, 18, 18, 14, 34, 14, 42].map((wch) => ({ wch }));
-    matrixSheet["!cols"] = [12, 18, 8, 34, 14, 20, 17, 16, 18, 18, 12, 34, 14, 14, 16, 14, 42].map((wch) => ({ wch }));
+    const availableSheet = XLSX.utils.aoa_to_sheet([
+      ["Cédula", "Nombre", "Cargo", "Contratista"],
+      ...availablePeople.map((person) => [person.id, person.name, person.role, person.contractor || ""]),
+    ]);
+    assignmentsSheet["!cols"] = [12, 44, 16, 20, 16, 34, 34, 20, 14, 20, 16, 18, 18, 14, 34, 14, 42].map((wch) => ({ wch }));
+    matrixSheet["!cols"] = [12, 44, 18, 8, 34, 14, 20, 17, 16, 18, 18, 12, 34, 14, 14, 16, 14, 42].map((wch) => ({ wch }));
+    availableSheet["!cols"] = [{ wch: 18 }, { wch: 38 }, { wch: 20 }, { wch: 20 }];
+    availableSheet["!autofilter"] = { ref: `A1:D${Math.max(1, availablePeople.length + 1)}` };
     XLSX.utils.book_append_sheet(workbook, assignmentsSheet, "Asignaciones");
     XLSX.utils.book_append_sheet(workbook, matrixSheet, "Matriz ZKI");
-    XLSX.writeFile(workbook, `asignaciones_zki_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  }
-
-  async function addPerson(event: FormEvent) {
-    event.preventDefault();
-    const name = personForm.name.trim(); const id = personForm.id.replace(/\D/g, "");
-    if (!name || !id) { setError("La cédula y el nombre son obligatorios."); return; }
-    const response = await fetch("/api/people/zki/personnel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...personForm, id, name, contractor: "Logisticos", available: true }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "No se pudo agregar la persona."); return; }
-    setPersonnelRules((current) => [...current, body.person as PersonnelRule].sort((a, b) => a.name.localeCompare(b.name, "es")));
-    setPersonForm({ id: "", name: "", role: "Conductor" });
-    setShowAddPerson(false);
-    setError("");
-    setMessage(`${name} fue agregado a la base de datos.`);
-  }
-
-  async function setPersonAvailability(person: PersonnelRule, available: boolean) {
-    const response = await fetch("/api/people/zki/personnel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...person, available }) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "No se pudo actualizar la disponibilidad."); return; }
-    startPersonnelTransition(() => {
-      setPersonnelRules((current) => current.map((item) => item.id === person.id ? { ...item, available } : item));
-    });
-    setError("");
-    setMessage(`${person.name} quedó ${available ? "activo" : "inactivo"} para la planeación.`);
-  }
-
-  async function syncPersonnelFromDataFile() {
-    setSyncingPersonnel(true);
-    setError("");
-    try {
-      const response = await fetch("/api/people/zki/personnel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "syncDataPersonal" }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No se pudo sincronizar Data Personal.");
-      await loadPersonnel();
-      setMessage(`Data Personal actualizada: ${body.active} personas activas, ${body.inactive} inactivas y ${body.added} nuevas.`);
-    } catch (syncError) {
-      setError(syncError instanceof Error ? syncError.message : "No se pudo sincronizar Data Personal.");
-    } finally {
-      setSyncingPersonnel(false);
-    }
-  }
-
-  async function savePersonClientRange(person: PersonnelRule, minimumClients: number, maximumClients: number) {
-    const hasRange = Number.isFinite(minimumClients) && Number.isFinite(maximumClients);
-    const next = {
-      ...person,
-      minimumClients: hasRange ? Math.max(0, minimumClients) : undefined,
-      maximumClients: hasRange ? Math.max(minimumClients, maximumClients) : undefined,
-    };
-    const response = await fetch("/api/people/zki/personnel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "No se pudo guardar el rango de clientes."); return; }
-    setPersonnelRules((current) => current.map((item) => item.id === person.id ? next : item));
-    setPersonnelClientRanges((current) => ({ ...current, [person.id]: { minimumClients: next.minimumClients, maximumClients: next.maximumClients } }));
-    setMessage(hasRange ? `Rango de ${person.name} guardado: ${next.minimumClients} a ${next.maximumClients} clientes.` : `${person.name} quedó sin rango de clientes.`);
-  }
-
-  function updatePersonClientRangeDraft(person: PersonnelRule, field: keyof PersonnelClientRange, value: string) {
-    const parsedValue = value === "" ? undefined : Number(value);
-    if (personnelView === "history") {
-      setPersonnelClientRanges((current) => ({ ...current, [person.id]: { ...current[person.id], [field]: parsedValue } }));
-      return;
-    }
-    setPersonnelRules((current) => current.map((item) => item.id === person.id ? { ...item, [field]: parsedValue } : item));
-  }
-
-  async function removePerson(person: PersonnelRule) {
-    if (!confirm(`¿Eliminar definitivamente a ${person.name} (CC ${person.id}) de la base de datos? Esta acción no se puede deshacer.`)) return;
-    const response = await fetch(`/api/people/zki/personnel?id=${encodeURIComponent(person.id)}`, { method: "DELETE" });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "No se pudo eliminar la persona."); return; }
-    setPersonnelRules((current) => current.filter((item) => item.id !== person.id));
-    setMessage(`${person.name} fue eliminado de la base de datos.`);
+    XLSX.utils.book_append_sheet(workbook, availableSheet, "Personal disponible");
+    XLSX.writeFile(workbook, `${planningComplete ? "asignaciones" : "diagnostico"}_zki_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   async function updateVehicle(plate: string, changes: Partial<VehicleStatus>) {
@@ -665,25 +454,20 @@ export default function ZkiPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50" disabled={loading} onClick={() => void load(true)} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={16} />Actualizar</button>
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 px-4 text-sm font-semibold text-cyan-900 hover:bg-cyan-100" onClick={() => setShowPersonnel(true)} type="button"><UserPlus size={16} />Personal</button>
+              <input accept=".xlsx,.xls,.csv" aria-label="Excel de cédulas activas" className="hidden" onChange={(event) => void uploadActivePersonnel(event.target.files?.[0])} ref={activePersonnelUploadRef} type="file" />
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 px-4 text-sm font-semibold text-cyan-900 hover:bg-cyan-100 disabled:bg-slate-200" disabled={uploading} onClick={() => activePersonnelUploadRef.current?.click()} type="button"><Users size={16} />Cargar personal activo</button>
               <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100" onClick={() => setShowVehicles(true)} type="button"><Truck size={16} />Vehículos</button>
-              <input accept=".xlsx,.xls" className="hidden" onChange={(event) => void upload(event.target.files?.[0])} ref={uploadRef} type="file" />
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b2235] px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={uploading} onClick={() => uploadRef.current?.click()} type="button"><Upload size={16} />{uploading ? "Importando…" : "Cargar viajes"}</button>
-              <input accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => void uploadTerritories(event.target.files?.[0])} ref={territoryUploadRef} type="file" />
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={uploading} onClick={() => territoryUploadRef.current?.click()} type="button"><Users size={16} />Cargar territorios</button>
-              <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-amber-950" title="Día del seguimiento que se cruzará con la planeación">
-                <CalendarDays size={16} />
-                <span className="hidden sm:inline">Día seguimiento</span>
-                <input aria-label="Día del seguimiento" className="min-w-[126px] bg-transparent text-sm outline-none" max={localDateKey(0)} onChange={(event) => setTrackingDate(event.target.value)} type="date" value={trackingDate} />
-              </label>
-              <input accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void uploadYesterdayPlanning(event.target.files?.[0])} ref={yesterdayPlanningRef} type="file" />
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-semibold text-slate-950 disabled:bg-slate-300" disabled={uploading || !trackingDate} onClick={() => yesterdayPlanningRef.current?.click()} type="button"><Upload size={16} />Cruzar planeación</button>
+              <input accept=".xlsx,.xls,.csv" aria-label="Excel de territorios, barrios y códigos de cliente" className="hidden" onChange={(event) => void upload(event.target.files?.[0])} ref={uploadRef} type="file" />
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b2235] px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={uploading} onClick={() => uploadRef.current?.click()} type="button"><Upload size={16} />{uploading ? "Importando…" : "Cargar territorios y clientes"}</button>
               <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100" onClick={() => router.push("/personas/zki/graficas")} type="button"><BarChart3 size={16} />Gráficas ZKI</button>
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={!planningComplete} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={16} />Descargar Excel</button>
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={!planning.length || !hasCurrentPersonnel} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={16} />{planningComplete ? "Descargar asignaciones" : "Descargar diagnóstico"}</button>
             </div>
           </div>
+          <div className="border-t border-slate-200 px-5 py-3 text-xs text-slate-700">
+            {hasCurrentPersonnel ? <span><strong>{activePersonnelFileName}</strong>: {activePersonnelIds?.length || 0} cédulas activas, {activePersonnel.length} encontradas en la tabla. El archivo de territorios aporta ID, barrio y código de cliente; no trae peso.</span> : <span className="font-semibold text-amber-800">Carga las cédulas del personal disponible hoy y el archivo de territorios, barrios y clientes. El peso no viene en ese archivo.</span>}
+          </div>
           <div className="grid border-t border-slate-200 bg-slate-50 sm:grid-cols-4">
-            <Stat label="Viajes cargados" value={trips.length} />
+            <Stat label="Territorios cargados" value={trips.length} />
             <Stat label="Visitas históricas ZKI" value={source?.rows || visits.length} />
             <Stat label="Clientes del catálogo" value={new Set(territoryClients.map((row) => row.client)).size} />
             <Stat label="Asignaciones viables" value={viable.length} />
@@ -693,7 +477,7 @@ export default function ZkiPage() {
               <table className="w-full text-sm">
                 <thead className="bg-[#10283d] text-[10px] uppercase tracking-wider text-white"><tr><th className="px-4 py-2 text-left">Recurso</th><th className="px-4 py-2 text-center">Total</th><th className="px-4 py-2 text-center">Disponibles</th><th className="px-4 py-2 text-center">Indisponibles</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">
-                  <AvailabilitySummaryRow label="Personal" available={personnelRules.filter((person) => person.available).length} total={personnelRules.length} />
+                  <AvailabilitySummaryRow label="Personal activo del Excel" available={activePersonnel.length} total={personnelRules.length} />
                   <AvailabilitySummaryRow label="Vehículos (VH)" available={Object.values(vehicleAvailability).filter((vehicle) => vehicle.available).length} total={Object.keys(vehicleAvailability).length} />
                 </tbody>
               </table>
@@ -701,20 +485,15 @@ export default function ZkiPage() {
           </div>
         </section>
 
-        {adherencePeople.length ? <section className="overflow-hidden rounded-xl border border-amber-300 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-amber-200 bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-amber-700">Adherencia de la tripulación · {adherenceDate}</p><h2 className="mt-1 text-xl font-semibold text-[#0b2235]">{adherencePeople.filter((person) => person.adherent).length}/{adherencePeople.length} personas estuvieron en su VH planeado</h2></div><span className="rounded-xl bg-amber-400 px-5 py-2 text-2xl font-black text-slate-950">{Math.round(adherencePeople.filter((person) => person.adherent).length / adherencePeople.length * 100)}%</span></div>
-          <div className="max-h-96 overflow-auto"><table className="w-full min-w-[980px] text-left text-xs"><thead className="sticky top-0 bg-[#10283d] uppercase tracking-wider text-white"><tr><th className="px-4 py-3">Rol planeado</th><th className="px-4 py-3">Persona planeada</th><th className="px-4 py-3">Cédula</th><th className="px-4 py-3">VH planeado</th><th className="px-4 py-3">DT</th><th className="px-4 py-3">VH de salida</th><th className="px-4 py-3">Encontrado como</th><th className="px-4 py-3">Resultado</th></tr></thead><tbody className="divide-y divide-slate-100">{adherencePeople.map((person) => <tr key={`${person.routeIndex}-${person.role}-${person.id || normalizePerson(person.name)}`}><td className="px-4 py-3 font-black text-cyan-800">{person.role}</td><td className="px-4 py-3 font-bold">{person.name || person.id}</td><td className="px-4 py-3">{person.id || "—"}</td><td className="px-4 py-3 font-mono font-bold">{person.plannedPlate}</td><td className="px-4 py-3">{person.dt || "—"}</td><td className="px-4 py-3 font-mono font-bold">{person.actualPlate || "—"}</td><td className="px-4 py-3 font-semibold">{person.actualRole || "—"}</td><td className={`px-4 py-3 font-black ${person.adherent ? "text-emerald-700" : "text-amber-700"}`}>{person.adherent ? "Cumplió" : person.actualPlate ? "No aparece en el VH" : "Sin VH de salida"}</td></tr>)}</tbody></table></div>
-        </section> : null}
-
         <section className="grid min-w-0 gap-5 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="min-w-0 space-y-5">
             <section className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center gap-2"><SlidersHorizontal size={18} className="text-cyan-700" /><h2 className="font-semibold text-[#0b2235]">Parámetros ZKI</h2></div>
               <div className="space-y-4">
-                <Setting label="Visitas para profundidad" value={settings.depthThreshold} onChange={(value) => setSettings({ ...settings, depthThreshold: Math.max(1, value) })} />
+                <Setting label="Visitas mínimas por cliente" value={settings.depthThreshold} onChange={(value) => setSettings({ ...settings, depthThreshold: Math.max(1, value) })} />
                 <Setting label="Umbral ZKI combinado (mínimo 75)" suffix="%" value={settings.minimumZki} onChange={(value) => setSettings({ ...settings, minimumZki: Math.min(200, Math.max(75, value)) })} />
               </div>
-              <p className="mt-4 text-xs leading-5 text-slate-500">El ZKI de cada persona es el porcentaje de sus clientes atendidos al menos el número de veces configurado.</p>
+              <p className="mt-4 text-xs leading-5 text-slate-500">Cada código de cliente del archivo se cruza con la tabla ZKI. El barrio identifica la zona y ayuda a revisar el territorio; las visitas de otro cliente del mismo barrio no cuentan para ese código. Los RR y auxiliares se distribuyen entre territorios para maximizar las rutas que alcanzan el umbral.</p>
             </section>
 
             <section className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
@@ -722,7 +501,7 @@ export default function ZkiPage() {
               <select className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" id="trip" onChange={(event) => setSelectedTrip(event.target.value)} value={activeTrip?.id || ""}>
                 {trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.zone}</option>)}
               </select>
-              {activeTrip ? <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><Detail label="ID territorio" value={activeTrip.territoryId || "—"} /><Detail label="Clientes catálogo" value={formatNumber(clientsForTrip.length)} /><Detail label="Peso" value={`${formatNumber(activeTrip.weight)} kg`} /><Detail label="Clientes plan" value={formatNumber(activeTrip.clients)} /><Detail label="Placa plan" value={activeTrip.assignedPlate || "—"} /><Detail label="Peso máx." value={`${formatNumber(activeTrip.maximumWeight)} kg`} /></div> : null}
+              {activeTrip ? <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><Detail label="ID territorio" value={activeTrip.territoryId || "—"} /><Detail label="Clientes" value={formatNumber(activeTrip.clients)} /><Detail label="Barrios principales" value={activeTrip.zone} /><Detail label="Peso" value="No informado" /></div> : null}
             </section>
           </aside>
 
@@ -730,17 +509,17 @@ export default function ZkiPage() {
             <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold text-[#0b2235]">Asignaciones recomendadas</h2><p className="mt-1 text-xs text-slate-500">Una salida resumida por territorio. La matriz completa queda disponible para auditoría.</p></div>
-                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planningComplete} onClick={() => void downloadExcel()} title={planningComplete ? "Descargar planeación completa" : `${incompleteTrips.length} rutas pendientes de cumplir el umbral ZKI y la tripulación`} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
+                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planning.length || !hasCurrentPersonnel} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={15} />{planningComplete ? "Descargar asignaciones" : "Descargar diagnóstico"}</button></div>
               </div>
-              {planning.length && !planningComplete ? <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs font-semibold text-amber-900"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>Hay {incompleteTrips.length} territorios pendientes de tripulación viable o ZKI combinado mínimo de {settings.minimumZki}: {incompleteTrips.map(({ trip }) => trip.territoryId).join(", ")}. La descarga se habilitará cuando todos cumplan.</span></div> : null}
-              {incompleteDetails.length ? <div className="border-b border-amber-200 bg-amber-50/40 p-4"><div className="mb-2 flex items-center justify-between gap-3"><div><h3 className="text-xs font-black text-amber-950">Diagnóstico de rutas pendientes</h3><p className="text-[10px] text-amber-800">La cantidad de candidatos incluye todos los RR de Logísticos disponibles; cada uno se evalúa en este territorio.</p></div><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-900">{incompleteDetails.length} rutas</span></div><div className="max-h-64 overflow-auto rounded-lg border border-amber-200 bg-white"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="sticky top-0 bg-amber-100 text-[9px] uppercase tracking-wide text-amber-950"><tr><th className="px-3 py-2">Territorio</th><th className="px-3 py-2">Zona</th><th className="px-3 py-2 text-right">Clientes</th><th className="px-3 py-2 text-right">Carga</th><th className="px-3 py-2 text-center">RR candidatos</th><th className="px-3 py-2">Razón</th></tr></thead><tbody className="divide-y divide-amber-100">{incompleteDetails.map(({ trip, candidates: count, reason }) => <tr key={`missing-${trip.id}`}><td className="px-3 py-2 font-black text-[#10283d]">{trip.territoryId}</td><td className="px-3 py-2 font-semibold text-slate-700">{trip.zone}</td><td className="px-3 py-2 text-right">{trip.clients}</td><td className="px-3 py-2 text-right font-semibold">{formatNumber(trip.weight)} kg</td><td className="px-3 py-2 text-center"><span className={`rounded-full px-2 py-1 font-black ${count ? "bg-cyan-100 text-cyan-800" : "bg-red-100 text-red-700"}`}>{count}</span></td><td className="px-3 py-2 font-semibold text-amber-900">{reason}</td></tr>)}</tbody></table></div></div> : null}
+              {planning.length && !planningComplete ? <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs font-semibold text-amber-900"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><div><p>Hay {incompleteTrips.length} territorios pendientes de tripulación o ZKI combinado mínimo de {settings.minimumZki}: {incompleteTrips.map(({ trip }) => trip.territoryId).join(", ")}. Puedes descargar un diagnóstico; no se marcará como asignación final.</p><p className="mt-1">De {planning.length} territorios: {assignedRrCount} con RR, {assignedDriverCount} con conductor y placa, {qualifiedZkiCount} con ZKI combinado suficiente. Falta el peso para verificar capacidad.</p></div></div> : null}
+              {incompleteDetails.length ? <div className="border-b border-amber-200 bg-amber-50/40 p-4"><div className="mb-2 flex items-center justify-between gap-3"><div><h3 className="text-xs font-black text-amber-950">Diagnóstico de rutas pendientes</h3><p className="text-[10px] text-amber-800">Se evalúa cada RR disponible contra los códigos de cliente del territorio.</p></div><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-900">{incompleteDetails.length} rutas</span></div><div className="max-h-64 overflow-auto rounded-lg border border-amber-200 bg-white"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="sticky top-0 bg-amber-100 text-[9px] uppercase tracking-wide text-amber-950"><tr><th className="px-3 py-2">Territorio</th><th className="px-3 py-2">Zona</th><th className="px-3 py-2 text-right">Clientes</th><th className="px-3 py-2 text-right">Peso</th><th className="px-3 py-2 text-center">RR candidatos</th><th className="px-3 py-2">Razón</th></tr></thead><tbody className="divide-y divide-amber-100">{incompleteDetails.map(({ trip, candidates: count, reason }) => <tr key={`missing-${trip.id}`}><td className="px-3 py-2 font-black text-[#10283d]">{trip.territoryId}</td><td className="px-3 py-2 font-semibold text-slate-700">{trip.zone}</td><td className="px-3 py-2 text-right">{trip.clients}</td><td className="px-3 py-2 text-right font-semibold">No informado</td><td className="px-3 py-2 text-center"><span className={`rounded-full px-2 py-1 font-black ${count ? "bg-cyan-100 text-cyan-800" : "bg-red-100 text-red-700"}`}>{count}</span></td><td className="px-3 py-2 font-semibold text-amber-900">{reason}</td></tr>)}</tbody></table></div></div> : null}
               <div className="max-h-[680px] w-full max-w-full overflow-auto overscroll-contain">
                 <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
-                  <thead className="sticky top-0 z-20 bg-[#10283d] text-[10px] uppercase tracking-[.12em] text-white"><tr><th className="w-[110px] px-4 py-3.5">Territorio</th><th className="w-[160px] px-4 py-3.5">Carga</th><th className="w-[220px] px-4 py-3.5">Responsable</th><th className="w-[220px] px-4 py-3.5">Conductor / vehículo</th><th className="w-[220px] px-4 py-3.5">Auxiliar</th><th className="w-[110px] px-4 py-3.5 text-center">ZKI total</th><th className="w-[180px] px-4 py-3.5">Estado</th></tr></thead>
+                  <thead className="sticky top-0 z-20 bg-[#10283d] text-[10px] uppercase tracking-[.12em] text-white"><tr><th className="w-[110px] px-4 py-3.5">Territorio</th><th className="w-[160px] px-4 py-3.5">Peso / capacidad</th><th className="w-[220px] px-4 py-3.5">Responsable</th><th className="w-[220px] px-4 py-3.5">Conductor / vehículo</th><th className="w-[220px] px-4 py-3.5">Auxiliar</th><th className="w-[110px] px-4 py-3.5 text-center">ZKI total</th><th className="w-[180px] px-4 py-3.5">Estado</th></tr></thead>
                   <tbody>{planning.map(({ trip, recommendation: item }, index) => (
                     <tr className={`border-b border-slate-200 align-middle transition hover:bg-cyan-50/70 ${index % 2 ? "bg-slate-50/70" : "bg-white"}`} key={trip.id}>
                       <td className="px-4 py-3.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#10283d] text-sm font-black text-white">{trip.territoryId}</span><p className="mt-1 max-w-24 truncate text-[10px] text-slate-400" title={trip.zone}>{trip.zone}</p></td>
-                      <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{formatNumber(trip.weight)} kg</p><p className="mt-1 text-[10px] text-slate-500">Capacidad: {item?.capacity ? `${formatNumber(item.capacity)} kg` : "pendiente"}</p>{item?.capacity ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${trip.weight <= item.capacity ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, (trip.weight / item.capacity) * 100)}%` }} /></div> : null}</td>
+                      <td className="px-4 py-3.5"><p className="font-bold text-slate-800">Peso no informado</p><p className="mt-1 text-[10px] text-slate-500">Capacidad del VH: {item?.capacity ? `${formatNumber(item.capacity)} kg` : "pendiente"}</p></td>
                       <td className="px-4 py-3.5"><p className="font-bold leading-5 text-[#10283d]">{item?.rr || "Sin historial suficiente"}</p>{item ? <><ScoreBadge value={item.zki} /><p className="mt-1 text-[10px] font-semibold text-slate-500">Carga anterior: {item.previousClients || 0} clientes{item.workloadAdjustment ? ` · ajuste ${item.workloadAdjustment > 0 ? "+" : ""}${formatNumber(item.workloadAdjustment)}` : ""}</p></> : null}</td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.driver || "Sin conductor"}</p><span className="mt-1 inline-flex rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">{displayPlate(item?.vehicle) || "Sin placa"}</span></td>
                       <td className="px-4 py-3.5"><p className="font-medium leading-5 text-slate-700">{item?.auxiliary || "Sin auxiliar"}</p>{item ? <ScoreBadge value={item.auxiliaryZki} /> : null}</td>
@@ -749,7 +528,7 @@ export default function ZkiPage() {
                     </tr>
                   ))}</tbody>
                 </table>
-                {!planning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="Carga viajes y territorios para generar las asignaciones y el Excel." /> : null}
+                {!planning.length ? <Empty icon={<FileSpreadsheet size={28} />} text="Carga el Excel de territorios, barrios y códigos de cliente." /> : null}
               </div>
             </section>
 
@@ -763,74 +542,21 @@ export default function ZkiPage() {
             ) : null}
 
             {showMatrix ? <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-200 p-5"><div><h2 className="font-semibold text-[#0b2235]">Combinaciones viables</h2><p className="mt-1 text-xs text-slate-500">Solo aparecen opciones que cumplen ZKI, disponibilidad y capacidad.</p></div><Users size={20} className="text-cyan-700" /></div>
+              <div className="flex items-center justify-between border-b border-slate-200 p-5"><div><h2 className="font-semibold text-[#0b2235]">Combinaciones con ZKI suficiente</h2><p className="mt-1 text-xs text-slate-500">Cumplen ZKI y disponibilidad; el peso falta para verificar capacidad.</p></div><Users size={20} className="text-cyan-700" /></div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1050px] text-left text-xs">
-                  <thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-600"><tr><Th>Estado</Th><Th>Responsable</Th><Th>Conductor</Th><Th>Vehículo</Th><Th>Cobertura</Th><Th>Frecuencia</Th><Th>Profundidad</Th><Th>ZKI responsable</Th><Th>Auxiliar</Th><Th>ZKI auxiliar</Th><Th>ZKI total</Th><Th>Capacidad</Th><Th>Decisión</Th></tr></thead>
+                  <thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-600"><tr><Th>Estado</Th><Th>Responsable</Th><Th>Conductor</Th><Th>Vehículo</Th><Th>Cobertura</Th><Th>Frecuencia</Th><Th>Clientes con visitas mínimas</Th><Th>ZKI responsable</Th><Th>Auxiliar</Th><Th>ZKI auxiliar</Th><Th>ZKI total</Th><Th>Capacidad</Th><Th>Decisión</Th></tr></thead>
                   <tbody>{viable.map((candidate) => <CandidateRow candidate={candidate} key={`${candidate.rr}:${candidate.driver}:${candidate.vehicle}`} />)}</tbody>
                 </table>
-                {!loading && !trips.length ? <Empty icon={<Truck size={28} />} text="Falta cargar el Excel de viajes para comenzar la planeación. Este archivo no modifica la tabla histórica ZKI." /> : null}
-                {!loading && trips.length > 0 && !visits.length ? <Empty icon={<Database size={28} />} text="Los viajes están listos, pero la tabla histórica ZKI no devolvió relaciones cliente–RR. Sin ese historial todavía no se puede calcular el conocimiento." /> : null}
-                {!loading && trips.length > 0 && visits.length > 0 && !candidates.length ? <Empty icon={<Users size={28} />} text="Este viaje no tiene coincidencias cliente–RR en ZKI. Se marca sin historial suficiente y no se le asigna artificialmente un porcentaje de 0%." /> : null}
+                {!loading && !trips.length ? <Empty icon={<Truck size={28} />} text="Carga el Excel de territorios y clientes para comenzar la planeación. Este archivo no modifica la tabla histórica ZKI." /> : null}
+                {!loading && trips.length > 0 && !visits.length ? <Empty icon={<Database size={28} />} text="Los territorios están listos, pero la tabla histórica ZKI no devolvió relaciones cliente–RR. Sin ese historial todavía no se puede calcular el conocimiento." /> : null}
+                {!loading && trips.length > 0 && visits.length > 0 && !candidates.length ? <Empty icon={<Users size={28} />} text="No hay RR disponibles para este territorio. Revisa sus códigos de cliente y el personal de la base de datos." /> : null}
                 {loading ? <Empty icon={<RefreshCw className="animate-spin" size={28} />} text="Calculando combinaciones…" /> : null}
               </div>
             </section> : null}
           </div>
         </section>
       </section>
-      {showPersonnel ? (
-        <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowPersonnel(false); }} role="dialog">
-          <section className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <header className="flex items-center justify-between bg-[#0b2235] px-5 py-4 text-white">
-              <div><p className="text-[9px] font-black uppercase tracking-[.16em] text-cyan-300">Planeación ZKI</p><h2 className="text-lg font-bold">Disponibilidad del personal</h2><p className="text-xs text-slate-300">Personal cargado desde la base de datos.</p></div>
-              <button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10" onClick={() => setShowPersonnel(false)} type="button"><X size={18} /></button>
-            </header>
-            <div className="border-b border-slate-200 bg-slate-50 p-4">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto_auto]">
-                <label className="relative min-w-0 flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-                  <input className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setPersonnelSearch(event.target.value)} placeholder="Buscar por nombre, cédula o cargo" value={personnelSearch} />
-                </label>
-                <select aria-label="Filtrar personal por cargo" className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" onChange={(event) => setPersonnelRole(event.target.value as "Todos" | PersonnelRule["role"])} value={personnelRole}><option>Todos</option><option>RR</option><option>Líder de Ruta</option><option>Conductor</option><option>Auxiliar</option></select>
-                <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-bold text-cyan-800 hover:bg-cyan-100 disabled:cursor-wait disabled:opacity-60" disabled={syncingPersonnel} onClick={() => void syncPersonnelFromDataFile()} type="button"><RefreshCw className={syncingPersonnel ? "animate-spin" : ""} size={16} />{syncingPersonnel ? "Actualizando" : "Actualizar personal"}</button>
-                {personnelView === "catalog" ? <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-bold text-white hover:bg-cyan-800" onClick={() => setShowAddPerson((current) => !current)} type="button"><UserPlus size={16} />{showAddPerson ? "Cancelar" : "Nueva persona"}</button> : <span />}
-              </div>
-              <div className="mt-3 inline-flex rounded-xl bg-slate-200 p-1">
-                <button className={`rounded-lg px-4 py-2 text-xs font-black ${personnelView === "catalog" ? "bg-white text-[#0b2235] shadow-sm" : "text-slate-500"}`} onClick={() => setPersonnelView("catalog")} type="button">Personal actual</button>
-                <button className={`rounded-lg px-4 py-2 text-xs font-black ${personnelView === "history" ? "bg-white text-[#0b2235] shadow-sm" : "text-slate-500"}`} onClick={() => setPersonnelView("history")} type="button">Ver histórico ZKI</button>
-              </div>
-              {showAddPerson && personnelView === "catalog" ? <form className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[130px_1fr_130px_auto]" onSubmit={addPerson}>
-                <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, id: event.target.value })} placeholder="Cédula" value={personForm.id} />
-                <input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} placeholder="Nombre completo" value={personForm.name} />
-                <select className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setPersonForm({ ...personForm, role: event.target.value as PersonnelRule["role"] })} value={personForm.role}><option>RR</option><option>Líder de Ruta</option><option>Conductor</option><option>Auxiliar</option></select>
-                <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-bold text-white" type="submit"><UserPlus size={15} />Agregar</button>
-              </form> : null}
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {filteredPersonnel.length ? <div className="space-y-2">{pagedPersonnel.map((person) => (
-                <div className="rounded-xl border border-slate-200 p-3" key={person.id}>
-                  <div className={`grid items-center gap-3 ${personnelView === "history" ? "grid-cols-[1fr_auto]" : "grid-cols-[1fr_auto_auto]"}`}>
-                    <button className="min-w-0 text-left" onClick={() => setSelectedPersonnelId((current) => current === (person.id || person.name) ? "" : (person.id || person.name))} type="button"><p className="truncate text-sm font-bold text-slate-800">{person.name}</p><p className="text-[10px] font-semibold uppercase text-slate-400">{person.role} · {person.contractor || "Sin contratista"}{person.id ? ` · CC ${person.id}` : " · Sin cédula histórica"} · {personnelView === "history" ? "Registro histórico ZKI" : person.minimumClients !== undefined && person.maximumClients !== undefined ? `${person.minimumClients}–${person.maximumClients} clientes` : "Sin rango de clientes"}</p></button>
-                    <button className={`rounded-full px-3 py-1.5 text-[10px] font-black ${person.available ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} disabled={personnelView === "history"} onClick={() => void setPersonAvailability(person, !person.available)} type="button">{person.available ? "Activo" : "Inactivo"}</button>
-                    {personnelView === "catalog" ? <button aria-label={`Eliminar definitivamente a ${person.name}`} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" onClick={() => void removePerson(person)} title="Eliminar de la empresa" type="button"><Trash2 size={15} /></button> : null}
-                  </div>
-                  {selectedPersonnelId === (person.id || person.name) ? <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[1fr_1fr_auto]">
-                    <label className="text-[10px] font-bold uppercase text-slate-500">Clientes mínimos<input className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-3 text-sm" min="0" onChange={(event) => updatePersonClientRangeDraft(person, "minimumClients", event.target.value)} placeholder="Sin límite" type="number" value={person.minimumClients ?? ""} /></label>
-                    <label className="text-[10px] font-bold uppercase text-slate-500">Clientes máximos<input className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-3 text-sm" min={person.minimumClients ?? 0} onChange={(event) => updatePersonClientRangeDraft(person, "maximumClients", event.target.value)} placeholder="Sin límite" type="number" value={person.maximumClients ?? ""} /></label>
-                    <button className="h-9 self-end rounded-lg bg-cyan-700 px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!person.id} onClick={() => void savePersonClientRange(person, person.minimumClients ?? Number.NaN, person.maximumClients ?? Number.NaN)} title={person.id ? "Guardar rango de clientes" : "Se necesita una cédula para guardar el rango"} type="button">Guardar rango</button>
-                  </div> : null}
-                </div>
-              ))}
-                {personnelPageCount > 1 ? <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-200 bg-white/95 py-3">
-                  <button className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-40" disabled={visiblePersonnelPage === 1} onClick={() => setPersonnelPage((page) => Math.max(1, page - 1))} type="button">Anterior</button>
-                  <span className="text-xs font-semibold text-slate-500">Página {visiblePersonnelPage} de {personnelPageCount} · {filteredPersonnel.length} personas</span>
-                  <button className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-40" disabled={visiblePersonnelPage === personnelPageCount} onClick={() => setPersonnelPage((page) => Math.min(personnelPageCount, page + 1))} type="button">Siguiente</button>
-                </div> : null}
-              </div> : <div className="grid min-h-40 place-items-center text-center text-sm text-slate-400">{personnelSearch || personnelRole !== "Todos" ? "No se encontraron personas con esos filtros." : "No hay RR, conductores ni auxiliares en la base de datos."}</div>}
-            </div>
-          </section>
-        </div>
-      ) : null}
       {showVehicles ? (
         <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowVehicles(false); }} role="dialog">
           <section className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -865,7 +591,7 @@ export default function ZkiPage() {
 function applyPersonnelClientRanges(candidates: Candidate[], rules: PersonnelRule[], tripClients: number) {
   return candidates.flatMap((rawCandidate) => {
     const candidate = withAvailableAuxiliary(rawCandidate, rules);
-    const rule = rules.find((person) => person.id.replace(/\D/g, "") === candidate.rrId.replace(/\D/g, "") || normalizePerson(person.name) === normalizePerson(candidate.rr));
+    const rule = rules.find((person) => matchesPersonnel(person, candidate.rrId, candidate.rr));
     if (rule?.minimumClients === undefined || rule.maximumClients === undefined) return [{ ...candidate, workloadAdjustment: 0 }];
     const minimum = rule.minimumClients;
     const maximum = Math.max(minimum, rule.maximumClients);
@@ -928,7 +654,7 @@ function addCrewResponsibleFallbacks(
       viable: false,
       hasKnowledge: false,
       habitualVehicle: true,
-      reason: "Asignado como respaldo con su conductor y placa habitual; el RR no tiene historial ZKI para este territorio.",
+      reason: "Asignado como respaldo con su conductor y placa habitual; el RR no tiene visitas ZKI para los códigos de cliente de esta ruta.",
     }];
   });
   const personnelFallbacks = personnelRules.flatMap((person): Candidate[] => {
@@ -948,19 +674,16 @@ function addCrewResponsibleFallbacks(
       auxiliary: auxiliary.name, auxiliaryId: auxiliary.id, auxiliaryZki: auxiliary.zki,
       auxiliaryOptions, totalZki: auxiliary.zki,
       capacity: 0, viable: false, hasKnowledge: false, habitualVehicle: false,
-      reason: "RR disponible sin historial ZKI para este territorio.",
+      reason: "RR disponible sin visitas ZKI para los códigos de cliente de esta ruta.",
     }];
   });
   return [...candidates, ...fallbacks, ...personnelFallbacks];
 }
 
 function withAvailableAuxiliary(candidate: Candidate, rules: PersonnelRule[]) {
-  const unavailable = rules.filter((person) => person.role === "Auxiliar" && !person.available);
-  const isUnavailable = (option: { id: string; name: string }) => unavailable.some((person) =>
-    (person.id && option.id && person.id.replace(/\D/g, "") === option.id.replace(/\D/g, "")) ||
-    (person.name && normalizePerson(person.name) === normalizePerson(option.name)),
-  );
-  const options = (candidate.auxiliaryOptions || []).filter((option) => !isUnavailable(option));
+  const options = (candidate.auxiliaryOptions || []).filter((option) => rules.some((person) =>
+    person.role === "Auxiliar" && matchesPersonnel(person, option.id, option.name),
+  ));
   const selected = options[0];
   if (!selected) return {
     ...candidate,
@@ -981,18 +704,8 @@ function withAvailableAuxiliary(candidate: Candidate, rules: PersonnelRule[]) {
 }
 
 function CandidateRow({ candidate }: { candidate: Candidate }) {
-  const status = candidate.viable ? "Viable" : candidate.hasKnowledge ? "Bloqueada" : "No evaluable";
+  const status = candidate.viable ? "ZKI cumple; peso sin verificar" : "Pendiente";
   return <tr className={`border-b border-slate-100 ${candidate.viable ? "" : "bg-red-50/60"}`}><Td>{candidate.viable ? <span className="inline-flex items-center gap-1 font-bold text-emerald-700"><CheckCircle2 size={15} />{status}</span> : <span className="inline-flex items-center gap-1 font-bold text-red-700"><ShieldX size={15} />{status}</span>}</Td><Td strong>{candidate.rr}</Td><Td>{candidate.driver}</Td><Td>{displayPlate(candidate.vehicle)}</Td><Td>{formatPercent(candidate.coverage)}</Td><Td>{formatNumber(candidate.frequency)} / {formatPercent(candidate.frequencyScore)}</Td><Td>{formatPercent(candidate.depth)}</Td><Td><span className={`rounded-md px-2 py-1 font-black ${candidate.zki >= 80 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{formatPercent(candidate.zki)}</span></Td><Td>{candidate.auxiliary}</Td><Td>{formatPercent(candidate.auxiliaryZki)}</Td><Td><span className="rounded-md bg-cyan-100 px-2 py-1 font-black text-cyan-900">{formatNumber(candidate.totalZki)}</span></Td><Td>{candidate.capacity ? `${formatNumber(candidate.capacity)} kg` : "Sin dato"}</Td><Td><span className={candidate.viable ? "text-slate-600" : "font-semibold text-red-700"}>{candidate.reason}</span></Td></tr>;
-}
-
-function findActualCrewRole(row: DriverAdherenceRow, id: string, name: string) {
-  const matches = (actualId: string, actualName: string) =>
-    Boolean(id && actualId && id.replace(/\D/g, "") === actualId.replace(/\D/g, ""))
-    || Boolean(name && actualName && normalizePerson(name) === normalizePerson(actualName));
-  if (matches(row.actualDriverId, row.actualDriver)) return "Conductor";
-  if (matches(row.actualResponsibleId, row.actualResponsible)) return "RR";
-  if (matches(row.actualAuxiliaryId, row.actualAuxiliary)) return "Auxiliar";
-  return "";
 }
 
 function ScoreBadge({ value }: { value: number }) {
@@ -1002,14 +715,12 @@ function ScoreBadge({ value }: { value: number }) {
 
 function AssignmentStatus({ candidate, minimumZki, tripWeight }: { candidate?: Candidate; minimumZki: number; tripWeight: number }) {
   if (!candidate) return <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">Sin asignación</span>;
-  if (candidate.viable) return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-800"><CheckCircle2 size={12} />Viable</span>;
+  if (candidate.viable) return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-800"><CheckCircle2 size={12} />ZKI cumple; peso sin verificar</span>;
   const status = !candidate.capacity
     ? "Sin placa compatible"
     : candidate.capacity < tripWeight
       ? "Bloqueada por peso"
-      : !candidate.hasKnowledge
-        ? "Sin historial ZKI"
-        : candidate.totalZki < minimumZki
+    : candidate.totalZki < minimumZki
           ? "ZKI combinado insuficiente"
           : "Pendiente";
   return <div title={candidate.reason}><span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800"><AlertTriangle size={12} />{status}</span><p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-slate-500">{candidate.reason}</p></div>;
@@ -1028,7 +739,7 @@ function hasCompleteCrew(candidate: Candidate | undefined) {
 function incompleteCrewReason(candidate: Candidate | undefined, candidateCount: number, tripWeight: number, minimumZki: number) {
   if (!candidateCount) return "No hay RR de Logísticos disponibles para este territorio.";
   if (!candidate) return "Los RR candidatos ya fueron asignados a otras rutas; no queda un responsable único disponible.";
-  if (!candidate.rr || !candidate.hasKnowledge) return "No se encontró un RR con historial para este territorio.";
+  if (!candidate.rr) return "No queda un RR disponible para este territorio.";
   if (!candidate.driver || normalizePerson(candidate.driver).startsWith("sin")) return "No queda una pareja conductor–placa disponible en el catálogo Conductores-placas.";
   if (!candidate.vehicle || normalizePerson(candidate.vehicle).startsWith("sin")) return "El conductor no tiene una placa fija disponible en el catálogo Conductores-placas.";
   if (!candidate.capacity) return "La placa asignada no tiene capacidad registrada.";
@@ -1050,4 +761,3 @@ function Td({ children, strong = false }: { children: React.ReactNode; strong?: 
 function Empty({ icon, text }: { icon: React.ReactNode; text: string }) { return <div className="grid min-h-52 place-items-center p-8 text-center text-slate-400"><div><span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-slate-100">{icon}</span><p className="max-w-md text-sm">{text}</p></div></div>; }
 function formatNumber(value: number) { return Number(value || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 }); }
 function formatPercent(value: number) { return `${formatNumber(value)}%`; }
-function localDateKey(offsetDays = 0) { const date = new Date(); date.setDate(date.getDate() + offsetDays); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
