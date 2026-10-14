@@ -340,12 +340,14 @@ export default function ZkiPage() {
   const rankedPlanning = useMemo(() => trips.map((trip) => {
     const clientCodes = clientsByTerritory.get(trip.territoryId) || [];
     const relevantVisits = clientCodes.length ? [...new Set(clientCodes)].flatMap((client) => visitsByClient.get(normalizeZkiCode(client)) || []) : visits;
-    const rankedWithHistory = applyPersonnelClientRanges(rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster), personnelRangeRules, trip.clients)
-      .filter((candidate) => candidate.zki > 0)
+    const rankedWithHistory = rankCandidates(trip, history, relevantVisits, clientCodes, capacities, settings, auxiliaryRoster, visits)
       .map((candidate) => ({ ...candidate, viable: candidate.hasKnowledge && candidate.capacity >= trip.weight && candidate.totalZki >= settings.minimumZki }))
       .filter((candidate) => candidateIsLogisticsRr(candidate, personnelRules, data?.crew || []) && candidatePersonnelAvailable(candidate, personnelRules));
     const auxiliaryScores = rankTerritoryAuxiliaries(trip, relevantVisits, clientCodes, settings);
-    const ranked = addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules, auxiliaryScores);
+    const ranked = applyPersonnelClientRanges(
+      addCrewResponsibleFallbacks(rankedWithHistory, data?.crew || [], capacities, auxiliaryRoster, personnelRules, auxiliaryScores),
+      personnelRangeRules, trip.clients,
+    );
     return { trip, candidates: ranked };
   }), [auxiliaryRoster, capacities, clientsByTerritory, data?.crew, history, personnelRangeRules, personnelRules, settings, trips, visits, visitsByClient]);
   const planning = useMemo(() => {
@@ -368,11 +370,11 @@ export default function ZkiPage() {
   );
   const viable = planning.flatMap(({ recommendation: assigned }) => assigned?.viable && hasCompleteCrew(assigned) ? [assigned] : []);
   const recommendation = planning.find(({ trip }) => trip.id === activeTrip?.id)?.recommendation;
-  const incompleteTrips = planning.filter(({ recommendation: item }) => !hasCompleteCrew(item));
+  const incompleteTrips = planning.filter(({ recommendation: item }) => !hasCompleteCrew(item) || !item?.viable || item.totalZki < settings.minimumZki);
   const planningComplete = planning.length > 0 && incompleteTrips.length === 0;
   const incompleteDetails = incompleteTrips.map(({ trip, recommendation: item }) => {
     const tripCandidates = rankedPlanning.find((entry) => entry.trip.id === trip.id)?.candidates || [];
-    return { trip, candidates: tripCandidates.length, reason: incompleteCrewReason(item, tripCandidates.length, trip.weight) };
+    return { trip, candidates: tripCandidates.length, reason: incompleteCrewReason(item, tripCandidates.length, trip.weight, settings.minimumZki) };
   });
   const source = data?.source;
 
@@ -473,6 +475,10 @@ export default function ZkiPage() {
       setError("Carga los viajes y el catálogo de territorios antes de generar el Excel.");
       return;
     }
+    if (!planningComplete) {
+      setError(`No se puede finalizar la planeación: ${incompleteTrips.length} territorio(s) siguen pendientes o tienen un ZKI combinado inferior a ${settings.minimumZki}.`);
+      return;
+    }
     const assignedPeople: Array<{ id: string; name: string; territory: string; role: string }> = [];
     for (const { trip, recommendation: item } of planning) {
       if (!item) continue;
@@ -513,7 +519,7 @@ export default function ZkiPage() {
       Estado: item?.viable ? "Viable" : item?.reason || "Sin asignación",
       };
     });
-    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge && item.zki > 0).map((item) => ({
+    const matrix = planning.flatMap(({ trip, candidates: ranked }) => ranked.filter((item) => item.hasKnowledge).map((item) => ({
       "ID territorio": trip.territoryId,
       "ID Empleado": item.rrId,
       Tipo: 1,
@@ -673,7 +679,7 @@ export default function ZkiPage() {
               <input accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void uploadYesterdayPlanning(event.target.files?.[0])} ref={yesterdayPlanningRef} type="file" />
               <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-semibold text-slate-950 disabled:bg-slate-300" disabled={uploading || !trackingDate} onClick={() => yesterdayPlanningRef.current?.click()} type="button"><Upload size={16} />Cruzar planeación</button>
               <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100" onClick={() => router.push("/personas/zki/graficas")} type="button"><BarChart3 size={16} />Gráficas ZKI</button>
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={!planning.length} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={16} />Descargar Excel</button>
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-400" disabled={!planningComplete} onClick={() => void downloadExcel()} type="button"><FileSpreadsheet size={16} />Descargar Excel</button>
             </div>
           </div>
           <div className="grid border-t border-slate-200 bg-slate-50 sm:grid-cols-4">
@@ -705,15 +711,10 @@ export default function ZkiPage() {
             <section className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center gap-2"><SlidersHorizontal size={18} className="text-cyan-700" /><h2 className="font-semibold text-[#0b2235]">Parámetros ZKI</h2></div>
               <div className="space-y-4">
-                <Setting label="Peso cobertura" suffix="%" value={settings.coverageWeight} onChange={(value) => setSettings({ ...settings, coverageWeight: value })} />
-                <Setting label="Peso frecuencia" suffix="%" value={settings.frequencyWeight} onChange={(value) => setSettings({ ...settings, frequencyWeight: value })} />
-                <Setting label="Peso profundidad" suffix="%" value={settings.depthWeight} onChange={(value) => setSettings({ ...settings, depthWeight: value })} />
-                <Setting label="Tope frecuencia" value={settings.frequencyCap} onChange={(value) => setSettings({ ...settings, frequencyCap: Math.max(1, value) })} />
                 <Setting label="Visitas para profundidad" value={settings.depthThreshold} onChange={(value) => setSettings({ ...settings, depthThreshold: Math.max(1, value) })} />
-                <Setting label="Umbral viable" suffix="%" value={settings.minimumZki} onChange={(value) => setSettings({ ...settings, minimumZki: value })} />
-                <p className="text-xs text-slate-600">Los RR y auxiliares se asignan libremente según ZKI. Cada conductor conserva su VH.</p>
+                <Setting label="Umbral ZKI combinado (mínimo 75)" suffix="%" value={settings.minimumZki} onChange={(value) => setSettings({ ...settings, minimumZki: Math.min(200, Math.max(75, value)) })} />
               </div>
-              <p className="mt-4 text-xs leading-5 text-slate-500">Profundidad cuenta los clientes que el RR atendió al menos el número de veces configurado.</p>
+              <p className="mt-4 text-xs leading-5 text-slate-500">El ZKI de cada persona es el porcentaje de sus clientes atendidos al menos el número de veces configurado.</p>
             </section>
 
             <section className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
@@ -729,10 +730,10 @@ export default function ZkiPage() {
             <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold text-[#0b2235]">Asignaciones recomendadas</h2><p className="mt-1 text-xs text-slate-500">Una salida resumida por territorio. La matriz completa queda disponible para auditoría.</p></div>
-                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planning.length} onClick={() => void downloadExcel()} title={planningComplete ? "Descargar planeación completa" : `Descargar con ${incompleteTrips.length} rutas sin asignación`} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
+                <div className="flex gap-2"><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50" onClick={() => setShowMatrix((value) => !value)} type="button"><Eye size={15} />{showMatrix ? "Ocultar matriz" : "Ver opciones viables"}</button><button className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-slate-400" disabled={!planningComplete} onClick={() => void downloadExcel()} title={planningComplete ? "Descargar planeación completa" : `${incompleteTrips.length} rutas pendientes de cumplir el umbral ZKI y la tripulación`} type="button"><FileSpreadsheet size={15} />Descargar Excel</button></div>
               </div>
-              {planning.length && !planningComplete ? <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs font-semibold text-amber-900"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>Faltan {incompleteTrips.length} tripulaciones completas en los territorios: {incompleteTrips.map(({ trip }) => trip.territoryId).join(", ")}. Puedes descargar el Excel; esas rutas aparecerán como “Sin asignación”.</span></div> : null}
-              {incompleteDetails.length ? <div className="border-b border-amber-200 bg-amber-50/40 p-4"><div className="mb-2 flex items-center justify-between gap-3"><div><h3 className="text-xs font-black text-amber-950">Diagnóstico de rutas sin cruce</h3><p className="text-[10px] text-amber-800">La cantidad de candidatos solo incluye RR de Logísticos disponibles y con ZKI mayor que 0.</p></div><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-900">{incompleteDetails.length} rutas</span></div><div className="max-h-64 overflow-auto rounded-lg border border-amber-200 bg-white"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="sticky top-0 bg-amber-100 text-[9px] uppercase tracking-wide text-amber-950"><tr><th className="px-3 py-2">Territorio</th><th className="px-3 py-2">Zona</th><th className="px-3 py-2 text-right">Clientes</th><th className="px-3 py-2 text-right">Carga</th><th className="px-3 py-2 text-center">RR candidatos</th><th className="px-3 py-2">Razón</th></tr></thead><tbody className="divide-y divide-amber-100">{incompleteDetails.map(({ trip, candidates: count, reason }) => <tr key={`missing-${trip.id}`}><td className="px-3 py-2 font-black text-[#10283d]">{trip.territoryId}</td><td className="px-3 py-2 font-semibold text-slate-700">{trip.zone}</td><td className="px-3 py-2 text-right">{trip.clients}</td><td className="px-3 py-2 text-right font-semibold">{formatNumber(trip.weight)} kg</td><td className="px-3 py-2 text-center"><span className={`rounded-full px-2 py-1 font-black ${count ? "bg-cyan-100 text-cyan-800" : "bg-red-100 text-red-700"}`}>{count}</span></td><td className="px-3 py-2 font-semibold text-amber-900">{reason}</td></tr>)}</tbody></table></div></div> : null}
+              {planning.length && !planningComplete ? <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs font-semibold text-amber-900"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>Hay {incompleteTrips.length} territorios pendientes de tripulación viable o ZKI combinado mínimo de {settings.minimumZki}: {incompleteTrips.map(({ trip }) => trip.territoryId).join(", ")}. La descarga se habilitará cuando todos cumplan.</span></div> : null}
+              {incompleteDetails.length ? <div className="border-b border-amber-200 bg-amber-50/40 p-4"><div className="mb-2 flex items-center justify-between gap-3"><div><h3 className="text-xs font-black text-amber-950">Diagnóstico de rutas pendientes</h3><p className="text-[10px] text-amber-800">La cantidad de candidatos incluye todos los RR de Logísticos disponibles; cada uno se evalúa en este territorio.</p></div><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-900">{incompleteDetails.length} rutas</span></div><div className="max-h-64 overflow-auto rounded-lg border border-amber-200 bg-white"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="sticky top-0 bg-amber-100 text-[9px] uppercase tracking-wide text-amber-950"><tr><th className="px-3 py-2">Territorio</th><th className="px-3 py-2">Zona</th><th className="px-3 py-2 text-right">Clientes</th><th className="px-3 py-2 text-right">Carga</th><th className="px-3 py-2 text-center">RR candidatos</th><th className="px-3 py-2">Razón</th></tr></thead><tbody className="divide-y divide-amber-100">{incompleteDetails.map(({ trip, candidates: count, reason }) => <tr key={`missing-${trip.id}`}><td className="px-3 py-2 font-black text-[#10283d]">{trip.territoryId}</td><td className="px-3 py-2 font-semibold text-slate-700">{trip.zone}</td><td className="px-3 py-2 text-right">{trip.clients}</td><td className="px-3 py-2 text-right font-semibold">{formatNumber(trip.weight)} kg</td><td className="px-3 py-2 text-center"><span className={`rounded-full px-2 py-1 font-black ${count ? "bg-cyan-100 text-cyan-800" : "bg-red-100 text-red-700"}`}>{count}</span></td><td className="px-3 py-2 font-semibold text-amber-900">{reason}</td></tr>)}</tbody></table></div></div> : null}
               <div className="max-h-[680px] w-full max-w-full overflow-auto overscroll-contain">
                 <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
                   <thead className="sticky top-0 z-20 bg-[#10283d] text-[10px] uppercase tracking-[.12em] text-white"><tr><th className="w-[110px] px-4 py-3.5">Territorio</th><th className="w-[160px] px-4 py-3.5">Carga</th><th className="w-[220px] px-4 py-3.5">Responsable</th><th className="w-[220px] px-4 py-3.5">Conductor / vehículo</th><th className="w-[220px] px-4 py-3.5">Auxiliar</th><th className="w-[110px] px-4 py-3.5 text-center">ZKI total</th><th className="w-[180px] px-4 py-3.5">Estado</th></tr></thead>
@@ -930,7 +931,27 @@ function addCrewResponsibleFallbacks(
       reason: "Asignado como respaldo con su conductor y placa habitual; el RR no tiene historial ZKI para este territorio.",
     }];
   });
-  return [...candidates, ...fallbacks];
+  const personnelFallbacks = personnelRules.flatMap((person): Candidate[] => {
+    if (!(["RR", "Líder de Ruta"] as PersonnelRule["role"][]).includes(person.role)
+      || normalizePerson(person.contractor) !== "logisticos" || !person.available || !person.name) return [];
+    const rrId = person.id.replace(/\D/g, "");
+    const rrName = normalizePerson(person.name);
+    if ((rrId && existingIds.has(rrId)) || existingNames.has(rrName)) return [];
+    if (rrId) existingIds.add(rrId);
+    existingNames.add(rrName);
+    const auxiliary = auxiliaryOptions[0] || { name: "Sin auxiliar disponible", id: "", zki: 0 };
+    return [{
+      rr: person.name, rrId: person.id,
+      driver: "Sin conductor identificado", driverId: "",
+      vehicle: "Sin vehículo identificado",
+      coverage: 0, frequency: 0, frequencyScore: 0, depth: 0, zki: 0,
+      auxiliary: auxiliary.name, auxiliaryId: auxiliary.id, auxiliaryZki: auxiliary.zki,
+      auxiliaryOptions, totalZki: auxiliary.zki,
+      capacity: 0, viable: false, hasKnowledge: false, habitualVehicle: false,
+      reason: "RR disponible sin historial ZKI para este territorio.",
+    }];
+  });
+  return [...candidates, ...fallbacks, ...personnelFallbacks];
 }
 
 function withAvailableAuxiliary(candidate: Candidate, rules: PersonnelRule[]) {
@@ -1004,15 +1025,16 @@ function hasCompleteCrew(candidate: Candidate | undefined) {
     && candidate.capacity > 0;
 }
 
-function incompleteCrewReason(candidate: Candidate | undefined, candidateCount: number, tripWeight: number) {
-  if (!candidateCount) return "Ningún RR disponible cruzó con los clientes del territorio obteniendo ZKI mayor que 0.";
+function incompleteCrewReason(candidate: Candidate | undefined, candidateCount: number, tripWeight: number, minimumZki: number) {
+  if (!candidateCount) return "No hay RR de Logísticos disponibles para este territorio.";
   if (!candidate) return "Los RR candidatos ya fueron asignados a otras rutas; no queda un responsable único disponible.";
-  if (!candidate.rr || candidate.zki <= 0) return "No se encontró un RR válido con ZKI mayor que 0.";
+  if (!candidate.rr || !candidate.hasKnowledge) return "No se encontró un RR con historial para este territorio.";
   if (!candidate.driver || normalizePerson(candidate.driver).startsWith("sin")) return "No queda una pareja conductor–placa disponible en el catálogo Conductores-placas.";
   if (!candidate.vehicle || normalizePerson(candidate.vehicle).startsWith("sin")) return "El conductor no tiene una placa fija disponible en el catálogo Conductores-placas.";
   if (!candidate.capacity) return "La placa asignada no tiene capacidad registrada.";
   if (candidate.capacity < tripWeight) return `La placa disponible soporta ${formatNumber(candidate.capacity)} kg y la ruta requiere ${formatNumber(tripWeight)} kg.`;
   if (!candidate.auxiliary || normalizePerson(candidate.auxiliary).startsWith("sin")) return "No queda un auxiliar disponible para completar la tripulación.";
+  if (candidate.totalZki < minimumZki) return `El ZKI combinado es ${formatNumber(candidate.totalZki)} y debe ser mínimo ${minimumZki}.`;
   return candidate.reason || "La combinación no pudo completarse con los recursos disponibles.";
 }
 

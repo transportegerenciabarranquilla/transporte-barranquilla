@@ -80,11 +80,11 @@ export type ZkiSettings = {
 };
 
 export const DEFAULT_ZKI_SETTINGS: ZkiSettings = {
-  coverageWeight: 40,
-  frequencyWeight: 30,
-  depthWeight: 30,
+  coverageWeight: 0,
+  frequencyWeight: 0,
+  depthWeight: 100,
   frequencyCap: 5,
-  minimumZki: 80,
+  minimumZki: 75,
   depthThreshold: 5,
   crewRetentionPercent: 70,
 };
@@ -176,19 +176,18 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   // La viabilidad de RR + auxiliar se optimiza sin amarrarla al VH histórico:
   // los vehículos se redistribuyen después según peso y disponibilidad.
   // Cada nivel debe pesar más que la suma de todos los niveles inferiores.
-  // Un bono fijo permitía sacrificar una ruta con conocimiento cuando había
-  // muchos viajes y las mejoras pequeñas de los demás se acumulaban.
+  // Primero se conservan las rutas asignadas y después se maximiza cuántas
+  // cumplen el umbral combinado sin perder el historial del responsable.
   const scoreBound = Math.max(1, ...plans.flatMap(plan => plan.candidates.map(candidate => Math.abs(candidate.totalZki) + Math.abs(candidate.workloadAdjustment || 0))));
-  const viableBonus = plans.length * scoreBound * 2 + 1;
-  const knowledgeBonus = plans.length * (viableBonus + scoreBound * 2) + 1;
-  const assignedBonus = plans.length * (knowledgeBonus + viableBonus + scoreBound * 2) + 1;
+  const knowledgeBonus = plans.length * scoreBound * 2 + 1;
+  const viableBonus = plans.length * (knowledgeBonus + scoreBound * 2) + 1;
+  const assignedBonus = plans.length * (viableBonus + knowledgeBonus + scoreBound * 2) + 1;
   const weights = candidateMatrix.map((row) => row.map((candidate) => candidate
     ? assignedBonus
       + candidate.totalZki
       + (candidate.workloadAdjustment || 0)
-      // Primero maximiza cuántas rutas quedan con conocimiento real; solo
-      // después compara el puntaje ZKI y usa responsables de respaldo.
-      + (candidate.zki > 0 ? knowledgeBonus : 0)
+      // El historial y el ZKI total resuelven los empates de viabilidad.
+      + (candidate.hasKnowledge ? knowledgeBonus : 0)
       + (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? viableBonus : 0)
     : 0));
   const assignment = maximumWeightAssignment(weights);
@@ -200,15 +199,135 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   // En esta etapa solo se optimizan los RR. La tripulación histórica del
   // candidato no puede eliminar rutas porque conductor y vehículo se asignan
   // después desde el catálogo Conductores-placas.
-  return result;
+  return improveResponsibleDistribution(plans, result, minimumZki);
 }
 
 function candidatePriority(candidate: Candidate, minimumZki: number) {
-  return (candidate.zki > 0 ? 1_000_000 : 0)
+  return (candidate.hasKnowledge && candidate.totalZki >= minimumZki ? 1_000_000 : 0)
     + (candidate.hasKnowledge ? 100_000 : 0)
-    + (candidate.totalZki >= minimumZki ? 10_000 : 0)
     + candidate.totalZki
     + (candidate.workloadAdjustment || 0);
+}
+
+function improveResponsibleDistribution(
+  plans: Array<{ tripId: string; candidates: Candidate[] }>,
+  initial: Map<string, Candidate>,
+  minimumZki: number,
+) {
+  if (plans.length < 2) return initial;
+  const options = new Map(plans.map((plan) => {
+    const byResponsible = new Map<string, Candidate>();
+    plan.candidates.forEach((candidate) => {
+      const key = personIdentity(candidate.rrId, candidate.rr);
+      const current = byResponsible.get(key);
+      if (key && (!current || candidatePriority(candidate, minimumZki) > candidatePriority(current, minimumZki))) byResponsible.set(key, candidate);
+    });
+    return [plan.tripId, byResponsible] as const;
+  }));
+  const score = (assignments: Map<string, Candidate>) => {
+    const matched = removeRepeatedAuxiliaries(assignments, minimumZki);
+    let viable = 0;
+    let complete = 0;
+    let balancedTotal = 0;
+    let total = 0;
+    matched.forEach((candidate) => {
+      const hasAuxiliary = Boolean(candidate.auxiliary && !normalize(candidate.auxiliary).startsWith("sin"));
+      if (hasAuxiliary) complete += 1;
+      if (hasAuxiliary && candidate.hasKnowledge && candidate.totalZki >= minimumZki) viable += 1;
+      const combined = hasAuxiliary ? candidate.totalZki : candidate.zki;
+      balancedTotal += Math.min(combined, Math.max(100, minimumZki * 2));
+      total += combined;
+    });
+    return [viable, complete, Math.round(balancedTotal * 100), Math.round(total * 100)];
+  };
+  const better = (left: number[], right: number[]) => {
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) return left[index] > right[index];
+    }
+    return false;
+  };
+  let selected = initial;
+  let selectedScore = score(selected);
+  if (plans.length > 30) {
+    const responsibleKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
+    const columnCount = Math.max(plans.length, responsibleKeys.length);
+    const responsibleIndex = new Map(responsibleKeys.map((key, index) => [key, index]));
+    const knowledgeBonus = plans.length * 200 + 1;
+    const viableBonus = plans.length * (knowledgeBonus + 200) + 1;
+    const assignedBonus = plans.length * (viableBonus + knowledgeBonus + 200) + 1;
+    for (let pass = 0; pass < 4; pass += 1) {
+      const matched = removeRepeatedAuxiliaries(selected, minimumZki);
+      const matrix = plans.map((plan) => {
+        const row = new Array<Candidate | undefined>(columnCount);
+        options.get(plan.tripId)?.forEach((candidate, key) => {
+          const index = responsibleIndex.get(key);
+          if (index !== undefined) row[index] = candidate;
+        });
+        return row;
+      });
+      const weights = matrix.map((row, rowIndex) => row.map((candidate) => {
+        if (!candidate) return 0;
+        const selectedAuxiliary = matched.get(plans[rowIndex].tripId);
+        const auxiliary = candidate.auxiliaryOptions?.find((option) =>
+          selectedAuxiliary && samePerson(option.id, option.name, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary))
+          || (selectedAuxiliary && samePerson(candidate.auxiliaryId, candidate.auxiliary, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary)
+            ? { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki } : undefined);
+        const hasAuxiliary = Boolean(auxiliary && !samePerson(candidate.rrId, candidate.rr, auxiliary.id, auxiliary.name));
+        const combined = candidate.zki + (hasAuxiliary ? auxiliary!.zki : 0);
+        return assignedBonus
+          + (candidate.hasKnowledge && hasAuxiliary && combined >= minimumZki ? viableBonus : 0)
+          + (candidate.hasKnowledge ? knowledgeBonus : 0)
+          + Math.min(combined, Math.max(100, minimumZki * 2));
+      }));
+      const columns = maximumWeightAssignment(weights);
+      const trial = new Map<string, Candidate>();
+      columns.forEach((column, row) => {
+        const candidate = column >= 0 ? matrix[row][column] : undefined;
+        if (candidate) trial.set(plans[row].tripId, candidate);
+      });
+      const trialScore = score(trial);
+      if (!better(trialScore, selectedScore)) break;
+      selected = trial;
+      selectedScore = trialScore;
+    }
+    return selected;
+  }
+  const evaluationsPerTerritory = plans.length <= 12 ? Number.POSITIVE_INFINITY : Math.max(2, Math.floor(200 / plans.length));
+  for (let pass = 0; pass < 4; pass += 1) {
+    let best = selected;
+    let bestScore = selectedScore;
+    for (const plan of plans) {
+      const current = selected.get(plan.tripId);
+      if (!current) continue;
+      let evaluations = 0;
+      const alternatives = [...plan.candidates]
+        .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))
+        .slice(0, plans.length <= 12 ? undefined : 12);
+      for (const candidate of alternatives) {
+        if (evaluations >= evaluationsPerTerritory) break;
+        const nextKey = personIdentity(candidate.rrId, candidate.rr);
+        if (!nextKey || nextKey === personIdentity(current.rrId, current.rr)) continue;
+        const occupied = [...selected.entries()].find(([, assigned]) => personIdentity(assigned.rrId, assigned.rr) === nextKey);
+        const trial = new Map(selected);
+        trial.set(plan.tripId, candidate);
+        if (occupied) {
+          const replacement = options.get(occupied[0])?.get(personIdentity(current.rrId, current.rr));
+          if (!replacement) continue;
+          trial.set(occupied[0], replacement);
+        }
+        evaluations += 1;
+        const trialScore = score(trial);
+        if (better(trialScore, bestScore)) {
+          best = trial;
+          bestScore = trialScore;
+        }
+      }
+    }
+    if (!better(bestScore, selectedScore)) break;
+    selected = best;
+    selectedScore = bestScore;
+  }
+  return selected;
 }
 
 export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
@@ -500,30 +619,21 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
     }));
   });
   const auxiliaryKeys = Array.from(new Set(optionMaps.flatMap((options) => Array.from(options.keys()))));
-  // Primero evita tripulaciones con total cero, después reparte conocimiento
-  // entre auxiliares y finalmente optimiza el umbral y los puntajes.
-  const positiveAuxiliaryBonus = (rows.length + 1) * 200_000_000;
-  const rescuedRouteBonus = (rows.length + 1) * positiveAuxiliaryBonus;
+  // Primero maximiza las rutas que alcanzan el umbral; después completa
+  // tripulaciones y suma el mejor ZKI posible con auxiliares únicos.
+  const assignedBonus = rows.length * 200 + 1;
+  const viableBonus = rows.length * (assignedBonus + 200) + 1;
   const weights = optionMaps.map((options, rowIndex) => [
     ...auxiliaryKeys.map((key) => {
       const option = options.get(key);
       if (!option) return 0;
-      const target = minimumZki;
-      const rrZki = rows[rowIndex][1].zki;
+      const candidate = rows[rowIndex][1];
+      const rrZki = candidate.zki;
       const combined = rrZki + option.zki;
-      if (option.zki <= 0) return 1;
-      const needed = Math.max(0, target - rrZki);
-      const usefulContribution = Math.min(option.zki, needed);
-      const excess = Math.max(0, option.zki - needed);
-      const reachesTarget = combined >= target;
-      // Solo premia el aporte que hace falta para llegar al objetivo. Un RR 100
-      // aprovecha como máximo 60 puntos del auxiliar; el excedente se reserva
-      // para una ruta con RR bajo.
-      // Tras reducir totales cero y auxiliares sin conocimiento, prioriza
-      // alcanzar el umbral y después el aporte útil.
-      return (rrZki <= 0 ? rescuedRouteBonus : 0) + positiveAuxiliaryBonus
-        + (reachesTarget ? 100_000_000 : 1_000_000)
-        + usefulContribution * 10_000 - excess * 100 + combined;
+      const balanced = Math.min(combined, Math.max(100, minimumZki * 2));
+      const unused = Math.max(0, option.zki - Math.max(0, minimumZki - rrZki));
+      return (candidate.hasKnowledge && combined >= minimumZki ? viableBonus : 0)
+        + assignedBonus + balanced - unused / 100;
     }),
     ...new Array(rows.length).fill(0),
   ]);
@@ -809,9 +919,10 @@ export function rankCandidates(
   capacities: Map<string, number>,
   settings: ZkiSettings,
   auxiliaryRoster: ZkiVisit[] = visits,
+  responsibleRoster: ZkiVisit[] = visits,
 ): Candidate[] {
   const rrNames = new Map<string, string>();
-  visits.filter(isResponsibleVisit).forEach((row) => rrNames.set(normalizePersonName(row.rr), row.rr));
+  responsibleRoster.filter(isResponsibleVisit).forEach((row) => rrNames.set(normalizePersonName(row.rr), row.rr));
   const configuredClients = new Set(territoryClientCodes.map(normalizeZkiCode).filter(Boolean));
   const territoryVisits = configuredClients.size
     ? visits.filter((row) => configuredClients.has(normalizeZkiCode(row.client)))
@@ -829,7 +940,7 @@ export function rankCandidates(
     else responsibleVisitsByRr.set(key, [row]);
   });
   const territoryClients = Math.max(trip.clients, territoryClientSet.size);
-  const scoredAuxiliaries = rankAuxiliaries(territoryVisits, territoryClients, settings);
+  const scoredAuxiliaries = rankAuxiliaries(territoryVisits, settings);
   const scoredAuxiliaryKeys = new Set(scoredAuxiliaries.map((item) => item.key));
   const reserveAuxiliaries = auxiliaryRoster.flatMap((visit) => {
     if (!isAuxiliaryVisit(visit)) return [];
@@ -859,10 +970,7 @@ export function rankCandidates(
     // Profundidad: de los clientes únicos atendidos, qué porcentaje alcanzó el
     // número mínimo de visitas configurado.
     const depth = uniqueVisited > 0 ? clamp((depthClients / uniqueVisited) * 100) : 0;
-    const weightTotal = settings.coverageWeight + settings.frequencyWeight + settings.depthWeight || 100;
-    const zki = clamp(
-      (coverage * settings.coverageWeight + frequencyScore * settings.frequencyWeight + depth * settings.depthWeight) / weightTotal,
-    );
+    const zki = depth;
     const auxiliaryOptions = auxiliaries
       .filter((item) => item.key !== rrKey)
       .sort((left, right) => right.zki - left.zki);
@@ -922,11 +1030,10 @@ export function rankCandidates(
 export function rankTerritoryAuxiliaries(trip: Trip, visits: ZkiVisit[], codes: string[], settings: ZkiSettings) {
   const configured = new Set(codes.map(normalizeZkiCode).filter(Boolean));
   const relevant = visits.filter(row => configured.size ? configured.has(normalizeZkiCode(row.client)) : !row.zone || sameZone(row.zone, trip.zone));
-  const clients = Math.max(trip.clients, configured.size || new Set(relevant.map(row => normalizeZkiCode(row.client))).size);
-  return rankAuxiliaries(relevant, clients, settings).map(({ name, id, zki }) => ({ name, id, zki }));
+  return rankAuxiliaries(relevant, settings).map(({ name, id, zki }) => ({ name, id, zki }));
 }
 
-function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings: ZkiSettings) {
+function rankAuxiliaries(visits: ZkiVisit[], settings: ZkiSettings) {
   const grouped = new Map<string, ZkiVisit[]>();
   visits.forEach((visit) => {
     if (!isAuxiliaryVisit(visit)) return;
@@ -936,7 +1043,6 @@ function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings:
     if (current) current.push(visit);
     else grouped.set(key, [visit]);
   });
-  const weightTotal = settings.coverageWeight + settings.frequencyWeight + settings.depthWeight || 100;
   return Array.from(grouped.values()).map((rows) => {
     const byClient = new Map<string, number>();
     rows.forEach((row) => {
@@ -944,13 +1050,9 @@ function rankAuxiliaries(visits: ZkiVisit[], territoryClients: number, settings:
       if (client) byClient.set(client, (byClient.get(client) || 0) + visitCount(row));
     });
     const unique = byClient.size;
-    const coverage = territoryClients > 0 ? clamp((unique / territoryClients) * 100) : 0;
-    const totalVisits = rows.reduce((total, row) => total + visitCount(row), 0);
-    const frequency = unique > 0 ? round2(totalVisits / unique) : 0;
-    const frequencyScore = clamp((frequency / Math.max(1, settings.frequencyCap)) * 100);
     const deep = Array.from(byClient.values()).filter((count) => count >= settings.depthThreshold).length;
     const depth = unique > 0 ? clamp((deep / unique) * 100) : 0;
-    const zki = clamp((coverage * settings.coverageWeight + frequencyScore * settings.frequencyWeight + depth * settings.depthWeight) / weightTotal);
+    const zki = depth;
     return { key: normalizePersonName(rows[0].rr), name: rows[0].rr, id: rows[0].rrId || "", zki };
   }).sort((left, right) => right.zki - left.zki);
 }
