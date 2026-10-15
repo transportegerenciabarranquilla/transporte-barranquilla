@@ -166,6 +166,15 @@ const adminRrAverageModule: PortalModule = {
   accent: "border-l-[#1d4ed8]",
 };
 
+const adminModulationAdherenceModule: PortalModule = {
+  id: 29,
+  title: "Adherencia a la modulación",
+  href: "/admin/adherencia",
+  detail: "Rechazados BEES modulados por día y contratista",
+  tone: "from-[#7c3aed] to-[#0f8398]",
+  accent: "border-l-[#7c3aed]",
+};
+
 const adminFueraDeRangoModule: PortalModule = {
   id: 22,
   title: "Fuera de rango",
@@ -273,7 +282,7 @@ export function getVisiblePortalModules({
   if (isPeople) return [peopleModule, peopleRouteEvaluationModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule, peopleRouteTrackingModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
-    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminRouteAnalysisModule, adminRrAverageModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
+    return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminModulationAdherenceModule, adminRouteAnalysisModule, adminRrAverageModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];
   }
   const contractorModules = [...baseModules.filter((module) => module.href !== "/graficas"), ...(canAccessDeliveryCompliance({ contractor, isAdmin, isPeople }) ? [deliveryComplianceModule] : [])];
   const canSeePresale = isLogisticosContractor(contractor);

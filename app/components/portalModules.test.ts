@@ -81,6 +81,13 @@ test("correos no asignados siguen sin acceso a una contratista", () => {
   assert.equal(isComplaintsContractor("Desconocido"), false);
 });
 
+test("Adherencia a la modulación solo aparece en administración", () => {
+  const admin = getVisiblePortalModules({ contractor: "Admin", isAdmin: true });
+  assert.equal(admin.find(module => module.href === "/admin/adherencia")?.title, "Adherencia a la modulación");
+  assert.equal(getVisiblePortalModules({ contractor: "Logisticos" }).some(module => module.href === "/admin/adherencia"), false);
+  assert.equal(getVisiblePortalModules({ isPeople: true }).some(module => module.href === "/admin/adherencia"), false);
+});
+
 test("Logísticos consulta modulaciones y asistencias pero no puede escribirlas", () => {
   assert.equal(canWriteModulationsAndAttendance("Logisticos"), false);
   assert.equal(canWriteModulationsAndAttendance("Logísticos"), false);

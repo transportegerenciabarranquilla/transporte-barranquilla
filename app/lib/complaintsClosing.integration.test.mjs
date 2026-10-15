@@ -183,3 +183,41 @@ test("la ventana muestra el error y permite seleccionar JPG y reintentar el mism
   assert.deepEqual(uploads, [file]);
   assert.equal(target.value, "");
 });
+
+ test("edición: limita permisos por sede y conserva identidad, evidencia y cierre", async t => {
+  const original = { id: "q1", issue: "Anterior", status: "Cerrada", closedAt: "2026-10-06T12:00:00Z", evidence };
+  let writes = 0;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (options.method === "PATCH") {
+      writes++;
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.data.id, original.id);
+      assert.equal(payload.data.status, original.status);
+      assert.equal(payload.data.closedAt, original.closedAt);
+      assert.deepEqual(payload.data.evidence, evidence);
+      assert.equal(payload.data.issue, "Corregida");
+      return Response.json([{ data: payload.data }]);
+    }
+    return Response.json([{ contractor: "Punto Corona", data: original }]);
+  });
+  const edit = (contractor, changes) => route({ contractor, accessToken: "test" }).PATCH(new Request("https://example.test", { method: "PATCH", body: JSON.stringify({ id: "q1", action: "edit", changes }) }));
+  const changes = { issue: " Corregida ", code: "123", establishment: "Tienda", orderNumber: "456", comments: "Ajuste", id: "otra", status: "Abierta" };
+  assert.equal((await edit("Logisticos", changes)).status, 200);
+  assert.equal((await edit("Punto Corona", changes)).status, 403);
+  assert.equal((await edit("Logisticos Arenosa", changes)).status, 403);
+  assert.equal((await edit("Logisticos", { ...changes, issue: " " })).status, 400);
+  assert.equal((await edit("Logisticos", { ...changes, comments: "x".repeat(2001) })).status, 400);
+  assert.equal((await edit("Logisticos", null)).status, 400);
+  assert.equal(writes, 1);
+});
+
+test("el detalle muestra Editar queja solamente cuando hay permiso", () => {
+  const react = { ...require("react"), useState: initial => [initial, () => {}] };
+  const { ComplaintModal } = compile("../quejas/page.tsx", {
+    react, "../lib/contractors": contractors, "../lib/complaints": complaints,
+    "next/dynamic": { default: () => () => null },
+  }, "\nexport { ComplaintModal };\n");
+  const props = { busy: false, error: "", message: "", complaint: { id: "q1", status: "Abierta" }, now: Date.now() };
+  assert.doesNotMatch(renderToStaticMarkup(ComplaintModal(props)), /Editar queja/);
+  assert.match(renderToStaticMarkup(ComplaintModal({ ...props, onEdit: () => {} })), /Editar queja/);
+});

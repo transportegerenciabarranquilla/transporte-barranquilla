@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "../../lib/auditLog";
 import { getAuthenticatedSession } from "../../lib/authServer";
 import { complaintClosingDeadline, complaintDateKey, complaintIdentityKey, normalizeComplaintDt, type ComplaintRecord } from "../../lib/complaints";
-import { canManageComplaint, complaintUploadContractor, contractorLabel, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../../lib/contractors";
+import { canEditComplaint, canManageComplaint, complaintUploadContractor, contractorLabel, contractorSiteName, isComplaintsContractor, isLogisticosContractor, normalizeContractorName } from "../../lib/contractors";
 import { supabaseAdminHeaders, supabaseError, supabaseReadHeaders, supabaseRest, supabaseUserHeaders } from "../../lib/supabaseServer";
 import type { Vehiculo } from "../../seguimiento/types";
 import type { AsistenciaRegistro } from "../../lib/asistenciaStorage";
@@ -157,9 +157,9 @@ export async function PATCH(request: Request) {
   const session = await getAuthenticatedSession();
   if (!session) return NextResponse.json({ error: "Debes iniciar sesion." }, { status: 401 });
   if (!session.isAdmin && !isComplaintsContractor(session.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { id?: string; action?: string; comments?: string };
+  const body = await request.json().catch(() => ({})) as { id?: string; action?: string; comments?: string; changes?: Partial<ComplaintRecord> };
   const id = text(body.id);
-  if (!id || !["close", "comment", "reopen"].includes(body.action || "")) return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
+  if (!id || !["close", "comment", "reopen", "edit"].includes(body.action || "")) return NextResponse.json({ error: "Solicitud invalida." }, { status: 400 });
   const headers = supabaseAdminHeaders() ?? supabaseUserHeaders(session.accessToken);
   const params = new URLSearchParams({ select: "contractor,data", complaint_id: `eq.${id}`, limit: "1" });
   const currentResponse = await fetch(supabaseRest(TABLE, `?${params}`), { headers, cache: "no-store" });
@@ -167,6 +167,24 @@ export async function PATCH(request: Request) {
   const current = (await currentResponse.json() as Array<{ contractor: string; data: ComplaintRecord }>)[0];
   if (!current) return NextResponse.json({ error: "Queja no encontrada." }, { status: 404 });
   if (!session.isAdmin && !canManageComplaint(session.contractor, current.contractor)) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  if (body.action === "edit") {
+    if (!canEditComplaint(session.contractor, current.contractor)) return NextResponse.json({ error: "Solo Logísticos puede editar quejas de su sede." }, { status: 403 });
+    const fields = ["issue", "code", "establishment", "orderNumber", "comments"] as const;
+    const changes = body.changes;
+    if (!changes || typeof changes !== "object" || Array.isArray(changes) || fields.some((key) => typeof changes[key] !== "string")) return NextResponse.json({ error: "Datos de edición inválidos." }, { status: 400 });
+    if (!changes.issue?.trim() || fields.some((key) => changes[key]!.trim().length > 2000)) return NextResponse.json({ error: "Escribe la novedad y limita cada campo a 2.000 caracteres." }, { status: 400 });
+    const record = { ...current.data };
+    for (const key of fields) record[key] = changes[key]!.trim();
+    const editParams = new URLSearchParams({ complaint_id: `eq.${id}` });
+    const updateResponse = await fetch(supabaseRest(TABLE, `?${editParams}`), {
+      method: "PATCH", headers: { ...headers, Prefer: "return=representation" }, body: JSON.stringify({ data: record }), cache: "no-store",
+    });
+    if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
+    const [saved] = await updateResponse.json() as Array<{ data: ComplaintRecord }>;
+    if (!saved?.data) return NextResponse.json({ error: "No se confirmó la edición. Actualiza la lista e intenta de nuevo." }, { status: 409 });
+    await writeAuditLog({ action: "queja_editada", contractor: current.contractor, details: { fields }, module: "quejas", recordId: id, request, session });
+    return NextResponse.json({ record: saved.data });
+  }
   if (body.action === "reopen") {
     if (!isLogisticosContractor(session.contractor)) return NextResponse.json({ error: "Solo Logísticos puede reabrir quejas." }, { status: 403 });
     if (!normalizeClosedStatus(current.data.status)) return NextResponse.json({ record: current.data });

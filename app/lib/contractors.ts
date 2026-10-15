@@ -123,6 +123,10 @@ export function canManageComplaint(contractor: string | null | undefined, target
     && contractorSiteName(contractor) === contractorSiteName(target);
 }
 
+export function canEditComplaint(contractor: string | null | undefined, target: string | null | undefined) {
+  return isLogisticosContractor(contractor) && canManageComplaint(contractor, target);
+}
+
 export function complaintUploadContractor(value: string | null | undefined, uploader: string) {
   const label = contractorLabel(value);
   if (contractorSiteName(uploader) !== "Arenosa") return label;

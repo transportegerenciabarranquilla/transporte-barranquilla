@@ -15,6 +15,7 @@ export type AuditAction =
   | "quejas_cargadas"
   | "queja_evidencia_subida"
   | "queja_comentada"
+  | "queja_editada"
   | "queja_cerrada"
   | "queja_reabierta"
   | "seguimiento_eliminado"
