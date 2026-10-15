@@ -23,9 +23,11 @@ export async function readZkiCrewRows(headers: Record<string, string>) {
   const records = rows.map((row): ZkiCrewRow => ({
     plate: normalizePlate(row.PLACA),
     driver: formatPersonName(row.CONDUCTOR),
-    driverId: String(officialId(formatPersonName(row.CONDUCTOR), "driver") || row.Cedula || "").replace(/\D/g, ""),
+    // En Conductores-placas, Cedula-RR corresponde al CONDUCTOR y Cedula
+    // corresponde al RESPONSABLE, pese al nombre de la primera columna.
+    driverId: String(officialId(formatPersonName(row.CONDUCTOR), "driver") || row["Cedula-RR"] || "").replace(/\D/g, ""),
     responsible: formatPersonName(row.RESPONSABLE),
-    responsibleId: String(officialId(formatPersonName(row.RESPONSABLE), "responsible") || row["Cedula-RR"] || "").replace(/\D/g, ""),
+    responsibleId: String(officialId(formatPersonName(row.RESPONSABLE), "responsible") || row.Cedula || "").replace(/\D/g, ""),
   })).filter((row) => row.plate);
   if (!records.length) {
     throw new Error(`La tabla ${ZKI_CREW_TABLE} devolvió 0 registros. Activa su permiso SELECT/RLS antes de calcular ZKI.`);

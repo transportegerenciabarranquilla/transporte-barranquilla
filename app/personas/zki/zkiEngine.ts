@@ -40,7 +40,7 @@ export type ZkiVisit = {
   count?: number;
 };
 
-export type TerritoryClient = { territoryId: string; client: string; neighborhood: string };
+export type TerritoryClient = { territoryId: string; client: string; neighborhood: string; weight: number };
 
 export type Candidate = {
   rr: string;
@@ -95,6 +95,65 @@ export function assignFreeResponsiblesToDriverVehicles<T extends { trip: Trip; c
 ) {
   const fixedPairs = pairs.map(({ plate, driver, driverId }) => ({ plate, driver, driverId }));
   return assignDriverVehiclePairs(plans, fixedPairs, capacities, minimumZki, 0);
+}
+
+// El conductor conserva su placa habitual si está habilitada. Solo cuando
+// ninguna de sus placas habituales está habilitada puede usar otro VH.
+export function assignFlexibleDriversToVehicles<T extends { trip: Trip; recommendation?: Candidate }>(
+  plans: T[],
+  drivers: Array<{ name: string; id: string }>,
+  pairs: DriverVehiclePair[],
+  capacities: Map<string, number>,
+  minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki,
+) {
+  const occupied = plans.flatMap(({ recommendation }) => recommendation
+    ? [{ id: recommendation.rrId, name: recommendation.rr }, { id: recommendation.auxiliaryId, name: recommendation.auxiliary }]
+    : []);
+  const freeDrivers: Array<{ name: string; id: string; habitualPlates: string[]; canUseAnotherVehicle: boolean }> = [];
+  drivers.forEach((driver) => {
+    if (!driver.name || !driver.id || occupied.some((person) => samePerson(person.id, person.name, driver.id, driver.name))) return;
+    if (freeDrivers.some((person) => samePerson(person.id, person.name, driver.id, driver.name))) return;
+    const habitualPlates = [...new Set(pairs
+      .filter((pair) => samePerson(pair.driverId, pair.driver, driver.id, driver.name))
+      .map((pair) => normalizeVehicleKey(pair.plate))
+      .filter(Boolean))];
+    if (!habitualPlates.length) return;
+    freeDrivers.push({ ...driver, habitualPlates, canUseAnotherVehicle: habitualPlates.every((plate) => !capacities.has(plate)) });
+  });
+  const vehicles = [...capacities.entries()]
+    .filter(([, capacity]) => capacity > 0)
+    .map(([plate, capacity]) => ({ plate, capacity }));
+  const reservedHabitual = new Set(freeDrivers.flatMap((driver) => driver.habitualPlates.filter((plate) => capacities.has(plate))));
+  // Primero se forman parejas conductor-VH válidas. El puntaje prioriza
+  // cantidad de parejas y luego la placa habitual frente al reemplazo.
+  const columns = Math.max(freeDrivers.length, vehicles.length);
+  const weights = freeDrivers.map((driver) => Array.from({ length: columns }, (_, column) => {
+    const vehicle = vehicles[column];
+    if (!vehicle || (!driver.canUseAnotherVehicle && !driver.habitualPlates.includes(vehicle.plate))
+      || (driver.canUseAnotherVehicle && reservedHabitual.has(vehicle.plate))) return 0;
+    return 1_000_000 + (driver.habitualPlates.includes(vehicle.plate) ? 1_000 : 0) + vehicle.capacity / 100_000;
+  }));
+  const assignment = maximumWeightAssignment(weights);
+  const usablePairs = freeDrivers.flatMap((driver, index) => {
+    const column = assignment[index];
+    const vehicle = column >= 0 ? vehicles[column] : undefined;
+    if (!vehicle || weights[index][column] <= 0) return [];
+    return [{ plate: vehicle.plate, driver: driver.name, driverId: driver.id, key: vehicle.plate, capacity: vehicle.capacity }];
+  });
+  const result = assignFreeDriverPairsGlobally(plans, usablePairs, minimumZki);
+  result.forEach((candidate, tripId) => {
+    if (!candidate.driverId) return;
+    const driver = freeDrivers.find((person) => samePerson(person.id, person.name, candidate.driverId, candidate.driver));
+    const habitual = Boolean(driver?.habitualPlates.includes(normalizeVehicleKey(candidate.vehicle)));
+    result.set(tripId, {
+      ...candidate,
+      habitualVehicle: habitual,
+      reason: candidate.totalZki >= minimumZki
+        ? habitual ? "Viable: conductor con su placa habitual habilitada." : "Viable: placa habitual indisponible; conductor en otro VH habilitado."
+        : candidate.reason,
+    });
+  });
+  return result;
 }
 
 export function assignResponsiblesWithCrewRetention(
@@ -157,14 +216,15 @@ export function assignResponsiblesWithCrewRetention(
 }
 
 export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidates: Candidate[] }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
-  const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
+  const responsibleKey = responsibleIdentityFor(plans);
+  const rrKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map(responsibleKey)))).filter(Boolean);
   const columnCount = Math.max(plans.length, rrKeys.length);
   if (!plans.length || !columnCount) return new Map<string, Candidate>();
   const rrIndex = new Map(rrKeys.map((key, index) => [key, index]));
   const candidateMatrix = plans.map((plan) => {
     const row = new Array<Candidate | undefined>(columnCount);
     plan.candidates.forEach((candidate) => {
-      const index = rrIndex.get(personIdentity(candidate.rrId, candidate.rr));
+      const index = rrIndex.get(responsibleKey(candidate));
       if (index === undefined) return;
       const current = row[index];
       // Un registro de respaldo de Conductores-placas puede representar al
@@ -200,7 +260,33 @@ export function assignUniqueResponsibles(plans: Array<{ tripId: string; candidat
   // En esta etapa solo se optimizan los RR. La tripulación histórica del
   // candidato no puede eliminar rutas porque conductor y vehículo se asignan
   // después desde el catálogo Conductores-placas.
-  return improveResponsibleDistribution(plans, result, minimumZki);
+  return improveResponsibleDistribution(plans, result, minimumZki, responsibleKey);
+}
+
+function responsibleIdentityFor(plans: Array<{ candidates: Candidate[] }>) {
+  const parents = new Map<string, string>();
+  const find = (key: string): string => {
+    const parent = parents.get(key);
+    if (!parent) { parents.set(key, key); return key; }
+    if (parent === key) return key;
+    const root = find(parent);
+    parents.set(key, root);
+    return root;
+  };
+  plans.forEach(({ candidates }) => candidates.forEach((candidate) => {
+    const id = String(candidate.rrId || "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+    const name = normalizePersonName(candidate.rr || "");
+    if (!id || !name || name.startsWith("sin")) return;
+    const idKey = `id:${id}`;
+    const nameKey = `name:${name}`;
+    parents.set(find(nameKey), find(idKey));
+  }));
+  return (candidate: Candidate) => {
+    const id = String(candidate.rrId || "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+    const name = normalizePersonName(candidate.rr || "");
+    if (id) return find(`id:${id}`);
+    return name && !name.startsWith("sin") ? find(`name:${name}`) : "";
+  };
 }
 
 function candidatePriority(candidate: Candidate, minimumZki: number) {
@@ -215,12 +301,13 @@ function improveResponsibleDistribution(
   plans: Array<{ tripId: string; candidates: Candidate[] }>,
   initial: Map<string, Candidate>,
   minimumZki: number,
+  responsibleKey: (candidate: Candidate) => string,
 ) {
   if (plans.length < 2) return initial;
   const options = new Map(plans.map((plan) => {
     const byResponsible = new Map<string, Candidate>();
     plan.candidates.forEach((candidate) => {
-      const key = personIdentity(candidate.rrId, candidate.rr);
+      const key = responsibleKey(candidate);
       const current = byResponsible.get(key);
       if (key && (!current || candidatePriority(candidate, minimumZki) > candidatePriority(current, minimumZki))) byResponsible.set(key, candidate);
     });
@@ -252,39 +339,39 @@ function improveResponsibleDistribution(
   };
   let selected = initial;
   let selectedScore = score(selected);
-  if (plans.length > 30) {
-    const responsibleKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map((candidate) => personIdentity(candidate.rrId, candidate.rr))))).filter(Boolean);
+  if (plans.length > 1) {
+    const responsibleKeys = Array.from(new Set(plans.flatMap((plan) => plan.candidates.map(responsibleKey)))).filter(Boolean);
     const columnCount = Math.max(plans.length, responsibleKeys.length);
     const responsibleIndex = new Map(responsibleKeys.map((key, index) => [key, index]));
     const knowledgeBonus = plans.length * 200 + 1;
     const viableBonus = plans.length * (knowledgeBonus + 200) + 1;
     const assignedBonus = plans.length * (viableBonus + knowledgeBonus + 200) + 1;
+    const matrix = plans.map((plan) => {
+      const row = new Array<Candidate | undefined>(columnCount);
+      options.get(plan.tripId)?.forEach((candidate, key) => {
+        const index = responsibleIndex.get(key);
+        if (index !== undefined) row[index] = candidate;
+      });
+      return row;
+    });
+    const weightsFor = (matched: Map<string, Candidate>) => matrix.map((row, rowIndex) => row.map((candidate) => {
+      if (!candidate) return 0;
+      const selectedAuxiliary = matched.get(plans[rowIndex].tripId);
+      const auxiliary = candidate.auxiliaryOptions?.find((option) =>
+        selectedAuxiliary && samePerson(option.id, option.name, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary))
+        || (selectedAuxiliary && samePerson(candidate.auxiliaryId, candidate.auxiliary, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary)
+          ? { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki } : undefined);
+      const hasAuxiliary = Boolean(auxiliary && !samePerson(candidate.rrId, candidate.rr, auxiliary.id, auxiliary.name));
+      const combined = candidate.zki + (hasAuxiliary ? auxiliary!.zki : 0);
+      return assignedBonus
+        + (hasAuxiliary && combined >= minimumZki ? viableBonus : 0)
+        + (candidate.hasKnowledge ? knowledgeBonus : 0)
+        + Math.min(combined, Math.max(100, minimumZki * 2))
+        + candidate.coverage / 100;
+    }));
     for (let pass = 0; pass < 4; pass += 1) {
       const matched = removeRepeatedAuxiliaries(selected, minimumZki);
-      const matrix = plans.map((plan) => {
-        const row = new Array<Candidate | undefined>(columnCount);
-        options.get(plan.tripId)?.forEach((candidate, key) => {
-          const index = responsibleIndex.get(key);
-          if (index !== undefined) row[index] = candidate;
-        });
-        return row;
-      });
-      const weights = matrix.map((row, rowIndex) => row.map((candidate) => {
-        if (!candidate) return 0;
-        const selectedAuxiliary = matched.get(plans[rowIndex].tripId);
-        const auxiliary = candidate.auxiliaryOptions?.find((option) =>
-          selectedAuxiliary && samePerson(option.id, option.name, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary))
-          || (selectedAuxiliary && samePerson(candidate.auxiliaryId, candidate.auxiliary, selectedAuxiliary.auxiliaryId, selectedAuxiliary.auxiliary)
-            ? { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki } : undefined);
-        const hasAuxiliary = Boolean(auxiliary && !samePerson(candidate.rrId, candidate.rr, auxiliary.id, auxiliary.name));
-        const combined = candidate.zki + (hasAuxiliary ? auxiliary!.zki : 0);
-        return assignedBonus
-          + (hasAuxiliary && combined >= minimumZki ? viableBonus : 0)
-          + (candidate.hasKnowledge ? knowledgeBonus : 0)
-          + Math.min(combined, Math.max(100, minimumZki * 2))
-          + candidate.coverage / 100;
-      }));
-      const columns = maximumWeightAssignment(weights);
+      const columns = maximumWeightAssignment(weightsFor(matched));
       const trial = new Map<string, Candidate>();
       columns.forEach((column, row) => {
         const candidate = column >= 0 ? matrix[row][column] : undefined;
@@ -295,48 +382,62 @@ function improveResponsibleDistribution(
       selected = trial;
       selectedScore = trialScore;
     }
-    return selected;
-  }
-  const evaluationsPerTerritory = plans.length <= 12 ? Number.POSITIVE_INFINITY : Math.max(2, Math.floor(200 / plans.length));
-  for (let pass = 0; pass < 4; pass += 1) {
-    let best = selected;
-    let bestScore = selectedScore;
-    for (const plan of plans) {
-      const current = selected.get(plan.tripId);
-      if (!current) continue;
-      let evaluations = 0;
-      const alternatives = [...plan.candidates]
-        .sort((left, right) => candidatePriority(right, minimumZki) - candidatePriority(left, minimumZki))
-        .slice(0, plans.length <= 12 ? undefined : 12);
-      for (const candidate of alternatives) {
-        if (evaluations >= evaluationsPerTerritory) break;
-        const nextKey = personIdentity(candidate.rrId, candidate.rr);
-        if (!nextKey || nextKey === personIdentity(current.rrId, current.rr)) continue;
-        const occupied = [...selected.entries()].find(([, assigned]) => personIdentity(assigned.rrId, assigned.rr) === nextKey);
-        const trial = new Map(selected);
-        trial.set(plan.tripId, candidate);
-        if (occupied) {
-          const replacement = options.get(occupied[0])?.get(personIdentity(current.rrId, current.rr));
-          if (!replacement) continue;
-          trial.set(occupied[0], replacement);
-        }
-        evaluations += 1;
-        const trialScore = score(trial);
-        if (better(trialScore, bestScore)) {
-          best = trial;
-          bestScore = trialScore;
+    // Fijar temporalmente un RR en una ruta pendiente permite mover al RR
+    // desplazado a una tercera ruta. Después se redistribuyen TODOS los
+    // auxiliares y solo se acepta una mejora real del número de rutas viables.
+    for (let pass = 0; pass < 2; pass += 1) {
+      const matched = removeRepeatedAuxiliaries(selected, minimumZki);
+      const baseWeights = weightsFor(matched);
+      let best = selected;
+      let bestScore = selectedScore;
+      for (let row = 0; row < plans.length; row += 1) {
+        const tripId = plans[row].tripId;
+        const current = matched.get(tripId);
+        if (current?.auxiliary && !normalize(current.auxiliary).startsWith("sin") && current.totalZki >= minimumZki) continue;
+        const alternatives = matrix[row]
+          .flatMap((candidate, column) => candidate ? [{ candidate, column }] : [])
+          .filter(({ candidate }) => candidate.zki + Math.max(candidate.auxiliaryZki, ...(candidate.auxiliaryOptions || []).map((option) => option.zki)) >= minimumZki)
+          .sort((left, right) => right.candidate.zki - left.candidate.zki || candidatePriority(right.candidate, minimumZki) - candidatePriority(left.candidate, minimumZki));
+        for (const { column } of alternatives) {
+          if (selected.get(tripId) === matrix[row][column]) continue;
+          const trialWeights = baseWeights.map((weights, otherRow) => weights.map((weight, otherColumn) =>
+            otherRow === row ? (otherColumn === column ? weight : -1e12) : otherColumn === column ? -1e12 : weight));
+          const columns = maximumWeightAssignment(trialWeights);
+          const trial = new Map<string, Candidate>();
+          columns.forEach((assignedColumn, assignedRow) => {
+            const candidate = assignedColumn >= 0 ? matrix[assignedRow][assignedColumn] : undefined;
+            if (candidate) trial.set(plans[assignedRow].tripId, candidate);
+          });
+          if (trial.get(tripId) !== matrix[row][column]) continue;
+          const trialScore = score(trial);
+          if (better(trialScore, bestScore)) {
+            best = trial;
+            bestScore = trialScore;
+          }
         }
       }
+      if (!better(bestScore, selectedScore)) break;
+      selected = best;
+      selectedScore = bestScore;
     }
-    if (!better(bestScore, selectedScore)) break;
-    selected = best;
-    selectedScore = bestScore;
+    return selected;
   }
   return selected;
 }
 
 export function enforceUniqueAssignedCrew(plans: Array<{ tripId: string; recommendation?: Candidate }>, minimumZki = DEFAULT_ZKI_SETTINGS.minimumZki) {
-  const assignments = new Map(plans.flatMap((plan) => plan.recommendation ? [[plan.tripId, plan.recommendation] as const] : []));
+  const selected = plans.flatMap((plan) => plan.recommendation ? [{ tripId: plan.tripId, candidate: plan.recommendation }] : []);
+  const keep = new Set(selected.map((item) => item.tripId));
+  selected.forEach((left, index) => {
+    if (!keep.has(left.tripId)) return;
+    selected.slice(index + 1).forEach((right) => {
+      if (!keep.has(left.tripId) || !keep.has(right.tripId)
+        || !samePerson(left.candidate.rrId, left.candidate.rr, right.candidate.rrId, right.candidate.rr)) return;
+      if (candidatePriority(right.candidate, minimumZki) > candidatePriority(left.candidate, minimumZki)) keep.delete(left.tripId);
+      else keep.delete(right.tripId);
+    });
+  });
+  const assignments = new Map(selected.flatMap(({ tripId, candidate }) => keep.has(tripId) ? [[tripId, candidate] as const] : []));
   return removeRepeatedAuxiliaries(assignments, minimumZki);
 }
 
@@ -659,19 +760,29 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
     return [tripId, candidate];
   });
   const unavailable = [...responsibles, ...rows.flatMap(([, candidate]) => normalize(candidate.driver).startsWith("sin") ? [] : [{ id: candidate.driverId, name: candidate.driver }])];
-  const auxiliaryIdentities: Array<{ id: string; name: string; key: string }> = [];
+  const normalizedId = (id: string) => id.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  const unavailableIds = new Set(unavailable.map((person) => normalizedId(person.id)).filter(Boolean));
+  const unavailableNames = new Set(unavailable.map((person) => normalizePersonName(person.name)).filter(Boolean));
+  const auxiliaryById = new Map<string, string>();
+  const auxiliaryByName = new Map<string, string>();
+  let auxiliaryCount = 0;
   const optionMaps = rows.map(([, candidate]) => {
     const options = [
       ...(candidate.auxiliaryOptions || []),
       { name: candidate.auxiliary, id: candidate.auxiliaryId, zki: candidate.auxiliaryZki },
     ];
-    return new Map(options.flatMap((option) => {
-      if (!option.name.trim() || normalize(option.name).startsWith("sin") || unavailable.some(person => samePerson(person.id, person.name, option.id, option.name))) return [];
-      const identity = auxiliaryIdentities.find(person => samePerson(person.id, person.name, option.id, option.name));
-      const key = identity?.key || `aux:${auxiliaryIdentities.length}`;
-      if (!identity) auxiliaryIdentities.push({ ...option, key });
-      return [[key, option] as const];
-    }));
+    const result = new Map<string, (typeof options)[number]>();
+    options.forEach((option) => {
+      if (!option.name.trim() || normalize(option.name).startsWith("sin")) return;
+      const id = normalizedId(option.id);
+      const name = normalizePersonName(option.name);
+      if ((id && unavailableIds.has(id)) || (name && unavailableNames.has(name))) return;
+      const key = (id && auxiliaryById.get(id)) || (name && auxiliaryByName.get(name)) || `aux:${auxiliaryCount++}`;
+      if (id) auxiliaryById.set(id, key);
+      if (name) auxiliaryByName.set(name, key);
+      result.set(key, option);
+    });
+    return result;
   });
   const auxiliaryKeys = Array.from(new Set(optionMaps.flatMap((options) => Array.from(options.keys()))));
   // Primero maximiza las rutas que alcanzan el umbral; después completa
@@ -707,8 +818,8 @@ function removeRepeatedAuxiliaries(assignments: Map<string, Candidate>, minimumZ
         auxiliaryId: "",
         auxiliaryZki: 0,
         totalZki,
-        viable: candidate.capacity > 0 && totalZki >= minimumZki,
-        reason: `${candidate.reason} No quedó un auxiliar disponible con historial para este territorio.`,
+        viable: false,
+        reason: `${candidate.reason} No quedó un auxiliar disponible para completar la tripulación.`,
       });
       return;
     }
@@ -962,6 +1073,7 @@ export function parseTerritoryClients(rows: RawRow[]): TerritoryClient[] {
     territoryId: normalizeZkiCode(read(row, ["id territory", "territory", "territorio", "id territorio", "Número", "Numero"])),
     client: normalizeZkiCode(read(row, ["Codigos de cliente", "Códigos de cliente", "Codigo de cliente", "Código de cliente", "Cliente"])),
     neighborhood: text(read(row, ["Barrio", "Neighborhood"])),
+    weight: number(read(row, ["Peso Territorio", "Peso del Territorio", "Peso territorio", "Peso total"])),
   })).filter((row) => row.territoryId && row.client);
 }
 
@@ -971,10 +1083,11 @@ export function tripsFromTerritoryClients(rows: RawRow[], historicalVisits: ZkiV
     const client = normalizeZkiCode(visit.client);
     if (client && visit.neighborhood && !historicalNeighborhoods.has(client)) historicalNeighborhoods.set(client, visit.neighborhood);
   });
-  const grouped = new Map<string, { clients: Set<string>; neighborhoods: Map<string, { label: string; count: number }> }>();
-  parseTerritoryClients(rows).forEach(({ territoryId, client, neighborhood }) => {
-    const entry = grouped.get(territoryId) || { clients: new Set<string>(), neighborhoods: new Map<string, { label: string; count: number }>() };
+  const grouped = new Map<string, { clients: Set<string>; neighborhoods: Map<string, { label: string; count: number }>; weight: number }>();
+  parseTerritoryClients(rows).forEach(({ territoryId, client, neighborhood, weight }) => {
+    const entry = grouped.get(territoryId) || { clients: new Set<string>(), neighborhoods: new Map<string, { label: string; count: number }>(), weight: 0 };
     entry.clients.add(client);
+    if (weight > 0) entry.weight = weight;
     const effectiveNeighborhood = normalize(neighborhood) && normalize(neighborhood) !== "barrio" ? neighborhood : historicalNeighborhoods.get(client) || "";
     const key = normalize(effectiveNeighborhood)
       .replace(/^(veinte|20)dejulio$/, "20dejulio")
@@ -992,12 +1105,12 @@ export function tripsFromTerritoryClients(rows: RawRow[], historicalVisits: ZkiV
     zone: [...entry.neighborhoods.values()].sort((left, right) => right.count - left.count).slice(0, 3).map((item) => item.label).join(", ") || `Territorio ${territoryId}`,
     vehicle: "",
     assignedPlate: "",
-    weight: 0,
+    weight: entry.weight,
     maximumWeight: 0,
     cubicage: 0,
     clients: entry.clients.size,
     trip: "1",
-    raw: { territoryId, weightKnown: false, neighborhoods: [...entry.neighborhoods.values()].sort((left, right) => right.count - left.count).map((item) => item.label) },
+    raw: { territoryId, weightKnown: entry.weight > 0, neighborhoods: [...entry.neighborhoods.values()].sort((left, right) => right.count - left.count).map((item) => item.label) },
   }));
 }
 
