@@ -173,16 +173,25 @@ export async function PATCH(request: Request) {
     const changes = body.changes;
     if (!changes || typeof changes !== "object" || Array.isArray(changes) || fields.some((key) => typeof changes[key] !== "string")) return NextResponse.json({ error: "Datos de edición inválidos." }, { status: 400 });
     if (!changes.issue?.trim() || fields.some((key) => changes[key]!.trim().length > 2000)) return NextResponse.json({ error: "Escribe la novedad y limita cada campo a 2.000 caracteres." }, { status: 400 });
+    if (changes.contractor !== undefined && typeof changes.contractor !== "string") return NextResponse.json({ error: "Selecciona una transportista válida." }, { status: 400 });
+    const contractor = changes.contractor === undefined ? current.contractor : contractorLabel(changes.contractor);
+    if (changes.contractor !== undefined && !isComplaintsContractor(contractor)) return NextResponse.json({ error: "Selecciona una transportista válida." }, { status: 400 });
+    if (!canEditComplaint(session.contractor, contractor)) return NextResponse.json({ error: "Solo puedes asignar quejas a transportistas de tu sede." }, { status: 403 });
     const record = { ...current.data };
     for (const key of fields) record[key] = changes[key]!.trim();
+    record.contractor = contractor;
+    if (normalizeContractorName(contractor) !== normalizeContractorName(current.contractor)) {
+      record.matched = false;
+      for (const key of ["plate", "responsible", "responsibleId", "driver", "driverId", "auxiliary", "auxiliaryId"] as const) record[key] = "";
+    }
     const editParams = new URLSearchParams({ complaint_id: `eq.${id}` });
     const updateResponse = await fetch(supabaseRest(TABLE, `?${editParams}`), {
-      method: "PATCH", headers: { ...headers, Prefer: "return=representation" }, body: JSON.stringify({ data: record }), cache: "no-store",
+      method: "PATCH", headers: { ...headers, Prefer: "return=representation" }, body: JSON.stringify({ contractor, data: record }), cache: "no-store",
     });
     if (!updateResponse.ok) return NextResponse.json({ error: await supabaseError(updateResponse) }, { status: updateResponse.status });
     const [saved] = await updateResponse.json() as Array<{ data: ComplaintRecord }>;
     if (!saved?.data) return NextResponse.json({ error: "No se confirmó la edición. Actualiza la lista e intenta de nuevo." }, { status: 409 });
-    await writeAuditLog({ action: "queja_editada", contractor: current.contractor, details: { fields }, module: "quejas", recordId: id, request, session });
+    await writeAuditLog({ action: "queja_editada", contractor, details: { fields: [...fields, "contractor"], previousContractor: current.contractor }, module: "quejas", recordId: id, request, session });
     return NextResponse.json({ record: saved.data });
   }
   if (body.action === "reopen") {

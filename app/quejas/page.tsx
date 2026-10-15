@@ -169,7 +169,7 @@ export default function ComplaintsPage() {
       if (!response.ok) throw new Error(body.error || "No se pudo editar la queja.");
       const record = { ...selected, ...body.record };
       setSelected(record); setRecords((current) => current.map((item) => item.id === selected.id ? record : item));
-      setEditing(false); setMessage("Queja editada correctamente.");
+      setEditing(false); setMessage("Queja editada correctamente."); void loadRecords(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo editar la queja."); }
     finally { setEvidenceBusy(false); }
   }
@@ -225,7 +225,7 @@ export default function ComplaintsPage() {
 
         {isAdminSession ? <ComplaintAdminCharts now={now} records={visible} /> : <ComplaintRecordsTable loading={loading} now={now} onSelect={(record) => { setError(""); setMessage(""); setSelected(record); }} records={visible} />}
       </section>
-      {selected && editing ? <EditComplaintModal key={selected.id} complaint={selected} busy={evidenceBusy} error={error} onCancel={() => { setEditing(false); setError(""); }} onSave={(changes) => void saveEdit(changes)} /> : null}
+      {selected && editing ? <EditComplaintModal contractors={CONTRACTORS.filter((item) => contractorSiteName(item) === (isArenosaSession ? "Arenosa" : "Galapa"))} key={selected.id} complaint={selected} busy={evidenceBusy} error={error} onCancel={() => { setEditing(false); setError(""); }} onSave={(changes) => void saveEdit(changes)} /> : null}
       {adding ? <AddComplaintModal contractors={CONTRACTORS.filter((item) => isComplaintsContractor(item) && contractorSiteName(item) === (isArenosaSession ? "Arenosa" : "Galapa"))} onClose={() => setAdding(false)} onSaved={(record) => { setAdding(false); setMessage("Queja guardada correctamente."); setError(""); setSelected(record); void loadRecords(); }} /> : null}
       {selected && !editing ? <ComplaintModal onEdit={canUploadComplaints ? () => { setError(""); setMessage(""); setEditing(true); } : undefined} error={error} message={message} busy={evidenceBusy} canReopen={canUploadComplaints} complaint={selected} now={now} onClose={() => setSelected(null)} onCloseComplaint={() => void closeComplaint()} onReopenComplaint={() => void reopenComplaint()} onSaveComment={(comments) => void saveComment(comments)} onUpload={(file) => void uploadEvidence(file)} /> : null}
     </main>
@@ -516,13 +516,17 @@ function ComplaintModal({ onEdit, error, message, busy, canReopen = false, compl
 function Detail({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-[#10223d]">{value}</p></div>; }
 function personLabel(name: string, id: string) { return name ? `${name}${id ? ` · ${id}` : ""}` : "Sin dato en Seguimiento"; }
 
-function EditComplaintModal({ complaint, busy, error, onCancel, onSave }: { complaint: ComplaintRecord; busy: boolean; error: string; onCancel: () => void; onSave: (changes: Partial<ComplaintRecord>) => void }) {
-  const [form, setForm] = useState(() => ({ issue: complaint.issue || "", code: complaint.code || "", establishment: complaint.establishment || "", orderNumber: complaint.orderNumber || "", comments: complaint.comments || "" }));
+function EditComplaintModal({ contractors, complaint, busy, error, onCancel, onSave }: { contractors: readonly string[]; complaint: ComplaintRecord; busy: boolean; error: string; onCancel: () => void; onSave: (changes: Partial<ComplaintRecord>) => void }) {
+  const [form, setForm] = useState(() => ({ contractor: complaint.contractor || "", issue: complaint.issue || "", code: complaint.code || "", establishment: complaint.establishment || "", orderNumber: complaint.orderNumber || "", comments: complaint.comments || "" }));
   const fields = [{ key: "issue", label: "Novedad" }, { key: "code", label: "Código del cliente" }, { key: "establishment", label: "Establecimiento" }, { key: "orderNumber", label: "Número de pedido" }, { key: "comments", label: "Comentario" }] as const;
   return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/65 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-complaint-title"><form className="max-h-[90vh] w-full max-w-xl space-y-4 overflow-auto rounded-2xl bg-white p-6 shadow-2xl" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
     <h2 id="edit-complaint-title" className="text-xl font-black text-slate-900">Editar queja {complaint.id}</h2>
     {error && <p role="alert" className="text-sm font-semibold text-red-700">{error}</p>}
+    <label className="block text-sm font-bold text-slate-700">Transportista<select className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 font-normal" required disabled={busy} value={form.contractor} onChange={(event) => setForm((current) => ({ ...current, contractor: event.target.value }))}>
+      {!contractors.includes(form.contractor) && <option value="">Selecciona una transportista</option>}
+      {contractors.map((contractor) => <option key={contractor} value={contractor}>{contractor}</option>)}
+    </select></label>
     {fields.map(({ key, label }) => <label key={key} className="block text-sm font-bold text-slate-700">{label}<textarea className="mt-1 block w-full rounded-lg border border-slate-300 p-2 font-normal" rows={key === "issue" || key === "comments" ? 3 : 1} required={key === "issue"} maxLength={2000} disabled={busy} value={form[key]} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
-    <div className="flex justify-end gap-3"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold" disabled={busy} type="button" onClick={onCancel}>Cancelar</button><button className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50" disabled={busy || !form.issue.trim()} type="submit">{busy ? "Guardando..." : "Guardar cambios"}</button></div>
+    <div className="flex justify-end gap-3"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold" disabled={busy} type="button" onClick={onCancel}>Cancelar</button><button className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50" disabled={busy || !form.issue.trim() || !contractors.includes(form.contractor)} type="submit">{busy ? "Guardando..." : "Guardar cambios"}</button></div>
   </form></div>;
 }

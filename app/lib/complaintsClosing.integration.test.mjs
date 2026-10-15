@@ -221,3 +221,29 @@ test("el detalle muestra Editar queja solamente cuando hay permiso", () => {
   assert.doesNotMatch(renderToStaticMarkup(ComplaintModal(props)), /Editar queja/);
   assert.match(renderToStaticMarkup(ComplaintModal({ ...props, onEdit: () => {} })), /Editar queja/);
 });
+
+for (const [uploader, source, target] of [["Logisticos", "Punto Corona", "Surti Cervezas"], ["Logisticos Arenosa", "Logisticos Arenosa", "Punto Corona Arenosa"]]) {
+  test(uploader + ": reasigna la transportista en la fila y los datos", async t => {
+    let writes = 0;
+    const original = { id: "q1", contractor: source, status: "Cerrada", closedAt: "2026-10-06T12:00:00Z", evidence, driver: "Anterior", matched: true };
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+      if (options.method !== "PATCH") return Response.json([{ contractor: source, data: original }]);
+      writes++;
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.contractor, target);
+      assert.equal(payload.data.contractor, target);
+      assert.equal(payload.data.driver, "");
+      assert.equal(payload.data.matched, false);
+      assert.equal(payload.data.status, original.status);
+      assert.equal(payload.data.closedAt, original.closedAt);
+      assert.deepEqual(payload.data.evidence, evidence);
+      return Response.json([{ data: payload.data }]);
+    });
+    const changes = { issue: "Novedad", code: "123", establishment: "Tienda", orderNumber: "", comments: "", contractor: target };
+    const edit = contractor => route({ contractor: uploader, accessToken: "test" }).PATCH(new Request("https://example.test", { method: "PATCH", body: JSON.stringify({ id: "q1", action: "edit", changes: { ...changes, contractor } }) }));
+    assert.equal((await edit(target)).status, 200);
+    assert.equal((await edit(uploader === "Logisticos" ? "Punto Corona Arenosa" : "Punto Corona")).status, 403);
+    for (const invalid of ["", "Inventada", {}, null]) assert.equal((await edit(invalid)).status, 400);
+    assert.equal(writes, 1);
+  });
+}
