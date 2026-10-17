@@ -1,0 +1,81 @@
+﻿fecha_operativa,tipo_reporte,id_reporte,nombre_archivo_original_registrado,filas_reconstruidas,archivo_en_zip
+2026-07-02,closure,rango:logisticos:2026-07-02:closure,routes-data_2026-07-02_14h37m.csv,820,reportes/2026-07-02_closure_datos-reconstruidos.csv
+2026-07-06,closure,rango:logisticos:2026-07-06:closure,routes-data_2026-07-06_12h20m.csv,604,reportes/2026-07-06_closure_datos-reconstruidos.csv
+2026-07-07,closure,rango:logisticos:2026-07-07:closure,routes-data_2026-07-07_10h27m.csv,837,reportes/2026-07-07_closure_datos-reconstruidos.csv
+2026-07-08,closure,rango:logisticos:2026-07-08:closure,routes-data_2026-07-08_9h13m.csv,739,reportes/2026-07-08_closure_datos-reconstruidos.csv
+2026-07-09,closure,rango:logisticos:2026-07-09:closure,routes-data_2026-07-09_14h32m.csv,868,reportes/2026-07-09_closure_datos-reconstruidos.csv
+2026-07-10,closure,rango:logisticos:2026-07-10:closure,routes-data_2026-07-10_14h2m.csv,924,reportes/2026-07-10_closure_datos-reconstruidos.csv
+2026-07-11,closure,rango:logisticos:2026-07-11:closure,routes-data_2026-07-11_14h1m.csv,798,reportes/2026-07-11_closure_datos-reconstruidos.csv
+2026-07-13,closure,rango:logisticos:2026-07-13:closure,RANGO 13.csv,490,reportes/2026-07-13_closure_datos-reconstruidos.csv
+2026-07-14,closure,rango:logisticos:2026-07-14:closure,routes-data_2026-07-14_15h36m.csv,739,reportes/2026-07-14_closure_datos-reconstruidos.csv
+2026-07-15,closure,rango:logisticos:2026-07-15:closure,routes-data_2026-07-15_14h7m.csv,510,reportes/2026-07-15_closure_datos-reconstruidos.csv
+2026-07-16,closure,rango:logisticos:2026-07-16:closure,routes-data_2026-07-16_13h51m.csv,751,reportes/2026-07-16_closure_datos-reconstruidos.csv
+2026-07-18,closure,rango:logisticos:2026-07-18:closure,routes-data_2026-07-19_13h24m (1).csv,98,reportes/2026-07-18_closure_datos-reconstruidos.csv
+2026-07-20,closure,rango:logisticos:2026-07-20:closure,routes-data_2026-07-20_16h51m.csv,500,reportes/2026-07-20_closure_datos-reconstruidos.csv
+2026-07-21,closure,rango:logisticos:2026-07-21:closure,routes-data_2026-07-21_13h59m.csv,683,reportes/2026-07-21_closure_datos-reconstruidos.csv
+2026-07-22,closure,rango:logisticos:2026-07-22:closure,routes-data_2026-07-22_13h38m.csv,653,reportes/2026-07-22_closure_datos-reconstruidos.csv
+2026-07-23,closure,rango:logisticos:2026-07-23:closure,routes-data_2026-07-23_15h33m.csv,643,reportes/2026-07-23_closure_datos-reconstruidos.csv
+2026-07-24,closure,rango:logisticos:2026-07-24:closure,routes-data_2026-07-24_14h43m.csv,454,reportes/2026-07-24_closure_datos-reconstruidos.csv
+2026-07-25,closure,rango:logisticos:2026-07-25:closure,routes-data_2026-07-25_13h40m.csv,822,reportes/2026-07-25_closure_datos-reconstruidos.csv
+2026-07-27,closure,rango:logisticos:2026-07-27:closure,routes-data_2026-07-27_14h26m.csv,644,reportes/2026-07-27_closure_datos-reconstruidos.csv
+2026-07-28,closure,rango:logisticos:2026-07-28:closure,routes-data_2026-07-28_14h20m.csv,760,reportes/2026-07-28_closure_datos-reconstruidos.csv
+2026-07-29,closure,rango:logisticos:2026-07-29:closure,routes-data_2026-07-29_13h8m.csv,898,reportes/2026-07-29_closure_datos-reconstruidos.csv
+2026-07-30,closure,rango:logisticos:2026-07-30:closure,routes-data_2026-07-30_13h55m.csv,1155,reportes/2026-07-30_closure_datos-reconstruidos.csv
+2026-07-31,closure,rango:logisticos:2026-07-31:closure,routes-data_2026-07-31_13h35m.csv,991,reportes/2026-07-31_closure_datos-reconstruidos.csv
+2026-08-01,closure,rango:logisticos:2026-08-01:closure,routes-data_2026-08-01_18h3m.csv,1163,reportes/2026-08-01_closure_datos-reconstruidos.csv
+2026-08-03,current,rango:logisticos:2026-08-03:current,routes-data_2026-08-03_10h54m (3).csv,1058,reportes/2026-08-03_current_datos-reconstruidos.csv
+2026-08-04,closure,rango:logisticos:2026-08-04:closure,routes-data_2026-08-04_13h55m.csv,1503,reportes/2026-08-04_closure_datos-reconstruidos.csv
+2026-08-05,closure,rango:logisticos:2026-08-05:closure,routes-data_2026-08-05_13h29m.csv,1282,reportes/2026-08-05_closure_datos-reconstruidos.csv
+2026-08-06,closure,rango:logisticos:2026-08-06:closure,routes-data_2026-08-06_13h55m.csv,1445,reportes/2026-08-06_closure_datos-reconstruidos.csv
+2026-08-07,closure,rango:logisticos:2026-08-07:closure,routes-data_2026-08-07_13h41m.csv,1411,reportes/2026-08-07_closure_datos-reconstruidos.csv
+2026-08-08,closure,rango:logisticos:2026-08-08:closure,routes-data_2026-08-08_13h34m.csv,2199,reportes/2026-08-08_closure_datos-reconstruidos.csv
+2026-08-10,closure,rango:logisticos:2026-08-10:closure,routes-data_2026-08-10_10h0m.csv,684,reportes/2026-08-10_closure_datos-reconstruidos.csv
+2026-08-11,closure,rango:logisticos:2026-08-11:closure,routes-data_2026-08-11_12h32m.csv,1398,reportes/2026-08-11_closure_datos-reconstruidos.csv
+2026-08-12,closure,rango:logisticos:2026-08-12:closure,routes-data_2026-08-12_15h37m.csv,1391,reportes/2026-08-12_closure_datos-reconstruidos.csv
+2026-08-13,closure,rango:logisticos:2026-08-13:closure,routes-data_2026-08-13_18h47m.csv,1047,reportes/2026-08-13_closure_datos-reconstruidos.csv
+2026-08-14,current,rango:logisticos:2026-08-14:current,routes-data_2026-08-18_9h10m.csv,1216,reportes/2026-08-14_current_datos-reconstruidos.csv
+2026-08-15,closure,rango:logisticos:2026-08-15:closure,routes-data_2026-08-15_13h24m.csv,441,reportes/2026-08-15_closure_datos-reconstruidos.csv
+2026-08-18,closure,rango:logisticos:2026-08-18:closure,routes-data_2026-08-18_13h27m.csv,479,reportes/2026-08-18_closure_datos-reconstruidos.csv
+2026-08-19,closure,rango:logisticos:2026-08-19:closure,routes-data_2026-08-19_12h56m.csv,596,reportes/2026-08-19_closure_datos-reconstruidos.csv
+2026-08-20,closure,rango:logisticos:2026-08-20:closure,routes-data_2026-08-20_13h18m.csv,712,reportes/2026-08-20_closure_datos-reconstruidos.csv
+2026-08-21,closure,rango:logisticos:2026-08-21:closure,routes-data_2026-08-21_14h30m (1).csv,445,reportes/2026-08-21_closure_datos-reconstruidos.csv
+2026-08-22,current,rango:logisticos:2026-08-22:current,routes-data_2026-08-22_7h43m.csv,851,reportes/2026-08-22_current_datos-reconstruidos.csv
+2026-08-24,closure,rango:logisticos:2026-08-24:closure,routes-data_2026-08-24_8h39m.csv,363,reportes/2026-08-24_closure_datos-reconstruidos.csv
+2026-08-25,closure,rango:logisticos:2026-08-25:closure,routes-data_2026-08-25_6h14m.csv,562,reportes/2026-08-25_closure_datos-reconstruidos.csv
+2026-08-26,closure,rango:logisticos:2026-08-26:closure,routes-data_2026-08-26_9h15m.csv,801,reportes/2026-08-26_closure_datos-reconstruidos.csv
+2026-08-27,closure,rango:logisticos:2026-08-27:closure,routes-data_2026-08-27_9h28m.csv,723,reportes/2026-08-27_closure_datos-reconstruidos.csv
+2026-08-28,closure,rango:logisticos:2026-08-28:closure,routes-data_2026-08-28_17h34m.csv,593,reportes/2026-08-28_closure_datos-reconstruidos.csv
+2026-08-29,closure,rango:logisticos:2026-08-29:closure,routes-data_2026-08-29_8h35m.csv,1296,reportes/2026-08-29_closure_datos-reconstruidos.csv
+2026-08-31,closure,rango:logisticos:2026-08-31:closure,routes-data_2026-08-31_15h16m.csv,945,reportes/2026-08-31_closure_datos-reconstruidos.csv
+2026-09-01,current,rango:logisticos:2026-09-01:current,routes-data_2026-09-01_14h48m.csv,1043,reportes/2026-09-01_current_datos-reconstruidos.csv
+2026-09-02,closure,rango:logisticos:2026-09-02:closure,routes-data_2026-09-02_6h31m (1).csv,1895,reportes/2026-09-02_closure_datos-reconstruidos.csv
+2026-09-03,current,rango:logisticos:2026-09-03:current,routes-data_2026-09-03_6h15m.csv,2671,reportes/2026-09-03_current_datos-reconstruidos.csv
+2026-09-04,closure,rango:logisticos:2026-09-04:closure,routes-data_2026-09-04_13h18m (1).csv,1605,reportes/2026-09-04_closure_datos-reconstruidos.csv
+2026-09-05,closure,rango:logisticos:2026-09-05:closure,routes-data_2026-09-05_16h53m.csv,2372,reportes/2026-09-05_closure_datos-reconstruidos.csv
+2026-09-07,closure,rango:logisticos:2026-09-07:closure,routes-data_2026-09-07_17h31m (2).csv,1557,reportes/2026-09-07_closure_datos-reconstruidos.csv
+2026-09-08,closure,rango:logisticos:2026-09-08:closure,routes-data_2026-09-08_17h24m.csv,1425,reportes/2026-09-08_closure_datos-reconstruidos.csv
+2026-09-09,closure,rango:logisticos:2026-09-09:closure,routes-data_2026-09-09_17h2m (1).csv,1743,reportes/2026-09-09_closure_datos-reconstruidos.csv
+2026-09-10,closure,rango:logisticos:2026-09-10:closure,routes-data_2026-09-10_17h14m (1).csv,1851,reportes/2026-09-10_closure_datos-reconstruidos.csv
+2026-09-11,closure,rango:logisticos:2026-09-11:closure,routes-data_2026-09-11_17h6m.csv,2124,reportes/2026-09-11_closure_datos-reconstruidos.csv
+2026-09-12,closure,rango:logisticos:2026-09-12:closure,routes-data_2026-09-12_16h22m.csv,1744,reportes/2026-09-12_closure_datos-reconstruidos.csv
+2026-09-14,closure,rango:logisticos:2026-09-14:closure,routes-data_2026-09-14_14h9m.csv,1007,reportes/2026-09-14_closure_datos-reconstruidos.csv
+2026-09-15,closure,rango:logisticos:2026-09-15:closure,routes-data_2026-09-15_16h27m.csv,1310,reportes/2026-09-15_closure_datos-reconstruidos.csv
+2026-09-16,closure,rango:logisticos:2026-09-16:closure,routes-data_2026-09-16_16h23m.csv,1891,reportes/2026-09-16_closure_datos-reconstruidos.csv
+2026-09-17,current,rango:logisticos:2026-09-17:current,routes-data_2026-09-17_19h45m.csv,967,reportes/2026-09-17_current_datos-reconstruidos.csv
+2026-09-18,current,rango:logisticos:2026-09-18:current,routes-data_2026-09-18_16h6m.csv,1848,reportes/2026-09-18_current_datos-reconstruidos.csv
+2026-09-19,closure,rango:logisticos:2026-09-19:closure,routes-data_2026-09-19_18h21m.csv,2049,reportes/2026-09-19_closure_datos-reconstruidos.csv
+2026-09-21,closure,rango:logisticos:2026-09-21:closure,routes-data_2026-09-21_11h49m.csv,944,reportes/2026-09-21_closure_datos-reconstruidos.csv
+2026-09-22,closure,rango:logisticos:2026-09-22:closure,routes-data_2026-09-22_15h12m (1).csv,630,reportes/2026-09-22_closure_datos-reconstruidos.csv
+2026-09-23,closure,rango:logisticos:2026-09-23:closure,routes-data_2026-09-23_10h22m.csv,793,reportes/2026-09-23_closure_datos-reconstruidos.csv
+2026-09-24,closure,rango:logisticos:2026-09-24:closure,routes-data_2026-09-24_19h25m.csv,996,reportes/2026-09-24_closure_datos-reconstruidos.csv
+2026-09-25,current,rango:logisticos:2026-09-25:current,routes-data_2026-09-25_17h8m.csv,1057,reportes/2026-09-25_current_datos-reconstruidos.csv
+2026-09-26,closure,rango:logisticos:2026-09-26:closure,routes-data_2026-09-26_18h21m (2).csv,1012,reportes/2026-09-26_closure_datos-reconstruidos.csv
+2026-09-28,closure,rango:logisticos:2026-09-28:closure,routes-data_2026-09-28_17h0m.csv,1442,reportes/2026-09-28_closure_datos-reconstruidos.csv
+2026-09-29,closure,rango:logisticos:2026-09-29:closure,routes-data_2026-09-29_22h4m.csv,733,reportes/2026-09-29_closure_datos-reconstruidos.csv
+2026-09-30,closure,rango:logisticos:2026-09-30:closure,routes-data_2026-09-30_16h48m.csv,1162,reportes/2026-09-30_closure_datos-reconstruidos.csv
+2026-10-01,closure,rango:logisticos:2026-10-01:closure,routes-data_2026-10-01_17h2m.csv,982,reportes/2026-10-01_closure_datos-reconstruidos.csv
+2026-10-02,closure,rango:logisticos:2026-10-02:closure,routes-data_2026-10-02_16h54m (1).csv,1022,reportes/2026-10-02_closure_datos-reconstruidos.csv
+2026-10-03,closure,rango:logisticos:2026-10-03:closure,routes-data_2026-10-03_9h15m (1).csv,936,reportes/2026-10-03_closure_datos-reconstruidos.csv
+2026-10-05,closure,rango:logisticos:2026-10-05:closure,routes-data_2026-10-05_23h13m.csv,743,reportes/2026-10-05_closure_datos-reconstruidos.csv
+2026-10-06,closure,rango:logisticos:2026-10-06:closure,routes-data_2026-10-06_16h39m.csv,898,reportes/2026-10-06_closure_datos-reconstruidos.csv
+2026-10-07,closure,rango:logisticos:2026-10-07:closure,routes-data_2026-10-07_16h43m (1).csv,1069,reportes/2026-10-07_closure_datos-reconstruidos.csv

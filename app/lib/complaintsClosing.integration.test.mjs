@@ -247,3 +247,35 @@ for (const [uploader, source, target] of [["Logisticos", "Punto Corona", "Surti 
     assert.equal(writes, 1);
   });
 }
+
+test("editar muestra transportistas visibles y reconoce el nombre actual normalizado", () => {
+  let state;
+  const react = { ...require("react"), useState: initial => {
+    state ??= typeof initial === "function" ? initial() : initial;
+    return [state, update => { state = typeof update === "function" ? update(state) : update; }];
+  } };
+  const { EditComplaintModal } = compile("../quejas/page.tsx", {
+    react, "../lib/contractors": contractors, "../lib/complaints": complaints,
+    "next/dynamic": { default: () => () => null },
+  }, "\nexport { EditComplaintModal };\n");
+  let saved;
+  const props = { contractors: ["Logisticos", "Punto Corona", "Surti Cervezas"], complaint: { id: "q1", contractor: " PUNTO CORONA ", issue: "Novedad" }, busy: false, error: "", onSave: form => { saved = form; } };
+  const radios = [];
+  function visit(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "input" && node.props.type === "radio") radios.push(node);
+    for (const child of [node.props?.children].flat(Infinity)) visit(child);
+  }
+  let element = EditComplaintModal(props);
+  visit(element);
+  assert.equal(radios.length, 3);
+  assert.equal(radios.find(node => node.props.checked).props.value, "Punto Corona");
+  radios.find(node => node.props.value === "Surti Cervezas").props.onChange();
+  element = EditComplaintModal(props);
+  element.props.children.props.onSubmit({ preventDefault() {} });
+  assert.equal(saved.contractor, "Surti Cervezas");
+  const html = renderToStaticMarkup(element);
+  assert.match(html, /Cambiar transportista/);
+  assert.doesNotMatch(html, /<select/);
+  assert.doesNotMatch(html, /type="submit" disabled/);
+});

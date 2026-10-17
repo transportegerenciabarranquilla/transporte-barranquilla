@@ -266,6 +266,15 @@ const peopleRouteTrackingModule: PortalModule = {
   accent: "border-l-[#1264ff]",
 };
 
+const peoplePersonTrackingModule: PortalModule = {
+  id: 30,
+  title: "Seguimiento de persona",
+  href: "/personas/seguimiento-persona",
+  detail: "Historial operativo y evaluaciones en ruta por cédula",
+  tone: "from-[#0f766e] to-[#2563eb]",
+  accent: "border-l-[#0f766e]",
+};
+
 export function getVisiblePortalModules({
   contractor,
   isAdmin,
@@ -279,7 +288,7 @@ export function getVisiblePortalModules({
   const routedModules = modules.map((module) => ({ ...module, href: getModuleHref(module.href, contractor) }));
   const baseModules = canSeeJornada ? routedModules : routedModules.filter((module) => module.href !== "/jornada-laboral");
   if (contractor === "Control de ingreso") return [peopleEffectiveRestModule];
-  if (isPeople) return [peopleModule, peopleRouteEvaluationModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule, peopleRouteTrackingModule];
+  if (isPeople) return [peopleModule, peoplePersonTrackingModule, peopleRouteEvaluationModule, peopleDelaysModule, managementModule, peopleRtiModule, peopleZkiModule, peopleCriticalRoutesModule, peopleRouteTrackingModule];
   if (isAdmin) {
     const adminModules = baseModules.slice(1).map((module) => module.href === "/graficas" ? { ...module, href: "/admin/graficas" } : module);
     return [{ ...baseModules[0], href: "/admin" }, complaintsModule, managementModule, adminRangoModule, adminModulationAdherenceModule, adminRouteAnalysisModule, adminRrAverageModule, adminFueraDeRangoModule, adminLiquidationStatusModule, peopleAttendanceModule, ...adminModules];

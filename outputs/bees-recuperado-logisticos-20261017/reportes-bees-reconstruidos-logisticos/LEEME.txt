@@ -1,0 +1,8 @@
+DATOS BEES RECONSTRUIDOS DE SUPABASE
+
+Estos CSV NO son copias byte por byte de los archivos BEES originales.
+Contienen las filas procesadas que la app guardó en punto_corona_route_reports.
+Se eligió el reporte closure por fecha cuando existe; en otro caso current.
+Los campos plannedVisitOrder y actualVisitOrder aparecen solo si estaban guardados.
+Los archivos fuente recibidos cubren 2026-07-02 a 2026-10-07 para Logisticos.
+No incluyen enero-junio ni los reportes posteriores al 7 de octubre.
