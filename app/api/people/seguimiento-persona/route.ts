@@ -13,22 +13,35 @@ export async function GET(request: Request) {
     const session = await getAuthenticatedSession();
     if (!session) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
     if (!session.isPeople && !session.isAdmin) return NextResponse.json({ error: "Este módulo es exclusivo de People y administración." }, { status: 403 });
-    const cc = new URL(request.url).searchParams.get("cc") || "";
+    const cc = normalizeCc(new URL(request.url).searchParams.get("cc"));
     if (!/^\d{5,15}$/.test(cc)) return NextResponse.json({ error: "Escribe una cédula válida de 5 a 15 dígitos." }, { status: 400 });
 
     const headers = supabaseReadHeaders(session.accessToken);
-    const peopleParams = new URLSearchParams({ select: "*", CC: `eq.${cc}` });
-    const people = (await readAllPages<Person>("transporte_barranquilla", peopleParams, headers)).filter((p) => p.NOMBRE && p.CONTRATISTA);
+    const peopleParams = new URLSearchParams({ select: "*", order: "NOMBRE.asc" });
+    const people = (await readAllPages<Person>("transporte_barranquilla", peopleParams, headers))
+      .filter((person) => person.NOMBRE && normalizeCc(person.CC) === cc);
     if (!people.length) return NextResponse.json({ error: "No se encontró una persona con esa cédula." }, { status: 404 });
 
     const contractors = [...new Set(people.map((p) => contractorLabel(p.CONTRATISTA)).filter(Boolean))];
-    const [vehicles, evaluations] = await Promise.all([
-      Promise.all(contractors.map((contractor) => readVehicles(cc, contractor, headers))).then((groups) => groups.flat()),
-      readEvaluations(cc, headers),
+    const [vehicleResults, evaluationResult] = await Promise.all([
+      Promise.allSettled(contractors.map((contractor) => readVehicles(cc, contractor, headers))),
+      readEvaluations(cc, headers).then((value) => ({ value }), (error: unknown) => ({ error })),
     ]);
+    const warnings: string[] = [];
+    const vehicles = vehicleResults.flatMap((result) => {
+      if (result.status === "fulfilled") return result.value;
+      warnings.push("No se pudo cargar el historial de rutas.");
+      console.error("Error leyendo seguimiento de persona", result.reason);
+      return [];
+    });
+    const evaluations = "value" in evaluationResult ? evaluationResult.value : [];
+    if (!("value" in evaluationResult)) {
+      warnings.push("No se pudieron cargar las evaluaciones en ruta.");
+      console.error("Error leyendo evaluaciones de persona", evaluationResult.error);
+    }
     const scopedEvaluations = evaluations.filter((row) => contractors.some((name) => normalizeContractorName(name) === normalizeContractorName(row.contractor)));
     const scopedVehicles = vehicles.filter((row) => contractors.some((name) => normalizeContractorName(name) === normalizeContractorName(row.contractor)));
-    return NextResponse.json({ people, seguimiento: scopedVehicles, evaluaciones: scopedEvaluations }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ people, seguimiento: scopedVehicles, evaluaciones: scopedEvaluations, warnings }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo consultar el historial de la persona." }, { status: 500 });
   }
@@ -64,4 +77,14 @@ async function readAllPages<T>(table: string, base: URLSearchParams, headers: Re
     rows.push(...page);
     if (page.length < PAGE_SIZE) return rows;
   }
+}
+
+function normalizeCc(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (/^\d+(?:\.\d+)?e\+?\d+$/i.test(raw)) {
+    const expanded = Number(raw);
+    if (Number.isSafeInteger(expanded)) return String(expanded);
+  }
+  return raw.replace(/\D/g, "");
 }
